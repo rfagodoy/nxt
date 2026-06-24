@@ -1,0 +1,261 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Tenants ────────────────────────────────────────────────────────────────
+
+model Organization {
+  id        String   @id @default(cuid())
+  clerkId   String   @unique
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  processes ProcessDefinition[]
+  modules   Module[]
+
+  @@map("organizations")
+}
+
+// ─── Processo BPMN ──────────────────────────────────────────────────────────
+
+model ProcessDefinition {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  bpmnXml        String   @db.Text
+  formSchema     Json     // schema dos forms por step
+  status         ProcessStatus @default(DRAFT)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization      @relation(fields: [organizationId], references: [id])
+  instances    ProcessInstance[]
+  module       Module?
+
+  @@map("process_definitions")
+}
+
+enum ProcessStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+model ProcessInstance {
+  id                  String          @id @default(cuid())
+  processDefinitionId String
+  status              InstanceStatus  @default(RUNNING)
+  currentStep         String
+  data                Json            @default("{}")
+  startedAt           DateTime        @default(now())
+  completedAt         DateTime?
+  updatedAt           DateTime        @updatedAt
+
+  processDefinition ProcessDefinition @relation(fields: [processDefinitionId], references: [id])
+  records           ModuleRecord[]
+
+  @@map("process_instances")
+}
+
+enum InstanceStatus {
+  RUNNING
+  COMPLETED
+  CANCELLED
+  ERROR
+}
+
+// ─── Módulos gerados ─────────────────────────────────────────────────────────
+
+model Module {
+  id                  String   @id @default(cuid())
+  organizationId      String
+  processDefinitionId String   @unique
+  name                String
+  slug                String
+  schema              Json     // estrutura das colunas/campos gerados
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  organization      Organization      @relation(fields: [organizationId], references: [id])
+  processDefinition ProcessDefinition @relation(fields: [processDefinitionId], references: [id])
+  records           ModuleRecord[]
+
+  @@unique([organizationId, slug])
+  @@map("modules")
+}
+
+model ModuleRecord {
+  id                String   @id @default(cuid())
+  moduleId          String
+  processInstanceId String   @unique
+  data              Json     // dados dinâmicos coletados pelo processo
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  module          Module          @relation(fields: [moduleId], references: [id])
+  processInstance ProcessInstance @relation(fields: [processInstanceId], references: [id])
+  documents       Document[]
+
+  @@map("module_records")
+}
+
+// ─── Parceiros ───────────────────────────────────────────────────────────────
+
+model Partner {
+  id             String   @id @default(cuid())
+  organizationId String
+  categoria      String
+  status         String   @default("EM_CADASTRAMENTO")
+  documento      String?
+  razaoSocial    String
+  nomeFantasia   String?
+  ie             String?
+  im             String?
+  rg             String?
+  orgaoExpedidor String?
+  dataNascimento String?
+  paisOrigem     String?
+  contatos       Json     @default("[]")
+  enderecos      Json     @default("[]")
+  bancos         Json     @default("[]")
+  socios         Json     @default("[]")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  auditLogs PartnerAuditLog[]
+
+  @@index([organizationId])
+  @@map("partners")
+}
+
+model PartnerAuditLog {
+  id        String   @id @default(cuid())
+  partnerId String
+  user      String
+  event     String   // EM_CADASTRAMENTO | ATIVADO | INATIVADO | REATIVADO | ALTERADO
+  motivo    String?
+  changes   Json     @default("[]") // [{ field, label, before, after }]
+  createdAt DateTime @default(now())
+
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@index([partnerId])
+  @@map("partner_audit_logs")
+}
+
+// ─── Contratos ────────────────────────────────────────────────────────────────
+
+model Contract {
+  id                  String   @id @default(cuid())
+  organizationId      String
+  numero              String
+  titulo              String
+  tipo                String
+  descricao           String?
+  objeto              Json     @default("[]")
+  situacao            String   @default("PENDENTE")
+  inicioVigencia      String?
+  terminoVigencia     String?
+  prazoIndeterminado  Boolean  @default(false)
+  dataAssinatura      String?
+  moeda               String   @default("BRL")
+  valorTotal          Float    @default(0)
+  valorParcela        Float?
+  condicaoPagamento   String?
+  complementoValor    String?
+  renovacaoAutomatica Boolean  @default(false)
+  observacoes         String?
+  partes              Json     @default("[]")
+  reajustes           Json     @default("[]")
+  documentos          Json     @default("[]")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([organizationId])
+  @@map("contracts")
+}
+
+// ─── Documentos ──────────────────────────────────────────────────────────────
+
+model Document {
+  id             String   @id @default(cuid())
+  moduleRecordId String
+  name           String
+  fileKey        String   // chave no Cloudflare R2
+  fileSize       Int
+  mimeType       String
+  uploadedAt     DateTime @default(now())
+
+  moduleRecord ModuleRecord @relation(fields: [moduleRecordId], references: [id])
+
+  @@map("documents")
+}
+
+// ─── Configurações da aplicação (KV genérico) ────────────────────────────────
+// Substitui o localStorage: tabelas auxiliares, definições de campos/seções,
+// visões, ordem de coluna, rascunhos. userId="" = nível organização (compartilhado);
+// quando houver login, configurações pessoais gravam com o id do usuário.
+
+model AppSetting {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String   @default("")
+  key            String
+  value          Json
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, userId, key])
+  @@index([organizationId, key])
+  @@map("app_settings")
+}
+
+// ─── Estrutura organizacional ─────────────────────────────────────────────────
+// Empresas do grupo + organograma (unidades organizacionais em árvore).
+// Cada unidade tem uma "natureza": administrativa, centro de custo ou centro de lucro.
+
+model GroupCompany {
+  id             String   @id @default(cuid())
+  organizationId String
+  codigo         String?  // alfanumérico, até 15 posições, manual
+  razaoSocial    String
+  nomeFantasia   String?
+  cnpj           String?
+  status         String   @default("ATIVA") // ATIVA | INATIVA
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  orgUnits OrgUnit[]
+
+  @@index([organizationId])
+  @@map("group_companies")
+}
+
+model OrgUnit {
+  id             String   @id @default(cuid())
+  organizationId String
+  groupCompanyId String
+  parentId       String?
+  natureza       String   @default("ADMINISTRATIVA") // ADMINISTRATIVA | CENTRO_CUSTO | CENTRO_LUCRO
+  codigo         String?
+  nome           String
+  responsavel    String?
+  status         String   @default("ATIVA") // ATIVA | INATIVA
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  groupCompany GroupCompany @relation(fields: [groupCompanyId], references: [id], onDelete: Cascade)
+  parent       OrgUnit?     @relation("OrgUnitTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children     OrgUnit[]    @relation("OrgUnitTree")
+
+  @@index([organizationId])
+  @@index([groupCompanyId])
+  @@map("org_units")
+}
