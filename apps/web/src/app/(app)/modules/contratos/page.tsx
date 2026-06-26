@@ -23,12 +23,12 @@ import { useContractFields, useContractDefaultColumns, useContractFieldVisibilit
 
 
 const SIT_CLS: Record<string, string> = {
-  ATIVO:      'bg-green-100 text-green-800',
-  PENDENTE:   'bg-yellow-100 text-yellow-800',
-  REVISAO:    'bg-blue-100 text-blue-700',
-  ENCERRADO:  'bg-gray-100 text-gray-600',
-  RESCINDIDO: 'bg-red-100 text-red-700',
-  SUSPENSO:   'bg-orange-100 text-orange-700',
+  ATIVO:      'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  PENDENTE:   'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  REVISAO:    'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+  ENCERRADO:  'bg-muted text-muted-foreground',
+  RESCINDIDO: 'bg-red-500/10 text-red-600 dark:text-red-400',
+  SUSPENSO:   'bg-orange-500/10 text-orange-600 dark:text-orange-400',
 }
 const SIT_LABEL: Record<string, string> = {
   ATIVO: 'Ativo', PENDENTE: 'Pend. assinatura', REVISAO: 'Em revisão',
@@ -127,10 +127,10 @@ function pageWindow(current: number, total: number): (number | '...')[] {
 interface CTab { id: string; label: string; pinned: boolean; row?: Row; type?: 'new' }
 
 const SIT_DOT_CLS: Record<string, string> = {
-  ATIVO:      'bg-green-500',
-  PENDENTE:   'bg-yellow-500 animate-pulse',
+  ATIVO:      'bg-emerald-500',
+  PENDENTE:   'bg-amber-500 animate-pulse',
   REVISAO:    'bg-blue-500 animate-pulse',
-  ENCERRADO:  'bg-gray-400',
+  ENCERRADO:  'bg-muted-foreground/50',
   RESCINDIDO: 'bg-red-500',
   SUSPENSO:   'bg-orange-500',
 }
@@ -239,12 +239,12 @@ function ContractDetailView({ row, onClose, onSaved }: { row: Row; onClose: () =
     <div className="space-y-3 pb-6">
 
       {/* cabeçalho de identidade */}
-      <div className="rounded-lg border bg-card px-4 py-3 flex items-start justify-between gap-4">
+      <div className="rounded-xl border bg-card px-4 py-3 flex items-start justify-between gap-4 shadow-sm">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-sm font-semibold truncate max-w-[460px]">{v.titulo || row.titulo || 'Sem título'}</h2>
             <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium', SIT_CLS[v.situacao])}>
-              <span className={cn('h-1.5 w-1.5 rounded-full', SIT_DOT_CLS[v.situacao] ?? 'bg-gray-400')} />
+              <span className={cn('h-1.5 w-1.5 rounded-full', SIT_DOT_CLS[v.situacao] ?? 'bg-muted-foreground/50')} />
               {SIT_LABEL[v.situacao]}
             </span>
           </div>
@@ -757,13 +757,13 @@ export default function ContratosPage() {
       <div className="grid grid-cols-6 gap-2">
         {[
           { label: 'Total',       value: totalAll,                                                          cls: 'text-foreground'  },
-          { label: 'Ativos',      value: allContratos.filter(r => r.situacao === 'ATIVO').length,      cls: 'text-green-600'   },
-          { label: 'Pendentes',   value: allContratos.filter(r => r.situacao === 'PENDENTE').length,   cls: 'text-yellow-600'  },
-          { label: 'Em revisão',  value: allContratos.filter(r => r.situacao === 'REVISAO').length,    cls: 'text-blue-600'    },
-          { label: 'Encerrados',  value: allContratos.filter(r => r.situacao === 'ENCERRADO').length,  cls: 'text-gray-500'    },
-          { label: 'Rescindidos', value: allContratos.filter(r => r.situacao === 'RESCINDIDO').length, cls: 'text-red-600'     },
+          { label: 'Ativos',      value: allContratos.filter(r => r.situacao === 'ATIVO').length,      cls: 'text-emerald-600 dark:text-emerald-400' },
+          { label: 'Pendentes',   value: allContratos.filter(r => r.situacao === 'PENDENTE').length,   cls: 'text-amber-600 dark:text-amber-400'     },
+          { label: 'Em revisão',  value: allContratos.filter(r => r.situacao === 'REVISAO').length,    cls: 'text-blue-600 dark:text-blue-400'       },
+          { label: 'Encerrados',  value: allContratos.filter(r => r.situacao === 'ENCERRADO').length,  cls: 'text-muted-foreground'                  },
+          { label: 'Rescindidos', value: allContratos.filter(r => r.situacao === 'RESCINDIDO').length, cls: 'text-red-600 dark:text-red-400'         },
         ].map(({ label, value, cls }) => (
-          <div key={label} className="rounded-lg border bg-card px-3 py-2 flex items-center justify-between">
+          <div key={label} className="rounded-xl border bg-card px-3 py-2 flex items-center justify-between shadow-sm">
             <p className="text-[11px] text-muted-foreground">{label}</p>
             <p className={`text-sm font-bold tabular-nums ${cls}`}>{value}</p>
           </div>
@@ -880,11 +880,11 @@ export default function ContratosPage() {
       </div>
 
       {/* tabela */}
-      <div className="rounded-lg border bg-card">
-        <div className="overflow-x-auto">
+      <div className="rounded-xl border bg-card shadow-sm">
+        <div className="overflow-auto max-h-[calc(100vh-19rem)]">
         <table className="min-w-full text-xs">
-          <thead>
-            <tr className="border-b bg-muted/40">
+          <thead className="sticky top-0 z-20">
+            <tr className="border-b">
               {orderedColumns.map((col, idx) => (
                 <th key={col.key} draggable
                   onDragStart={() => handleDragStart(idx)}
@@ -893,9 +893,9 @@ export default function ContratosPage() {
                   onDrop={() => { handleDrop(idx); clearDrag() }}
                   onDragEnd={clearDrag}
                   className={cn(
-                    'text-left px-3 py-1.5 font-medium text-muted-foreground select-none cursor-grab active:cursor-grabbing transition-all whitespace-nowrap',
+                    'text-left px-3 py-1.5 font-medium text-muted-foreground select-none cursor-grab active:cursor-grabbing transition-all whitespace-nowrap bg-muted',
                     col.key === 'valor_total' && 'text-right',
-                    idx === 0 && 'sticky left-0 z-10 bg-muted/40',
+                    idx === 0 && 'sticky left-0 z-20 bg-muted',
                     dragFrom === idx && 'opacity-40',
                     dragOver === idx && dragOver !== dragFrom && 'border-l-2 border-primary bg-primary/5',
                   )}>

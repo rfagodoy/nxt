@@ -50,7 +50,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T | null> {
 
 /* ─── estilos comuns ─────────────────────────────────────── */
 
-const inputCls  = 'flex h-8 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
+const inputCls  = 'flex h-7 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
 const labelCls  = 'block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1'
 const ROW_GRID  = 'grid grid-cols-[6.5rem_1fr_6rem_8.5rem] items-center gap-2'
 
@@ -105,10 +105,10 @@ function CompanyModal({ initial, onSave, onClose }: { initial?: Company; onSave:
         </div>
       </div>
       <div className="flex justify-end gap-2 pt-1">
-        <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground">Cancelar</button>
+        <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Cancelar</button>
         <button type="button" disabled={!razaoSocial.trim()}
           onClick={() => onSave({ codigo: codigo.trim() || undefined, razaoSocial: razaoSocial.trim(), nomeFantasia: nomeFantasia?.trim() || undefined, cnpj: cnpj?.trim() || undefined, status })}
-          className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40">Salvar</button>
+          className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors">Salvar</button>
       </div>
     </Modal>
   )
@@ -158,10 +158,10 @@ function UnitModal({ initial, parentName, tipos, onSave, onClose }: { initial?: 
         </div>
       </div>
       <div className="flex justify-end gap-2 pt-1">
-        <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground">Cancelar</button>
+        <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Cancelar</button>
         <button type="button" disabled={!nome.trim()}
           onClick={() => onSave({ nome: nome.trim(), codigo: codigo?.trim() || undefined, natureza, responsavel: responsavel?.trim() || undefined, status })}
-          className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40">Salvar</button>
+          className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors">Salvar</button>
       </div>
     </Modal>
   )
@@ -411,7 +411,7 @@ export default function EmpresasPage() {
           <h1 className="text-base font-semibold tracking-tight">Estrutura organizacional</h1>
           <p className="text-xs text-muted-foreground mt-0.5">Cadastre as empresas do grupo e o organograma de cada uma (centros de custo e de lucro).</p>
         </div>
-        <button type="button" onClick={() => setCompanyModal({})} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"><Plus className="h-3.5 w-3.5" />Nova empresa</button>
+        <button type="button" onClick={() => setCompanyModal({})} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"><Plus className="h-3.5 w-3.5" />Nova empresa</button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[17rem_1fr] gap-4">
@@ -424,11 +424,11 @@ export default function EmpresasPage() {
           </div>
           <div className="space-y-1">
             {filteredCompanies.length === 0 && (
-              <p className="text-xs text-muted-foreground rounded-lg border border-dashed p-4 text-center">{companies.length === 0 ? 'Nenhuma empresa cadastrada.' : 'Nenhuma empresa encontrada.'}</p>
+              <p className="text-xs text-muted-foreground rounded-md border border-dashed p-4 text-center">{companies.length === 0 ? 'Nenhuma empresa cadastrada.' : 'Nenhuma empresa encontrada.'}</p>
             )}
             {filteredCompanies.map(c => (
               <button key={c.id} type="button" onClick={() => setSelectedId(c.id)}
-                className={cn('group flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-all hover:border-primary/30',
+                className={cn('group flex w-full items-center gap-2.5 rounded-md border px-2.5 py-2 text-left transition-all hover:border-primary/30',
                   selectedId === c.id ? 'border-primary/40 bg-primary/5' : 'bg-card')}>
                 <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-md', selectedId === c.id ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground')}><Building2 className="h-4 w-4" /></div>
                 <div className="min-w-0 flex-1">
@@ -443,24 +443,24 @@ export default function EmpresasPage() {
 
         {/* detalhe + organograma */}
         {selected ? (
-          <div className="rounded-lg border bg-card">
+          <div className="rounded-xl border bg-card shadow-sm">
             <div className="flex items-start justify-between gap-3 border-b px-4 py-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h2 className="text-sm font-semibold truncate">{selected.razaoSocial}</h2>
-                  <span className={cn('inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium', selected.status === 'ATIVA' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-800')}>{selected.status === 'ATIVA' ? 'Ativa' : 'Inativa'}</span>
+                  <span className={cn('inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium', selected.status === 'ATIVA' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-muted text-muted-foreground')}>{selected.status === 'ATIVA' ? 'Ativa' : 'Inativa'}</span>
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-0.5">{selected.codigo && <span className="font-mono text-foreground/70">{selected.codigo} · </span>}{selected.nomeFantasia && <span>{selected.nomeFantasia} · </span>}{selected.cnpj || 'sem CNPJ'}</p>
               </div>
               <div className="flex items-center gap-1 shrink-0">
-                <button type="button" onClick={() => setCompanyModal({ initial: selected })} className="inline-flex items-center gap-1 h-7 rounded-md border px-2.5 text-xs hover:bg-muted"><Pencil className="h-3 w-3" />Editar</button>
-                <button type="button" onClick={() => removeCompany(selected)} className="inline-flex items-center justify-center h-7 w-7 rounded-md border text-muted-foreground hover:text-destructive hover:bg-muted"><Trash2 className="h-3.5 w-3.5" /></button>
+                <button type="button" onClick={() => setCompanyModal({ initial: selected })} className="inline-flex items-center gap-1 h-7 rounded-md border px-2.5 text-xs hover:bg-muted transition-colors"><Pencil className="h-3 w-3" />Editar</button>
+                <button type="button" onClick={() => removeCompany(selected)} className="inline-flex items-center justify-center h-7 w-7 rounded-md border text-muted-foreground hover:text-destructive hover:bg-muted transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
               </div>
             </div>
             <OrgChart companyId={selected.id} onChanged={loadCompanies} />
           </div>
         ) : (
-          <div className="rounded-lg border border-dashed bg-card flex items-center justify-center p-10"><p className="text-xs text-muted-foreground">Selecione ou crie uma empresa para gerenciar o organograma.</p></div>
+          <div className="rounded-xl border border-dashed bg-card flex items-center justify-center p-10"><p className="text-xs text-muted-foreground">Selecione ou crie uma empresa para gerenciar o organograma.</p></div>
         )}
       </div>
 

@@ -37,14 +37,14 @@
     --ring: 243 75% 58%;
     --radius: 0.5rem;
 
-    /* sidebar: índigo escuro próprio no modo claro */
-    --sidebar-bg:        238 48% 16%;
-    --sidebar-fg:        238 20% 86%;
-    --sidebar-border:    238 36% 22%;
-    --sidebar-muted:     238 16% 52%;
-    --sidebar-active-bg: 243 65% 27%;
-    --sidebar-active-fg: 0 0% 100%;
-    --sidebar-hover-bg:  238 40% 22%;
+    /* sidebar (modo claro): lavanda bem clara, texto escuro, índigo só no ativo */
+    --sidebar-bg:        240 33% 97%;
+    --sidebar-fg:        240 40% 18%;
+    --sidebar-border:    240 16% 89%;
+    --sidebar-muted:     240 10% 50%;
+    --sidebar-active-bg: 243 75% 95%;
+    --sidebar-active-fg: 243 72% 48%;
+    --sidebar-hover-bg:  240 22% 93%;
   }
 
   .dark {

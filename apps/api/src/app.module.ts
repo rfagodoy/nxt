@@ -13,6 +13,7 @@ import { ContractsModule } from './contracts/contracts.module'
 import { SettingsModule } from './settings/settings.module'
 import { OrganizationModule } from './organization/organization.module'
 import { FilesModule } from './files/files.module'
+import { DashboardModule } from './dashboard/dashboard.module'
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { FilesModule } from './files/files.module'
     SettingsModule,
     OrganizationModule,
     FilesModule,
+    DashboardModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],

@@ -24,7 +24,7 @@ function Section({ icon: Icon, title, isOpen, onToggle, hasError, children }: {
   hasError?: boolean; children: React.ReactNode
 }) {
   return (
-    <div className="rounded-lg border bg-card overflow-hidden">
+    <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
       <button type="button" onClick={onToggle}
         className={cn('w-full px-4 py-2 flex items-center gap-2 transition-colors hover:bg-muted/40 bg-muted/30', isOpen && 'border-b')}>
         <Icon className={cn('h-3.5 w-3.5 shrink-0', hasError ? 'text-red-500' : 'text-muted-foreground')} />
@@ -132,7 +132,7 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
       )}
 
       {draftBanner && (
-        <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/40">
+        <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/40">
           <div>
             <p className="text-xs font-medium text-amber-700 dark:text-amber-300">Rascunho salvo encontrado</p>
             <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5">{new Date(draftBanner.savedAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>

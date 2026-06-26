@@ -47,15 +47,15 @@ export type ContractForm = ReturnType<typeof useContractForm>
 
 /* ─── estilos + primitivos controlados (com modo leitura) ── */
 
-const inputCls  = 'flex h-8 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
+const inputCls  = 'flex h-7 w-full rounded-md border border-input bg-background px-2.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
 const areaCls   = 'flex w-full rounded-md border border-input bg-background px-3 py-2 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none'
-const readCls   = 'flex min-h-[1.25rem] w-full items-center bg-transparent px-0 text-[13px] font-medium text-foreground'
-const readArea  = 'block w-full bg-transparent px-0 py-0 text-[13px] font-medium text-foreground whitespace-pre-wrap'
+const readCls   = 'flex min-h-[1.25rem] w-full items-center bg-transparent px-0 text-sm font-medium text-foreground'
+const readArea  = 'block w-full bg-transparent px-0 py-0 text-sm font-medium text-foreground whitespace-pre-wrap'
 
 function Field({ label, required, span2, children }: { label: string; required?: boolean; span2?: boolean; children: React.ReactNode }) {
   return (
     <div className={cn('space-y-0.5', span2 && 'col-span-2')}>
-      <label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}{required && <span className="text-red-500 ml-1">*</span>}</label>
+      <label className="block text-[11px] font-medium text-muted-foreground">{label}{required && <span className="text-red-500 ml-1">*</span>}</label>
       {children}
     </div>
   )
@@ -133,7 +133,7 @@ export function IdentificacaoFields({ form, ro }: { form: ContractForm; ro?: boo
                 <option value="">Selecione um objeto para adicionar...</option>
                 {objetos.active.filter(o => !v.objeto.includes(o.label)).map(o => <option key={o.id} value={o.label}>{o.label}</option>)}
               </select>
-              <button type="button" onClick={addObjeto} disabled={!objetoInput} className="flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"><Plus className="h-3.5 w-3.5" />Adicionar</button>
+              <button type="button" onClick={addObjeto} disabled={!objetoInput} className="flex h-7 items-center gap-1.5 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"><Plus className="h-3.5 w-3.5" />Adicionar</button>
             </div>
           )}
         </div>
@@ -150,7 +150,7 @@ export function VigenciaFields({ form, ro }: { form: ContractForm; ro?: boolean 
       <Field label="Início da vigência" required><Txt type="date" value={v.inicioVigencia} onChange={x => form.set('inicioVigencia', x)} ro={ro} /></Field>
       <Field label="Prazo indeterminado">
         {ro ? <span className={readCls}>{v.prazoIndeterminado ? 'Sim' : 'Não'}</span> : (
-          <label className="flex items-center gap-2 h-8 cursor-pointer">
+          <label className="flex items-center gap-2 h-7 cursor-pointer">
             <input type="checkbox" checked={v.prazoIndeterminado} onChange={e => form.set('prazoIndeterminado', e.target.checked)} className="h-3.5 w-3.5 rounded border-gray-300 accent-primary" />
             <span className="text-xs text-muted-foreground">Sem data de término</span>
           </label>
@@ -289,17 +289,17 @@ function DocumentoCard({ doc, idx, ro, form }: { doc: CDocumento; idx: number; r
                   {doc.arquivo_key ? (
                     <>
                       <button type="button" onClick={handleDownload} disabled={busy === 'down'} title="Baixar"
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border hover:bg-muted transition-colors disabled:opacity-50">
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border hover:bg-muted transition-colors disabled:opacity-50">
                         {busy === 'down' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
                       </button>
                       <button type="button" onClick={handleRemoveFile} title="Remover arquivo"
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
                         <X className="h-3.5 w-3.5" />
                       </button>
                     </>
                   ) : (
                     <button type="button" onClick={() => fileRef.current?.click()} disabled={busy === 'up'}
-                      className="flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-50">
+                      className="flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-50">
                       {busy === 'up' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}{busy === 'up' ? 'Enviando...' : 'Anexar'}
                     </button>
                   )}

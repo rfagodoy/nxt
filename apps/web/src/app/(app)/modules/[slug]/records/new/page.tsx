@@ -71,7 +71,7 @@ export default function NewRecordPage({ params, searchParams }: PageProps) {
         <div className="flex justify-center">
           <CheckCircle2 className="h-12 w-12 text-green-500" />
         </div>
-        <h2 className="text-base font-semibold">Registro criado com sucesso!</h2>
+        <h2 className="text-base font-semibold tracking-tight">Registro criado com sucesso!</h2>
         <p className="text-xs text-muted-foreground">
           O processo foi concluído e o registro foi adicionado ao módulo.
         </p>
@@ -106,7 +106,7 @@ export default function NewRecordPage({ params, searchParams }: PageProps) {
       </div>
 
       {!started ? (
-        <div className="rounded-lg border bg-card p-6 text-center space-y-3">
+        <div className="rounded-xl border bg-card shadow-sm p-6 text-center space-y-3">
           <p className="text-xs text-muted-foreground">
             Clique em iniciar para começar o preenchimento do formulário de {totalSteps || '...'} etapas.
           </p>
@@ -119,7 +119,7 @@ export default function NewRecordPage({ params, searchParams }: PageProps) {
           </button>
         </div>
       ) : currentStep && (
-        <div className="rounded-lg border bg-card p-4 space-y-4">
+        <div className="rounded-xl border bg-card shadow-sm p-4 space-y-4">
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-xs">
               <span className="font-medium">{currentStep.stepName}</span>

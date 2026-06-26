@@ -29,7 +29,7 @@ function ModuleCard({
   return (
     <Link
       href={href}
-      className="group rounded-lg border bg-card p-4 hover:border-primary/40 hover:shadow-sm transition-all"
+      className="group rounded-xl border bg-card p-4 shadow-sm hover:border-primary/40 hover:shadow-md transition-all"
     >
       <div className="flex items-start gap-3">
         <div className="p-2 rounded-md bg-muted shrink-0">
@@ -42,8 +42,8 @@ function ModuleCard({
               className={
                 'inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold ' +
                 (tag === 'Sistema'
-                  ? 'bg-blue-100 text-blue-700'
-                  : 'bg-green-100 text-green-700')
+                  ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                  : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400')
               }
             >
               {tag}

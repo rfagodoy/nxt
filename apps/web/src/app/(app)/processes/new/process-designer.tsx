@@ -22,8 +22,8 @@ const BpmnEditor = dynamic(
 
 function BpmnLoading() {
   return (
-    <div className="flex items-center justify-center w-full h-full bg-[#f8f9fb]">
-      <div className="flex items-center gap-2 text-muted-foreground text-sm">
+    <div className="flex items-center justify-center w-full h-full bg-muted">
+      <div className="flex items-center gap-2 text-muted-foreground text-xs">
         <Loader2 className="h-4 w-4 animate-spin" />
         Carregando editor BPMN...
       </div>

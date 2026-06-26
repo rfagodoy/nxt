@@ -8,10 +8,10 @@ interface Props {
 }
 
 const STATUS_CLS: Record<string, { label: string; cls: string }> = {
-  RUNNING:   { label: 'Em andamento', cls: 'bg-yellow-100 text-yellow-800' },
-  COMPLETED: { label: 'Concluído',    cls: 'bg-green-100 text-green-800'   },
-  CANCELLED: { label: 'Cancelado',    cls: 'bg-red-100 text-red-700'       },
-  ERROR:     { label: 'Erro',         cls: 'bg-red-100 text-red-700'       },
+  RUNNING:   { label: 'Em andamento', cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400'     },
+  COMPLETED: { label: 'Concluído',    cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
+  CANCELLED: { label: 'Cancelado',    cls: 'bg-red-500/10 text-red-600 dark:text-red-400'           },
+  ERROR:     { label: 'Erro',         cls: 'bg-red-500/10 text-red-600 dark:text-red-400'           },
 }
 
 function formatValue(value: unknown): string {
@@ -47,7 +47,7 @@ export default async function RecordDetailPage({ params }: Props) {
           <div className="flex items-center gap-2 mb-0.5">
             <h1 className="text-base font-semibold tracking-tight">Detalhes do registro</h1>
             {badge && (
-              <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold ${badge.cls}`}>
+              <span className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${badge.cls}`}>
                 {badge.label}
               </span>
             )}
@@ -59,7 +59,7 @@ export default async function RecordDetailPage({ params }: Props) {
       </div>
 
       {/* Dados */}
-      <div className="rounded-lg border bg-card overflow-hidden">
+      <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
         <div className="px-4 py-2 border-b bg-muted/30 flex items-center gap-2">
           <FileText className="h-3.5 w-3.5 text-muted-foreground" />
           <h2 className="text-xs font-semibold">Dados coletados</h2>
@@ -81,7 +81,7 @@ export default async function RecordDetailPage({ params }: Props) {
 
       {/* Documentos */}
       {record.documents?.length > 0 && (
-        <div className="rounded-lg border bg-card overflow-hidden">
+        <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
           <div className="px-4 py-2 border-b bg-muted/30">
             <h2 className="text-xs font-semibold">Documentos anexados</h2>
           </div>
@@ -103,7 +103,7 @@ export default async function RecordDetailPage({ params }: Props) {
       )}
 
       {/* Linha do tempo */}
-      <div className="rounded-lg border bg-card overflow-hidden">
+      <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
         <div className="px-4 py-2 border-b bg-muted/30 flex items-center gap-2">
           <Clock className="h-3.5 w-3.5 text-muted-foreground" />
           <h2 className="text-xs font-semibold">Histórico do processo</h2>

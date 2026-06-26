@@ -41,10 +41,10 @@ const CAT_LABEL: Record<string, string> = {
 }
 
 const STATUS: Record<string, { label: string; cls: string }> = {
-  ATIVO:            { label: 'Ativo',            cls: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300'   },
-  EM_CADASTRAMENTO: { label: 'Em cadastramento', cls: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300'     },
-  INATIVO:          { label: 'Inativo',          cls: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'        },
-  BLOQUEADO:        { label: 'Bloqueado',        cls: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'         },
+  ATIVO:            { label: 'Ativo',            cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
+  EM_CADASTRAMENTO: { label: 'Em cadastramento', cls: 'bg-blue-500/10 text-blue-600 dark:text-blue-400'         },
+  INATIVO:          { label: 'Inativo',          cls: 'bg-muted text-muted-foreground'                          },
+  BLOQUEADO:        { label: 'Bloqueado',        cls: 'bg-red-500/10 text-red-600 dark:text-red-400'            },
 }
 
 /* ─── utilitários ────────────────────────────────────────── */
@@ -74,7 +74,7 @@ function Section({
 }) {
   const [open, setOpen] = useState(true)
   return (
-    <div className="rounded-lg border bg-card overflow-hidden">
+    <div className="rounded-xl border bg-card overflow-hidden shadow-sm">
       <button
         type="button"
         onClick={() => collapsible && setOpen(p => !p)}
@@ -141,7 +141,7 @@ export default function ParceiroDetail() {
   const addr       = partner.enderecos?.[0]
   const cont       = partner.contatos?.[0]
   const bank       = partner.bancos?.[0]
-  const statusInfo = STATUS[partner.status] ?? { label: partner.status, cls: 'bg-gray-100 text-gray-600' }
+  const statusInfo = STATUS[partner.status] ?? { label: partner.status, cls: 'bg-muted text-muted-foreground' }
   const catLabel   = CAT_LABEL[partner.categoria] ?? partner.categoria
   const isPJ       = partner.categoria === 'PJ_BR' || partner.categoria === 'PJ_EST'
   const isBR       = partner.categoria === 'PJ_BR' || partner.categoria === 'PF_BR'
@@ -178,7 +178,7 @@ export default function ParceiroDetail() {
             <button
               onClick={() => void changeStatus('ATIVO', 'ATIVADO', 'Cadastro ativado')}
               disabled={changingStatus}
-              className="inline-flex items-center h-7 px-3 rounded-md bg-green-600 text-white text-xs font-medium hover:bg-green-700 disabled:opacity-40 transition-colors"
+              className="inline-flex items-center h-7 px-3 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-40 transition-colors"
             >
               {changingStatus ? 'Aguarde...' : 'Ativar'}
             </button>
@@ -196,7 +196,7 @@ export default function ParceiroDetail() {
             <button
               onClick={() => void changeStatus('ATIVO', 'REATIVADO', 'Cadastro reativado')}
               disabled={changingStatus}
-              className="inline-flex items-center h-7 px-3 rounded-md bg-green-600 text-white text-xs font-medium hover:bg-green-700 disabled:opacity-40 transition-colors"
+              className="inline-flex items-center h-7 px-3 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-40 transition-colors"
             >
               {changingStatus ? 'Aguarde...' : 'Reativar'}
             </button>
@@ -258,7 +258,7 @@ export default function ParceiroDetail() {
 
       {/* ── Quadro de Sócios ── */}
       {isPJ && (partner.socios?.length ?? 0) > 0 && (
-        <div className="rounded-lg border bg-card overflow-hidden">
+        <div className="rounded-xl border bg-card overflow-hidden shadow-sm">
           <div className="px-4 py-2 border-b bg-muted/30 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Users className="h-3.5 w-3.5 text-muted-foreground" />
@@ -294,7 +294,7 @@ export default function ParceiroDetail() {
       )}
 
       {/* ── Histórico ── */}
-      <div className="rounded-lg border bg-card overflow-hidden">
+      <div className="rounded-xl border bg-card overflow-hidden shadow-sm">
         <div className="px-4 py-2 border-b bg-muted/30 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Clock className="h-3.5 w-3.5 text-muted-foreground" />

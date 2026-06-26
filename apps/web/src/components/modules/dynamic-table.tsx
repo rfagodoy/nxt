@@ -6,10 +6,10 @@ import Link from 'next/link'
 import type { ModuleColumn } from '@nxt/types'
 
 const STATUS_CLS: Record<string, { label: string; cls: string }> = {
-  RUNNING:   { label: 'Em andamento', cls: 'bg-yellow-100 text-yellow-800' },
-  COMPLETED: { label: 'Concluído',    cls: 'bg-green-100 text-green-800'   },
-  CANCELLED: { label: 'Cancelado',    cls: 'bg-red-100 text-red-700'       },
-  ERROR:     { label: 'Erro',         cls: 'bg-red-100 text-red-700'       },
+  RUNNING:   { label: 'Em andamento', cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400'     },
+  COMPLETED: { label: 'Concluído',    cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
+  CANCELLED: { label: 'Cancelado',    cls: 'bg-red-500/10 text-red-600 dark:text-red-400'           },
+  ERROR:     { label: 'Erro',         cls: 'bg-red-500/10 text-red-600 dark:text-red-400'           },
 }
 
 function formatValue(value: unknown, type: string): string {
@@ -76,10 +76,11 @@ export function DynamicTable({
         <p className="text-[11px] text-muted-foreground ml-auto">{total} registro{total !== 1 ? 's' : ''}</p>
       </div>
 
-      <div className="rounded-lg border bg-card overflow-hidden">
+      <div className="rounded-xl border bg-card overflow-hidden shadow-sm">
+        <div className="overflow-auto max-h-[calc(100vh-13rem)]">
         <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b bg-muted/40">
+          <thead className="sticky top-0 z-10 [&_th]:bg-muted">
+            <tr className="border-b">
               <th className="text-left px-3 py-2 font-medium text-muted-foreground w-8">#</th>
               {visibleCols.map((col) => (
                 <th
@@ -144,6 +145,7 @@ export function DynamicTable({
             })}
           </tbody>
         </table>
+        </div>
       </div>
 
       {totalPages > 1 && (

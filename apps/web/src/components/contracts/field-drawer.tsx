@@ -21,7 +21,7 @@ const FIELD_TYPES: { value: FieldType; label: string }[] = [
   { value: 'select',   label: 'Lista de opções' },
 ]
 
-const inputCls = 'flex h-8 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
+const inputCls = 'flex h-7 w-full rounded-md border border-input bg-background px-2.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
 
 function toSlug(str: string) {
   return str.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -109,7 +109,7 @@ export function FieldDrawer({ targetSection, initialField, onClose, onSave }: {
             <div className="space-y-1">
               <label className="text-xs font-medium">Seção <span className="text-red-500">*</span></label>
               <select value={section} onChange={e => setSection(e.target.value)}
-                className="flex h-8 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                className="flex h-7 w-full rounded-md border border-input bg-background px-2.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors">
                 {sectionOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
@@ -118,7 +118,7 @@ export function FieldDrawer({ targetSection, initialField, onClose, onSave }: {
           <div className="space-y-1">
             <label className="text-xs font-medium">Tipo do campo <span className="text-red-500">*</span></label>
             <select value={type} onChange={e => setType(e.target.value as FieldType)}
-              className="flex h-8 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+              className="flex h-7 w-full rounded-md border border-input bg-background px-2.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors">
               {FIELD_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
           </div>

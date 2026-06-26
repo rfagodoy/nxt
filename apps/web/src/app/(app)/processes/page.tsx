@@ -18,7 +18,7 @@ export default function ProcessesPage() {
         </Link>
       </div>
 
-      <div className="rounded-lg border bg-card">
+      <div className="rounded-xl border bg-card shadow-sm">
         <div className="flex flex-col items-center justify-center py-12 text-center">
           <GitBranch className="h-10 w-10 text-muted-foreground/40 mb-3" />
           <h3 className="text-sm font-semibold">Nenhum processo criado</h3>

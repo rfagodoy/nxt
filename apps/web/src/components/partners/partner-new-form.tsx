@@ -103,7 +103,7 @@ function Field({ label, required, hint, children, span2 }: {
 }) {
   return (
     <div className={cn('space-y-1', span2 && 'col-span-2')}>
-      <label className="text-xs font-medium">
+      <label className="text-[11px] font-medium text-muted-foreground">
         {label}{required && <span className="text-red-500 ml-1">*</span>}
       </label>
       {children}
@@ -112,7 +112,7 @@ function Field({ label, required, hint, children, span2 }: {
   )
 }
 
-const inputCls = 'flex h-8 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
+const inputCls = 'flex h-7 w-full rounded-md border border-input bg-background px-2.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
 
 function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={inputCls} />
@@ -136,14 +136,14 @@ function CustomFieldInput({ field }: { field: CustomField }) {
       ); break
     case 'checkbox':
       input = (
-        <div className="flex items-center gap-2 h-8">
+        <div className="flex items-center gap-2 h-7">
           <input type="checkbox" id={field.name} name={field.name} className="h-3.5 w-3.5 rounded border-gray-300" />
           <label htmlFor={field.name} className="text-xs text-muted-foreground">Marcar</label>
         </div>
       ); break
     case 'select':
       input = (
-        <select name={field.name} className="flex h-8 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+        <select name={field.name} className="flex h-7 w-full rounded-md border border-input bg-background px-2.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors">
           <option value="">Selecione...</option>
           {field.options?.map(o => <option key={o.id} value={o.value}>{o.label}</option>)}
         </select>
@@ -189,7 +189,7 @@ function Section({ icon: Icon, title, isOpen, onToggle, hasError, customFields, 
   hasError?: boolean; customFields?: CustomField[]; children: React.ReactNode
 }) {
   return (
-    <div className="rounded-lg border bg-card overflow-hidden">
+    <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
       <button
         type="button" onClick={onToggle}
         className={cn('w-full px-4 py-2 flex items-center gap-2 transition-colors hover:bg-muted/40 bg-muted/30', isOpen && 'border-b')}
@@ -584,7 +584,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
                         }}
                         placeholder="00000-000" maxLength={9} className={inputCls} />
                       <button type="button" onClick={() => void fetchCep(en.id, en.cep)} disabled={cepLoading[en.id]}
-                        className="px-2.5 h-8 shrink-0 text-xs rounded-md border hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
+                        className="px-2.5 h-7 shrink-0 text-xs rounded-md border hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
                         {cepLoading[en.id] && <Loader2 className="h-3 w-3 animate-spin" />}
                         Buscar
                       </button>
@@ -595,7 +595,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
                 {nfv('end_estado') && (
                   <Field label="Estado" required={idx === 0}>
                     <select value={en.estado} onChange={e => updateEndereco(en.id, 'estado', e.target.value)}
-                      className="flex h-8 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                      className="flex h-7 w-full rounded-md border border-input bg-background px-2.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors">
                       <option value="">Selecione...</option>
                       {UF.map(uf => <option key={uf} value={uf}>{uf}</option>)}
                     </select>
@@ -654,7 +654,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
               {nfv('ban_tipo_conta') && (
                 <Field label="Tipo de Conta">
                   <select value={b.tipo_conta} onChange={e => updateBanco(b.id, 'tipo_conta', e.target.value)}
-                    className="flex h-8 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                    className="flex h-7 w-full rounded-md border border-input bg-background px-2.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors">
                     <option value="">Selecione...</option>
                     <option value="corrente">Conta Corrente</option>
                     <option value="poupanca">Conta Poupança</option>
@@ -765,7 +765,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
         </div>
       )}
 
-      <div className="rounded-lg border bg-card p-1 grid grid-cols-4 gap-1">
+      <div className="rounded-xl border bg-card shadow-sm p-1 grid grid-cols-4 gap-1">
         {CATEGORIES.map(cat => (
           <button key={cat.value} type="button" onClick={() => { setCategory(cat.value); setDocValue('') }}
             className={cn('rounded-md py-1.5 px-3 text-xs font-medium transition-all',

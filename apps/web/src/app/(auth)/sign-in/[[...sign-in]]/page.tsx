@@ -3,7 +3,8 @@
 import { Suspense, useState } from 'react'
 import { signIn } from 'next-auth/react'
 import { useSearchParams } from 'next/navigation'
-import { Zap, GitBranch, Package, FileText, LogIn } from 'lucide-react'
+import { GitBranch, Package, FileText, LogIn } from 'lucide-react'
+import { Logo } from '@/components/layout/logo'
 
 function SignInButton() {
   const params = useSearchParams()
@@ -26,20 +27,18 @@ export default function SignInPage() {
   return (
     <div className="min-h-screen grid lg:grid-cols-2">
       {/* Painel esquerdo — branding */}
-      <div className="hidden lg:flex flex-col justify-between bg-zinc-900 text-white p-12">
-        <div className="flex items-center gap-2.5">
-          <div className="p-1.5 rounded-md bg-white/10">
-            <Zap className="h-5 w-5 text-white" />
-          </div>
-          <span className="font-bold text-xl tracking-tight">Nxt</span>
+      <div className="hidden lg:flex flex-col justify-between bg-gradient-to-br from-primary to-[hsl(258_70%_50%)] text-white p-12">
+        <div className="flex items-center gap-2">
+          <Logo variant="mark" />
+          <span className="text-xl font-bold tracking-tight text-white">Nxt</span>
         </div>
 
         <div className="space-y-8">
           <div className="space-y-3">
-            <h1 className="text-4xl font-bold leading-tight">
+            <h1 className="text-4xl font-semibold tracking-tight leading-tight">
               Seus processos.<br />Seus módulos.<br />Seu controle.
             </h1>
-            <p className="text-zinc-400 text-lg leading-relaxed">
+            <p className="text-white/70 text-lg leading-relaxed">
               Desenhe fluxos BPMN e o Nxt gera automaticamente os módulos de gestão que seu time precisa.
             </p>
           </div>
@@ -56,27 +55,25 @@ export default function SignInPage() {
                 </div>
                 <div>
                   <p className="font-medium text-sm">{title}</p>
-                  <p className="text-zinc-400 text-sm">{desc}</p>
+                  <p className="text-white/70 text-sm">{desc}</p>
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        <p className="text-zinc-500 text-sm">© 2026 Nxt. Todos os direitos reservados.</p>
+        <p className="text-white/70 text-sm">© 2026 Nxt. Todos os direitos reservados.</p>
       </div>
 
       {/* Painel direito — login SSO */}
       <div className="flex flex-col items-center justify-center p-8 bg-background">
         <div className="flex items-center gap-2 mb-8 lg:hidden">
-          <div className="p-1.5 rounded-md bg-primary">
-            <Zap className="h-4 w-4 text-primary-foreground" />
-          </div>
-          <span className="font-bold text-lg">Nxt</span>
+          <Logo variant="mark" />
+          <span className="text-xl font-bold tracking-tight text-foreground">Nxt</span>
         </div>
 
         <div className="w-full max-w-sm space-y-2 mb-6 text-center lg:text-left">
-          <h2 className="text-2xl font-bold">Entrar na sua conta</h2>
+          <h2 className="text-2xl font-semibold tracking-tight">Entrar na sua conta</h2>
           <p className="text-muted-foreground text-sm">
             Você será redirecionado para o login seguro da sua organização.
           </p>

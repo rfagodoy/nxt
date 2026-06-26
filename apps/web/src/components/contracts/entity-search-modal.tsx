@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { ORIGEM } from '@/lib/contract-roles'
 
-const inputCls = 'flex h-8 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
+const inputCls = 'flex h-7 w-full rounded-md border border-input bg-background px-2.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
 
 export interface EntityRef  { ref_tipo: string; ref_id: string; nome: string; documento: string }
 export interface EmpresaItem { id: string; nome: string; documento: string }

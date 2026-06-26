@@ -2,9 +2,12 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { useSession, signOut } from 'next-auth/react'
+import { useTheme } from 'next-themes'
 import {
-  LayoutDashboard, GitBranch, ChevronLeft, ChevronRight,
-  Table2, Building2,
+  LayoutDashboard, GitBranch, PanelLeft,
+  Table2, Building2, Sun, Moon, LogOut,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSidebar } from '@/contexts/sidebar-context'
@@ -46,23 +49,36 @@ export function Sidebar() {
       collapsed ? 'w-16' : 'w-60',
     )}>
 
-      {/* Logo */}
-      <div className="flex items-center justify-center border-b border-sidebar-border h-14 shrink-0 overflow-hidden px-3">
-        <Link href="/dashboard" className="flex items-center justify-center gap-2 min-w-0">
-          <Logo variant={collapsed ? 'mark' : 'full'} />
-        </Link>
+      {/* Logo + toggle (PanelLeft) */}
+      <div className={cn(
+        'flex items-center border-b border-sidebar-border h-14 shrink-0 px-3',
+        collapsed ? 'justify-center' : 'justify-between gap-2',
+      )}>
+        {!collapsed && (
+          <Link href="/dashboard" className="flex items-center gap-2 min-w-0">
+            <Logo variant="mark" />
+            <span className="text-lg font-bold tracking-tight text-sidebar-foreground">Nxt</span>
+          </Link>
+        )}
+        <button
+          onClick={toggle}
+          title={collapsed ? 'Expandir menu' : 'Recolher menu'}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sidebar-muted hover:text-sidebar-foreground hover:bg-sidebar-hover transition-colors"
+        >
+          <PanelLeft className="h-[18px] w-[18px]" />
+        </button>
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 p-2 overflow-hidden overflow-y-auto space-y-4">
+      <nav className="flex-1 p-2 overflow-hidden overflow-y-auto space-y-2">
         {sections.map((section) => (
           <div key={section.label || '__root'}>
             {section.label && !collapsed && (
-              <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-widest text-sidebar-muted select-none">
+              <p className="px-2.5 mb-0.5 text-[9px] font-semibold uppercase tracking-widest text-sidebar-muted select-none">
                 {section.label}
               </p>
             )}
-            <div className="space-y-0.5">
+            <div className="space-y-px">
               {section.items.map((item) => {
                 const Icon   = item.icon
                 const active = isActive(item.href)
@@ -72,14 +88,14 @@ export function Sidebar() {
                     href={item.href}
                     title={collapsed ? item.label : undefined}
                     className={cn(
-                      'flex items-center gap-3 rounded-md text-sm font-medium transition-colors',
-                      collapsed ? 'h-10 w-10 justify-center mx-auto' : 'px-3 py-2',
+                      'flex items-center gap-2 rounded-md text-[12px] font-medium tracking-tight transition-colors',
+                      collapsed ? 'h-8 w-8 justify-center mx-auto' : 'px-2.5 py-1',
                       active
                         ? 'bg-sidebar-active text-sidebar-active-fg'
                         : 'text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-hover',
                     )}
                   >
-                    {Icon && <Icon className="h-4 w-4 shrink-0" />}
+                    {Icon && <Icon className="h-3.5 w-3.5 shrink-0" />}
                     {!collapsed && <span className="truncate">{item.label}</span>}
                   </Link>
                 )
@@ -89,14 +105,65 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {/* Toggle flutuante */}
-      <button
-        onClick={toggle}
-        title={collapsed ? 'Expandir' : 'Recolher'}
-        className="absolute -right-3 top-16 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-sidebar-border bg-sidebar text-sidebar-muted shadow-sm opacity-0 group-hover/sidebar:opacity-100 hover:text-sidebar-foreground transition-all duration-200"
-      >
-        {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronLeft className="h-3 w-3" />}
-      </button>
+      {/* Rodapé: usuário + tema + sair */}
+      <SidebarFooter collapsed={collapsed} />
     </aside>
+  )
+}
+
+/* ── Rodapé da sidebar: identidade do usuário, alternância de tema e logout ── */
+function SidebarFooter({ collapsed }: { collapsed: boolean }) {
+  const { data: session } = useSession()
+  const { theme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+
+  const isDark = theme === 'dark'
+  const name   = session?.user?.name || session?.user?.email?.split('@')[0] || 'Usuário'
+  const email  = session?.user?.email ?? ''
+  const initials = name.split(' ').filter(Boolean).slice(0, 2).map(s => s[0]).join('').toUpperCase() || 'U'
+
+  const iconBtn =
+    'flex items-center justify-center rounded-md text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-hover transition-colors'
+
+  const ThemeBtn = (
+    <button onClick={() => setTheme(isDark ? 'light' : 'dark')}
+      title={isDark ? 'Modo claro' : 'Modo escuro'}
+      className={cn(iconBtn, 'h-8 w-8 shrink-0')}>
+      {mounted ? (isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />) : <span className="h-4 w-4" />}
+    </button>
+  )
+  const LogoutBtn = (
+    <button onClick={() => void signOut({ callbackUrl: '/sign-in' })}
+      title="Sair"
+      className={cn(iconBtn, 'h-8 w-8 shrink-0 hover:text-red-400')}>
+      <LogOut className="h-4 w-4" />
+    </button>
+  )
+  const Avatar = (
+    <span title={name}
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground ring-1 ring-black/5">
+      {initials}
+    </span>
+  )
+
+  return (
+    <div className="border-t border-sidebar-border p-2">
+      {collapsed ? (
+        <div className="flex flex-col items-center gap-1">
+          {Avatar}{ThemeBtn}{LogoutBtn}
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          {Avatar}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs font-medium tracking-tight text-sidebar-foreground">{name}</p>
+            {email && <p className="truncate text-[10px] text-sidebar-muted">{email}</p>}
+          </div>
+          {ThemeBtn}
+          {LogoutBtn}
+        </div>
+      )}
+    </div>
   )
 }

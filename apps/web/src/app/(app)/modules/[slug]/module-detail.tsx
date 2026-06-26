@@ -27,10 +27,10 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 const STATUS_COLOR: Record<string, string> = {
-  RUNNING:   'text-yellow-600',
-  COMPLETED: 'text-green-600',
-  CANCELLED: 'text-red-500',
-  ERROR:     'text-red-700',
+  RUNNING:   'text-amber-600 dark:text-amber-400',
+  COMPLETED: 'text-emerald-600 dark:text-emerald-400',
+  CANCELLED: 'text-red-600 dark:text-red-400',
+  ERROR:     'text-red-600 dark:text-red-400',
 }
 
 export function ModuleDetail({
@@ -130,11 +130,11 @@ export function ModuleDetail({
           <div className="grid gap-2 md:grid-cols-4">
             {[
               { label: 'Total',        value: dashboard?.total ?? 0, cls: 'text-foreground'  },
-              { label: 'Concluídos',   value: completedCount,        cls: 'text-green-600'   },
-              { label: 'Em andamento', value: runningCount,           cls: 'text-yellow-600'  },
-              { label: 'Cancelados',   value: cancelledCount,         cls: 'text-red-500'     },
+              { label: 'Concluídos',   value: completedCount,        cls: 'text-emerald-600 dark:text-emerald-400' },
+              { label: 'Em andamento', value: runningCount,           cls: 'text-amber-600 dark:text-amber-400'     },
+              { label: 'Cancelados',   value: cancelledCount,         cls: 'text-red-600 dark:text-red-400'         },
             ].map(({ label, value, cls }) => (
-              <div key={label} className="rounded-lg border bg-card px-3 py-2 flex items-center justify-between">
+              <div key={label} className="rounded-xl border bg-card px-3 py-2 flex items-center justify-between shadow-sm">
                 <p className="text-[11px] text-muted-foreground">{label}</p>
                 <p className={`text-sm font-bold tabular-nums ${cls}`}>{value}</p>
               </div>
@@ -142,7 +142,7 @@ export function ModuleDetail({
           </div>
 
           {dashboard && dashboard.byStatus.length > 0 && (
-            <div className="rounded-lg border bg-card p-4">
+            <div className="rounded-xl border bg-card p-4 shadow-sm">
               <div className="flex items-center gap-2 mb-3">
                 <TrendingUp className="h-3.5 w-3.5 text-muted-foreground" />
                 <h3 className="text-xs font-semibold">Distribuição por status</h3>
@@ -167,7 +167,7 @@ export function ModuleDetail({
           )}
 
           {dashboard?.total === 0 && (
-            <div className="rounded-lg border bg-card p-8 flex flex-col items-center gap-3 text-center">
+            <div className="rounded-xl border bg-card p-8 flex flex-col items-center gap-3 text-center shadow-sm">
               <AlertTriangle className="h-8 w-8 text-muted-foreground/40" />
               <div>
                 <p className="text-sm font-medium">Nenhum registro ainda</p>

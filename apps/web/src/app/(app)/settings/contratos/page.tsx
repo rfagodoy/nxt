@@ -55,7 +55,7 @@ const TABLES = [
 
 export default function SettingsContratos() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
         <h1 className="text-base font-semibold tracking-tight">Configurações de Contratos</h1>
         <p className="text-xs text-muted-foreground mt-0.5">

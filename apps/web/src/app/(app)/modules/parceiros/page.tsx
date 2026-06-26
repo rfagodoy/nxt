@@ -43,9 +43,9 @@ interface PartnerAPI {
 
 
 const STATUS_CLS: Record<string, string> = {
-  ATIVO:            'bg-green-100 text-green-800',
-  EM_CADASTRAMENTO: 'bg-blue-100 text-blue-800',
-  INATIVO:          'bg-gray-100 text-gray-600',
+  ATIVO:            'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  EM_CADASTRAMENTO: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+  INATIVO:          'bg-muted text-muted-foreground',
 }
 const STATUS_LABEL: Record<string, string> = {
   ATIVO:            'Ativo',
@@ -53,8 +53,8 @@ const STATUS_LABEL: Record<string, string> = {
   INATIVO:          'Inativo',
 }
 const TIPO_CLS: Record<string, string> = {
-  'PJ Brasileira': 'bg-blue-50 text-blue-700', 'PJ Estrangeira': 'bg-purple-50 text-purple-700',
-  'PF Brasileira': 'bg-teal-50 text-teal-700', 'PF Estrangeira': 'bg-orange-50 text-orange-700',
+  'PJ Brasileira': 'bg-blue-500/10 text-blue-600 dark:text-blue-400', 'PJ Estrangeira': 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
+  'PF Brasileira': 'bg-teal-500/10 text-teal-600 dark:text-teal-400', 'PF Estrangeira': 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
 }
 
 const COLUMNS = [
@@ -243,7 +243,7 @@ function DField({ label, required, span2, children }: { label: string; required?
 /* painel de aba: só renderiza quando a aba está ativa (o título agora é a própria sub-aba) */
 function DSection({ active, children }: { active: boolean; children: React.ReactNode }) {
   if (!active) return null
-  return <div className="rounded-lg border bg-card p-4 space-y-3">{children}</div>
+  return <div className="rounded-xl border bg-card p-4 space-y-3 shadow-sm">{children}</div>
 }
 
 function DCard({ index, total, label, onRemove, locked, children }: { index: number; total: number; label: string; onRemove: () => void; locked?: boolean; children: React.ReactNode }) {
@@ -431,7 +431,7 @@ function PartnerDetailView({ partner, onClose, onSaved }: {
     <div className="space-y-3 pb-6">
 
       {/* cabeçalho de identidade */}
-      <div className="rounded-lg border bg-card px-4 py-3 flex items-start justify-between gap-4">
+      <div className="rounded-xl border bg-card px-4 py-3 flex items-start justify-between gap-4 shadow-sm">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-sm font-semibold truncate max-w-[460px]">{razaoSocial.trim() || 'Sem nome'}</h2>
@@ -1453,11 +1453,11 @@ export default function ParceirosPage() {
       <div className="grid grid-cols-4 gap-2">
         {[
           { label: 'Total',            value: serverStats.total,           cls: 'text-foreground' },
-          { label: 'Em cadastramento', value: serverStats.emCadastramento, cls: 'text-blue-600'   },
-          { label: 'Ativos',           value: serverStats.ativo,           cls: 'text-green-600'  },
-          { label: 'Inativos',         value: serverStats.inativo,         cls: 'text-gray-500'   },
+          { label: 'Em cadastramento', value: serverStats.emCadastramento, cls: 'text-blue-600 dark:text-blue-400'       },
+          { label: 'Ativos',           value: serverStats.ativo,           cls: 'text-emerald-600 dark:text-emerald-400' },
+          { label: 'Inativos',         value: serverStats.inativo,         cls: 'text-muted-foreground'                  },
         ].map(({ label, value, cls }) => (
-          <div key={label} className="rounded-lg border bg-card px-3 py-2 flex items-center justify-between">
+          <div key={label} className="rounded-xl border bg-card px-3 py-2 flex items-center justify-between shadow-sm">
             <p className="text-[11px] text-muted-foreground">{label}</p>
             <p className={`text-sm font-bold tabular-nums ${cls}`}>{value}</p>
           </div>
@@ -1657,11 +1657,11 @@ export default function ParceirosPage() {
       </div>
 
       {/* tabela */}
-      <div className="rounded-lg border bg-card">
-        <div className="overflow-x-auto">
+      <div className="rounded-xl border bg-card shadow-sm">
+        <div className="overflow-auto max-h-[calc(100vh-19rem)]">
         <table className="min-w-full text-xs">
-          <thead>
-            <tr className="border-b bg-muted/40">
+          <thead className="sticky top-0 z-20">
+            <tr className="border-b">
               {orderedColumns.map((col, idx) => (
                 <th
                   key={col.key}
@@ -1672,9 +1672,9 @@ export default function ParceirosPage() {
                   onDrop={() => { handleDrop(idx); clearDrag() }}
                   onDragEnd={clearDrag}
                   className={cn(
-                    'text-left px-3 py-1.5 font-medium text-muted-foreground select-none transition-all whitespace-nowrap',
+                    'text-left px-3 py-1.5 font-medium text-muted-foreground select-none transition-all whitespace-nowrap bg-muted',
                     'cursor-grab active:cursor-grabbing',
-                    idx === 0 && 'sticky left-0 z-20 bg-[hsl(240_7%_96%)] dark:bg-[hsl(240_20%_15%)]', // opaco = muted/40 sobre card
+                    idx === 0 && 'sticky left-0 z-20 bg-muted', // opaco p/ sticky vertical + horizontal
                     dragFrom === idx && 'opacity-40',
                     dragOver === idx && dragOver !== dragFrom && 'border-l-2 border-primary bg-primary/5',
                   )}
