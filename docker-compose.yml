@@ -1,15 +1,37 @@
 # Infra de desenvolvimento do Nxt.
-# Sobe o Keycloak (IdP — OIDC + brokering SAML/AD) e seu Postgres dedicado.
+# Sobe o SQL Server (banco da aplicação), o Keycloak (IdP — OIDC + brokering
+# SAML/AD) e o Postgres dedicado do Keycloak.
 # O realm `nxt` é importado automaticamente de infra/keycloak/realm-nxt.json.
 #
 #   docker compose up -d
 #   Admin console: http://localhost:8080  (admin / admin)
 #   Issuer do realm: http://localhost:8080/realms/nxt
+#   Banco da app:   sqlserver://localhost:1433 (sa / Nxt_Dev_2026!), database `nxt`
 #
 # Obs.: este compose é a base de DEV/SaaS. Para on-premise, o mesmo Keycloak
 # é empacotado junto da aplicação (ver Fase 6 do plano de migração).
+# O Postgres aqui é APENAS o armazenamento interno do Keycloak (infra do IdP),
+# não o banco do produto — este é o SQL Server.
 
 services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: nxt-sqlserver
+    environment:
+      ACCEPT_EULA: 'Y'
+      MSSQL_SA_PASSWORD: Nxt_Dev_2026!
+      MSSQL_PID: Developer
+    ports:
+      - '1433:1433'
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+    healthcheck:
+      test: ['CMD-SHELL', '/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$$MSSQL_SA_PASSWORD" -C -Q "SELECT 1" || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   keycloak-db:
     image: postgres:16-alpine
     container_name: nxt-keycloak-db
@@ -50,3 +72,4 @@ services:
 
 volumes:
   keycloak-db-data:
+  sqlserver-data:
