@@ -1,15 +1,17 @@
 import { Controller, Get, Param, Query } from '@nestjs/common'
-import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger'
+import { ApiTags, ApiOperation, ApiQuery, ApiBearerAuth } from '@nestjs/swagger'
 import { ModulesService } from './modules.service'
+import { CurrentOrg } from '../auth/current-org.decorator'
 
 @ApiTags('modules')
+@ApiBearerAuth()
 @Controller('modules')
 export class ModulesController {
   constructor(private readonly modulesService: ModulesService) {}
 
   @Get()
   @ApiOperation({ summary: 'Lista módulos da organização' })
-  findAll(@Query('organizationId') organizationId: string) {
+  findAll(@CurrentOrg() organizationId: string) {
     return this.modulesService.findAll(organizationId)
   }
 
@@ -17,7 +19,7 @@ export class ModulesController {
   @ApiOperation({ summary: 'Busca módulo pelo slug' })
   findBySlug(
     @Param('slug') slug: string,
-    @Query('organizationId') organizationId: string,
+    @CurrentOrg() organizationId: string,
   ) {
     return this.modulesService.findBySlug(organizationId, slug)
   }
@@ -26,7 +28,7 @@ export class ModulesController {
   @ApiOperation({ summary: 'Dashboard gerencial do módulo' })
   getDashboard(
     @Param('slug') slug: string,
-    @Query('organizationId') organizationId: string,
+    @CurrentOrg() organizationId: string,
   ) {
     return this.modulesService.getDashboard(organizationId, slug)
   }
@@ -38,7 +40,7 @@ export class ModulesController {
   @ApiQuery({ name: 'search', required: false })
   getRecords(
     @Param('slug') slug: string,
-    @Query('organizationId') organizationId: string,
+    @CurrentOrg() organizationId: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
     @Query('search') search?: string,
@@ -57,7 +59,7 @@ export class ModulesController {
   getRecord(
     @Param('slug') slug: string,
     @Param('recordId') recordId: string,
-    @Query('organizationId') organizationId: string,
+    @CurrentOrg() organizationId: string,
   ) {
     return this.modulesService.getRecord(organizationId, slug, recordId)
   }

@@ -1,6 +1,6 @@
 import { Injectable, ConflictException } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
-import { ProcessFormSchema, ModuleSchema, ModuleColumn } from '@primeapps/types'
+import { ProcessFormSchema, ModuleSchema, ModuleColumn } from '@nxt/types'
 
 interface GenerateModuleInput {
   processDefinitionId: string

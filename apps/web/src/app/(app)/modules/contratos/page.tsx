@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
+import { apiFetch } from '@/lib/http'
 import { useViews, type ViewState } from '@/hooks/use-views'
 import ExcelJS from 'exceljs'
 import { SettingsDrawer } from '@/components/contracts/field-drawer'
@@ -20,17 +21,6 @@ import { getLogUser } from '@/hooks/use-partner-logs'
 import { cacheRead, pushSetting, pullSetting } from '@/lib/settings-store'
 import { useContractFields, useContractDefaultColumns, useContractFieldVisibility, NATIVE_FIELDS, COLUMN_ORDER_RESET_EVENT } from '@/hooks/use-contract-fields'
 
-/* ── dados mock ── */
-const MOCK = [
-  { id: '1',  numero: 'CTR-2026-001', titulo: 'Prestação de Serviços de TI',      tipo: 'Prestação de Serviços', parte_principal: 'Tech Solutions Ltda',    inicio: '2026-01-01', termino: '2026-12-31', valor_total: 120000, situacao: 'ATIVO',     documento: '12.345.678/0001-99', papel: 'CONTRATADA', data_assinatura: '2025-12-28', moeda: 'BRL', valor_parcela: 10000,    condicao_pagamento: 'Mensal'     },
-  { id: '2',  numero: 'CTR-2026-002', titulo: 'Fornecimento de Equipamentos',      tipo: 'Fornecimento de Bens',  parte_principal: 'Global Imports Inc.',     inicio: '2026-02-01', termino: '2026-07-31', valor_total: 85000,  situacao: 'ATIVO',     documento: 'US-98765432',        papel: 'CONTRATADA', data_assinatura: '2026-01-25', moeda: 'USD', valor_parcela: 14166.67, condicao_pagamento: 'Trimestral' },
-  { id: '3',  numero: 'CTR-2026-003', titulo: 'Licença de Software ERP',           tipo: 'Licença de Software',  parte_principal: 'Euro Logistics GmbH',     inicio: '2026-03-01', termino: null,          valor_total: 36000,  situacao: 'ATIVO',     documento: 'DE123456789',        papel: 'CONTRATADA', data_assinatura: '2026-02-20', moeda: 'EUR', valor_parcela: 3000,     condicao_pagamento: 'Mensal'     },
-  { id: '4',  numero: 'CTR-2025-018', titulo: 'Locação de Veículos',               tipo: 'Locação',              parte_principal: 'Distribuidora Norte S/A', inicio: '2025-06-01', termino: '2026-05-31', valor_total: 48000,  situacao: 'ENCERRADO', documento: '45.678.901/0001-23', papel: 'CONTRATADA', data_assinatura: '2025-05-20', moeda: 'BRL', valor_parcela: 4000,     condicao_pagamento: 'Mensal'     },
-  { id: '5',  numero: 'CTR-2026-004', titulo: 'Parceria Comercial Exportação',     tipo: 'Parceria / Convênio',  parte_principal: 'Pacific Trade Co.',       inicio: '2026-04-01', termino: '2027-03-31', valor_total: 200000, situacao: 'PENDENTE',  documento: 'US-55778899',        papel: 'CONTRATADA', data_assinatura: '2026-03-28', moeda: 'USD', valor_parcela: 16666.67, condicao_pagamento: 'Mensal'     },
-  { id: '6',  numero: 'CTR-2026-005', titulo: 'Serviços de Segurança Patrimonial', tipo: 'Prestação de Serviços', parte_principal: 'Serviços Nacionais Ltda', inicio: '2026-01-15', termino: '2027-01-14', valor_total: 72000,  situacao: 'ATIVO',     documento: '11.222.333/0001-44', papel: 'CONTRATADA', data_assinatura: '2026-01-10', moeda: 'BRL', valor_parcela: 6000,     condicao_pagamento: 'Mensal'     },
-  { id: '7',  numero: 'CTR-2025-015', titulo: 'Compra de Matéria Prima',           tipo: 'Fornecimento de Bens',  parte_principal: 'Agro Exportações S/A',   inicio: '2025-09-01', termino: '2026-08-31', valor_total: 310000, situacao: 'ATIVO',     documento: '22.333.444/0001-55', papel: 'CONTRATADA', data_assinatura: '2025-08-25', moeda: 'BRL', valor_parcela: 25833.33, condicao_pagamento: 'Mensal'     },
-  { id: '8',  numero: 'CTR-2024-030', titulo: 'Contrato de Consultoria Jurídica',  tipo: 'Prestação de Serviços', parte_principal: 'Rafael Monteiro',         inicio: '2024-01-01', termino: '2025-12-31', valor_total: 60000,  situacao: 'ENCERRADO', documento: '123.456.789-00',     papel: 'CONTRATADA', data_assinatura: '2023-12-20', moeda: 'BRL', valor_parcela: 5000,     condicao_pagamento: 'Mensal'     },
-]
 
 const SIT_CLS: Record<string, string> = {
   ATIVO:      'bg-green-100 text-green-800',
@@ -72,7 +62,23 @@ const OPERATORS = [
 const PAGE_SIZE_OPTIONS = [10, 50, 100, 200, 500]
 const COL_ORDER_KEY     = 'primeapps:columns:contratos'
 
-type Row = (typeof MOCK)[0] & {
+/** Linha da listagem — espelha o toRow() do contracts.service no backend. */
+interface Row {
+  id: string
+  numero: string
+  titulo: string
+  tipo: string
+  parte_principal: string
+  inicio: string
+  termino: string | null
+  valor_total: number
+  situacao: string
+  documento: string
+  papel: string
+  data_assinatura: string
+  moeda: string
+  valor_parcela: number
+  condicao_pagamento: string
   objeto?: string[]
   contratante_nome?: string; contratante_doc?: string
   contratada_nome?: string;  contratada_doc?: string
@@ -147,10 +153,9 @@ function ContractDetailView({ row, onClose, onSaved }: { row: Row; onClose: () =
   const [empresas,    setEmpresas]    = useState<{ id: string; nome: string; documento: string }[]>([])
   const [searchModal, setSearchModal] = useState<{ parteId: string; origem: string } | null>(null)
   useEffect(() => {
-    const orgId = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? 'dev'
     void (async () => {
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/group-companies?organizationId=${orgId}`)
+        const res = await apiFetch(`/api/group-companies`)
         if (res.ok) {
           const data = await res.json() as { rows: { id: string; razaoSocial: string; nomeFantasia?: string | null; cnpj?: string | null }[] }
           setEmpresas((data.rows ?? []).map(c => ({ id: c.id, nome: c.nomeFantasia || c.razaoSocial, documento: c.cnpj ?? '' })))
@@ -171,7 +176,7 @@ function ContractDetailView({ row, onClose, onSaved }: { row: Row; onClose: () =
     let cancel = false
     void (async () => {
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/contracts/${row.id}`)
+        const res = await apiFetch(`/api/contracts/${row.id}`)
         if (!res.ok || cancel) return
         const c = await res.json() as Record<string, unknown>
         form.setValues(contractFromApi(c))
@@ -205,10 +210,9 @@ function ContractDetailView({ row, onClose, onSaved }: { row: Row; onClose: () =
   const handleSave = async () => {
     setSaving(true); setSaveError(null)
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/contracts/${row.id}`, {
-        method:  'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(contractToPayload(v, { user: getLogUser() })),
+      const res = await apiFetch(`/api/contracts/${row.id}`, {
+        method: 'PATCH',
+        body:   JSON.stringify(contractToPayload(v, { user: getLogUser() })),
       })
       if (res.ok) { onSaved?.() }
       else setSaveError(`Erro ao salvar contrato (${res.status}).`)
@@ -384,9 +388,8 @@ export default function ContratosPage() {
 
   const [allContratos, setAllContratos] = useState<Row[]>([])
   const loadContratos = useCallback(async (): Promise<Row[]> => {
-    const orgId = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? 'dev'
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/contracts?organizationId=${orgId}`)
+      const res = await apiFetch(`/api/contracts`)
       if (res.ok) {
         const data = await res.json() as { rows: Row[] }
         const rows = data.rows ?? []
@@ -556,7 +559,7 @@ export default function ContratosPage() {
 
   const handleExport = async () => {
     const HEADERS = COLUMNS.map(c => c.label)
-    const wb = new ExcelJS.Workbook(); wb.creator = 'primeApps'; wb.created = new Date()
+    const wb = new ExcelJS.Workbook(); wb.creator = 'Nxt'; wb.created = new Date()
     const ws = wb.addWorksheet('Contratos')
     const exportName = activeViewId ? (views.find(v => v.id === activeViewId)?.name ?? 'Todos') : 'Todos'
     ws.addRow([`Exportação — ${exportName}`]); ws.mergeCells(1, 1, 1, HEADERS.length)
@@ -641,7 +644,7 @@ export default function ContratosPage() {
       case 'situacao':
         return <td key={key} className={cn('px-3 py-1 whitespace-nowrap', sticky)}><span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium ${SIT_CLS[row.situacao]}`}>{SIT_LABEL[row.situacao]}</span></td>
       default: {
-        const v = (row as Record<string, unknown>)[key]
+        const v = (row as unknown as Record<string, unknown>)[key]
         let display: React.ReactNode = (v as string) || '—'
         if (key === 'valor_parcela')        display = v ? BRL.format(Number(v)) : '—'
         else if (key === 'data_assinatura') display = fmtDate((v as string) || null)

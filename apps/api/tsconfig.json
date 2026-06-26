@@ -10,8 +10,8 @@
     "experimentalDecorators": true,
     "strictPropertyInitialization": false,
     "paths": {
-      "@primeapps/types": ["../../packages/types/index.ts"],
-      "@primeapps/database": ["../../packages/database/index.ts"]
+      "@nxt/types": ["../../packages/types/index.ts"],
+      "@nxt/database": ["../../packages/database/index.ts"]
     }
   },
   "include": ["src/**/*"],

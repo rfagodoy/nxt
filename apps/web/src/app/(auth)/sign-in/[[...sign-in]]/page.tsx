@@ -1,5 +1,26 @@
-import { SignIn } from '@clerk/nextjs'
-import { Zap, GitBranch, Package, FileText } from 'lucide-react'
+'use client'
+
+import { Suspense, useState } from 'react'
+import { signIn } from 'next-auth/react'
+import { useSearchParams } from 'next/navigation'
+import { Zap, GitBranch, Package, FileText, LogIn } from 'lucide-react'
+
+function SignInButton() {
+  const params = useSearchParams()
+  const callbackUrl = params.get('callbackUrl') || '/dashboard'
+  const [loading, setLoading] = useState(false)
+
+  return (
+    <button
+      onClick={() => { setLoading(true); void signIn('keycloak', { callbackUrl }) }}
+      disabled={loading}
+      className="inline-flex w-full items-center justify-center gap-2 h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+    >
+      <LogIn className="h-4 w-4" />
+      {loading ? 'Redirecionando...' : 'Entrar com SSO'}
+    </button>
+  )
+}
 
 export default function SignInPage() {
   return (
@@ -10,7 +31,7 @@ export default function SignInPage() {
           <div className="p-1.5 rounded-md bg-white/10">
             <Zap className="h-5 w-5 text-white" />
           </div>
-          <span className="font-bold text-xl tracking-tight">primeApps</span>
+          <span className="font-bold text-xl tracking-tight">Nxt</span>
         </div>
 
         <div className="space-y-8">
@@ -19,7 +40,7 @@ export default function SignInPage() {
               Seus processos.<br />Seus módulos.<br />Seu controle.
             </h1>
             <p className="text-zinc-400 text-lg leading-relaxed">
-              Desenhe fluxos BPMN e o primeApps gera automaticamente os módulos de gestão que seu time precisa.
+              Desenhe fluxos BPMN e o Nxt gera automaticamente os módulos de gestão que seu time precisa.
             </p>
           </div>
 
@@ -42,49 +63,30 @@ export default function SignInPage() {
           </div>
         </div>
 
-        <p className="text-zinc-500 text-sm">© 2026 primeApps. Todos os direitos reservados.</p>
+        <p className="text-zinc-500 text-sm">© 2026 Nxt. Todos os direitos reservados.</p>
       </div>
 
-      {/* Painel direito — formulário */}
+      {/* Painel direito — login SSO */}
       <div className="flex flex-col items-center justify-center p-8 bg-background">
-        {/* Logo mobile */}
         <div className="flex items-center gap-2 mb-8 lg:hidden">
           <div className="p-1.5 rounded-md bg-primary">
             <Zap className="h-4 w-4 text-primary-foreground" />
           </div>
-          <span className="font-bold text-lg">primeApps</span>
+          <span className="font-bold text-lg">Nxt</span>
         </div>
 
         <div className="w-full max-w-sm space-y-2 mb-6 text-center lg:text-left">
           <h2 className="text-2xl font-bold">Entrar na sua conta</h2>
-          <p className="text-muted-foreground text-sm">Bem-vindo de volta ao primeApps</p>
+          <p className="text-muted-foreground text-sm">
+            Você será redirecionado para o login seguro da sua organização.
+          </p>
         </div>
 
-        <SignIn
-          appearance={{
-            elements: {
-              rootBox: 'w-full max-w-sm',
-              card: 'shadow-none border rounded-lg p-6 bg-card w-full',
-              headerTitle: 'hidden',
-              headerSubtitle: 'hidden',
-              socialButtonsBlockButton:
-                'border border-input bg-background hover:bg-muted text-foreground font-medium rounded-md h-9 text-sm transition-colors',
-              dividerLine: 'bg-border',
-              dividerText: 'text-muted-foreground text-xs',
-              formFieldLabel: 'text-sm font-medium text-foreground',
-              formFieldInput:
-                'h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:ring-1 focus-visible:ring-ring',
-              formButtonPrimary:
-                'bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 text-sm font-medium transition-colors',
-              footerActionLink: 'text-primary hover:text-primary/80 font-medium',
-              identityPreviewText: 'text-sm text-foreground',
-              formResendCodeLink: 'text-primary text-sm',
-              otpCodeFieldInput:
-                'h-10 w-10 rounded-md border border-input bg-background text-sm text-center focus-visible:ring-1 focus-visible:ring-ring',
-              alertText: 'text-sm',
-            },
-          }}
-        />
+        <div className="w-full max-w-sm">
+          <Suspense fallback={null}>
+            <SignInButton />
+          </Suspense>
+        </div>
       </div>
     </div>
   )

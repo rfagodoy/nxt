@@ -9,6 +9,7 @@ import {
   Building2, Phone, MapPin, CreditCard, Users, Trash2, Clock,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { apiFetch } from '@/lib/http'
 import { useViews, type ViewState } from '@/hooks/use-views'
 import { cacheRead, pushSetting, pullSetting } from '@/lib/settings-store'
 import ExcelJS from 'exceljs'
@@ -294,7 +295,7 @@ function PartnerDetailView({ partner, onClose, onSaved }: {
   const [audit, setAudit]                  = useState<AuditEntry[]>([])
   const fetchAudit = useCallback(async () => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/partners/${partner.id}/audit`)
+      const res = await apiFetch(`/api/partners/${partner.id}/audit`)
       if (res.ok) setAudit(await res.json() as AuditEntry[])
     } catch {}
   }, [partner.id])
@@ -377,9 +378,8 @@ function PartnerDetailView({ partner, onClose, onSaved }: {
     setSaving(true)
     setSaveError(null)
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/partners/${partner.id}`, {
+      const res = await apiFetch(`/api/partners/${partner.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           categoria:    category,
           documento:    docValue.trim(),
@@ -984,7 +984,7 @@ export default function ParceirosPage() {
     setTabs(prev => [...prev, { id: tabId, label, pinned: false, loading: true }])
     setActiveTabId(tabId)
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/partners/${partnerId}`)
+      const res = await apiFetch(`/api/partners/${partnerId}`)
       if (res.ok) {
         const partner = await res.json() as PartnerAPI
         setTabs(prev => prev.map(t => t.id === tabId ? { ...t, partner, loading: false } : t))
@@ -1022,15 +1022,12 @@ export default function ParceirosPage() {
 
   /* ── query server-side ── */
   const queryServer = useCallback(async () => {
-    const orgId = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? 'dev'
     const reqId = ++reqIdRef.current
     setServerLoading(true)
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/partners/query`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await apiFetch(`/api/partners/query`, {
+        method: 'POST',
         body: JSON.stringify({
-          organizationId: orgId,
           page,
           pageSize,
           search:  debouncedSearch || undefined,
@@ -1125,14 +1122,11 @@ export default function ParceirosPage() {
   }
 
   const handleExport = async () => {
-    const orgId = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? 'dev'
     let rows: Row[] = []
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/partners/query`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await apiFetch(`/api/partners/query`, {
+        method: 'POST',
         body: JSON.stringify({
-          organizationId: orgId,
           page: 1,
           pageSize: 10000,
           search:  debouncedSearch || undefined,
@@ -1152,7 +1146,7 @@ export default function ParceirosPage() {
       ...tableFields.map(f => f.label),
     ]
     const wb  = new ExcelJS.Workbook()
-    wb.creator = 'primeApps'; wb.created = new Date()
+    wb.creator = 'Nxt'; wb.created = new Date()
     const ws  = wb.addWorksheet('Parceiros')
     const totalCols  = HEADERS.length
     const exportName = activeViewId ? (views.find(v => v.id === activeViewId)?.name ?? 'Todos') : 'Todos'
@@ -1394,7 +1388,7 @@ export default function ParceirosPage() {
                 if (result?.id) {
                   void (async () => {
                     try {
-                      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/partners/${result.id}`)
+                      const res = await apiFetch(`/api/partners/${result.id}`)
                       if (res.ok) {
                         const partner = await res.json() as PartnerAPI
                         const newId = `tab_${result.id}`

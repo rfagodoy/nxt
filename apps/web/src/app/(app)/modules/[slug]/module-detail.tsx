@@ -4,7 +4,8 @@ import { useState, useCallback } from 'react'
 import Link from 'next/link'
 import { Plus, LayoutDashboard, List, TrendingUp, AlertTriangle } from 'lucide-react'
 import { DynamicTable, type TableRecord } from '@/components/modules/dynamic-table'
-import type { ModuleSchema } from '@primeapps/types'
+import { apiFetch } from '@/lib/http'
+import type { ModuleSchema } from '@nxt/types'
 
 interface Module {
   id: string
@@ -35,11 +36,9 @@ const STATUS_COLOR: Record<string, string> = {
 export function ModuleDetail({
   module,
   dashboard,
-  organizationId,
 }: {
   module: Module
   dashboard: DashboardData | null
-  organizationId: string
 }) {
   const [tab, setTab]       = useState<'dashboard' | 'records'>('dashboard')
   const [records, setRecords] = useState<TableRecord[]>([])
@@ -53,9 +52,9 @@ export function ModuleDetail({
     async (p: number, search?: string, col?: string, dir?: 'asc' | 'desc') => {
       setLoading(true)
       try {
-        const params = new URLSearchParams({ organizationId, page: String(p), pageSize: '20' })
+        const params = new URLSearchParams({ page: String(p), pageSize: '20' })
         if (search) params.set('search', search)
-        const res  = await fetch(`/api/modules/${module.slug}/records?${params}`)
+        const res  = await apiFetch(`/api/modules/${module.slug}/records?${params}`)
         const data = await res.json()
         setRecords(data.data)
         setTotal(data.total)
@@ -65,7 +64,7 @@ export function ModuleDetail({
         setLoading(false)
       }
     },
-    [module.slug, organizationId],
+    [module.slug],
   )
 
   const handleTabChange = (t: 'dashboard' | 'records') => {

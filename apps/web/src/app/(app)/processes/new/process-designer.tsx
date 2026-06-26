@@ -9,9 +9,10 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { FormBuilder } from '@/components/bpmn/form-builder'
+import { apiFetch } from '@/lib/http'
 import { Badge } from '@/components/ui/badge'
 import type { BpmnElement, BpmnEditorRef } from '@/components/bpmn/bpmn-editor'
-import type { StepFormSchema, ProcessFormSchema } from '@primeapps/types'
+import type { StepFormSchema, ProcessFormSchema } from '@nxt/types'
 
 // bpmn-js só roda no browser
 const BpmnEditor = dynamic(
@@ -53,15 +54,13 @@ export function ProcessDesigner() {
       const xml = await editorRef.current?.getXml() || bpmnXml
       const formSchema: ProcessFormSchema = { steps: Object.values(stepForms) }
 
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/processes`, {
+      const res = await apiFetch(`/api/processes`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: name.trim(),
           description: description.trim() || undefined,
           bpmnXml: xml,
           formSchema,
-          organizationId: 'TODO_GET_FROM_CLERK',
         }),
       })
 
@@ -92,23 +91,21 @@ export function ProcessDesigner() {
       const formSchema: ProcessFormSchema = { steps: Object.values(stepForms) }
 
       // Cria rascunho e já ativa
-      const createRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/processes`, {
+      const createRes = await apiFetch(`/api/processes`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: name.trim(),
           description: description.trim() || undefined,
           bpmnXml: xml,
           formSchema,
-          organizationId: 'TODO_GET_FROM_CLERK',
         }),
       })
 
       if (!createRes.ok) throw new Error('Erro ao criar processo')
       const created = await createRes.json()
 
-      const activateRes = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/processes/${created.id}/activate?organizationId=TODO_GET_FROM_CLERK`,
+      const activateRes = await apiFetch(
+        `/api/processes/${created.id}/activate`,
         { method: 'PATCH' },
       )
 

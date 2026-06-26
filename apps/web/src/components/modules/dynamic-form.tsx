@@ -5,7 +5,7 @@ import { Loader2 } from 'lucide-react'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import type { StepFormSchema, FormField } from '@primeapps/types'
+import type { StepFormSchema, FormField } from '@nxt/types'
 
 function FieldInput({ field, register, setValue, watch }: {
   field: FormField

@@ -215,9 +215,9 @@ function buildWhere(
     const q = search.trim()
     conditions.push({
       OR: [
-        { razaoSocial: { contains: q, mode: 'insensitive' } },
-        { nomeFantasia: { contains: q, mode: 'insensitive' } },
-        { documento:    { contains: q, mode: 'insensitive' } },
+        { razaoSocial: { contains: q } },
+        { nomeFantasia: { contains: q } },
+        { documento:    { contains: q } },
       ],
     })
   }
@@ -245,15 +245,17 @@ function buildOrder(sort?: { col: string; dir: 'asc' | 'desc' }) {
 export class PartnersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(dto: CreatePartnerDto) {
+  async create(dto: CreatePartnerDto, organizationId: string) {
     const { user, ...data } = dto
-    const created = await this.prisma.partner.create({ data: data as never })
+    const created = await this.prisma.partner.create({
+      data: { ...data, organizationId } as never,
+    })
     await this.prisma.partnerAuditLog.create({
       data: {
         partnerId: created.id,
         user:      user ?? 'Usuário do sistema',
         event:     created.status === 'ATIVO' ? 'ATIVADO' : 'EM_CADASTRAMENTO',
-        changes:   [{ field: 'status', label: 'Situação', before: '—', after: STATUS_LABEL[created.status] ?? created.status }] as unknown as Prisma.InputJsonValue,
+        changes:   [{ field: 'status', label: 'Situação', before: '—', after: STATUS_LABEL[created.status] ?? created.status }] as never,
       },
     })
     return created
@@ -266,14 +268,14 @@ export class PartnersService {
     })
   }
 
-  async findOne(id: string) {
-    const partner = await this.prisma.partner.findUnique({ where: { id } })
+  async findOne(id: string, organizationId: string) {
+    const partner = await this.prisma.partner.findFirst({ where: { id, organizationId } })
     if (!partner) throw new NotFoundException('Parceiro não encontrado')
     return partner
   }
 
-  async update(id: string, dto: UpdatePartnerDto) {
-    const old = await this.findOne(id)
+  async update(id: string, dto: UpdatePartnerDto, organizationId: string) {
+    const old = await this.findOne(id, organizationId)
     const { user, motivo, ...data } = dto
     const updated = await this.prisma.partner.update({ where: { id }, data: data as never })
 
@@ -285,32 +287,33 @@ export class PartnersService {
           user:      user ?? 'Usuário do sistema',
           event:     statusEvent(val(old.status), val(updated.status)),
           motivo:    motivo?.trim() ? motivo.trim() : null,
-          changes:   changes as unknown as Prisma.InputJsonValue,
+          changes:   changes as never,
         },
       })
     }
     return updated
   }
 
-  getAuditLogs(partnerId: string) {
+  async getAuditLogs(partnerId: string, organizationId: string) {
+    await this.findOne(partnerId, organizationId) // garante que o parceiro é do tenant
     return this.prisma.partnerAuditLog.findMany({
       where:   { partnerId },
       orderBy: { createdAt: 'desc' },
     })
   }
 
-  async remove(id: string) {
-    await this.findOne(id)
+  async remove(id: string, organizationId: string) {
+    await this.findOne(id, organizationId)
     return this.prisma.partner.delete({ where: { id } })
   }
 
-  async query(dto: QueryPartnersDto) {
+  async query(dto: QueryPartnersDto, organizationId: string) {
     const page     = Math.max(1, dto.page ?? 1)
     const pageSize = Math.min(Math.max(1, dto.pageSize ?? 50), 10000)
-    const where    = buildWhere(dto.organizationId, dto.search, dto.filters, dto.logic)
+    const where    = buildWhere(organizationId, dto.search, dto.filters, dto.logic)
     const orderBy  = buildOrder(dto.sort)
 
-    const orgWhere = { organizationId: dto.organizationId }
+    const orgWhere = { organizationId }
     const [data, total, nAtivo, nInativo, nEmCad] = await this.prisma.$transaction([
       this.prisma.partner.findMany({
         where,

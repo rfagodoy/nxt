@@ -18,8 +18,4 @@ export class CreateProcessDto {
   @ApiProperty()
   @IsObject()
   formSchema: Record<string, unknown>
-
-  @ApiProperty()
-  @IsString()
-  organizationId: string
 }

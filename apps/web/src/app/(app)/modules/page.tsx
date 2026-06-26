@@ -1,22 +1,129 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { Package } from 'lucide-react'
+import { apiFetch } from '@/lib/http'
+import { SYSTEM_MODULES } from '@/lib/modules-catalog'
+
+interface GeneratedModule {
+  id: string
+  name: string
+  slug: string
+  processDefinition?: { name: string; status: string }
+}
+
+function ModuleCard({
+  href,
+  name,
+  description,
+  icon: Icon,
+  tag,
+}: {
+  href: string
+  name: string
+  description: string
+  icon: React.ElementType
+  tag: 'Sistema' | 'Gerado'
+}) {
+  return (
+    <Link
+      href={href}
+      className="group rounded-lg border bg-card p-4 hover:border-primary/40 hover:shadow-sm transition-all"
+    >
+      <div className="flex items-start gap-3">
+        <div className="p-2 rounded-md bg-muted shrink-0">
+          <Icon className="h-4 w-4 text-foreground/70" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold truncate">{name}</h3>
+            <span
+              className={
+                'inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold ' +
+                (tag === 'Sistema'
+                  ? 'bg-blue-100 text-blue-700'
+                  : 'bg-green-100 text-green-700')
+              }
+            >
+              {tag}
+            </span>
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">{description}</p>
+        </div>
+      </div>
+    </Link>
+  )
+}
 
 export default function ModulesPage() {
+  const [generated, setGenerated] = useState<GeneratedModule[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await apiFetch('/api/modules')
+        if (res.ok) setGenerated((await res.json()) as GeneratedModule[])
+      } catch {
+        /* mantém vazio */
+      } finally {
+        setLoading(false)
+      }
+    })()
+  }, [])
+
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-base font-semibold tracking-tight">Módulos</h1>
-        <p className="text-[11px] text-muted-foreground">Módulos de gestão gerados pelos seus processos</p>
+        <p className="text-[11px] text-muted-foreground">
+          Módulos do sistema e os gerados automaticamente pelos seus processos
+        </p>
       </div>
 
-      <div className="rounded-lg border bg-card">
-        <div className="flex flex-col items-center justify-center py-12 text-center">
-          <Package className="h-10 w-10 text-muted-foreground/40 mb-3" />
-          <h3 className="text-sm font-semibold">Nenhum módulo disponível</h3>
-          <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-            Os módulos são gerados automaticamente quando você ativa um processo BPMN
+      {/* Módulos do sistema (catálogo) */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {SYSTEM_MODULES.map((m) => (
+          <ModuleCard
+            key={m.slug}
+            href={m.href}
+            name={m.name}
+            description={m.description}
+            icon={m.icon}
+            tag="Sistema"
+          />
+        ))}
+
+        {/* Módulos gerados via BPMN */}
+        {generated.map((m) => (
+          <ModuleCard
+            key={m.id}
+            href={`/modules/${m.slug}`}
+            name={m.name}
+            description={
+              m.processDefinition?.name
+                ? `Gerado do processo "${m.processDefinition.name}"`
+                : 'Módulo gerado por processo BPMN'
+            }
+            icon={Package}
+            tag="Gerado"
+          />
+        ))}
+      </div>
+
+      {/* Estado vazio só para os gerados (os de sistema sempre existem) */}
+      {!loading && generated.length === 0 && (
+        <div className="rounded-lg border border-dashed bg-muted/20 px-4 py-6 text-center">
+          <p className="text-xs text-muted-foreground">
+            Nenhum módulo gerado ainda. Ative um processo em{' '}
+            <Link href="/processes/new" className="text-primary hover:underline">
+              Processos
+            </Link>{' '}
+            para gerar um módulo automaticamente.
           </p>
         </div>
-      </div>
+      )}
     </div>
   )
 }

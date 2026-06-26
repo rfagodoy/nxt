@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Search, X, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { apiFetch } from '@/lib/http'
 import { ORIGEM } from '@/lib/contract-roles'
 
 const inputCls = 'flex h-8 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
@@ -30,18 +31,17 @@ export function EntitySearchModal({ origem, empresas, onSelect, onClose, onNewPa
   const [loading,   setLoading]   = useState(false)
 
   useEffect(() => {
-    const orgId = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? 'dev'
     const t = setTimeout(async () => {
       setLoading(true)
       try {
         if (isUnidade) {
-          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/org-units?organizationId=${orgId}&search=${encodeURIComponent(q.trim())}`)
+          const res = await apiFetch(`/api/org-units?search=${encodeURIComponent(q.trim())}`)
           const data = res.ok ? (await res.json() as { id: string; nome: string; codigo?: string; empresa?: string }[]) : []
           setUnidades(data.map(u => ({ id: u.id, nome: u.nome, documento: u.codigo ?? '', empresa: u.empresa, codigo: u.codigo })))
         } else {
-          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/partners/query`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ organizationId: orgId, search: q.trim(), page: 1, pageSize: 30 }),
+          const res = await apiFetch(`/api/partners/query`, {
+            method: 'POST',
+            body: JSON.stringify({ search: q.trim(), page: 1, pageSize: 30 }),
           })
           const data = res.ok ? (await res.json() as { rows: { id: string; nome: string; identificador: string }[] }) : { rows: [] }
           setParceiros((data.rows ?? []).map(r => ({ id: r.id, nome: r.nome, documento: r.identificador })))

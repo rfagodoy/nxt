@@ -4,10 +4,6 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 export class CreateOrgUnitDto {
   @ApiProperty()
   @IsString()
-  organizationId: string
-
-  @ApiProperty()
-  @IsString()
   groupCompanyId: string
 
   @ApiPropertyOptional({ description: 'Unidade pai no organograma (null = raiz)' })

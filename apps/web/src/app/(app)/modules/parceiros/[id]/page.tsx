@@ -8,6 +8,7 @@ import {
   Clock, ChevronDown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { apiFetch } from '@/lib/http'
 import { usePartnerLogs, getLogUser, LOG_EVENT_LABEL, LOG_EVENT_CLS, type LogEvent } from '@/hooks/use-partner-logs'
 
 /* ─── tipos ──────────────────────────────────────────────── */
@@ -105,7 +106,7 @@ export default function ParceiroDetail() {
 
   const fetchPartner = useCallback(() => {
     if (!id) return
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/partners/${id}`)
+    apiFetch(`/api/partners/${id}`)
       .then(r => r.json())
       .then(data => { setPartner(data as PartnerAPI); setLoading(false) })
       .catch(() => setLoading(false))
@@ -117,9 +118,8 @@ export default function ParceiroDetail() {
     if (!partner) return
     setChangingStatus(true)
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/partners/${partner.id}`, {
+      const res = await apiFetch(`/api/partners/${partner.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
       })
       if (res.ok) {

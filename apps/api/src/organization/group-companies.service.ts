@@ -7,8 +7,8 @@ import { UpdateGroupCompanyDto } from './dto/update-group-company.dto'
 export class GroupCompaniesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  create(dto: CreateGroupCompanyDto) {
-    return this.prisma.groupCompany.create({ data: dto as never })
+  create(dto: CreateGroupCompanyDto, organizationId: string) {
+    return this.prisma.groupCompany.create({ data: { ...dto, organizationId } as never })
   }
 
   async findAll(organizationId: string) {
@@ -30,19 +30,19 @@ export class GroupCompaniesService {
     }
   }
 
-  async findOne(id: string) {
-    const c = await this.prisma.groupCompany.findUnique({ where: { id } })
+  async findOne(id: string, organizationId: string) {
+    const c = await this.prisma.groupCompany.findFirst({ where: { id, organizationId } })
     if (!c) throw new NotFoundException('Empresa não encontrada')
     return c
   }
 
-  async update(id: string, dto: UpdateGroupCompanyDto) {
-    await this.findOne(id)
+  async update(id: string, dto: UpdateGroupCompanyDto, organizationId: string) {
+    await this.findOne(id, organizationId)
     return this.prisma.groupCompany.update({ where: { id }, data: dto as never })
   }
 
-  async remove(id: string) {
-    await this.findOne(id)
+  async remove(id: string, organizationId: string) {
+    await this.findOne(id, organizationId)
     return this.prisma.groupCompany.delete({ where: { id } }) // cascade remove orgUnits
   }
 }

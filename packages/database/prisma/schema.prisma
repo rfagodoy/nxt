@@ -3,17 +3,23 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlserver"
   url      = env("DATABASE_URL")
 }
+
+// NOTA SQL Server: o conector não suporta os tipos `Json` nem `enum`, e proíbe
+// caminhos de cascade múltiplos/cíclicos. Por isso, campos antes `Json` viraram
+// `String @db.NVarChar(Max)` (JSON serializado, (de)serializado na PrismaService
+// via middleware), enums viraram `String`, e relações que formavam cascade
+// múltiplo usam `onDelete/onUpdate: NoAction` (cascade tratado na aplicação).
 
 // ─── Tenants ────────────────────────────────────────────────────────────────
 
 model Organization {
-  id        String   @id @default(cuid())
-  clerkId   String   @unique
-  name      String
-  slug      String   @unique
+  id         String   @id @default(cuid())
+  externalId String   @unique // id da organização no IdP (Keycloak)
+  name       String
+  slug       String   @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -30,46 +36,33 @@ model ProcessDefinition {
   organizationId String
   name           String
   description    String?
-  bpmnXml        String   @db.Text
-  formSchema     Json     // schema dos forms por step
-  status         ProcessStatus @default(DRAFT)
+  bpmnXml        String   @db.NVarChar(Max)
+  formSchema     String   @db.NVarChar(Max) // [JSON] schema dos forms por step
+  status         String   @default("DRAFT") // DRAFT | ACTIVE | ARCHIVED
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization Organization      @relation(fields: [organizationId], references: [id])
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   instances    ProcessInstance[]
   module       Module?
 
   @@map("process_definitions")
 }
 
-enum ProcessStatus {
-  DRAFT
-  ACTIVE
-  ARCHIVED
-}
-
 model ProcessInstance {
-  id                  String          @id @default(cuid())
+  id                  String    @id @default(cuid())
   processDefinitionId String
-  status              InstanceStatus  @default(RUNNING)
+  status              String    @default("RUNNING") // RUNNING | COMPLETED | CANCELLED | ERROR
   currentStep         String
-  data                Json            @default("{}")
-  startedAt           DateTime        @default(now())
+  data                String    @default("{}") @db.NVarChar(Max) // [JSON]
+  startedAt           DateTime  @default(now())
   completedAt         DateTime?
-  updatedAt           DateTime        @updatedAt
+  updatedAt           DateTime  @updatedAt
 
-  processDefinition ProcessDefinition @relation(fields: [processDefinitionId], references: [id])
+  processDefinition ProcessDefinition @relation(fields: [processDefinitionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   records           ModuleRecord[]
 
   @@map("process_instances")
-}
-
-enum InstanceStatus {
-  RUNNING
-  COMPLETED
-  CANCELLED
-  ERROR
 }
 
 // ─── Módulos gerados ─────────────────────────────────────────────────────────
@@ -80,12 +73,12 @@ model Module {
   processDefinitionId String   @unique
   name                String
   slug                String
-  schema              Json     // estrutura das colunas/campos gerados
+  schema              String   @db.NVarChar(Max) // [JSON] estrutura das colunas/campos gerados
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  organization      Organization      @relation(fields: [organizationId], references: [id])
-  processDefinition ProcessDefinition @relation(fields: [processDefinitionId], references: [id])
+  organization      Organization      @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  processDefinition ProcessDefinition @relation(fields: [processDefinitionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   records           ModuleRecord[]
 
   @@unique([organizationId, slug])
@@ -96,12 +89,12 @@ model ModuleRecord {
   id                String   @id @default(cuid())
   moduleId          String
   processInstanceId String   @unique
-  data              Json     // dados dinâmicos coletados pelo processo
+  data              String   @db.NVarChar(Max) // [JSON] dados dinâmicos coletados pelo processo
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  module          Module          @relation(fields: [moduleId], references: [id])
-  processInstance ProcessInstance @relation(fields: [processInstanceId], references: [id])
+  module          Module          @relation(fields: [moduleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  processInstance ProcessInstance @relation(fields: [processInstanceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   documents       Document[]
 
   @@map("module_records")
@@ -123,10 +116,10 @@ model Partner {
   orgaoExpedidor String?
   dataNascimento String?
   paisOrigem     String?
-  contatos       Json     @default("[]")
-  enderecos      Json     @default("[]")
-  bancos         Json     @default("[]")
-  socios         Json     @default("[]")
+  contatos       String   @default("[]") @db.NVarChar(Max) // [JSON]
+  enderecos      String   @default("[]") @db.NVarChar(Max) // [JSON]
+  bancos         String   @default("[]") @db.NVarChar(Max) // [JSON]
+  socios         String   @default("[]") @db.NVarChar(Max) // [JSON]
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -142,7 +135,7 @@ model PartnerAuditLog {
   user      String
   event     String   // EM_CADASTRAMENTO | ATIVADO | INATIVADO | REATIVADO | ALTERADO
   motivo    String?
-  changes   Json     @default("[]") // [{ field, label, before, after }]
+  changes   String   @default("[]") @db.NVarChar(Max) // [JSON] [{ field, label, before, after }]
   createdAt DateTime @default(now())
 
   partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
@@ -160,7 +153,7 @@ model Contract {
   titulo              String
   tipo                String
   descricao           String?
-  objeto              Json     @default("[]")
+  objeto              String   @default("[]") @db.NVarChar(Max) // [JSON]
   situacao            String   @default("PENDENTE")
   inicioVigencia      String?
   terminoVigencia     String?
@@ -173,9 +166,9 @@ model Contract {
   complementoValor    String?
   renovacaoAutomatica Boolean  @default(false)
   observacoes         String?
-  partes              Json     @default("[]")
-  reajustes           Json     @default("[]")
-  documentos          Json     @default("[]")
+  partes              String   @default("[]") @db.NVarChar(Max) // [JSON]
+  reajustes           String   @default("[]") @db.NVarChar(Max) // [JSON]
+  documentos          String   @default("[]") @db.NVarChar(Max) // [JSON]
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
@@ -194,7 +187,7 @@ model Document {
   mimeType       String
   uploadedAt     DateTime @default(now())
 
-  moduleRecord ModuleRecord @relation(fields: [moduleRecordId], references: [id])
+  moduleRecord ModuleRecord @relation(fields: [moduleRecordId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("documents")
 }
@@ -209,7 +202,7 @@ model AppSetting {
   organizationId String
   userId         String   @default("")
   key            String
-  value          Json
+  value          String   @db.NVarChar(Max) // [JSON]
   updatedAt      DateTime @updatedAt
 
   @@unique([organizationId, userId, key])
@@ -252,7 +245,7 @@ model OrgUnit {
   updatedAt      DateTime @updatedAt
 
   groupCompany GroupCompany @relation(fields: [groupCompanyId], references: [id], onDelete: Cascade)
-  parent       OrgUnit?     @relation("OrgUnitTree", fields: [parentId], references: [id], onDelete: Cascade)
+  parent       OrgUnit?     @relation("OrgUnitTree", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   children     OrgUnit[]    @relation("OrgUnitTree")
 
   @@index([organizationId])

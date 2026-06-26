@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, FileText, DollarSign, RefreshCw, Users, Paperclip, ChevronDown, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { apiFetch } from '@/lib/http'
 import { cacheRead, pushSetting, pullSetting } from '@/lib/settings-store'
 import { getLogUser } from '@/hooks/use-partner-logs'
 import { EntitySearchModal } from './entity-search-modal'
@@ -14,7 +15,6 @@ import {
 } from './contract-fields'
 import { emptyContractForm, contractToPayload, newCParte, type ContractFormValues } from '@/lib/contract-options'
 
-const ORG = () => process.env.NEXT_PUBLIC_DEV_ORG_ID ?? 'dev'
 const DRAFT_KEY = 'primeapps:contratos:rascunho'
 interface ContractDraft { savedAt?: string; values?: ContractFormValues }
 
@@ -60,7 +60,7 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
   useEffect(() => {
     void (async () => {
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/group-companies?organizationId=${ORG()}`)
+        const res = await apiFetch(`/api/group-companies`)
         if (res.ok) {
           const data = await res.json() as { rows: { id: string; razaoSocial: string; nomeFantasia?: string | null; cnpj?: string | null }[] }
           setEmpresas((data.rows ?? []).map(c => ({ id: c.id, nome: c.nomeFantasia || c.razaoSocial, documento: c.cnpj ?? '' })))
@@ -100,10 +100,9 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
     if (err.size > 0) { setOpen(prev => new Set([...prev, ...err])); return }
     setSaveError(null)
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/contracts`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(contractToPayload(v, { organizationId: ORG(), user: getLogUser() })),
+      const res = await apiFetch(`/api/contracts`, {
+        method: 'POST',
+        body:   JSON.stringify(contractToPayload(v, { user: getLogUser() })),
       })
       if (res.ok) {
         pushSetting(DRAFT_KEY, null)

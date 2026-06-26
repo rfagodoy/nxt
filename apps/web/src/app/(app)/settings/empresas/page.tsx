@@ -6,13 +6,9 @@ import {
   Network, CornerDownRight, Search,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { apiFetch } from '@/lib/http'
 import { useLookupTable, type LookupEntry } from '@/hooks/use-lookup-table'
 import { TIPOS_UNIDADE_KEY, INIT_TIPOS_UNIDADE, CLASS_COLOR } from '@/lib/unit-types'
-
-/* ─── config ─────────────────────────────────────────────── */
-
-const API = () => process.env.NEXT_PUBLIC_API_URL ?? ''
-const ORG = () => process.env.NEXT_PUBLIC_DEV_ORG_ID ?? 'dev'
 
 /** Aparência (cor + rótulos) de uma unidade a partir do seu tipo configurável. */
 function unitTypeView(typeMap: Record<string, LookupEntry>, natureza: string) {
@@ -46,7 +42,7 @@ interface FlatRow { unit: Unit; depth: number; expanded: boolean }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T | null> {
   try {
-    const res = await fetch(`${API()}${path}`, { headers: { 'Content-Type': 'application/json' }, ...init })
+    const res = await apiFetch(path, init)
     if (!res.ok) return null
     return (await res.json()) as T
   } catch { return null }
@@ -282,18 +278,19 @@ function OrgChart({ companyId, onChanged }: { companyId: string; onChanged: () =
 
   const saveUnit = async (data: Partial<Unit>) => {
     const editing = unitModal?.initial
-    if (editing) await api(`/api/org-units/${editing.id}`, { method: 'PATCH', body: JSON.stringify(data) })
-    else {
-      const parent = unitModal?.parent
-      await api(`/api/org-units`, { method: 'POST', body: JSON.stringify({ organizationId: ORG(), groupCompanyId: companyId, parentId: parent?.id, ...data }) })
-      if (parent) setExpanded(prev => new Set(prev).add(parent.id))
-    }
+    const parent  = unitModal?.parent
+    const result  = editing
+      ? await api(`/api/org-units/${editing.id}`, { method: 'PATCH', body: JSON.stringify(data) })
+      : await api(`/api/org-units`, { method: 'POST', body: JSON.stringify({ groupCompanyId: companyId, parentId: parent?.id, ...data }) })
+    if (!result) { alert('Não foi possível salvar a unidade. Tente novamente.'); return } // mantém o modal aberto
+    if (!editing && parent) setExpanded(prev => new Set(prev).add(parent.id))
     setUnitModal(null)
     await refresh()
   }
   const removeUnit = async (u: Unit) => {
     if (!confirm(`Remover a unidade "${u.nome}" e todas as subunidades?`)) return
-    await api(`/api/org-units/${u.id}`, { method: 'DELETE' })
+    const ok = await api(`/api/org-units/${u.id}`, { method: 'DELETE' })
+    if (!ok) { alert('Não foi possível remover a unidade.'); return }
     await refresh()
   }
 
@@ -371,7 +368,7 @@ export default function EmpresasPage() {
   const [companyModal, setCompanyModal] = useState<{ initial?: Company } | null>(null)
 
   const loadCompanies = useCallback(async () => {
-    const data = await api<{ rows: Company[] }>(`/api/group-companies?organizationId=${ORG()}`)
+    const data = await api<{ rows: Company[] }>(`/api/group-companies`)
     const rows = data?.rows ?? []
     setCompanies(rows)
     setSelectedId(prev => prev && rows.some(c => c.id === prev) ? prev : (rows[0]?.id ?? null))
@@ -392,17 +389,18 @@ export default function EmpresasPage() {
 
   const saveCompany = async (data: Partial<Company>) => {
     const editing = companyModal?.initial
-    if (editing) await api(`/api/group-companies/${editing.id}`, { method: 'PATCH', body: JSON.stringify(data) })
-    else {
-      const created = await api<Company>(`/api/group-companies`, { method: 'POST', body: JSON.stringify({ organizationId: ORG(), ...data }) })
-      if (created?.id) setSelectedId(created.id)
-    }
+    const result = editing
+      ? await api<Company>(`/api/group-companies/${editing.id}`, { method: 'PATCH', body: JSON.stringify(data) })
+      : await api<Company>(`/api/group-companies`, { method: 'POST', body: JSON.stringify({ ...data }) })
+    if (!result) { alert('Não foi possível salvar a empresa. Tente novamente.'); return } // mantém o modal aberto
+    if (!editing && result.id) setSelectedId(result.id)
     setCompanyModal(null)
     await loadCompanies()
   }
   const removeCompany = async (c: Company) => {
     if (!confirm(`Remover a empresa "${c.razaoSocial}" e todas as suas unidades?`)) return
-    await api(`/api/group-companies/${c.id}`, { method: 'DELETE' })
+    const ok = await api(`/api/group-companies/${c.id}`, { method: 'DELETE' })
+    if (!ok) { alert('Não foi possível remover a empresa.'); return }
     await loadCompanies()
   }
 

@@ -5,7 +5,7 @@ export default function DashboardPage() {
     <div className="space-y-4">
       <div>
         <h1 className="text-base font-semibold tracking-tight">Dashboard</h1>
-        <p className="text-[11px] text-muted-foreground">Bem-vindo ao primeApps</p>
+        <p className="text-[11px] text-muted-foreground">Bem-vindo ao Nxt</p>
       </div>
 
       <div className="grid gap-2 md:grid-cols-3">
@@ -19,7 +19,7 @@ export default function DashboardPage() {
         <ol className="list-decimal list-inside space-y-1.5 text-xs text-muted-foreground">
           <li>Acesse <strong>Processos</strong> e crie seu primeiro fluxo BPMN</li>
           <li>Configure os formulários de coleta de dados em cada etapa</li>
-          <li>Ative o processo — o primeApps gera o módulo de gestão automaticamente</li>
+          <li>Ative o processo — o Nxt gera o módulo de gestão automaticamente</li>
           <li>Acesse <strong>Módulos</strong> para gerenciar seus registros</li>
         </ol>
       </div>

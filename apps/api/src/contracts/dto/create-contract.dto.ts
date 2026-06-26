@@ -4,10 +4,6 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 export class CreateContractDto {
   @ApiProperty()
   @IsString()
-  organizationId: string
-
-  @ApiProperty()
-  @IsString()
   numero: string
 
   @ApiProperty()

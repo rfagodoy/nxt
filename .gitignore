@@ -12,6 +12,10 @@ out
 # Turbo
 .turbo
 
+# Anexos (storage local de arquivos)
+uploads
+apps/api/uploads
+
 # Environment
 .env
 .env.local

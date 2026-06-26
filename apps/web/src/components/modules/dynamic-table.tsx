@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { ChevronUp, ChevronDown, Search, ExternalLink } from 'lucide-react'
 import Link from 'next/link'
-import type { ModuleColumn } from '@primeapps/types'
+import type { ModuleColumn } from '@nxt/types'
 
 const STATUS_CLS: Record<string, { label: string; cls: string }> = {
   RUNNING:   { label: 'Em andamento', cls: 'bg-yellow-100 text-yellow-800' },

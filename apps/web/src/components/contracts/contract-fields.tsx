@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useRef, useCallback } from 'react'
-import { Plus, Trash2, Search, Upload } from 'lucide-react'
+import { Plus, Trash2, Search, Upload, Download, Loader2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { apiFetch } from '@/lib/http'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { INIT_PAPEIS, PAPEIS_KEY, ORIGEM, origemDoPapel } from '@/lib/contract-roles'
 import {
@@ -37,8 +38,10 @@ export function useContractForm(initial: ContractFormValues) {
   const remDoc = useCallback((id: string) => setValues(p => ({ ...p, documentos: p.documentos.filter(x => x.id !== id) })), [])
   const updDoc = useCallback((id: string, k: keyof Omit<CDocumento, 'id'>, v: string) =>
     setValues(p => ({ ...p, documentos: p.documentos.map(x => x.id !== id ? x : { ...x, [k]: v }) })), [])
+  const patchDoc = useCallback((id: string, patch: Partial<Omit<CDocumento, 'id'>>) =>
+    setValues(p => ({ ...p, documentos: p.documentos.map(x => x.id !== id ? x : { ...x, ...patch }) })), [])
 
-  return { values, set, setValues, addParte, remParte, updParte, setParteEntity, addReaj, remReaj, updReaj, addDoc, remDoc, updDoc }
+  return { values, set, setValues, addParte, remParte, updParte, setParteEntity, addReaj, remReaj, updReaj, addDoc, remDoc, updDoc, patchDoc }
 }
 export type ContractForm = ReturnType<typeof useContractForm>
 
@@ -215,6 +218,45 @@ export function DocumentosFields({ form, ro }: { form: ContractForm; ro?: boolea
 
 function DocumentoCard({ doc, idx, ro, form }: { doc: CDocumento; idx: number; ro?: boolean; form: ContractForm }) {
   const fileRef = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState<'up' | 'down' | null>(null)
+  const [err, setErr]   = useState('')
+
+  const handleUpload = async (f: File) => {
+    setErr(''); setBusy('up')
+    try {
+      const fd = new FormData(); fd.append('file', f)
+      const res = await apiFetch('/api/files', { method: 'POST', body: fd })
+      if (!res.ok) throw new Error(res.status === 413 ? 'Arquivo muito grande (máx. 25 MB)' : 'Falha no upload')
+      const meta = await res.json() as { key: string; name: string }
+      form.patchDoc(doc.id, { arquivo_key: meta.key, arquivo_nome: meta.name })
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Falha no upload')
+    } finally { setBusy(null) }
+  }
+
+  const handleDownload = async () => {
+    if (!doc.arquivo_key) return
+    setErr(''); setBusy('down')
+    try {
+      const res = await apiFetch(`/api/files/${encodeURIComponent(doc.arquivo_key)}`)
+      if (!res.ok) throw new Error('Falha ao baixar')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = doc.arquivo_nome || 'arquivo'
+      document.body.appendChild(a); a.click(); a.remove()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Falha ao baixar')
+    } finally { setBusy(null) }
+  }
+
+  const handleRemoveFile = () => {
+    const key = doc.arquivo_key
+    form.patchDoc(doc.id, { arquivo_key: '', arquivo_nome: '' })
+    if (key) void apiFetch(`/api/files/${encodeURIComponent(key)}`, { method: 'DELETE' }) // limpeza best-effort
+  }
+
   return (
     <div className="rounded-md border bg-card overflow-hidden">
       <div className="flex items-center justify-between px-3 py-1.5 bg-muted/30 border-b">
@@ -232,11 +274,39 @@ function DocumentoCard({ doc, idx, ro, form }: { doc: CDocumento; idx: number; r
         </div>
         <div className="grid grid-cols-3 gap-3">
           <Field label="Arquivo" span2>
-            {ro ? <span className={readCls}>{doc.arquivo_nome || '—'}</span> : (
-              <div className="flex gap-2">
-                <input readOnly value={doc.arquivo_nome} placeholder="Nenhum arquivo selecionado" className={cn(inputCls, 'flex-1 cursor-default text-muted-foreground')} />
-                <button type="button" onClick={() => fileRef.current?.click()} className="flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors"><Upload className="h-3.5 w-3.5" />Anexar</button>
-                <input ref={fileRef} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) form.updDoc(doc.id, 'arquivo_nome', f.name) }} />
+            {ro ? (
+              doc.arquivo_key ? (
+                <button type="button" onClick={handleDownload} disabled={busy === 'down'}
+                  className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors disabled:opacity-50">
+                  {busy === 'down' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}{doc.arquivo_nome || 'Baixar'}
+                </button>
+              ) : <span className={readCls}>{doc.arquivo_nome || '—'}</span>
+            ) : (
+              <div className="space-y-1">
+                <div className="flex gap-2">
+                  <input readOnly value={doc.arquivo_nome} placeholder="Nenhum arquivo selecionado"
+                    className={cn(inputCls, 'flex-1 cursor-default text-muted-foreground')} />
+                  {doc.arquivo_key ? (
+                    <>
+                      <button type="button" onClick={handleDownload} disabled={busy === 'down'} title="Baixar"
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border hover:bg-muted transition-colors disabled:opacity-50">
+                        {busy === 'down' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                      </button>
+                      <button type="button" onClick={handleRemoveFile} title="Remover arquivo"
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </>
+                  ) : (
+                    <button type="button" onClick={() => fileRef.current?.click()} disabled={busy === 'up'}
+                      className="flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-50">
+                      {busy === 'up' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}{busy === 'up' ? 'Enviando...' : 'Anexar'}
+                    </button>
+                  )}
+                  <input ref={fileRef} type="file" className="hidden"
+                    onChange={e => { const f = e.target.files?.[0]; if (f) void handleUpload(f); e.target.value = '' }} />
+                </div>
+                {err && <p className="text-[11px] text-red-500">{err}</p>}
               </div>
             )}
           </Field>

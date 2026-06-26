@@ -50,3 +50,18 @@ export const PAISES: string[] = [
   'Vanuatu', 'Vaticano', 'Venezuela', 'Vietnã',
   'Zâmbia', 'Zimbábue',
 ]
+
+/**
+ * Chave única da tabela editável de Países (settings + seletores de parceiro).
+ */
+export const PAISES_STORAGE_KEY = 'primeapps:settings:tabelas:paises:v2'
+
+/**
+ * Seed da tabela de Países no formato LookupEntry, derivado de PAISES.
+ * Usado tanto pela tela de Settings quanto como semente/fallback nos seletores.
+ */
+export const PAISES_SEED = PAISES.map((nome, i) => ({
+  id: String(i + 1),
+  label: nome,
+  active: true,
+}))

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
-import { ProcessFormSchema } from '@primeapps/types'
+import { ProcessFormSchema } from '@nxt/types'
 import { StartInstanceDto } from './dto/start-instance.dto'
 import { AdvanceStepDto } from './dto/advance-step.dto'
 
@@ -8,9 +8,9 @@ import { AdvanceStepDto } from './dto/advance-step.dto'
 export class InstancesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async start(dto: StartInstanceDto) {
+  async start(dto: StartInstanceDto, organizationId: string) {
     const process = await this.prisma.processDefinition.findFirst({
-      where: { id: dto.processDefinitionId, organizationId: dto.organizationId, status: 'ACTIVE' },
+      where: { id: dto.processDefinitionId, organizationId, status: 'ACTIVE' },
       include: { module: true },
     })
 
@@ -26,7 +26,7 @@ export class InstancesService {
         processDefinitionId: process.id,
         currentStep: firstStep.stepId,
         status: 'RUNNING',
-        data: {},
+        data: {} as never,
       },
     })
 
@@ -35,7 +35,7 @@ export class InstancesService {
       data: {
         moduleId: process.module.id,
         processInstanceId: instance.id,
-        data: {},
+        data: {} as never,
       },
     })
 
@@ -47,9 +47,9 @@ export class InstancesService {
     }
   }
 
-  async advanceStep(instanceId: string, dto: AdvanceStepDto) {
-    const instance = await this.prisma.processInstance.findUnique({
-      where: { id: instanceId },
+  async advanceStep(instanceId: string, dto: AdvanceStepDto, organizationId: string) {
+    const instance = await this.prisma.processInstance.findFirst({
+      where: { id: instanceId, processDefinition: { organizationId } },
       include: {
         processDefinition: { include: { module: true } },
         records: true,
@@ -65,7 +65,7 @@ export class InstancesService {
 
     // Mescla dados acumulados
     const accumulatedData = {
-      ...(instance.data as Record<string, unknown>),
+      ...(instance.data as unknown as Record<string, unknown>),
       [instance.currentStep]: dto.data,
     }
 
@@ -103,9 +103,9 @@ export class InstancesService {
     }
   }
 
-  async getInstanceWithContext(instanceId: string) {
-    const instance = await this.prisma.processInstance.findUnique({
-      where: { id: instanceId },
+  async getInstanceWithContext(instanceId: string, organizationId: string) {
+    const instance = await this.prisma.processInstance.findFirst({
+      where: { id: instanceId, processDefinition: { organizationId } },
       include: { processDefinition: true },
     })
     if (!instance) throw new NotFoundException('Instância não encontrada')
@@ -123,8 +123,10 @@ export class InstancesService {
     }
   }
 
-  async cancel(instanceId: string) {
-    const instance = await this.prisma.processInstance.findUnique({ where: { id: instanceId } })
+  async cancel(instanceId: string, organizationId: string) {
+    const instance = await this.prisma.processInstance.findFirst({
+      where: { id: instanceId, processDefinition: { organizationId } },
+    })
     if (!instance) throw new NotFoundException('Instância não encontrada')
     if (instance.status !== 'RUNNING') throw new BadRequestException('Só é possível cancelar instâncias em execução')
 

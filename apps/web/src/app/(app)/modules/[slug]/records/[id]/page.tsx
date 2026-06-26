@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, FileText, Clock } from 'lucide-react'
+import { serverFetch } from '@/lib/http-server'
 
 interface Props {
   params: Promise<{ slug: string; id: string }>
@@ -22,11 +23,10 @@ function formatValue(value: unknown): string {
 
 export default async function RecordDetailPage({ params }: Props) {
   const { slug, id } = await params
-  const orgId = process.env.NEXT_PUBLIC_DEV_ORG_ID ?? 'dev'
 
   const [recordRes, moduleRes] = await Promise.all([
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/modules/${slug}/records/${id}?organizationId=${orgId}`, { cache: 'no-store' }),
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/modules/${slug}?organizationId=${orgId}`, { cache: 'no-store' }),
+    serverFetch(`/api/modules/${slug}/records/${id}`),
+    serverFetch(`/api/modules/${slug}`),
   ])
 
   if (!recordRes.ok || !moduleRes.ok) notFound()

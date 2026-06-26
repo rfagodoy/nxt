@@ -26,9 +26,6 @@ export class FilterItemDto {
 }
 
 export class QueryPartnersDto {
-  @IsString()
-  organizationId: string
-
   @IsOptional()
   @IsNumber()
   page?: number

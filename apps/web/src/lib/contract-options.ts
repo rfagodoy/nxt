@@ -71,7 +71,7 @@ export const STATUS_ASSINATURA = [
 /* ─── modelo único do formulário de contrato ─────────────── */
 export interface CParte     { id: string; papel: string; ref_tipo: string; ref_id: string; nome: string; documento: string }
 export interface CReajuste  { id: string; indice: string; data: string; periodicidade: string }
-export interface CDocumento { id: string; nome: string; tipo: string; data: string; arquivo_nome: string; status_assinatura: string; observacao: string }
+export interface CDocumento { id: string; nome: string; tipo: string; data: string; arquivo_nome: string; arquivo_key: string; status_assinatura: string; observacao: string }
 
 export interface ContractFormValues {
   numero: string; titulo: string; descricao: string; objeto: string[]; tipo: string
@@ -84,7 +84,7 @@ export interface ContractFormValues {
 export const uid = () => `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 export const newCParte     = (papel = ''): CParte    => ({ id: uid(), papel, ref_tipo: '', ref_id: '', nome: '', documento: '' })
 export const newCReajuste  = ():           CReajuste => ({ id: uid(), indice: '', data: '', periodicidade: '' })
-export const newCDocumento = ():           CDocumento => ({ id: uid(), nome: '', tipo: '', data: '', arquivo_nome: '', status_assinatura: 'nenhum', observacao: '' })
+export const newCDocumento = ():           CDocumento => ({ id: uid(), nome: '', tipo: '', data: '', arquivo_nome: '', arquivo_key: '', status_assinatura: 'nenhum', observacao: '' })
 
 export function emptyContractForm(): ContractFormValues {
   return {
@@ -109,7 +109,7 @@ export function contractFromApi(c: Record<string, any>): ContractFormValues {
     condicaoPagamento: c.condicaoPagamento ?? '', complementoValor: c.complementoValor ?? '',
     reajustes: arr(c.reajustes).map((r: any) => ({ id: r.id ?? uid(), indice: r.indice ?? '', data: r.data ?? '', periodicidade: r.periodicidade ?? '' })),
     partes: arr(c.partes).map((p: any) => ({ id: p.id ?? uid(), papel: p.papel ?? p.tipo ?? '', ref_tipo: p.ref_tipo ?? '', ref_id: p.ref_id ?? '', nome: p.nome ?? '', documento: p.documento ?? '' })),
-    documentos: arr(c.documentos).map((d: any) => ({ id: d.id ?? uid(), nome: d.nome ?? '', tipo: d.tipo ?? '', data: d.data ?? '', arquivo_nome: d.arquivo_nome ?? '', status_assinatura: d.status_assinatura ?? 'nenhum', observacao: d.observacao ?? '' })),
+    documentos: arr(c.documentos).map((d: any) => ({ id: d.id ?? uid(), nome: d.nome ?? '', tipo: d.tipo ?? '', data: d.data ?? '', arquivo_nome: d.arquivo_nome ?? '', arquivo_key: d.arquivo_key ?? '', status_assinatura: d.status_assinatura ?? 'nenhum', observacao: d.observacao ?? '' })),
   }
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

@@ -4,10 +4,6 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 export class CreatePartnerDto {
   @ApiProperty()
   @IsString()
-  organizationId: string
-
-  @ApiProperty()
-  @IsString()
   categoria: string
 
   @ApiPropertyOptional()

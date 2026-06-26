@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import type { FormField, FieldType, StepFormSchema } from '@primeapps/types'
+import type { FormField, FieldType, StepFormSchema } from '@nxt/types'
 import { BpmnElement } from './bpmn-editor'
 
 const FIELD_TYPES: Array<{ value: FieldType; label: string }> = [

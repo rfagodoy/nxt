@@ -12,8 +12,9 @@
  * configurações pessoais passarão a usar o id do usuário em `currentUserId()`.
  */
 
+import { apiFetch } from './http'
+
 const apiUrl = () => process.env.NEXT_PUBLIC_API_URL ?? ''
-const orgId  = () => process.env.NEXT_PUBLIC_DEV_ORG_ID ?? 'dev'
 
 /** Vazio por enquanto (sem login). No futuro, retorna o id do usuário logado. */
 export function currentUserId(): string {
@@ -39,10 +40,9 @@ export function cacheWrite(key: string, value: unknown): void {
 export function pushSetting(key: string, value: unknown): void {
   cacheWrite(key, value)
   if (!apiUrl()) return
-  void fetch(`${apiUrl()}/api/settings/${encodeURIComponent(key)}`, {
-    method:  'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ organizationId: orgId(), userId: currentUserId(), value }),
+  void apiFetch(`/api/settings/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    body:   JSON.stringify({ userId: currentUserId(), value }),
   }).catch(() => { /* offline: o cache já guardou */ })
 }
 
@@ -53,8 +53,8 @@ export function pushSetting(key: string, value: unknown): void {
 export async function pullSetting<T = unknown>(key: string): Promise<T | null> {
   if (!apiUrl()) return null
   try {
-    const res = await fetch(
-      `${apiUrl()}/api/settings/${encodeURIComponent(key)}?organizationId=${orgId()}&userId=${encodeURIComponent(currentUserId())}`,
+    const res = await apiFetch(
+      `/api/settings/${encodeURIComponent(key)}?userId=${encodeURIComponent(currentUserId())}`,
     )
     if (!res.ok) return null
     const data = await res.json() as { value: T | null }

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
-import { ModuleSchema } from '@primeapps/types'
+import { ModuleSchema } from '@nxt/types'
 
 @Injectable()
 export class ModulesService {
@@ -36,9 +36,10 @@ export class ModulesService {
     const where: Record<string, unknown> = { moduleId: module.id }
 
     if (search && searchableColumns.length > 0) {
-      where.OR = searchableColumns.map((col) => ({
-        data: { path: [col], string_contains: search, mode: 'insensitive' },
-      }))
+      // TODO(sqlserver): o filtro JSON-path (`path`/`string_contains`) é do Postgres e
+      // não existe em coluna NVARCHAR. Interino: LIKE sobre o JSON serializado (busca em
+      // todo o blob). Para busca por coluna específica, migrar para OPENJSON/JSON_VALUE.
+      where.data = { contains: search }
     }
 
     const [records, total] = await Promise.all([
@@ -92,8 +93,8 @@ export class ModulesService {
     const statusCounts = await this.prisma.$queryRaw<Array<{ status: string; count: bigint }>>`
       SELECT pi.status, COUNT(*) as count
       FROM module_records mr
-      JOIN process_instances pi ON pi.id = mr.process_instance_id
-      WHERE mr.module_id = ${module.id}
+      JOIN process_instances pi ON pi.id = mr.processInstanceId
+      WHERE mr.moduleId = ${module.id}
       GROUP BY pi.status
     `
 

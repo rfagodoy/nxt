@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma.service'
 import { ModuleGeneratorService } from '../modules/module-generator.service'
 import { CreateProcessDto } from './dto/create-process.dto'
-import { ProcessFormSchema } from '@primeapps/types'
+import { ProcessFormSchema } from '@nxt/types'
 
 @Injectable()
 export class ProcessesService {
@@ -27,14 +27,14 @@ export class ProcessesService {
     return process
   }
 
-  async create(dto: CreateProcessDto) {
+  async create(dto: CreateProcessDto, organizationId: string) {
     return this.prisma.processDefinition.create({
       data: {
         name: dto.name,
         description: dto.description,
         bpmnXml: dto.bpmnXml,
         formSchema: dto.formSchema as never,
-        organizationId: dto.organizationId,
+        organizationId,
         status: 'DRAFT',
       },
     })

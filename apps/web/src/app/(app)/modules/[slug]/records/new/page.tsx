@@ -5,16 +5,17 @@ import { useRouter } from 'next/navigation'
 import { ArrowLeft, CheckCircle2 } from 'lucide-react'
 import Link from 'next/link'
 import { DynamicForm } from '@/components/modules/dynamic-form'
-import type { StepFormSchema } from '@primeapps/types'
+import { apiFetch } from '@/lib/http'
+import type { StepFormSchema } from '@nxt/types'
 
 interface PageProps {
   params: Promise<{ slug: string }>
-  searchParams: Promise<{ processDefinitionId: string; organizationId: string }>
+  searchParams: Promise<{ processDefinitionId: string }>
 }
 
 export default function NewRecordPage({ params, searchParams }: PageProps) {
   const { slug } = use(params)
-  const { processDefinitionId, organizationId } = use(searchParams)
+  const { processDefinitionId } = use(searchParams)
 
   const router = useRouter()
   const [instanceId, setInstanceId]   = useState<string | null>(null)
@@ -25,15 +26,12 @@ export default function NewRecordPage({ params, searchParams }: PageProps) {
   const [submitting, setSubmitting]   = useState(false)
   const [started, setStarted]         = useState(false)
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL
-
   const startProcess = async () => {
     setSubmitting(true)
     try {
-      const res  = await fetch(`${apiUrl}/api/instances`, {
+      const res  = await apiFetch(`/api/instances`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ processDefinitionId, organizationId }),
+        body: JSON.stringify({ processDefinitionId }),
       })
       const data = await res.json()
       setInstanceId(data.instance.id)
@@ -50,9 +48,8 @@ export default function NewRecordPage({ params, searchParams }: PageProps) {
     if (!instanceId) return
     setSubmitting(true)
     try {
-      const res  = await fetch(`${apiUrl}/api/instances/${instanceId}/advance`, {
+      const res  = await apiFetch(`/api/instances/${instanceId}/advance`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: formData }),
       })
       const data = await res.json()

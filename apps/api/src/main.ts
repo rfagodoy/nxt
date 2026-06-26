@@ -22,8 +22,8 @@ async function bootstrap() {
   })
 
   const config = new DocumentBuilder()
-    .setTitle('primeApps API')
-    .setDescription('API do primeApps — plataforma de processos BPMN com módulos dinâmicos')
+    .setTitle('Nxt API')
+    .setDescription('API do Nxt — plataforma de processos BPMN com módulos dinâmicos')
     .setVersion('1.0')
     .addBearerAuth()
     .build()
@@ -33,7 +33,7 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3001
   await app.listen(port)
-  console.log(`primeApps API rodando em http://localhost:${port}`)
+  console.log(`Nxt API rodando em http://localhost:${port}`)
   console.log(`Swagger docs em http://localhost:${port}/api/docs`)
 }
 

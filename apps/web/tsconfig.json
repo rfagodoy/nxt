@@ -22,7 +22,7 @@
       "@/*": [
         "./src/*"
       ],
-      "@primeapps/types": [
+      "@nxt/types": [
         "../../packages/types/index.ts"
       ]
     },

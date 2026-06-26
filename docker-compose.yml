@@ -1,0 +1,52 @@
+# Infra de desenvolvimento do Nxt.
+# Sobe o Keycloak (IdP — OIDC + brokering SAML/AD) e seu Postgres dedicado.
+# O realm `nxt` é importado automaticamente de infra/keycloak/realm-nxt.json.
+#
+#   docker compose up -d
+#   Admin console: http://localhost:8080  (admin / admin)
+#   Issuer do realm: http://localhost:8080/realms/nxt
+#
+# Obs.: este compose é a base de DEV/SaaS. Para on-premise, o mesmo Keycloak
+# é empacotado junto da aplicação (ver Fase 6 do plano de migração).
+
+services:
+  keycloak-db:
+    image: postgres:16-alpine
+    container_name: nxt-keycloak-db
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak
+    volumes:
+      - keycloak-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U keycloak']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: nxt-keycloak
+    command: start-dev --import-realm
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HTTP_ENABLED: 'true'
+      KC_HOSTNAME_STRICT: 'false'
+      # Habilita a feature de Organizations (multi-tenant SaaS — decisão D1).
+      KC_FEATURES: organization
+    ports:
+      - '8080:8080'
+    volumes:
+      - ./infra/keycloak:/opt/keycloak/data/import:ro
+
+volumes:
+  keycloak-db-data:

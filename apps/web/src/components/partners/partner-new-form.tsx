@@ -8,7 +8,9 @@ import {
   Plus, Trash2, ChevronDown, Layers, FileText, Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { PAISES } from '@/lib/paises'
+import { apiFetch } from '@/lib/http'
+import { PAISES, PAISES_SEED, PAISES_STORAGE_KEY } from '@/lib/paises'
+import { useLookupTable } from '@/hooks/use-lookup-table'
 import { usePartnerFields, useFieldVisibility, type CustomField } from '@/hooks/use-partner-fields'
 import { usePartnerSections } from '@/hooks/use-partner-sections'
 import { getLogUser } from '@/hooks/use-partner-logs'
@@ -225,6 +227,9 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
   const router               = useRouter()
   const { fieldsForSection } = usePartnerFields()
   const { isVisible }        = useFieldVisibility()
+  // Países: lê a tabela editável (settings); cai no estático só enquanto hidrata.
+  const { active: paisesAtivos } = useLookupTable(PAISES_STORAGE_KEY, PAISES_SEED)
+  const paisesList = paisesAtivos.length ? paisesAtivos.map(e => e.label) : PAISES
   const { sections: customSections, sectionOrder, sectionDefaultOpen, loaded: sectionsLoaded } = usePartnerSections()
 
   const [category,      setCategory]      = useState<Category>('PJ_BR')
@@ -334,7 +339,6 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
     const get = (name: string) => (fd.get(name) as string || '').trim()
     const opt = (val: string) => val || undefined
     return {
-      organizationId: process.env.NEXT_PUBLIC_DEV_ORG_ID ?? 'dev',
       categoria: category,
       status,
       documento:      opt(get('cnpj') || get('cpf') || get('codigo')),
@@ -368,8 +372,8 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
     }
     setSaving('draft'); setSaveError(null)
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/partners`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+      const res = await apiFetch(`/api/partners`, {
+        method: 'POST',
         body: JSON.stringify(buildPayload(fd, 'EM_CADASTRAMENTO')),
       })
       if (!res.ok) { setSaveError(`Erro ao salvar (${res.status}). Verifique a conexão com o servidor.`); return }
@@ -420,8 +424,8 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
 
     setSaving('active'); setSaveError(null)
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/partners`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+      const res = await apiFetch(`/api/partners`, {
+        method: 'POST',
         body: JSON.stringify(buildPayload(fd, 'ATIVO')),
       })
       if (!res.ok) { setSaveError(`Erro ao ativar (${res.status}). Verifique a conexão com o servidor.`); return }
@@ -482,7 +486,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
               {nfv('pais_origem') && (
                 <Field label="País de Origem">
                   <select name="pais_origem" defaultValue="Brasil" className={inputCls}>
-                    {PAISES.map(p => <option key={p} value={p}>{p}</option>)}
+                    {paisesList.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
                 </Field>
               )}
@@ -494,7 +498,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
                 <Field label="País de Origem" required>
                   <select name="pais_origem" className={inputCls}>
                     <option value="">Selecione o país...</option>
-                    {PAISES.map(p => <option key={p} value={p}>{p}</option>)}
+                    {paisesList.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
                 </Field>
               )}
@@ -614,7 +618,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
                   <Field label="País" required={idx === 0}>
                     <select value={en.pais_endereco} onChange={e => updateEndereco(en.id, 'pais_endereco', e.target.value)} className={inputCls}>
                       <option value="">Selecione o país...</option>
-                      {PAISES.map(p => <option key={p} value={p}>{p}</option>)}
+                      {paisesList.map(p => <option key={p} value={p}>{p}</option>)}
                     </select>
                   </Field>
                 )}

@@ -5,8 +5,4 @@ export class StartInstanceDto {
   @ApiProperty()
   @IsString()
   processDefinitionId: string
-
-  @ApiProperty()
-  @IsString()
-  organizationId: string
 }

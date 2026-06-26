@@ -5,8 +5,8 @@ import { PrismaService } from '../prisma.service'
 export class OrganizationsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findByClerkId(clerkId: string) {
-    return this.prisma.organization.findUnique({ where: { clerkId } })
+  async findByExternalId(externalId: string) {
+    return this.prisma.organization.findUnique({ where: { externalId } })
   }
 
   async findBySlug(slug: string) {
@@ -15,11 +15,11 @@ export class OrganizationsService {
     return org
   }
 
-  async upsert(clerkId: string, name: string, slug: string) {
+  async upsert(externalId: string, name: string, slug: string) {
     return this.prisma.organization.upsert({
-      where: { clerkId },
+      where: { externalId },
       update: { name, slug },
-      create: { clerkId, name, slug },
+      create: { externalId, name, slug },
     })
   }
 }

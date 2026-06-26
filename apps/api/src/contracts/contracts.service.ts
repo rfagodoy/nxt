@@ -47,10 +47,10 @@ function toRow(c: ContractRecord) {
 export class ContractsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(dto: CreateContractDto) {
+  async create(dto: CreateContractDto, organizationId: string) {
     const { user, ...data } = dto
     void user
-    return this.prisma.contract.create({ data: data as never })
+    return this.prisma.contract.create({ data: { ...data, organizationId } as never })
   }
 
   async findAll(organizationId: string) {
@@ -61,21 +61,21 @@ export class ContractsService {
     return { rows: data.map(c => toRow(c as ContractRecord)) }
   }
 
-  async findOne(id: string) {
-    const contract = await this.prisma.contract.findUnique({ where: { id } })
+  async findOne(id: string, organizationId: string) {
+    const contract = await this.prisma.contract.findFirst({ where: { id, organizationId } })
     if (!contract) throw new NotFoundException('Contrato não encontrado')
     return contract
   }
 
-  async update(id: string, dto: UpdateContractDto) {
-    await this.findOne(id)
+  async update(id: string, dto: UpdateContractDto, organizationId: string) {
+    await this.findOne(id, organizationId)
     const { user, motivo, ...data } = dto
     void user; void motivo
     return this.prisma.contract.update({ where: { id }, data: data as never })
   }
 
-  async remove(id: string) {
-    await this.findOne(id)
+  async remove(id: string, organizationId: string) {
+    await this.findOne(id, organizationId)
     return this.prisma.contract.delete({ where: { id } })
   }
 }

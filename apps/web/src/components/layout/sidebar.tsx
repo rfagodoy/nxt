@@ -3,11 +3,13 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  LayoutDashboard, GitBranch, Zap, ChevronLeft, ChevronRight,
-  FileText, Handshake, Table2, Building2,
+  LayoutDashboard, GitBranch, ChevronLeft, ChevronRight,
+  Table2, Building2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSidebar } from '@/contexts/sidebar-context'
+import { SYSTEM_MODULES } from '@/lib/modules-catalog'
+import { Logo } from './logo'
 
 interface NavItem    { href: string; label: string; icon?: React.ElementType }
 interface NavSection { label: string; items: NavItem[] }
@@ -19,10 +21,8 @@ const sections: NavSection[] = [
   },
   {
     label: 'Gestão',
-    items: [
-      { href: '/modules/contratos', label: 'Contratos', icon: FileText  },
-      { href: '/modules/parceiros', label: 'Parceiros', icon: Handshake },
-    ],
+    // Dirigido pelo catálogo de módulos (fonte única de verdade).
+    items: SYSTEM_MODULES.map((m) => ({ href: m.href, label: m.name, icon: m.icon })),
   },
   {
     label: 'Configurações',
@@ -47,19 +47,9 @@ export function Sidebar() {
     )}>
 
       {/* Logo */}
-      <div className={cn(
-        'flex items-center border-b border-sidebar-border h-14 shrink-0 overflow-hidden',
-        collapsed ? 'justify-center px-0' : 'px-5',
-      )}>
-        <Link href="/dashboard" className="flex items-center gap-2 min-w-0">
-          <div className="p-1.5 rounded-md bg-primary shrink-0">
-            <Zap className="h-4 w-4 text-white" />
-          </div>
-          {!collapsed && (
-            <span className="font-bold text-base tracking-tight truncate text-sidebar-foreground">
-              primeApps
-            </span>
-          )}
+      <div className="flex items-center justify-center border-b border-sidebar-border h-14 shrink-0 overflow-hidden px-3">
+        <Link href="/dashboard" className="flex items-center justify-center gap-2 min-w-0">
+          <Logo variant={collapsed ? 'mark' : 'full'} />
         </Link>
       </div>
 

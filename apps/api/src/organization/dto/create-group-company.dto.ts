@@ -2,10 +2,6 @@ import { IsString, IsOptional } from 'class-validator'
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 
 export class CreateGroupCompanyDto {
-  @ApiProperty()
-  @IsString()
-  organizationId: string
-
   @ApiPropertyOptional({ description: 'Código alfanumérico (até 15 posições), manual' })
   @IsOptional()
   @IsString()
