@@ -174,17 +174,41 @@ function toRow(p: PartnerSelectRow) {
 
 type FilterItem = { col: string; op: string; value: string }
 
+// SQL Server é case-insensitive pela collation, então não há (nem o conector aceita)
+// o `mode: 'insensitive'` do Postgres — os filtros de coluna usam comparação direta.
 function applyStringFilter(col: string, op: string, val: string): object {
-  const mode = 'insensitive' as const
   switch (op) {
-    case 'eq':            return { [col]: { equals: val, mode } }
-    case 'neq':           return { NOT: { [col]: { equals: val, mode } } }
-    case 'startsWith':    return { [col]: { startsWith: val, mode } }
-    case 'notStartsWith': return { NOT: { [col]: { startsWith: val, mode } } }
-    case 'endsWith':      return { [col]: { endsWith: val, mode } }
-    case 'notEndsWith':   return { NOT: { [col]: { endsWith: val, mode } } }
-    case 'notContains':   return { NOT: { [col]: { contains: val, mode } } }
-    default:              return { [col]: { contains: val, mode } }
+    case 'eq':            return { [col]: { equals: val } }
+    case 'neq':           return { NOT: { [col]: { equals: val } } }
+    case 'startsWith':    return { [col]: { startsWith: val } }
+    case 'notStartsWith': return { NOT: { [col]: { startsWith: val } } }
+    case 'endsWith':      return { [col]: { endsWith: val } }
+    case 'notEndsWith':   return { NOT: { [col]: { endsWith: val } } }
+    case 'notContains':   return { NOT: { [col]: { contains: val } } }
+    default:              return { [col]: { contains: val } }
+  }
+}
+
+// Filtros sobre campos JSON (cidade/estado/contato). O conector SQL Server do Prisma
+// não suporta filtro JSON-path, então são resolvidos por T-SQL (JSON_VALUE) em
+// `resolveJsonFilter` — aqui o translate só os ignora (retorna null).
+const JSON_FILTER: Record<string, { col: 'enderecos' | 'contatos'; path: string }> = {
+  cidade:  { col: 'enderecos', path: '$[0].cidade' },
+  estado:  { col: 'enderecos', path: '$[0].estado' },
+  contato: { col: 'contatos',  path: '$[0].nome'   },
+}
+
+// Mapeia o operador para o padrão LIKE/igualdade e se a condição final é negada.
+function jsonLikeParam(op: string, val: string): { param: string; exact: boolean; negate: boolean } {
+  switch (op) {
+    case 'eq':            return { param: val,        exact: true,  negate: false }
+    case 'neq':           return { param: val,        exact: true,  negate: true  }
+    case 'startsWith':    return { param: `${val}%`,  exact: false, negate: false }
+    case 'notStartsWith': return { param: `${val}%`,  exact: false, negate: true  }
+    case 'endsWith':      return { param: `%${val}`,  exact: false, negate: false }
+    case 'notEndsWith':   return { param: `%${val}`,  exact: false, negate: true  }
+    case 'notContains':   return { param: `%${val}%`, exact: false, negate: true  }
+    default:              return { param: `%${val}%`, exact: false, negate: false }
   }
 }
 
@@ -196,10 +220,7 @@ function translateFilter(f: FilterItem): object | null {
     case 'categoria':     return applyStringFilter('categoria',   f.op, val)
     case 'identificador': return applyStringFilter('documento',   f.op, val)
     case 'status':        return applyStringFilter('status',      f.op, val)
-    case 'cidade':        return { enderecos: { path: ['0', 'cidade'], string_contains: val } }
-    case 'estado':        return { enderecos: { path: ['0', 'estado'], string_contains: val } }
-    case 'contato':       return { contatos:  { path: ['0', 'nome'],   string_contains: val } }
-    default:              return null
+    default:              return null // cidade/estado/contato → resolveJsonFilter
   }
 }
 
@@ -208,6 +229,7 @@ function buildWhere(
   search?: string,
   filters?: FilterItem[],
   logic?: 'AND' | 'OR',
+  jsonConditions: object[] = [],
 ) {
   const conditions: object[] = []
 
@@ -222,9 +244,10 @@ function buildWhere(
     })
   }
 
-  const filterConditions = (filters ?? [])
-    .map(translateFilter)
-    .filter((c): c is object => c !== null)
+  const filterConditions = [
+    ...(filters ?? []).map(translateFilter).filter((c): c is object => c !== null),
+    ...jsonConditions,
+  ]
 
   if (filterConditions.length) {
     conditions.push(logic === 'OR' ? { OR: filterConditions } : { AND: filterConditions })
@@ -307,10 +330,36 @@ export class PartnersService {
     return this.prisma.partner.delete({ where: { id } })
   }
 
+  /**
+   * Resolve um filtro sobre campo JSON (cidade/estado/contato) em SQL Server.
+   * O conector não suporta filtro JSON-path, então buscamos os ids casados por
+   * T-SQL cru — `col`/`path` vêm de uma allow-list fixa (JSON_FILTER), nunca do
+   * usuário; o termo vai parametrizado (@P2). Retorna {id:{in|notIn}} ou null
+   * (filtro não-JSON ou valor vazio) para o chamador ignorar. Espelha o padrão
+   * de modules.service.searchRecords.
+   */
+  private async resolveJsonFilter(organizationId: string, f: FilterItem): Promise<object | null> {
+    const val = f.value.trim()
+    const spec = JSON_FILTER[f.col]
+    if (!val || !spec) return null
+
+    const { param, exact, negate } = jsonLikeParam(f.op, val)
+    const cmp = exact ? '= @P2' : 'LIKE @P2'
+    const sql =
+      `SELECT id FROM partners ` +
+      `WHERE organizationId = @P1 AND JSON_VALUE(${spec.col}, '${spec.path}') ${cmp}`
+    const rows = await this.prisma.$queryRawUnsafe<Array<{ id: string }>>(sql, organizationId, param)
+    const ids = rows.map((r) => r.id)
+    return negate ? { id: { notIn: ids } } : { id: { in: ids } }
+  }
+
   async query(dto: QueryPartnersDto, organizationId: string) {
     const page     = Math.max(1, dto.page ?? 1)
     const pageSize = Math.min(Math.max(1, dto.pageSize ?? 50), 10000)
-    const where    = buildWhere(organizationId, dto.search, dto.filters, dto.logic)
+    const jsonConditions = (
+      await Promise.all((dto.filters ?? []).map((f) => this.resolveJsonFilter(organizationId, f)))
+    ).filter((c): c is object => c !== null)
+    const where    = buildWhere(organizationId, dto.search, dto.filters, dto.logic, jsonConditions)
     const orderBy  = buildOrder(dto.sort)
 
     const orgWhere = { organizationId }
