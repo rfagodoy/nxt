@@ -32,26 +32,67 @@ model Organization {
 
 // ─── Usuários (autenticação própria) ─────────────────────────────────────────
 // Identidade gerida pela própria aplicação (sem IdP externo). A senha é guardada
-// como hash bcrypt; o login emite um JWT assinado por nós (HS256). O par
-// (organizationId, email) é único — e-mail se repete entre tenants, não dentro.
+// como hash scrypt; o login emite um access token JWT curto (HS256) + um refresh
+// token opaco. O par (organizationId, email) é único — e-mail se repete entre
+// tenants, não dentro.
 
 model User {
-  id             String    @id @default(cuid())
-  organizationId String
-  email          String
-  passwordHash   String
-  name           String
-  role           String    @default("user") // 'admin' | 'user'
-  status         String    @default("ATIVO") // 'ATIVO' | 'INATIVO'
-  lastLoginAt    DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id                  String    @id @default(cuid())
+  organizationId      String
+  email               String
+  passwordHash        String
+  name                String
+  role                String    @default("user") // 'admin' | 'user'
+  status              String    @default("ATIVO") // 'ATIVO' | 'INATIVO'
+  lastLoginAt         DateTime?
+  // Anti-brute-force: bloqueio temporário da conta após falhas seguidas.
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
 
   @@unique([organizationId, email])
   @@index([organizationId])
   @@map("users")
+}
+
+// Refresh tokens (opacos) para renovar o access token sem novo login. Guardamos
+// só o HASH (sha256); rotação a cada uso, com revogação e detecção de reuso.
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  userAgent String?
+  ipAddress String?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// Auditoria de login (sucesso e falha). Sem FK de propósito: o registro deve
+// sobreviver à deleção do usuário, para investigação de incidentes.
+model LoginEvent {
+  id             String   @id @default(cuid())
+  organizationId String?
+  userId         String?
+  email          String
+  success        Boolean
+  reason         String?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+
+  @@index([email])
+  @@index([createdAt])
+  @@map("login_events")
 }
 
 // ─── Processo BPMN ──────────────────────────────────────────────────────────

@@ -1,16 +1,19 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { SESSION_COOKIE, decodeToken, isExpired } from '@/lib/session'
+import { SESSION_COOKIE, REFRESH_COOKIE, decodeToken, isExpired } from '@/lib/session'
 
 /**
- * Protege o app: sem sessão válida (cookie httpOnly com o nosso JWT) → /sign-in.
- * Autenticado tentando acessar /sign-in volta ao app. A verificação real do
- * token acontece na API; aqui só lemos as claims para rotear.
+ * Protege o app. Considera autenticado se o access token está válido OU se há um
+ * refresh token presente (otimista — o access curto expira a cada 15 min e seria
+ * injusto mandar ao login a cada navegação; a renovação/validação real acontece
+ * em /api/auth/session e nas chamadas à API).
  */
 export function middleware(req: NextRequest) {
   const { pathname, origin } = req.nextUrl
   const token = req.cookies.get(SESSION_COOKIE)?.value
   const decoded = token ? decodeToken(token) : null
-  const isAuthed = !!decoded && !isExpired(decoded.exp)
+  const hasValidAccess = !!decoded && !isExpired(decoded.exp)
+  const hasRefresh = !!req.cookies.get(REFRESH_COOKIE)?.value
+  const isAuthed = hasValidAccess || hasRefresh
   const isAuthRoute = pathname.startsWith('/sign-in') || pathname.startsWith('/sign-up')
 
   if (!isAuthed && !isAuthRoute) {

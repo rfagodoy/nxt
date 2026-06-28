@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
 import { hashPassword } from '../auth/password'
+import { assertStrongPassword } from '../auth/password-policy'
 import { normalizeEmail } from '../auth/auth.service'
 import { CreateUserDto } from './dto/create-user.dto'
 import { UpdateUserDto } from './dto/update-user.dto'
@@ -43,6 +44,7 @@ export class UsersService {
 
   async create(organizationId: string, dto: CreateUserDto) {
     const email = normalizeEmail(dto.email)
+    assertStrongPassword(dto.password, email)
     const exists = await this.prisma.user.findFirst({ where: { organizationId, email } })
     if (exists) throw new ConflictException('Já existe um usuário com esse e-mail')
     const passwordHash = await hashPassword(dto.password)
@@ -61,7 +63,7 @@ export class UsersService {
   async update(organizationId: string, id: string, dto: UpdateUserDto) {
     const target = await this.getOwned(organizationId, id)
     await this.assertNotLastAdmin(organizationId, target, dto)
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id },
       data: {
         ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
@@ -70,13 +72,27 @@ export class UsersService {
       },
       select: USER_SELECT,
     })
+    // Desativar o usuário derruba as sessões abertas dele na hora.
+    if (dto.status === 'INATIVO') await this.revokeSessions(id)
+    return updated
   }
 
   async changePassword(organizationId: string, id: string, password: string) {
-    await this.getOwned(organizationId, id)
+    const target = await this.getOwned(organizationId, id)
+    assertStrongPassword(password, target.email)
     const passwordHash = await hashPassword(password)
     await this.prisma.user.update({ where: { id }, data: { passwordHash } })
+    // Reset de senha pelo admin revoga as sessões do usuário.
+    await this.revokeSessions(id)
     return { ok: true }
+  }
+
+  /** Revoga todos os refresh tokens ativos do usuário (logout forçado). */
+  private async revokeSessions(userId: string): Promise<void> {
+    await this.prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    })
   }
 
   /** Impede deixar o tenant sem nenhum administrador ativo. */

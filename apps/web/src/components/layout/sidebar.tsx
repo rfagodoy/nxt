@@ -7,12 +7,13 @@ import { useSession, logout } from '@/lib/session-context'
 import { useTheme } from 'next-themes'
 import {
   LayoutDashboard, GitBranch, PanelLeft,
-  Table2, Sun, Moon, LogOut, Users,
+  Table2, Sun, Moon, LogOut, Users, KeyRound,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSidebar } from '@/contexts/sidebar-context'
 import { SYSTEM_MODULES } from '@/lib/modules-catalog'
 import { Logo } from './logo'
+import { ChangePasswordModal } from './change-password-modal'
 
 interface NavItem    { href: string; label: string; icon?: React.ElementType }
 interface NavSection { label: string; items: NavItem[] }
@@ -116,6 +117,7 @@ function SidebarFooter({ collapsed }: { collapsed: boolean }) {
   const { data: session } = useSession()
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
+  const [pwOpen, setPwOpen] = useState(false)
   useEffect(() => setMounted(true), [])
 
   const isDark = theme === 'dark'
@@ -131,6 +133,13 @@ function SidebarFooter({ collapsed }: { collapsed: boolean }) {
       title={isDark ? 'Modo claro' : 'Modo escuro'}
       className={cn(iconBtn, 'h-8 w-8 shrink-0')}>
       {mounted ? (isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />) : <span className="h-4 w-4" />}
+    </button>
+  )
+  const PasswordBtn = (
+    <button onClick={() => setPwOpen(true)}
+      title="Alterar minha senha"
+      className={cn(iconBtn, 'h-8 w-8 shrink-0')}>
+      <KeyRound className="h-4 w-4" />
     </button>
   )
   const LogoutBtn = (
@@ -151,7 +160,7 @@ function SidebarFooter({ collapsed }: { collapsed: boolean }) {
     <div className="border-t border-sidebar-border p-2">
       {collapsed ? (
         <div className="flex flex-col items-center gap-1">
-          {Avatar}{ThemeBtn}{LogoutBtn}
+          {Avatar}{ThemeBtn}{PasswordBtn}{LogoutBtn}
         </div>
       ) : (
         <div className="flex items-center gap-2">
@@ -161,9 +170,11 @@ function SidebarFooter({ collapsed }: { collapsed: boolean }) {
             {email && <p className="truncate text-[10px] text-sidebar-muted">{email}</p>}
           </div>
           {ThemeBtn}
+          {PasswordBtn}
           {LogoutBtn}
         </div>
       )}
+      {pwOpen && <ChangePasswordModal onClose={() => setPwOpen(false)} />}
     </div>
   )
 }

@@ -2,9 +2,14 @@ import { NestFactory } from '@nestjs/core'
 import { ValidationPipe } from '@nestjs/common'
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
 import { AppModule } from './app.module'
+import { assertJwtSecret } from './auth/secret'
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule)
+
+  // Fail-fast: não sobe com segredo de auth ausente/fraco em produção.
+  // (Depois do create() para o ConfigModule já ter carregado o .env.)
+  assertJwtSecret()
 
   app.setGlobalPrefix('api')
 

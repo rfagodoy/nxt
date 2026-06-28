@@ -3,7 +3,8 @@
 // assinatura é feita pela API a cada requisição; o cookie é httpOnly e definido
 // apenas pelo servidor após o login, então decodificar sem verificar é seguro.
 
-export const SESSION_COOKIE = 'nxt_session'
+export const SESSION_COOKIE = 'nxt_session' // access token (JWT curto)
+export const REFRESH_COOKIE = 'nxt_refresh' // refresh token (opaco, longo)
 
 export interface SessionUser {
   id: string

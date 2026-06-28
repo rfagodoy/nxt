@@ -9,7 +9,7 @@ export class CreateUserDto {
   email: string
 
   @IsString()
-  @MinLength(8)
+  @MinLength(10)
   password: string
 
   @IsOptional()
