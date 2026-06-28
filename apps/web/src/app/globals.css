@@ -101,6 +101,19 @@
   }
 }
 
+/* Esconde a barra de rolagem nativa em toda a aplicação — a rolagem (roda,
+   trackpad, teclado, arrasto) continua funcionando. Mantido global de propósito:
+   evita o scrollbar reaparecer em qualquer tela nova (dashboard, abas, tabelas…). */
+* {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* Edge/IE legado */
+}
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none; /* Chrome, Safari, Edge */
+}
+
 /* bpmn-js overrides */
 .bjs-container {
   width: 100%;
