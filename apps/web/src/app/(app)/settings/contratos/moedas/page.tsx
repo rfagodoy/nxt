@@ -18,7 +18,7 @@ export default function Moedas() {
       title="Moedas"
       description="Moedas disponíveis para contratos"
       icon={Coins}
-      storageKey="primeapps:settings:contratos:moedas"
+      storageKey="nxt:settings:contratos:moedas"
       initialData={INITIAL}
       withCode
       codeLabel="Código ISO"

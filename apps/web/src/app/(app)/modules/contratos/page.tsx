@@ -5,35 +5,19 @@ import {
   Plus, Search, ArrowUp, ArrowDown, ChevronsUpDown,
   SlidersHorizontal, X, Check, Bookmark, ChevronDown, LayoutList,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileDown, Settings2,
-  Trash2, FileText, Calendar, Users, Banknote, TrendingUp, Paperclip,
 } from 'lucide-react'
-import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { useViews, type ViewState } from '@/hooks/use-views'
 import ExcelJS from 'exceljs'
 import { SettingsDrawer } from '@/components/contracts/field-drawer'
-import ContractNewForm from '@/components/contracts/contract-new-form'
-import { useContractForm, IdentificacaoFields, VigenciaFields, ValoresFields, ReajustesFields, PartesFields, DocumentosFields } from '@/components/contracts/contract-fields'
-import { emptyContractForm, contractFromApi, contractToPayload } from '@/lib/contract-options'
-import { EntitySearchModal } from '@/components/contracts/entity-search-modal'
-import { getLogUser } from '@/hooks/use-partner-logs'
+import { effectiveSituacao } from '@/lib/contract-options'
 import { cacheRead, pushSetting, pullSetting } from '@/lib/settings-store'
 import { useContractFields, useContractDefaultColumns, useContractFieldVisibility, NATIVE_FIELDS, COLUMN_ORDER_RESET_EVENT } from '@/hooks/use-contract-fields'
+import { type Row, SIT_CLS, SIT_LABEL, BRL, fmtDate } from '@/components/contracts/contract-detail-view'
+import { useWorkspace } from '@/contexts/workspace-context'
 
 
-const SIT_CLS: Record<string, string> = {
-  ATIVO:      'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  PENDENTE:   'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  REVISAO:    'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-  ENCERRADO:  'bg-muted text-muted-foreground',
-  RESCINDIDO: 'bg-red-500/10 text-red-600 dark:text-red-400',
-  SUSPENSO:   'bg-orange-500/10 text-orange-600 dark:text-orange-400',
-}
-const SIT_LABEL: Record<string, string> = {
-  ATIVO: 'Ativo', PENDENTE: 'Pend. assinatura', REVISAO: 'Em revisão',
-  ENCERRADO: 'Encerrado', RESCINDIDO: 'Rescindido', SUSPENSO: 'Suspenso',
-}
 
 const COLUMNS = [
   { key: 'numero',          label: 'Número'         },
@@ -60,38 +44,17 @@ const OPERATORS = [
 ]
 
 const PAGE_SIZE_OPTIONS = [10, 50, 100, 200, 500]
-const COL_ORDER_KEY     = 'primeapps:columns:contratos'
+const COL_ORDER_KEY     = 'nxt:columns:contratos'
 
-/** Linha da listagem — espelha o toRow() do contracts.service no backend. */
-interface Row {
-  id: string
-  numero: string
-  titulo: string
-  tipo: string
-  parte_principal: string
-  inicio: string
-  termino: string | null
-  valor_total: number
-  situacao: string
-  documento: string
-  papel: string
-  data_assinatura: string
-  moeda: string
-  valor_parcela: number
-  condicao_pagamento: string
-  objeto?: string[]
-  contratante_nome?: string; contratante_doc?: string
-  contratada_nome?: string;  contratada_doc?: string
-}
 interface SortState { col: string; dir: 'asc' | 'desc' }
 interface FilterRow { id: string; col: string; op: string; value: string }
 
-const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
-const fmtDate = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-BR') : '—'
 
 function fieldValue(r: Row, key: string): string {
-  if (key === 'valor_total') return String(r.valor_total)
-  if (key === 'termino')     return r.termino ?? ''
+  if (key === 'valor_total')     return String(r.valor_total)
+  if (key === 'termino')         return r.termino ?? ''
+  /* a coluna "Partes" abrange contratante + contratada (nome e documento) */
+  if (key === 'parte_principal') return [r.parte_principal, r.contratante_nome, r.contratante_doc, r.contratada_nome, r.contratada_doc].filter(Boolean).join(' ')
   return String(r[key as keyof Row] ?? '')
 }
 
@@ -124,257 +87,9 @@ function pageWindow(current: number, total: number): (number | '...')[] {
   return pages
 }
 
-interface CTab { id: string; label: string; pinned: boolean; row?: Row; type?: 'new' }
 
-const SIT_DOT_CLS: Record<string, string> = {
-  ATIVO:      'bg-emerald-500',
-  PENDENTE:   'bg-amber-500 animate-pulse',
-  REVISAO:    'bg-blue-500 animate-pulse',
-  ENCERRADO:  'bg-muted-foreground/50',
-  RESCINDIDO: 'bg-red-500',
-  SUSPENSO:   'bg-orange-500',
-}
 
-/* painel de aba: só renderiza quando a aba está ativa */
-function DSection({ active, children }: { active: boolean; children: React.ReactNode }) {
-  if (!active) return null
-  return <div className="rounded-lg border bg-card p-4 space-y-3">{children}</div>
-}
 
-/* ══════════════════════════════════════════════════════════════ */
-function ContractDetailView({ row, onClose, onSaved }: { row: Row; onClose: () => void; onSaved?: () => void }) {
-  const form = useContractForm({
-    ...emptyContractForm(),
-    numero: row.numero, titulo: row.titulo, tipo: row.tipo, situacao: row.situacao,
-    valorTotal: String(row.valor_total ?? ''), objeto: row.objeto ?? [],
-  })
-  const v = form.values
-  const router  = useRouter()
-  const [empresas,    setEmpresas]    = useState<{ id: string; nome: string; documento: string }[]>([])
-  const [searchModal, setSearchModal] = useState<{ parteId: string; origem: string } | null>(null)
-  useEffect(() => {
-    void (async () => {
-      try {
-        const res = await apiFetch(`/api/group-companies`)
-        if (res.ok) {
-          const data = await res.json() as { rows: { id: string; razaoSocial: string; nomeFantasia?: string | null; cnpj?: string | null }[] }
-          setEmpresas((data.rows ?? []).map(c => ({ id: c.id, nome: c.nomeFantasia || c.razaoSocial, documento: c.cnpj ?? '' })))
-        }
-      } catch {}
-    })()
-  }, [])
-
-  const [tab,          setTab]          = useState<string>('dados_gerais')
-  const [showMotivo,   setShowMotivo]   = useState(false)
-  const [motivoAction, setMotivoAction] = useState('')
-  const [motivo,       setMotivo]       = useState('')
-  const [saving,       setSaving]       = useState(false)
-  const [saveError,    setSaveError]    = useState<string | null>(null)
-
-  /* carrega o registro completo (a Row da listagem é só um resumo) */
-  useEffect(() => {
-    let cancel = false
-    void (async () => {
-      try {
-        const res = await apiFetch(`/api/contracts/${row.id}`)
-        if (!res.ok || cancel) return
-        const c = await res.json() as Record<string, unknown>
-        form.setValues(contractFromApi(c))
-      } catch { /* mantém o fallback vindo da Row */ }
-    })()
-    return () => { cancel = true }
-  }, [row.id])
-
-  const locked = ['ATIVO', 'ENCERRADO', 'RESCINDIDO', 'SUSPENSO'].includes(v.situacao)
-
-  const sectionTabs = [
-    { id: 'dados_gerais', label: 'Dados Gerais',      icon: FileText },
-    { id: 'vigencia',     label: 'Vigência',          icon: Calendar },
-    { id: 'valor',        label: 'Valor e Pagamento', icon: Banknote },
-    { id: 'reajuste',     label: 'Reajuste',          icon: TrendingUp },
-    { id: 'partes',       label: 'Partes',            icon: Users },
-    { id: 'documentos',   label: 'Documentos',        icon: Paperclip },
-  ]
-
-  const confirmAction = () => {
-    const map: Record<string, string> = {
-      assinar: 'ATIVO', revisao: 'REVISAO', aprovar: 'ATIVO', devolver: 'PENDENTE',
-      encerrar: 'ENCERRADO', suspender: 'SUSPENSO', rescindir: 'RESCINDIDO',
-      reativar: 'ATIVO', reabrir: 'ATIVO',
-    }
-    const newStatus = map[motivoAction]
-    setShowMotivo(false); setMotivo(''); setMotivoAction('')
-    if (newStatus) form.set('situacao', newStatus)
-  }
-
-  const handleSave = async () => {
-    setSaving(true); setSaveError(null)
-    try {
-      const res = await apiFetch(`/api/contracts/${row.id}`, {
-        method: 'PATCH',
-        body:   JSON.stringify(contractToPayload(v, { user: getLogUser() })),
-      })
-      if (res.ok) { onSaved?.() }
-      else setSaveError(`Erro ao salvar contrato (${res.status}).`)
-    } catch {
-      setSaveError('Não foi possível conectar ao servidor.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const motivoLabels: Record<string, string> = {
-    assinar: 'Confirmar registro de assinatura',
-    revisao: 'Motivo da abertura para revisão',
-    aprovar: 'Confirmar aprovação do contrato',
-    devolver: 'Motivo da devolução',
-    encerrar: 'Motivo do encerramento',
-    suspender: 'Motivo da suspensão',
-    rescindir: 'Motivo da rescisão',
-    reativar: 'Motivo da reativação',
-    reabrir: 'Motivo da reabertura',
-  }
-
-  return (
-    <div className="space-y-3 pb-6">
-
-      {/* cabeçalho de identidade */}
-      <div className="rounded-xl border bg-card px-4 py-3 flex items-start justify-between gap-4 shadow-sm">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-sm font-semibold truncate max-w-[460px]">{v.titulo || row.titulo || 'Sem título'}</h2>
-            <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium', SIT_CLS[v.situacao])}>
-              <span className={cn('h-1.5 w-1.5 rounded-full', SIT_DOT_CLS[v.situacao] ?? 'bg-muted-foreground/50')} />
-              {SIT_LABEL[v.situacao]}
-            </span>
-          </div>
-          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground flex-wrap">
-            <span className="font-mono">{v.numero}</span>
-            <span className="text-muted-foreground/40">·</span>
-            <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground/70">{v.tipo}</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-          <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Fechar</button>
-          {!showMotivo && (
-            <button type="button" onClick={handleSave} disabled={saving}
-              className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors">
-              {saving ? 'Salvando...' : 'Salvar'}
-            </button>
-          )}
-          {v.situacao === 'PENDENTE' && !showMotivo && (
-            <>
-              <button type="button" onClick={() => { setMotivoAction('assinar'); setShowMotivo(true) }}
-                className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
-                Registrar Assinatura
-              </button>
-            </>
-          )}
-          {v.situacao === 'REVISAO' && !showMotivo && (
-            <>
-              <button type="button" onClick={() => { setMotivoAction('devolver'); setShowMotivo(true) }}
-                className="inline-flex items-center h-7 rounded-md border border-yellow-200 text-yellow-700 px-3 text-xs font-medium hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors">
-                Devolver
-              </button>
-              <button type="button" onClick={() => { setMotivoAction('aprovar'); setShowMotivo(true) }}
-                className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
-                Aprovar
-              </button>
-            </>
-          )}
-          {v.situacao === 'ATIVO' && !showMotivo && (
-            <>
-              <button type="button" onClick={() => { setMotivoAction('revisao'); setShowMotivo(true) }}
-                className="inline-flex items-center h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors">
-                Abrir para revisão
-              </button>
-              <button type="button" onClick={() => { setMotivoAction('suspender'); setShowMotivo(true) }}
-                className="inline-flex items-center h-7 rounded-md border border-orange-200 text-orange-600 px-3 text-xs font-medium hover:bg-orange-50 dark:hover:bg-orange-950/40 transition-colors">
-                Suspender
-              </button>
-              <button type="button" onClick={() => { setMotivoAction('encerrar'); setShowMotivo(true) }}
-                className="inline-flex items-center h-7 rounded-md border border-gray-300 text-gray-600 px-3 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-900/40 transition-colors">
-                Encerrar
-              </button>
-              <button type="button" onClick={() => { setMotivoAction('rescindir'); setShowMotivo(true) }}
-                className="inline-flex items-center h-7 rounded-md border border-red-200 text-red-600 px-3 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors">
-                Rescindir
-              </button>
-            </>
-          )}
-          {v.situacao === 'SUSPENSO' && !showMotivo && (
-            <button type="button" onClick={() => { setMotivoAction('reativar'); setShowMotivo(true) }}
-              className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
-              Reativar
-            </button>
-          )}
-          {v.situacao === 'ENCERRADO' && !showMotivo && (
-            <button type="button" onClick={() => { setMotivoAction('reabrir'); setShowMotivo(true) }}
-              className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
-              Reabrir
-            </button>
-          )}
-        </div>
-      </div>
-
-      {saveError && (
-        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">
-          {saveError}
-        </div>
-      )}
-
-      {/* prompt de motivo */}
-      {showMotivo && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40 p-3 space-y-2">
-          <p className="text-xs font-semibold text-amber-800 dark:text-amber-200">{motivoLabels[motivoAction]}</p>
-          <textarea value={motivo} onChange={e => setMotivo(e.target.value)} rows={2}
-            placeholder="Descreva o motivo..." autoFocus
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none" />
-          <div className="flex items-center justify-end gap-2">
-            <button type="button" onClick={() => { setShowMotivo(false); setMotivo('') }}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors">Cancelar</button>
-            <button type="button" onClick={confirmAction} disabled={!motivo.trim()}
-              className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">Confirmar</button>
-          </div>
-        </div>
-      )}
-
-      {/* sub-abas por seção */}
-      <div className="flex items-center gap-1 flex-wrap border-b pb-2">
-        {sectionTabs.map(t => (
-          <button key={t.id} type="button" onClick={() => setTab(t.id)}
-            className={cn('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-              tab === t.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-muted')}>
-            <t.icon className="h-3.5 w-3.5" />{t.label}
-          </button>
-        ))}
-      </div>
-
-      <form className="space-y-2" onSubmit={e => e.preventDefault()}>
-        <DSection active={tab === 'dados_gerais'}><IdentificacaoFields form={form} ro={locked} /></DSection>
-        <DSection active={tab === 'vigencia'}><VigenciaFields form={form} ro={locked} /></DSection>
-        <DSection active={tab === 'valor'}><ValoresFields form={form} ro={locked} /></DSection>
-        <DSection active={tab === 'reajuste'}><ReajustesFields form={form} ro={locked} /></DSection>
-        <DSection active={tab === 'partes'}>
-          <PartesFields form={form} ro={locked}
-            onOpenSearch={(parteId, origem) => setSearchModal({ parteId, origem })}
-            onNewPartner={() => router.push('/modules/parceiros/new?from=contratos')} />
-        </DSection>
-        <DSection active={tab === 'documentos'}><DocumentosFields form={form} ro={locked} /></DSection>
-      </form>
-
-      {searchModal && (
-        <EntitySearchModal
-          origem={searchModal.origem}
-          empresas={empresas}
-          onSelect={(e) => { form.setParteEntity(searchModal.parteId, e); setSearchModal(null) }}
-          onClose={() => setSearchModal(null)}
-          onNewPartner={() => router.push('/modules/parceiros/new?from=contratos')}
-        />
-      )}
-    </div>
-  )
-}
 
 /* ══════════════════════════════════════════════════════════════ */
 export default function ContratosPage() {
@@ -471,58 +186,17 @@ export default function ContratosPage() {
   const [pageSize,     setPageSize]     = useState(10)
   const [showFields,   setShowFields]   = useState(false)
 
-  /* ── abas ── */
-  const [tabs,        setTabs]        = useState<CTab[]>([{ id: 'lista', label: 'Lista', pinned: true }])
-  const [activeTabId, setActiveTabId] = useState('lista')
+  /* ── área de trabalho global (abas no shell, sobrevivem à navegação) ── */
+  const ws = useWorkspace()
+  const openContract    = (row: Row) => ws.open({ id: `contract:${row.id}`, kind: 'contract', mode: 'detail', label: row.numero, data: row })
+  const openNewContract = ()         => ws.open({ id: 'contract:new', kind: 'contract', mode: 'new', label: 'Novo contrato' })
 
-  const openContractTab = (row: Row) => {
-    const existing = tabs.find(t => t.row?.id === row.id)
-    if (existing) { setActiveTabId(existing.id); return }
-    const id = `tab_${row.id}`
-    setTabs(prev => [...prev, { id, label: row.numero, pinned: false, row }])
-    setActiveTabId(id)
-  }
-
-  const closeContractTab = (tabId: string) => {
-    setTabs(prev => prev.filter(t => t.id !== tabId))
-    if (activeTabId === tabId) setActiveTabId('lista')
-  }
-
-  const openNewContractTab = () => {
-    const existing = tabs.find(t => t.id === 'tab_new')
-    if (existing) { setActiveTabId('tab_new'); return }
-    setTabs(prev => [...prev, { id: 'tab_new', label: 'Novo contrato', pinned: false, type: 'new' }])
-    setActiveTabId('tab_new')
-  }
-
-  const handleContractSaved = async (result?: { id?: string }) => {
-    const rows = await loadContratos()
-    const row  = result?.id ? rows.find(r => r.id === result.id) : undefined
-    setTabs(prev => prev.filter(t => t.id !== 'tab_new'))
-    if (row) openContractTab(row)
-    else setActiveTabId('lista')
-  }
-
-  const contractTabsRef              = useRef<HTMLDivElement>(null)
-  const [canScrollLeft,  setCanScrollLeft]  = useState(false)
-  const [canScrollRight, setCanScrollRight] = useState(false)
-
+  /* recarrega a lista quando um documento é salvo/transicionado na área de trabalho */
   useEffect(() => {
-    const el = contractTabsRef.current
-    if (!el) return
-    const check = () => {
-      setCanScrollLeft(el.scrollLeft > 0)
-      setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1)
-    }
-    check()
-    el.addEventListener('scroll', check)
-    const ro = new ResizeObserver(check)
-    ro.observe(el)
-    return () => { el.removeEventListener('scroll', check); ro.disconnect() }
-  }, [tabs])
-
-  const scrollTabs = (dir: 'left' | 'right') =>
-    contractTabsRef.current?.scrollBy({ left: dir === 'left' ? -200 : 200, behavior: 'smooth' })
+    const h = () => { void loadContratos() }
+    window.addEventListener('nxt:workspace:refresh', h)
+    return () => window.removeEventListener('nxt:workspace:refresh', h)
+  }, [loadContratos])
 
   const saveInputRef = useRef<HTMLInputElement>(null)
   const viewsRef     = useRef<HTMLDivElement>(null)
@@ -573,7 +247,7 @@ export default function ContratosPage() {
     hr.eachCell(c => { c.font = { bold: true, size: 10, color: { argb: 'FF1E3A8A' } }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } }; c.border = { bottom: { style: 'thin', color: { argb: 'FF93C5FD' } } } })
     ws.getRow(3).height = 20
     filteredRows.forEach((r, i) => {
-      const row = ws.addRow([r.numero, r.titulo, r.tipo, r.parte_principal, fmtDate(r.inicio), fmtDate(r.termino), BRL.format(r.valor_total), SIT_LABEL[r.situacao] ?? r.situacao])
+      const row = ws.addRow([r.numero, r.titulo, r.tipo, r.parte_principal, fmtDate(r.inicio), fmtDate(r.termino), BRL.format(r.valor_total), SIT_LABEL[effectiveSituacao(r.situacao, r.termino)] ?? r.situacao])
       row.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: i % 2 === 0 ? 'FFFFFFFF' : 'FFF8FAFC' } }; c.font = { size: 10 } }); row.height = 18
     })
     ws.columns.forEach((col, i) => { col.width = Math.min((HEADERS[i]?.length ?? 10) + 8, 60) })
@@ -591,12 +265,12 @@ export default function ContratosPage() {
   const filteredRows = useMemo(() => {
     let data = [...allContratos]
     const q = search.trim().toLowerCase()
-    if (q) data = data.filter(r => COLUMNS.some(c => fieldValue(r, c.key).toLowerCase().includes(q)))
+    if (q) data = data.filter(r => orderedColumns.some(c => fieldValue(r, c.key).toLowerCase().includes(q)))
     const active = filters.filter(f => f.value.trim())
     if (active.length) data = data.filter(r => { const res = active.map(f => applyOp(fieldValue(r, f.col), f.op, f.value)); return logic === 'AND' ? res.every(Boolean) : res.some(Boolean) })
     if (sort) data.sort((a, b) => { const cmp = fieldValue(a, sort.col).localeCompare(fieldValue(b, sort.col), 'pt-BR', { sensitivity: 'base' }); return sort.dir === 'asc' ? cmp : -cmp })
     return data
-  }, [allContratos, search, sort, filters, logic])
+  }, [allContratos, search, sort, filters, logic, orderedColumns])
 
   const totalFiltered      = filteredRows.length
   const totalPages         = Math.max(1, Math.ceil(totalFiltered / pageSize))
@@ -614,24 +288,27 @@ export default function ContratosPage() {
       : ''
     switch (key) {
       case 'numero':
-        return <td key={key} className={cn('px-3 py-1 font-medium font-mono whitespace-nowrap', sticky)}><button type="button" onClick={() => openContractTab(row)} className="hover:text-primary hover:underline text-left">{row.numero}</button></td>
+        return <td key={key} className={cn('px-3 py-1 font-medium font-mono whitespace-nowrap', sticky)}><button type="button" onClick={() => openContract(row)} className="hover:text-primary hover:underline text-left">{row.numero}</button></td>
       case 'titulo':
         return <td key={key} className={cn('px-3 py-1 font-medium max-w-[200px] truncate', sticky)}>{row.titulo}</td>
       case 'tipo':
         return <td key={key} className={cn('px-3 py-1 text-muted-foreground whitespace-nowrap', sticky)}>{row.tipo}</td>
       case 'parte_principal': {
-        const linha = (label: string, nome?: string, doc?: string) => nome ? (
-          <span className="flex items-center gap-1.5 whitespace-nowrap">
-            <span className="rounded bg-muted px-1 py-0.5 text-[9px] font-semibold text-muted-foreground shrink-0">{label}</span>
-            <span className="font-medium text-foreground truncate max-w-[160px]">{nome}</span>
-            {doc && <span className="text-[10px] text-muted-foreground/80 shrink-0">{doc}</span>}
-          </span>
+        /* grid de 3 colunas: selo (uniforme) | nome (flexível) | documento (alinhado na própria coluna) */
+        const linha = (label: string, badgeCls: string, nome?: string, doc?: string) => nome ? (
+          <>
+            <span className={cn('inline-flex w-full items-center justify-center rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide', badgeCls)}>{label}</span>
+            <span className="font-medium text-foreground truncate min-w-0">{nome}</span>
+            <span className="text-[10px] text-muted-foreground/70 tabular-nums whitespace-nowrap">{doc || ''}</span>
+          </>
         ) : null
-        const ctn = linha('Contratante', row.contratante_nome, row.contratante_doc)
-        const ctd = linha('Contratada', row.contratada_nome, row.contratada_doc)
+        const ctn = linha('Contratante', 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400', row.contratante_nome, row.contratante_doc)
+        const ctd = linha('Contratada',  'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', row.contratada_nome, row.contratada_doc)
         return (
           <td key={key} className={cn('px-3 py-1 text-xs', sticky)}>
-            {ctn || ctd ? <div className="flex flex-col gap-0.5">{ctn}{ctd}</div> : <span className="text-muted-foreground">{row.parte_principal || '—'}</span>}
+            {ctn || ctd
+              ? <div className="grid grid-cols-[auto_1fr_auto] items-center gap-x-2 gap-y-1">{ctn}{ctd}</div>
+              : <span className="text-muted-foreground">{row.parte_principal || '—'}</span>}
           </td>
         )
       }
@@ -641,8 +318,10 @@ export default function ContratosPage() {
         return <td key={key} className={cn('px-3 py-1 text-muted-foreground tabular-nums whitespace-nowrap', sticky)}>{fmtDate(row.termino)}</td>
       case 'valor_total':
         return <td key={key} className={cn('px-3 py-1 text-right tabular-nums whitespace-nowrap', sticky)}>{BRL.format(row.valor_total)}</td>
-      case 'situacao':
-        return <td key={key} className={cn('px-3 py-1 whitespace-nowrap', sticky)}><span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium ${SIT_CLS[row.situacao]}`}>{SIT_LABEL[row.situacao]}</span></td>
+      case 'situacao': {
+        const s = effectiveSituacao(row.situacao, row.termino)
+        return <td key={key} className={cn('px-3 py-1 whitespace-nowrap', sticky)}><span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium ${SIT_CLS[s]}`}>{SIT_LABEL[s]}</span></td>
+      }
       default: {
         const v = (row as unknown as Record<string, unknown>)[key]
         let display: React.ReactNode = (v as string) || '—'
@@ -666,74 +345,6 @@ export default function ContratosPage() {
 
   return (
     <>
-    {/* barra de abas */}
-    <div className="flex items-end border-b mb-3">
-
-      {/* aba Lista — sempre visível */}
-      <div className={cn(
-        'flex items-center px-3 py-2 border-b-2 cursor-pointer whitespace-nowrap transition-colors shrink-0',
-        activeTabId === 'lista' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground',
-      )}>
-        <button type="button" onClick={() => setActiveTabId('lista')} className="text-xs font-medium">Lista</button>
-      </div>
-
-      {tabs.length > 1 && (
-        <>
-          <div className="w-px h-4 bg-border self-center mx-1 shrink-0" />
-
-          <button type="button" onClick={() => scrollTabs('left')}
-            className={cn('flex items-center justify-center h-6 w-5 shrink-0 self-center rounded transition-all text-muted-foreground',
-              canScrollLeft ? 'opacity-100 hover:bg-muted hover:text-foreground' : 'opacity-0 pointer-events-none')}>
-            <ChevronLeft className="h-3.5 w-3.5" />
-          </button>
-
-          <div ref={contractTabsRef}
-            className="flex items-end overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none] [-ms-overflow-style:none]">
-            {tabs.filter(t => !t.pinned).map(tab => (
-              <div key={tab.id}
-                className={cn(
-                  'group flex items-center gap-1 px-3 py-2 border-b-2 cursor-pointer whitespace-nowrap transition-colors shrink-0',
-                  activeTabId === tab.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground',
-                )}>
-                <button type="button" onClick={() => setActiveTabId(tab.id)} className="text-xs font-medium max-w-[200px] truncate">
-                  {tab.label}
-                </button>
-                <button type="button" onClick={() => closeContractTab(tab.id)}
-                  className="ml-0.5 flex items-center justify-center h-4 w-4 rounded opacity-0 group-hover:opacity-100 hover:bg-muted transition-all text-muted-foreground hover:text-foreground">
-                  <X className="h-2.5 w-2.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-
-          <button type="button" onClick={() => scrollTabs('right')}
-            className={cn('flex items-center justify-center h-6 w-5 shrink-0 self-center rounded transition-all text-muted-foreground',
-              canScrollRight ? 'opacity-100 hover:bg-muted hover:text-foreground' : 'opacity-0 pointer-events-none')}>
-            <ChevronRight className="h-3.5 w-3.5" />
-          </button>
-        </>
-      )}
-    </div>
-
-    {/* abas de detalhe — todas montadas, inativa fica hidden */}
-    {tabs.filter(t => !t.pinned).map(tab => (
-      <div key={tab.id} className={activeTabId === tab.id ? '' : 'hidden'}>
-        {tab.type === 'new' ? (
-          <div className="max-w-3xl mx-auto">
-            <ContractNewForm
-              embedded
-              onSaved={handleContractSaved}
-              onCancel={() => closeContractTab(tab.id)}
-            />
-          </div>
-        ) : (
-          <ContractDetailView row={tab.row!} onClose={() => closeContractTab(tab.id)} onSaved={() => { void loadContratos() }} />
-        )}
-      </div>
-    ))}
-
-    {/* aba Lista */}
-    <div className={activeTabId === 'lista' ? '' : 'hidden'}>
     <div className="space-y-3">
 
       {/* cabeçalho */}
@@ -747,7 +358,7 @@ export default function ContratosPage() {
             }
           </p>
         </div>
-        <button type="button" onClick={openNewContractTab}
+        <button type="button" onClick={openNewContract}
           className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
           <Plus className="h-3.5 w-3.5" />Novo contrato
         </button>
@@ -757,11 +368,11 @@ export default function ContratosPage() {
       <div className="grid grid-cols-6 gap-2">
         {[
           { label: 'Total',       value: totalAll,                                                          cls: 'text-foreground'  },
-          { label: 'Ativos',      value: allContratos.filter(r => r.situacao === 'ATIVO').length,      cls: 'text-emerald-600 dark:text-emerald-400' },
-          { label: 'Pendentes',   value: allContratos.filter(r => r.situacao === 'PENDENTE').length,   cls: 'text-amber-600 dark:text-amber-400'     },
-          { label: 'Em revisão',  value: allContratos.filter(r => r.situacao === 'REVISAO').length,    cls: 'text-blue-600 dark:text-blue-400'       },
-          { label: 'Encerrados',  value: allContratos.filter(r => r.situacao === 'ENCERRADO').length,  cls: 'text-muted-foreground'                  },
-          { label: 'Rescindidos', value: allContratos.filter(r => r.situacao === 'RESCINDIDO').length, cls: 'text-red-600 dark:text-red-400'         },
+          { label: 'Vigentes',    value: allContratos.filter(r => effectiveSituacao(r.situacao, r.termino) === 'VIGENTE').length,     cls: 'text-emerald-600 dark:text-emerald-400' },
+          { label: 'Em cadastro', value: allContratos.filter(r => effectiveSituacao(r.situacao, r.termino) === 'EM_CADASTRO').length, cls: 'text-blue-600 dark:text-blue-400'       },
+          { label: 'Vencidos',    value: allContratos.filter(r => effectiveSituacao(r.situacao, r.termino) === 'VENCIDO').length,     cls: 'text-amber-600 dark:text-amber-400'     },
+          { label: 'Encerrados',  value: allContratos.filter(r => effectiveSituacao(r.situacao, r.termino) === 'ENCERRADO').length,   cls: 'text-muted-foreground'                  },
+          { label: 'Rescindidos', value: allContratos.filter(r => effectiveSituacao(r.situacao, r.termino) === 'RESCINDIDO').length,  cls: 'text-red-600 dark:text-red-400'         },
         ].map(({ label, value, cls }) => (
           <div key={label} className="rounded-xl border bg-card px-3 py-2 flex items-center justify-between shadow-sm">
             <p className="text-[11px] text-muted-foreground">{label}</p>
@@ -860,7 +471,7 @@ export default function ContratosPage() {
                 <div key={f.id} className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground w-6 text-right shrink-0">{idx === 0 ? 'Se' : logic === 'AND' ? 'E' : 'OU'}</span>
                   <SelFilter value={f.col} onChange={v => updateFilter(f.id, 'col', v)} className="w-36">
-                    {COLUMNS.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
+                    {orderedColumns.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
                   </SelFilter>
                   <SelFilter value={f.op} onChange={v => updateFilter(f.id, 'op', v)} className="w-36">
                     {OPERATORS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -940,7 +551,6 @@ export default function ContratosPage() {
         </div>
       </div>
     </div>
-    </div>{/* fim aba Lista */}
 
     {showFields && <SettingsDrawer onClose={() => setShowFields(false)} />}
     </>

@@ -1,11 +1,11 @@
 import type { LookupEntry } from '@/hooks/use-lookup-table'
 
 /* ─── chaves das lookups (settings) ──────────────────────── */
-export const TIPOS_KEY     = 'primeapps:settings:contratos:tipos'
-export const OBJETOS_KEY    = 'primeapps:settings:contratos:objetos'
-export const MOEDAS_KEY     = 'primeapps:settings:contratos:moedas'
-export const CONDICOES_KEY  = 'primeapps:settings:contratos:condicoes'
-export const INDICES_KEY    = 'primeapps:settings:contratos:indices'
+export const TIPOS_KEY     = 'nxt:settings:contratos:tipos'
+export const OBJETOS_KEY    = 'nxt:settings:contratos:objetos'
+export const MOEDAS_KEY     = 'nxt:settings:contratos:moedas'
+export const CONDICOES_KEY  = 'nxt:settings:contratos:condicoes'
+export const INDICES_KEY    = 'nxt:settings:contratos:indices'
 
 /* ─── sementes ───────────────────────────────────────────── */
 export const INIT_TIPOS: LookupEntry[] = [
@@ -51,13 +51,34 @@ export const INIT_INDICES: LookupEntry[] = [
 ]
 
 export const SITUACOES = [
-  { value: 'PENDENTE',   label: 'Pendente de assinatura' },
-  { value: 'ATIVO',      label: 'Ativo'                  },
-  { value: 'REVISAO',    label: 'Em revisão'             },
-  { value: 'ENCERRADO',  label: 'Encerrado'              },
-  { value: 'RESCINDIDO', label: 'Rescindido'             },
-  { value: 'SUSPENSO',   label: 'Suspenso'               },
+  { value: 'EM_CADASTRO', label: 'Em cadastro/revisão' },
+  { value: 'VIGENTE',     label: 'Vigente'             },
+  { value: 'VENCIDO',     label: 'Vencido'             },  // derivado — nunca gravado (ver effectiveSituacao)
+  { value: 'ENCERRADO',   label: 'Encerrado'           },
+  { value: 'RESCINDIDO',  label: 'Rescindido'          },
 ]
+
+/* ─── ciclo de vida da situação ──────────────────────────────
+   Estados persistidos: EM_CADASTRO, VIGENTE, ENCERRADO, RESCINDIDO.
+   VENCIDO é DERIVADO (nunca gravado): contrato VIGENTE cujo término já passou. */
+
+const todayISO = () => new Date().toISOString().slice(0, 10)
+
+/** Converte situações legadas (modelo antigo) para o ciclo atual. */
+export function normalizeSituacao(s: string): string {
+  switch (s) {
+    case 'ATIVO':                          return 'VIGENTE'
+    case 'PENDENTE': case 'REVISAO': case 'SUSPENSO': return 'EM_CADASTRO'
+    default:                               return s
+  }
+}
+
+/** Situação exibida: normaliza legado e resolve 'Vencido' (VIGENTE + término < hoje). */
+export function effectiveSituacao(situacao: string, terminoVigencia?: string | null): string {
+  const s = normalizeSituacao(situacao)
+  if (s === 'VIGENTE' && terminoVigencia && terminoVigencia < todayISO()) return 'VENCIDO'
+  return s
+}
 export const PERIODICIDADES    = ['Mensal', 'Trimestral', 'Semestral', 'Anual']
 export const TIPOS_DOCUMENTO   = ['Contrato original', 'Proposta comercial', 'Aditivo', 'Distrato', 'Ata de reunião', 'Outros']
 export const STATUS_ASSINATURA = [
@@ -90,7 +111,7 @@ export function emptyContractForm(): ContractFormValues {
   return {
     numero: '', titulo: '', descricao: '', objeto: [], tipo: '',
     inicioVigencia: '', prazoIndeterminado: false, terminoVigencia: '', dataAssinatura: '',
-    situacao: 'PENDENTE', moeda: 'BRL', valorParcela: '', valorTotal: '',
+    situacao: 'EM_CADASTRO', moeda: '', valorParcela: '', valorTotal: '',
     condicaoPagamento: '', complementoValor: '', reajustes: [], partes: [], documentos: [],
   }
 }
@@ -103,7 +124,7 @@ export function contractFromApi(c: Record<string, any>): ContractFormValues {
     objeto: arr(c.objeto) as string[], tipo: c.tipo ?? '',
     inicioVigencia: c.inicioVigencia ?? '', prazoIndeterminado: !!c.prazoIndeterminado,
     terminoVigencia: c.terminoVigencia ?? '', dataAssinatura: c.dataAssinatura ?? '',
-    situacao: c.situacao ?? 'PENDENTE', moeda: c.moeda ?? 'BRL',
+    situacao: normalizeSituacao(c.situacao ?? 'EM_CADASTRO'), moeda: c.moeda ?? '',
     valorParcela: c.valorParcela != null ? String(c.valorParcela) : '',
     valorTotal:   c.valorTotal   != null ? String(c.valorTotal)   : '',
     condicaoPagamento: c.condicaoPagamento ?? '', complementoValor: c.complementoValor ?? '',

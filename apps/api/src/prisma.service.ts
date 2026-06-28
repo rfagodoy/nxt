@@ -14,6 +14,7 @@ const JSON_FIELDS: Record<string, string[]> = {
   Partner: ['contatos', 'enderecos', 'bancos', 'socios'],
   PartnerAuditLog: ['changes'],
   Contract: ['objeto', 'partes', 'reajustes', 'documentos'],
+  OrgUnit: ['usuarios'],
   AppSetting: ['value'],
 }
 

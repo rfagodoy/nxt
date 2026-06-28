@@ -79,6 +79,9 @@ export const NATIVE_FIELDS: NativeField[] = [
   { key: 'soc_cargo',       section: 'socios',        label: 'Cargo / Função'                                },
 ]
 
+/* conjunto de chaves de campos nativos — usado para forçar visibilidade no formulário */
+const NATIVE_FIELD_KEYS = new Set(NATIVE_FIELDS.map(f => f.key))
+
 /* campos nativos já representados nas colunas padrão da tabela (marcados como "padrão") */
 export const CORE_TABLE_KEYS = new Set([
   'razao_social', 'cnpj', 'cpf', 'codigo', 'end_cidade', 'end_estado', 'con_nome',
@@ -104,11 +107,11 @@ export const BASE_TABLE_COLUMNS: BaseColumn[] = [
   { key: 'contato',       label: 'Contato',             section: 'contato',       coreKeys: ['con_nome']              },
 ]
 
-const BASECOL_KEY          = 'primeapps:columns:parceiros:hidden'
-const BASECOL_CHANGE_EVENT = 'primeapps:columns:parceiros:hidden:change'
+const BASECOL_KEY          = 'nxt:columns:parceiros:hidden'
+const BASECOL_CHANGE_EVENT = 'nxt:columns:parceiros:hidden:change'
 
 /* evento de reset da ordem das colunas (a ordem em si é gerida pela página) */
-export const COLUMN_ORDER_RESET_EVENT = 'primeapps:columns:parceiros:order:reset'
+export const COLUMN_ORDER_RESET_EVENT = 'nxt:columns:parceiros:order:reset'
 
 function readHiddenBaseCols(): string[] {
   try {
@@ -155,8 +158,8 @@ export function useDefaultColumns() {
 
 /* ─── custom fields hook ─────────────────────────────────── */
 
-const STORAGE_KEY  = 'primeapps:fields:parceiros'
-const CHANGE_EVENT = 'primeapps:fields:parceiros:change'
+const STORAGE_KEY  = 'nxt:fields:parceiros'
+const CHANGE_EVENT = 'nxt:fields:parceiros:change'
 
 function migrateVisible(v: string): CustomField['visible'] {
   if (v === 'form_and_table') return 'both'
@@ -238,9 +241,9 @@ export function usePartnerFields() {
 
 export interface FieldVisibility { form: boolean; table: boolean }
 
-const VIS_KEY          = 'primeapps:fields:parceiros:visibility'
-const VIS_CHANGE_EVENT = 'primeapps:fields:parceiros:visibility:change'
-const LEGACY_HIDDEN    = 'primeapps:fields:parceiros:hidden'
+const VIS_KEY          = 'nxt:fields:parceiros:visibility'
+const VIS_CHANGE_EVENT = 'nxt:fields:parceiros:visibility:change'
+const LEGACY_HIDDEN    = 'nxt:fields:parceiros:hidden'
 
 function readVisibility(): Record<string, FieldVisibility> {
   try {
@@ -289,8 +292,15 @@ export function useFieldVisibility() {
     window.dispatchEvent(new Event(VIS_CHANGE_EVENT))
   }, [])
 
+  /* Campos nativos SEMPRE aparecem no formulário. O toggle de visibilidade "form"
+     dos campos nativos foi removido da UI ativa (o SettingsDrawer só controla a
+     coluna/tabela); então um valor antigo `{ form: false }` ainda no cache/localStorage
+     — ex.: o herdado de `nome_fantasia` — esconderia o campo permanentemente, sem o
+     usuário ter como reverter. Ignorar a flag para chaves nativas elimina essa armadilha
+     e mantém cadastro e edição consistentes. (A visibilidade de campos personalizados
+     continua respeitada normalmente.) */
   const isVisibleInForm  = useCallback((key: string): boolean =>
-    visibility[key]?.form  ?? true,  [visibility])
+    NATIVE_FIELD_KEYS.has(key) ? true : (visibility[key]?.form ?? true), [visibility])
 
   const isVisibleInTable = useCallback((key: string): boolean =>
     visibility[key]?.table ?? false, [visibility])

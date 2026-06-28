@@ -1,4 +1,4 @@
-import { FileText, Handshake } from 'lucide-react'
+import { FileText, Handshake, Building2 } from 'lucide-react'
 import type { ElementType } from 'react'
 
 /**
@@ -35,6 +35,14 @@ export const SYSTEM_MODULES: SystemModule[] = [
     description: 'Cadastro de parceiros PJ/PF, nacionais e estrangeiros',
     href: '/modules/parceiros',
     icon: Handshake,
+    kind: 'system',
+  },
+  {
+    slug: 'estrutura',
+    name: 'Estrutura organizacional',
+    description: 'Empresas do grupo e organograma (centros de custo/lucro)',
+    href: '/modules/estrutura',
+    icon: Building2,
     kind: 'system',
   },
 ]

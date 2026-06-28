@@ -20,7 +20,7 @@ export default function TiposAnexo() {
       title="Tipos de anexo"
       description="Categorias de documentos que podem ser anexados a um contrato"
       icon={Paperclip}
-      storageKey="primeapps:settings:contratos:anexos"
+      storageKey="nxt:settings:contratos:anexos"
       initialData={INITIAL}
     />
   )

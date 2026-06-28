@@ -3,20 +3,16 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, FileText, DollarSign, RefreshCw, Users, Paperclip, ChevronDown, Check } from 'lucide-react'
+import { ArrowLeft, FileText, Calendar, DollarSign, RefreshCw, Users, Paperclip, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
-import { cacheRead, pushSetting, pullSetting } from '@/lib/settings-store'
 import { getLogUser } from '@/hooks/use-partner-logs'
 import { EntitySearchModal } from './entity-search-modal'
 import {
   useContractForm, IdentificacaoFields, VigenciaFields, ValoresFields,
   ReajustesFields, PartesFields, DocumentosFields,
 } from './contract-fields'
-import { emptyContractForm, contractToPayload, newCParte, type ContractFormValues } from '@/lib/contract-options'
-
-const DRAFT_KEY = 'primeapps:contratos:rascunho'
-interface ContractDraft { savedAt?: string; values?: ContractFormValues }
+import { emptyContractForm, contractToPayload, newCParte } from '@/lib/contract-options'
 
 /* ─── seção colapsável ───────────────────────────────────── */
 function Section({ icon: Icon, title, isOpen, onToggle, hasError, children }: {
@@ -51,11 +47,10 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
 
   const [empresas,    setEmpresas]    = useState<{ id: string; nome: string; documento: string }[]>([])
   const [searchModal, setSearchModal] = useState<{ parteId: string; origem: string } | null>(null)
-  const [open,        setOpen]        = useState<Set<string>>(new Set(['basicos']))
+  const [open,        setOpen]        = useState<Set<string>>(new Set(['dados_gerais']))
   const [errors,      setErrors]      = useState<Set<string>>(new Set())
   const [saveError,   setSaveError]   = useState<string | null>(null)
-  const [draftBanner, setDraftBanner] = useState<{ savedAt: string } | null>(null)
-  const [draftToast,  setDraftToast]  = useState(false)
+  const [saving,      setSaving]      = useState<'draft' | 'active' | null>(null)
 
   useEffect(() => {
     void (async () => {
@@ -69,43 +64,28 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
     })()
   }, [])
 
-  useEffect(() => {
-    const showBanner = (d: ContractDraft | null) => { if (d?.savedAt) setDraftBanner({ savedAt: d.savedAt }) }
-    showBanner(cacheRead<ContractDraft | null>(DRAFT_KEY, null))
-    void pullSetting<ContractDraft>(DRAFT_KEY).then(showBanner)
-  }, [])
-
   const toggleSection = (k: string) => setOpen(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
 
-  const handleSaveDraft = () => {
-    pushSetting(DRAFT_KEY, { savedAt: new Date().toISOString(), values: v })
-    setDraftToast(true); setTimeout(() => setDraftToast(false), 3000)
-  }
-  const handleRestoreDraft = () => {
-    const d = cacheRead<ContractDraft | null>(DRAFT_KEY, null)
-    if (d?.values) {
-      form.setValues({ ...emptyContractForm(), ...d.values })
-      setOpen(new Set(['basicos', 'valores', 'reajuste', 'partes', 'documentos']))
-    }
-    setDraftBanner(null)
-  }
-  const handleDiscardDraft = () => { pushSetting(DRAFT_KEY, null); setDraftBanner(null) }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  /* salva o contrato. 'EM_CADASTRO' = rascunho (validação leve); 'VIGENTE' = ativar (validação completa) */
+  const submit = async (status: 'EM_CADASTRO' | 'VIGENTE') => {
     const err = new Set<string>()
-    if (!v.numero.trim() || !v.titulo.trim() || !v.tipo || !v.inicioVigencia) err.add('basicos')
-    if (!v.partes[0]?.nome.trim()) err.add('partes')
+    if (!v.numero.trim() || !v.titulo.trim()) err.add('dados_gerais')
+    if (status === 'VIGENTE') {
+      if (!v.tipo) err.add('dados_gerais')
+      if (!v.inicioVigencia) err.add('vigencia')
+      if (!v.partes[0]?.nome.trim()) err.add('partes')
+    }
     setErrors(err)
     if (err.size > 0) { setOpen(prev => new Set([...prev, ...err])); return }
+
     setSaveError(null)
+    setSaving(status === 'VIGENTE' ? 'active' : 'draft')
     try {
       const res = await apiFetch(`/api/contracts`, {
         method: 'POST',
-        body:   JSON.stringify(contractToPayload(v, { user: getLogUser() })),
+        body:   JSON.stringify(contractToPayload({ ...v, situacao: status }, { user: getLogUser() })),
       })
       if (res.ok) {
-        pushSetting(DRAFT_KEY, null)
         let result: { id?: string } | undefined
         try { result = await res.json() as { id?: string } } catch { /* sem corpo */ }
         if (onSaved) onSaved(result)
@@ -115,6 +95,8 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
       setSaveError(`Erro ao salvar contrato (${res.status}).`)
     } catch {
       setSaveError('Não foi possível conectar ao servidor.')
+    } finally {
+      setSaving(null)
     }
   }
 
@@ -131,22 +113,18 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
         </div>
       )}
 
-      {draftBanner && (
-        <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/40">
-          <div>
-            <p className="text-xs font-medium text-amber-700 dark:text-amber-300">Rascunho salvo encontrado</p>
-            <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5">{new Date(draftBanner.savedAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
-          </div>
-          <div className="flex gap-2">
-            <button type="button" onClick={handleRestoreDraft} className="h-7 rounded-md bg-amber-600 px-3 text-xs font-medium text-white hover:bg-amber-700 transition-colors">Restaurar</button>
-            <button type="button" onClick={handleDiscardDraft} className="h-7 rounded-md border border-amber-300 px-3 text-xs font-medium text-amber-700 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-900/40 transition-colors">Descartar</button>
-          </div>
-        </div>
-      )}
-
-      <form className="space-y-2" onSubmit={handleSubmit}>
-        <Section icon={FileText} title="Dados Básicos" isOpen={open.has('basicos')} onToggle={() => toggleSection('basicos')} hasError={errors.has('basicos')}>
+      <form className="space-y-2" onSubmit={e => e.preventDefault()}>
+        <Section icon={FileText} title="Dados Gerais" isOpen={open.has('dados_gerais')} onToggle={() => toggleSection('dados_gerais')} hasError={errors.has('dados_gerais')}>
           <IdentificacaoFields form={form} />
+        </Section>
+
+        <Section icon={Users} title="Partes Envolvidas" isOpen={open.has('partes')} onToggle={() => toggleSection('partes')} hasError={errors.has('partes')}>
+          <PartesFields form={form}
+            onOpenSearch={(parteId, origem) => setSearchModal({ parteId, origem })}
+            onNewPartner={() => router.push('/modules/parceiros/new?from=contratos')} />
+        </Section>
+
+        <Section icon={Calendar} title="Vigência" isOpen={open.has('vigencia')} onToggle={() => toggleSection('vigencia')} hasError={errors.has('vigencia')}>
           <VigenciaFields form={form} />
         </Section>
 
@@ -156,12 +134,6 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
 
         <Section icon={RefreshCw} title="Reajuste" isOpen={open.has('reajuste')} onToggle={() => toggleSection('reajuste')}>
           <ReajustesFields form={form} />
-        </Section>
-
-        <Section icon={Users} title="Partes Envolvidas" isOpen={open.has('partes')} onToggle={() => toggleSection('partes')} hasError={errors.has('partes')}>
-          <PartesFields form={form}
-            onOpenSearch={(parteId, origem) => setSearchModal({ parteId, origem })}
-            onNewPartner={() => router.push('/modules/parceiros/new?from=contratos')} />
         </Section>
 
         <Section icon={Paperclip} title="Documentos do contrato" isOpen={open.has('documentos')} onToggle={() => toggleSection('documentos')}>
@@ -179,17 +151,17 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
             <Link href="/modules/contratos" className="text-xs text-muted-foreground hover:text-foreground transition-colors">Cancelar</Link>
           )}
           <div className="flex gap-2">
-            <button type="button" onClick={handleSaveDraft} className="inline-flex items-center h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors">Salvar rascunho</button>
-            <button type="submit" className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">Salvar contrato</button>
+            <button type="button" onClick={() => void submit('EM_CADASTRO')} disabled={saving !== null}
+              className="inline-flex items-center h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+              {saving === 'draft' ? 'Salvando...' : 'Salvar rascunho'}
+            </button>
+            <button type="button" onClick={() => void submit('VIGENTE')} disabled={saving !== null}
+              className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+              {saving === 'active' ? 'Salvando...' : 'Ativar'}
+            </button>
           </div>
         </div>
       </form>
-
-      {draftToast && (
-        <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-lg border bg-card px-4 py-2.5 shadow-lg text-xs font-medium">
-          <Check className="h-3.5 w-3.5 text-green-500" />Rascunho salvo
-        </div>
-      )}
 
       {searchModal && (
         <EntitySearchModal

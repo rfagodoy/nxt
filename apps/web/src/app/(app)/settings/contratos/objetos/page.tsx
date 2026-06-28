@@ -19,7 +19,7 @@ export default function ObjetosContrato() {
       title="Objetos do contrato"
       description="Descrições padronizadas para o objeto dos contratos"
       icon={FileSearch}
-      storageKey="primeapps:settings:contratos:objetos"
+      storageKey="nxt:settings:contratos:objetos"
       initialData={INITIAL}
     />
   )

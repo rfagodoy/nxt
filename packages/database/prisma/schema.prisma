@@ -241,6 +241,7 @@ model OrgUnit {
   nome           String
   responsavel    String?
   status         String   @default("ATIVA") // ATIVA | INATIVA
+  usuarios       String   @default("[]") @db.NVarChar(Max) // [JSON] usuários envolvidos (lista livre)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

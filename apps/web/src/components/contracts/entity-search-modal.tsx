@@ -41,7 +41,8 @@ export function EntitySearchModal({ origem, empresas, onSelect, onClose, onNewPa
         } else {
           const res = await apiFetch(`/api/partners/query`, {
             method: 'POST',
-            body: JSON.stringify({ search: q.trim(), page: 1, pageSize: 30 }),
+            /* somente parceiros ATIVOS podem ser vinculados a um contrato */
+            body: JSON.stringify({ search: q.trim(), page: 1, pageSize: 30, filters: [{ col: 'status', op: 'eq', value: 'ATIVO' }], logic: 'AND' }),
           })
           const data = res.ok ? (await res.json() as { rows: { id: string; nome: string; identificador: string }[] }) : { rows: [] }
           setParceiros((data.rows ?? []).map(r => ({ id: r.id, nome: r.nome, documento: r.identificador })))

@@ -1,192 +1,30 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft, Building2, Phone, MapPin, CreditCard, Users,
-  Plus, Trash2, ChevronDown, Layers, FileText, Loader2,
+  ChevronDown, Layers, FileText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
-import { PAISES, PAISES_SEED, PAISES_STORAGE_KEY } from '@/lib/paises'
-import { useLookupTable } from '@/hooks/use-lookup-table'
 import { usePartnerFields, useFieldVisibility, type CustomField } from '@/hooks/use-partner-fields'
 import { usePartnerSections } from '@/hooks/use-partner-sections'
 import { getLogUser } from '@/hooks/use-partner-logs'
-
-/* ─── lista de bancos brasileiros ────────────────────────── */
-
-const BRAZIL_BANKS = [
-  '001 — Banco do Brasil',         '003 — Banco da Amazônia',        '004 — BNB',
-  '033 — Santander',               '041 — Banrisul',                 '047 — Banese',
-  '070 — BRB',                     '077 — Banco Inter',              '084 — Uniprime Norte do Paraná',
-  '085 — Ailos',                   '097 — Credisis',                 '099 — Uniprime Central',
-  '104 — Caixa Econômica Federal', '121 — Agibank',                  '133 — Cresol',
-  '136 — Unicred',                 '197 — Stone Pagamentos',         '208 — BTG Pactual',
-  '212 — Banco Original',          '218 — BS2',                      '224 — Banco Fibra',
-  '237 — Bradesco',                '246 — ABC Brasil',               '260 — Nu Pagamentos (Nubank)',
-  '290 — PagSeguro',               '318 — Banco BMG',                '323 — Mercado Pago',
-  '336 — C6 Bank',                 '341 — Itaú Unibanco',            '348 — XP Investimentos',
-  '364 — Efí (Gerencianet)',        '380 — PicPay',                   '389 — Banco Mercantil do Brasil',
-  '403 — Cora',                    '422 — Banco Safra',              '456 — Banco MUFG Brasil',
-  '477 — Citibank',                '487 — Deutsche Bank',            '488 — JPMorgan Chase',
-  '492 — ING Bank',                '505 — Credit Suisse',            '611 — Banco Paulista',
-  '623 — Banco Pan',               '633 — Banco Rendimento',         '634 — Banco Triângulo',
-  '637 — Banco Sofisa',            '643 — Banco Pine',               '655 — Votorantim',
-  '707 — Banco Daycoval',          '739 — Banco Cetelem',            '748 — Sicredi',
-  '752 — BNP Paribas Brasil',      '756 — Sicoob',
-]
-
-/* ─── constantes ─────────────────────────────────────────── */
-
-type Category = 'PJ_BR' | 'PJ_EST' | 'PF_BR' | 'PF_EST'
-
-const CATEGORIES: { value: Category; label: string }[] = [
-  { value: 'PJ_BR',  label: 'PJ Brasileira'  },
-  { value: 'PJ_EST', label: 'PJ Estrangeira' },
-  { value: 'PF_BR',  label: 'PF Brasileira'  },
-  { value: 'PF_EST', label: 'PF Estrangeira' },
-]
-
-const UF = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']
-
-/* ─── interfaces ─────────────────────────────────────────── */
-
-interface Socio    { id: string; nome: string; documento: string; participacao: string; cargo: string }
-interface Contato  { id: string; email: string; nome: string; telefone: string; celular: string; cargo: string; website: string }
-interface Endereco { id: string; cep: string; estado: string; logradouro: string; numero: string; complemento: string; bairro: string; cidade: string; address1: string; address2: string; pais_endereco: string }
-interface Banco    { id: string; banco: string; tipo_conta: string; agencia: string; conta: string; pix: string }
+import {
+  usePartnerForm, emptyPartnerForm, newPSoc, CategoryTabs, CustomFieldsGrid,
+  IdentificacaoFields, ContatoFields, EnderecoFields, BancarioFields, SociosFields,
+  type PartnerCategory, type PartnerFormValues,
+} from './partner-fields'
 
 export interface PartnerSaveResult { id: string; razaoSocial: string }
 
-function newContato(): Contato  { return { id: `c_${Date.now()}_${Math.random()}`, email: '', nome: '', telefone: '', celular: '', cargo: '', website: '' } }
-function newEndereco(): Endereco { return { id: `e_${Date.now()}_${Math.random()}`, cep: '', estado: '', logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', address1: '', address2: '', pais_endereco: '' } }
-function newBanco(): Banco      { return { id: `b_${Date.now()}_${Math.random()}`, banco: '', tipo_conta: '', agencia: '', conta: '', pix: '' } }
+/* ─── seção accordion (chrome do cadastro) ───────────────── */
 
-/* ─── funções de máscara ─────────────────────────────────── */
-
-function maskCNPJ(v: string): string {
-  const d = v.replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 14)
-  if (d.length <=  2) return d
-  if (d.length <=  5) return `${d.slice(0,2)}.${d.slice(2)}`
-  if (d.length <=  8) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5)}`
-  if (d.length <= 12) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8)}`
-  return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`
-}
-function maskCPF(v: string): string {
-  const d = v.replace(/\D/g, '').slice(0, 11)
-  if (d.length <= 3) return d
-  if (d.length <= 6) return `${d.slice(0,3)}.${d.slice(3)}`
-  if (d.length <= 9) return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6)}`
-  return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`
-}
-function maskTelefone(v: string): string {
-  const d = v.replace(/\D/g, '').slice(0, 10)
-  if (!d.length)      return ''
-  if (d.length <=  2) return `(${d}`
-  if (d.length <=  6) return `(${d.slice(0,2)}) ${d.slice(2)}`
-  return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`
-}
-function maskCelular(v: string): string {
-  const d = v.replace(/\D/g, '').slice(0, 11)
-  if (!d.length)      return ''
-  if (d.length <=  2) return `(${d}`
-  if (d.length <=  7) return `(${d.slice(0,2)}) ${d.slice(2)}`
-  return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`
-}
-
-/* ─── primitivos ─────────────────────────────────────────── */
-
-function Field({ label, required, hint, children, span2 }: {
-  label: string; required?: boolean; hint?: string; children: React.ReactNode; span2?: boolean
-}) {
-  return (
-    <div className={cn('space-y-1', span2 && 'col-span-2')}>
-      <label className="text-[11px] font-medium text-muted-foreground">
-        {label}{required && <span className="text-red-500 ml-1">*</span>}
-      </label>
-      {children}
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
-    </div>
-  )
-}
-
-const inputCls = 'flex h-7 w-full rounded-md border border-input bg-background px-2.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
-
-function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} className={inputCls} />
-}
-
-/* ─── campo personalizado ────────────────────────────────── */
-
-function CustomFieldInput({ field }: { field: CustomField }) {
-  let input: React.ReactNode
-  switch (field.type) {
-    case 'number':   input = <input type="number" name={field.name} className={inputCls} />; break
-    case 'date':     input = <input type="date" name={field.name} className={inputCls} />; break
-    case 'time':     input = <input type="time" name={field.name} className={inputCls} />; break
-    case 'datetime': input = <input type="datetime-local" name={field.name} className={inputCls} />; break
-    case 'currency':
-      input = (
-        <div className="relative">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">R$</span>
-          <input type="number" step="0.01" name={field.name} className={cn(inputCls, 'pl-9')} />
-        </div>
-      ); break
-    case 'checkbox':
-      input = (
-        <div className="flex items-center gap-2 h-7">
-          <input type="checkbox" id={field.name} name={field.name} className="h-3.5 w-3.5 rounded border-gray-300" />
-          <label htmlFor={field.name} className="text-xs text-muted-foreground">Marcar</label>
-        </div>
-      ); break
-    case 'select':
-      input = (
-        <select name={field.name} className="flex h-7 w-full rounded-md border border-input bg-background px-2.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors">
-          <option value="">Selecione...</option>
-          {field.options?.map(o => <option key={o.id} value={o.value}>{o.label}</option>)}
-        </select>
-      ); break
-    default:
-      input = <input type="text" name={field.name} maxLength={field.maxLength} className={inputCls} />
-  }
-  return <Field label={field.label}>{input}</Field>
-}
-
-/* ─── card de item múltiplo ──────────────────────────────── */
-
-function ItemCard({ index, total, label, onRemove, children }: {
-  index: number; total: number; label: string; onRemove: () => void; children: React.ReactNode
-}) {
-  return (
-    <div className="rounded-md border bg-card overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-muted/30 border-b">
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] font-semibold text-muted-foreground">{label} {index + 1}</span>
-          {index === 0 && (
-            <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-primary/10 text-primary">Principal</span>
-          )}
-        </div>
-        {total > 1 && (
-          <button type="button" onClick={onRemove}
-            className="text-muted-foreground hover:text-destructive transition-colors" title={`Remover ${label.toLowerCase()}`}>
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </div>
-      <div className="p-3 grid grid-cols-2 gap-3">
-        {children}
-      </div>
-    </div>
-  )
-}
-
-/* ─── seção accordion ────────────────────────────────────── */
-
-function Section({ icon: Icon, title, isOpen, onToggle, hasError, customFields, children }: {
+function Section({ icon: Icon, title, isOpen, onToggle, hasError, children }: {
   icon: React.ElementType; title: string; isOpen: boolean; onToggle: () => void
-  hasError?: boolean; customFields?: CustomField[]; children: React.ReactNode
+  hasError?: boolean; children: React.ReactNode
 }) {
   return (
     <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
@@ -199,16 +37,7 @@ function Section({ icon: Icon, title, isOpen, onToggle, hasError, customFields, 
         {hasError && <span className="text-[11px] text-red-500 font-medium mr-1">Campos obrigatórios</span>}
         <ChevronDown className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform duration-200', isOpen && 'rotate-180')} />
       </button>
-      {isOpen && (
-        <div className="p-4 space-y-3">
-          {children}
-          {customFields && customFields.length > 0 && (
-            <div className="grid grid-cols-2 gap-3 pt-1">
-              {customFields.map(f => <CustomFieldInput key={f.id} field={f} />)}
-            </div>
-          )}
-        </div>
-      )}
+      {isOpen && <div className="p-4 space-y-3">{children}</div>}
     </div>
   )
 }
@@ -225,31 +54,21 @@ interface PartnerNewFormProps {
 
 export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: PartnerNewFormProps) {
   const router               = useRouter()
+  const form                 = usePartnerForm(emptyPartnerForm('PJ_BR'))
+  const v                    = form.values
   const { fieldsForSection } = usePartnerFields()
   const { isVisible }        = useFieldVisibility()
-  // Países: lê a tabela editável (settings); cai no estático só enquanto hidrata.
-  const { active: paisesAtivos } = useLookupTable(PAISES_STORAGE_KEY, PAISES_SEED)
-  const paisesList = paisesAtivos.length ? paisesAtivos.map(e => e.label) : PAISES
   const { sections: customSections, sectionOrder, sectionDefaultOpen, loaded: sectionsLoaded } = usePartnerSections()
 
-  const [category,      setCategory]      = useState<Category>('PJ_BR')
-  const [docValue,      setDocValue]      = useState('')
-  const [contatos,      setContatos]      = useState<Contato[]>([newContato()])
-  const [enderecos,     setEnderecos]     = useState<Endereco[]>([newEndereco()])
-  const [bancos,        setBancos]        = useState<Banco[]>([newBanco()])
-  const [socios,        setSocios]        = useState<Socio[]>([])
   const [open,          setOpen]          = useState<Set<string>>(new Set<string>())
   const [errors,        setErrors]        = useState<Set<string>>(new Set())
   const [fromContratos, setFromContratos] = useState(false)
   const [saving,        setSaving]        = useState<'draft' | 'active' | null>(null)
   const [saveError,     setSaveError]     = useState<string | null>(null)
-  const [cepLoading,    setCepLoading]    = useState<Record<string, boolean>>({})
-  const [cepError,      setCepError]      = useState<Record<string, string>>({})
-  const formRef                           = useRef<HTMLFormElement>(null)
   const openInit                          = useRef(false)
 
-  const isPJ = category === 'PJ_BR' || category === 'PJ_EST'
-  const isBR = category === 'PJ_BR' || category === 'PF_BR'
+  const isPJ = v.category === 'PJ_BR' || v.category === 'PJ_EST'
+  const isBR = v.category === 'PJ_BR' || v.category === 'PF_BR'
 
   useEffect(() => {
     if (embedded) return
@@ -269,9 +88,10 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
     setOpen(openSet)
   }, [sectionsLoaded, sectionDefaultOpen, customSections])
 
+  /* ao abrir a seção Sócios para PJ, garante uma linha em branco */
   useEffect(() => {
-    if (open.has('socios') && isPJ && socios.length === 0) {
-      setSocios([{ id: `s_${Date.now()}`, nome: '', documento: '', participacao: '', cargo: '' }])
+    if (open.has('socios') && isPJ && v.socios.length === 0) {
+      form.set('socios', [newPSoc()])
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isPJ])
@@ -282,76 +102,34 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
     ...allSectionIds.filter(id => !sectionOrder.includes(id)),
   ]
 
-  /* campos personalizados visíveis */
-  const vfs = (section: string) => fieldsForSection(section).filter(f =>
+  /* campos personalizados visíveis no formulário, por seção */
+  const vfs = (section: string): CustomField[] => fieldsForSection(section).filter(f =>
     (f.visible === 'form' || f.visible === 'both') && isVisible(f.id)
   )
-
-  /* nfv = native field visible */
-  const nfv = (key: string) => isVisible(key)
 
   const toggle = (key: string) =>
     setOpen(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })
 
-  const addContato    = () => setContatos(p => [...p, newContato()])
-  const removeContato = (id: string) => setContatos(p => p.filter(c => c.id !== id))
-  const updateContato = (id: string, key: keyof Omit<Contato, 'id'>, val: string) =>
-    setContatos(p => p.map(c => c.id === id ? { ...c, [key]: val } : c))
-
-  const addEndereco    = () => setEnderecos(p => [...p, newEndereco()])
-  const removeEndereco = (id: string) => setEnderecos(p => p.filter(e => e.id !== id))
-  const updateEndereco = (id: string, key: keyof Omit<Endereco, 'id'>, val: string) =>
-    setEnderecos(p => p.map(e => e.id === id ? { ...e, [key]: val } : e))
-
-  const addBanco    = () => setBancos(p => [...p, newBanco()])
-  const removeBanco = (id: string) => setBancos(p => p.filter(b => b.id !== id))
-  const updateBanco = (id: string, key: keyof Omit<Banco, 'id'>, val: string) =>
-    setBancos(p => p.map(b => b.id === id ? { ...b, [key]: val } : b))
-
-  const addSocio    = () => setSocios(p => [...p, { id: `s_${Date.now()}`, nome: '', documento: '', participacao: '', cargo: '' }])
-  const removeSocio = (id: string) => setSocios(p => p.filter(s => s.id !== id))
-  const updateSocio = (id: string, field: keyof Omit<Socio, 'id'>, value: string) =>
-    setSocios(p => p.map(s => s.id === id ? { ...s, [field]: value } : s))
-
-  /* ─── busca CEP via ViaCEP ──────────────────────────────── */
-  const fetchCep = async (enderecoId: string, rawCep: string) => {
-    const digits = rawCep.replace(/\D/g, '')
-    if (digits.length !== 8) return
-    setCepLoading(prev => ({ ...prev, [enderecoId]: true }))
-    setCepError(prev => ({ ...prev, [enderecoId]: '' }))
-    try {
-      const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`)
-      if (!res.ok) throw new Error()
-      const data = await res.json() as { erro?: boolean; logradouro?: string; bairro?: string; localidade?: string; uf?: string }
-      if (data.erro) { setCepError(prev => ({ ...prev, [enderecoId]: 'CEP não encontrado.' })); return }
-      if (data.logradouro) updateEndereco(enderecoId, 'logradouro', data.logradouro)
-      if (data.bairro)     updateEndereco(enderecoId, 'bairro',     data.bairro)
-      if (data.localidade) updateEndereco(enderecoId, 'cidade',     data.localidade)
-      if (data.uf)         updateEndereco(enderecoId, 'estado',     data.uf)
-    } catch {
-      setCepError(prev => ({ ...prev, [enderecoId]: 'Erro ao buscar CEP.' }))
-    } finally {
-      setCepLoading(prev => ({ ...prev, [enderecoId]: false }))
-    }
-  }
-
-  const buildPayload = (fd: FormData, status: string) => {
-    const get = (name: string) => (fd.get(name) as string || '').trim()
-    const opt = (val: string) => val || undefined
+  /* ─── payload ───────────────────────────────────────────── */
+  const buildPayload = (status: string) => {
+    const opt = (val: string) => val.trim() || undefined
     return {
-      categoria: category,
+      categoria:      v.category,
       status,
-      documento:      opt(get('cnpj') || get('cpf') || get('codigo')),
-      razaoSocial:    get('razao_social'),
-      nomeFantasia:   opt(get('nome_fantasia')),
-      ie:             opt(get('ie')),
-      im:             opt(get('im')),
-      rg:             opt(get('rg')),
-      orgaoExpedidor: opt(get('orgao_expedidor')),
-      dataNascimento: opt(get('data_nascimento')),
-      paisOrigem:     opt(get('pais_origem')),
-      contatos, enderecos, bancos, socios,
-      user:           getLogUser(),
+      documento:      opt(v.documento),
+      razaoSocial:    v.razaoSocial.trim(),
+      nomeFantasia:   opt(v.nomeFantasia),
+      ie:             opt(v.ie),
+      im:             opt(v.im),
+      rg:             opt(v.rg),
+      orgaoExpedidor: opt(v.orgaoExpedidor),
+      dataNascimento: opt(v.dataNascimento),
+      paisOrigem:     opt(v.paisOrigem),
+      contatos:  v.contatos,
+      enderecos: v.enderecos,
+      bancos:    v.bancos,
+      socios:    v.socios,
+      user:      getLogUser(),
     }
   }
 
@@ -361,10 +139,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
 
   /* ─── salvar rascunho ───────────────────────────────────── */
   const handleSaveDraft = async () => {
-    if (!formRef.current) return
-    const fd          = new FormData(formRef.current)
-    const get         = (n: string) => (fd.get(n) as string || '').trim()
-    const razaoSocial = get('razao_social')
+    const razaoSocial = v.razaoSocial.trim()
     if (!razaoSocial) {
       setErrors(new Set(['identificacao']))
       setOpen(prev => { const n = new Set(prev); n.add('identificacao'); return n })
@@ -374,13 +149,11 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
     try {
       const res = await apiFetch(`/api/partners`, {
         method: 'POST',
-        body: JSON.stringify(buildPayload(fd, 'EM_CADASTRAMENTO')),
+        body: JSON.stringify(buildPayload('EM_CADASTRAMENTO')),
       })
       if (!res.ok) { setSaveError(`Erro ao salvar (${res.status}). Verifique a conexão com o servidor.`); return }
       const created = await res.json() as { id?: string }
-      if (created.id) {
-        afterSave({ id: created.id, razaoSocial })
-      } else { afterSave() }
+      if (created.id) { afterSave({ id: created.id, razaoSocial }) } else { afterSave() }
     } catch {
       setSaveError('Não foi possível conectar ao servidor. Verifique se o serviço está disponível.')
     } finally { setSaving(null) }
@@ -389,20 +162,15 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
   /* ─── ativar parceiro ───────────────────────────────────── */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!formRef.current) return
-    const fd          = new FormData(formRef.current)
-    const get         = (n: string) => (fd.get(n) as string || '').trim()
-    const razaoSocial = get('razao_social')
+    const razaoSocial = v.razaoSocial.trim()
     const err         = new Set<string>()
 
-    if (category === 'PJ_BR'  && !get('cnpj'))  err.add('identificacao')
-    if (category === 'PF_BR'  && !get('cpf'))    err.add('identificacao')
-    if ((category === 'PJ_EST' || category === 'PF_EST') && !get('codigo')) err.add('identificacao')
-    if (!razaoSocial) err.add('identificacao')
-    if ((category === 'PF_BR' || category === 'PF_EST') && !get('data_nascimento')) err.add('identificacao')
-    if ((category === 'PJ_EST' || category === 'PF_EST') && !get('pais_origem'))    err.add('identificacao')
+    if (!v.documento.trim())  err.add('identificacao')
+    if (!razaoSocial)         err.add('identificacao')
+    if ((v.category === 'PF_BR' || v.category === 'PF_EST') && !v.dataNascimento.trim()) err.add('identificacao')
+    if ((v.category === 'PJ_EST' || v.category === 'PF_EST') && !v.paisOrigem.trim())    err.add('identificacao')
 
-    const e0 = enderecos[0]
+    const e0 = v.enderecos[0]
     if (isBR) {
       if (!e0?.cep || !e0?.estado || !e0?.logradouro || !e0?.numero || !e0?.bairro || !e0?.cidade) err.add('endereco')
     } else {
@@ -416,8 +184,8 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
     }
 
     if (!embedded && fromContratos) {
-      const novoParceiro = { id: `p_${Date.now()}`, nome: razaoSocial, documento: get('cnpj') || get('cpf') || get('codigo') }
-      sessionStorage.setItem('primeapps:contract:newParceiro', JSON.stringify(novoParceiro))
+      const novoParceiro = { id: `p_${Date.now()}`, nome: razaoSocial, documento: v.documento.trim() }
+      sessionStorage.setItem('nxt:contract:newParceiro', JSON.stringify(novoParceiro))
       router.push('/modules/contratos/new')
       return
     }
@@ -426,13 +194,11 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
     try {
       const res = await apiFetch(`/api/partners`, {
         method: 'POST',
-        body: JSON.stringify(buildPayload(fd, 'ATIVO')),
+        body: JSON.stringify(buildPayload('ATIVO')),
       })
       if (!res.ok) { setSaveError(`Erro ao ativar (${res.status}). Verifique a conexão com o servidor.`); return }
       const created = await res.json() as { id?: string }
-      if (created.id) {
-        afterSave({ id: created.id, razaoSocial })
-      } else { afterSave() }
+      if (created.id) { afterSave({ id: created.id, razaoSocial }) } else { afterSave() }
     } catch {
       setSaveError('Não foi possível conectar ao servidor. Verifique se o serviço está disponível.')
     } finally { setSaving(null) }
@@ -440,294 +206,44 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
 
   /* ─── renderizador de seção por chave ────────────────────── */
   const renderSection = (key: string): React.ReactNode => {
-
     if (key === 'identificacao') return (
       <Section key="identificacao" icon={Building2} title="Identificação"
-        isOpen={open.has('identificacao')} onToggle={() => toggle('identificacao')}
-        hasError={errors.has('identificacao')} customFields={vfs('identificacao')}
-      >
-        <div className="grid grid-cols-2 gap-3">
-          {nfv('cnpj') && category === 'PJ_BR' && (
-            <Field label="CNPJ" required hint="Novo formato alfanumérico — Reforma Tributária 2026">
-              <Input name="cnpj" value={docValue} placeholder="00.000.000/0000-00" maxLength={18}
-                onChange={e => setDocValue(maskCNPJ(e.target.value))} />
-            </Field>
-          )}
-          {nfv('cpf') && category === 'PF_BR' && (
-            <Field label="CPF" required>
-              <Input name="cpf" value={docValue} placeholder="000.000.000-00" maxLength={14}
-                onChange={e => setDocValue(maskCPF(e.target.value))} />
-            </Field>
-          )}
-          {nfv('codigo') && (category === 'PJ_EST' || category === 'PF_EST') && (
-            <Field label={category === 'PF_EST' ? 'Passaporte / Documento' : 'Código'} required hint="Identificador no país de origem">
-              <Input name="codigo" placeholder="Número do documento" />
-            </Field>
-          )}
-          {nfv('razao_social') && (
-            <Field label={isPJ ? 'Razão Social' : 'Nome Completo'} required>
-              <Input name="razao_social" placeholder={isPJ ? 'Razão social da empresa' : 'Nome completo'} />
-            </Field>
-          )}
-          {nfv('nome_fantasia') && isPJ && (
-            <Field label="Nome Fantasia"><Input name="nome_fantasia" placeholder="Nome fantasia (se houver)" /></Field>
-          )}
-          {category === 'PJ_BR' && (
-            <>
-              {nfv('ie') && <Field label="Inscrição Estadual"><Input name="ie" placeholder="Inscrição estadual" /></Field>}
-              {nfv('im') && <Field label="Inscrição Municipal"><Input name="im" placeholder="Inscrição municipal" /></Field>}
-            </>
-          )}
-          {category === 'PF_BR' && (
-            <>
-              {nfv('rg') && <Field label="RG"><Input name="rg" placeholder="00.000.000-0" /></Field>}
-              {nfv('orgao_expedidor') && <Field label="Órgão Expedidor"><Input name="orgao_expedidor" placeholder="Ex: SSP/SP" /></Field>}
-              {nfv('data_nascimento') && <Field label="Data de Nascimento" required><Input type="date" name="data_nascimento" /></Field>}
-              {nfv('pais_origem') && (
-                <Field label="País de Origem">
-                  <select name="pais_origem" defaultValue="Brasil" className={inputCls}>
-                    {paisesList.map(p => <option key={p} value={p}>{p}</option>)}
-                  </select>
-                </Field>
-              )}
-            </>
-          )}
-          {(category === 'PJ_EST' || category === 'PF_EST') && (
-            <>
-              {nfv('pais_origem') && (
-                <Field label="País de Origem" required>
-                  <select name="pais_origem" className={inputCls}>
-                    <option value="">Selecione o país...</option>
-                    {paisesList.map(p => <option key={p} value={p}>{p}</option>)}
-                  </select>
-                </Field>
-              )}
-              {nfv('data_nascimento') && category === 'PF_EST' && <Field label="Data de Nascimento"><Input type="date" name="data_nascimento" /></Field>}
-            </>
-          )}
-        </div>
+        isOpen={open.has('identificacao')} onToggle={() => toggle('identificacao')} hasError={errors.has('identificacao')}>
+        <IdentificacaoFields form={form} isVisible={isVisible} customFields={vfs('identificacao')} />
       </Section>
     )
-
     if (key === 'contato') return (
-      <Section key="contato" icon={Phone} title="Contato"
-        isOpen={open.has('contato')} onToggle={() => toggle('contato')}
-        customFields={vfs('contato')}
-      >
-        <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
-        {contatos.map((c, idx) => (
-          <ItemCard key={c.id} index={idx} total={contatos.length} label="Contato" onRemove={() => removeContato(c.id)}>
-            {nfv('con_email') && (
-              <Field label="E-mail">
-                <input type="email" value={c.email} onChange={e => updateContato(c.id, 'email', e.target.value)}
-                  placeholder="email@empresa.com" className={inputCls} />
-              </Field>
-            )}
-            {nfv('con_nome') && (
-              <Field label="Nome do Contato">
-                <input value={c.nome} onChange={e => updateContato(c.id, 'nome', e.target.value)}
-                  placeholder="Pessoa responsável pelo contato" className={inputCls} />
-              </Field>
-            )}
-            {nfv('con_telefone') && (
-              <Field label="Telefone">
-                <input value={c.telefone} onChange={e => updateContato(c.id, 'telefone', isBR ? maskTelefone(e.target.value) : e.target.value)}
-                  placeholder={isBR ? '(00) 0000-0000' : '+1 (000) 000-0000'} className={inputCls} />
-              </Field>
-            )}
-            {nfv('con_celular') && (
-              <Field label="Celular / WhatsApp">
-                <input value={c.celular} onChange={e => updateContato(c.id, 'celular', isBR ? maskCelular(e.target.value) : e.target.value)}
-                  placeholder={isBR ? '(00) 00000-0000' : '+1 (000) 000-0000'} className={inputCls} />
-              </Field>
-            )}
-            {nfv('con_cargo') && (
-              <Field label="Cargo do Contato">
-                <input value={c.cargo} onChange={e => updateContato(c.id, 'cargo', e.target.value)}
-                  placeholder="Ex: Diretor Comercial" className={inputCls} />
-              </Field>
-            )}
-            {nfv('con_website') && isPJ && (
-              <Field label="Website">
-                <input value={c.website} onChange={e => updateContato(c.id, 'website', e.target.value)}
-                  placeholder="https://www.empresa.com" className={inputCls} />
-              </Field>
-            )}
-          </ItemCard>
-        ))}
-        </div>
-        <button type="button" onClick={addContato}
-          className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors">
-          <Plus className="h-3.5 w-3.5" />Adicionar contato
-        </button>
+      <Section key="contato" icon={Phone} title="Contato" isOpen={open.has('contato')} onToggle={() => toggle('contato')}>
+        <ContatoFields form={form} isVisible={isVisible} customFields={vfs('contato')} />
       </Section>
     )
-
     if (key === 'endereco') return (
       <Section key="endereco" icon={MapPin} title="Endereço"
-        isOpen={open.has('endereco')} onToggle={() => toggle('endereco')}
-        hasError={errors.has('endereco')} customFields={vfs('endereco')}
-      >
-        <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
-        {enderecos.map((en, idx) => (
-          <ItemCard key={en.id} index={idx} total={enderecos.length} label="Endereço" onRemove={() => removeEndereco(en.id)}>
-            {isBR ? (
-              <>
-                {nfv('end_cep') && (
-                  <Field label="CEP" required={idx === 0}>
-                    <div className="flex gap-2">
-                      <input value={en.cep}
-                        onChange={e => {
-                          updateEndereco(en.id, 'cep', e.target.value)
-                          const d = e.target.value.replace(/\D/g, '')
-                          if (d.length === 8) void fetchCep(en.id, d)
-                        }}
-                        placeholder="00000-000" maxLength={9} className={inputCls} />
-                      <button type="button" onClick={() => void fetchCep(en.id, en.cep)} disabled={cepLoading[en.id]}
-                        className="px-2.5 h-7 shrink-0 text-xs rounded-md border hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
-                        {cepLoading[en.id] && <Loader2 className="h-3 w-3 animate-spin" />}
-                        Buscar
-                      </button>
-                    </div>
-                    {cepError[en.id] && <p className="text-[11px] text-red-500 mt-0.5">{cepError[en.id]}</p>}
-                  </Field>
-                )}
-                {nfv('end_estado') && (
-                  <Field label="Estado" required={idx === 0}>
-                    <select value={en.estado} onChange={e => updateEndereco(en.id, 'estado', e.target.value)}
-                      className="flex h-7 w-full rounded-md border border-input bg-background px-2.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors">
-                      <option value="">Selecione...</option>
-                      {UF.map(uf => <option key={uf} value={uf}>{uf}</option>)}
-                    </select>
-                  </Field>
-                )}
-                {nfv('end_logradouro') && <Field label="Logradouro" required={idx === 0}><input value={en.logradouro} onChange={e => updateEndereco(en.id, 'logradouro', e.target.value)} placeholder="Rua, Avenida..." className={inputCls} /></Field>}
-                {nfv('end_numero')    && <Field label="Número" required={idx === 0}><input value={en.numero} onChange={e => updateEndereco(en.id, 'numero', e.target.value)} placeholder="Nº" className={inputCls} /></Field>}
-                {nfv('end_complemento') && <Field label="Complemento"><input value={en.complemento} onChange={e => updateEndereco(en.id, 'complemento', e.target.value)} placeholder="Apto, sala, bloco..." className={inputCls} /></Field>}
-                {nfv('end_bairro')   && <Field label="Bairro" required={idx === 0}><input value={en.bairro} onChange={e => updateEndereco(en.id, 'bairro', e.target.value)} placeholder="Bairro" className={inputCls} /></Field>}
-                {nfv('end_cidade')   && <Field label="Cidade" required={idx === 0} span2><input value={en.cidade} onChange={e => updateEndereco(en.id, 'cidade', e.target.value)} placeholder="Cidade" className={inputCls} /></Field>}
-              </>
-            ) : (
-              <>
-                {nfv('end_address1') && <Field label="Endereço — Linha 1" required={idx === 0} span2><input value={en.address1} onChange={e => updateEndereco(en.id, 'address1', e.target.value)} placeholder="Street address, P.O. box" className={inputCls} /></Field>}
-                {nfv('end_address2') && <Field label="Endereço — Linha 2" span2><input value={en.address2} onChange={e => updateEndereco(en.id, 'address2', e.target.value)} placeholder="Apt, suite, floor..." className={inputCls} /></Field>}
-                {nfv('end_cidade')   && <Field label="Cidade" required={idx === 0}><input value={en.cidade} onChange={e => updateEndereco(en.id, 'cidade', e.target.value)} placeholder="City" className={inputCls} /></Field>}
-                {nfv('end_estado')   && <Field label="Estado / Província"><input value={en.estado} onChange={e => updateEndereco(en.id, 'estado', e.target.value)} placeholder="State / Province" className={inputCls} /></Field>}
-                {nfv('end_cep')      && <Field label="CEP / ZIP Code"><input value={en.cep} onChange={e => updateEndereco(en.id, 'cep', e.target.value)} placeholder="Postal code" className={inputCls} /></Field>}
-                {nfv('end_pais')     && (
-                  <Field label="País" required={idx === 0}>
-                    <select value={en.pais_endereco} onChange={e => updateEndereco(en.id, 'pais_endereco', e.target.value)} className={inputCls}>
-                      <option value="">Selecione o país...</option>
-                      {paisesList.map(p => <option key={p} value={p}>{p}</option>)}
-                    </select>
-                  </Field>
-                )}
-              </>
-            )}
-          </ItemCard>
-        ))}
-        </div>
-        <button type="button" onClick={addEndereco}
-          className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors">
-          <Plus className="h-3.5 w-3.5" />Adicionar endereço
-        </button>
+        isOpen={open.has('endereco')} onToggle={() => toggle('endereco')} hasError={errors.has('endereco')}>
+        <EnderecoFields form={form} isVisible={isVisible} customFields={vfs('endereco')} />
       </Section>
     )
-
     if (key === 'bancario') return (
-      <>
-        <datalist id="brasil-banks">
-          {BRAZIL_BANKS.map(b => <option key={b} value={b} />)}
-        </datalist>
-        <Section key="bancario" icon={CreditCard} title="Dados Bancários"
-          isOpen={open.has('bancario')} onToggle={() => toggle('bancario')} customFields={vfs('bancario')}
-        >
-          <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
-          {bancos.map((b, idx) => (
-            <ItemCard key={b.id} index={idx} total={bancos.length} label="Banco" onRemove={() => removeBanco(b.id)}>
-              {nfv('ban_banco') && (
-                <Field label="Banco">
-                  <input list="brasil-banks" value={b.banco} onChange={e => updateBanco(b.id, 'banco', e.target.value)}
-                    placeholder="Digite o nome ou número do banco..." className={inputCls} />
-                </Field>
-              )}
-              {nfv('ban_tipo_conta') && (
-                <Field label="Tipo de Conta">
-                  <select value={b.tipo_conta} onChange={e => updateBanco(b.id, 'tipo_conta', e.target.value)}
-                    className="flex h-7 w-full rounded-md border border-input bg-background px-2.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors">
-                    <option value="">Selecione...</option>
-                    <option value="corrente">Conta Corrente</option>
-                    <option value="poupanca">Conta Poupança</option>
-                    <option value="pagamento">Conta de Pagamento</option>
-                  </select>
-                </Field>
-              )}
-              {nfv('ban_agencia')  && <Field label="Agência"><input value={b.agencia} onChange={e => updateBanco(b.id, 'agencia', e.target.value)} placeholder="0000" className={inputCls} /></Field>}
-              {nfv('ban_conta')    && <Field label="Conta"><input value={b.conta} onChange={e => updateBanco(b.id, 'conta', e.target.value)} placeholder="00000-0" className={inputCls} /></Field>}
-              {nfv('ban_pix')      && <Field label="Chave PIX" span2><input value={b.pix} onChange={e => updateBanco(b.id, 'pix', e.target.value)} placeholder="CPF, CNPJ, e-mail, telefone ou chave aleatória" className={inputCls} /></Field>}
-            </ItemCard>
-          ))}
-          </div>
-          <button type="button" onClick={addBanco}
-            className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors">
-            <Plus className="h-3.5 w-3.5" />Adicionar banco
-          </button>
-        </Section>
-      </>
+      <Section key="bancario" icon={CreditCard} title="Dados Bancários" isOpen={open.has('bancario')} onToggle={() => toggle('bancario')}>
+        <BancarioFields form={form} isVisible={isVisible} customFields={vfs('bancario')} />
+      </Section>
     )
-
     if (key === 'socios') {
       if (!isPJ) return null
       return (
-        <Section key="socios" icon={Users} title="Quadro de Sócios"
-          isOpen={open.has('socios')} onToggle={() => toggle('socios')}
-        >
-          {socios.length === 0 ? (
-            <p className="text-xs text-muted-foreground text-center py-3">Nenhum sócio cadastrado.</p>
-          ) : (
-            <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
-              <div className="grid grid-cols-12 gap-2 px-1 sticky top-0 bg-card z-10 py-1">
-                <div className="col-span-1" />
-                {nfv('soc_nome')         && <p className="col-span-3 text-[11px] font-medium text-muted-foreground">Nome</p>}
-                {nfv('soc_documento')    && <p className="col-span-3 text-[11px] font-medium text-muted-foreground">{isBR ? 'CPF' : 'Documento'}</p>}
-                {nfv('soc_participacao') && <p className="col-span-2 text-[11px] font-medium text-muted-foreground">Participação %</p>}
-                {nfv('soc_cargo')        && <p className="col-span-2 text-[11px] font-medium text-muted-foreground">Cargo / Função</p>}
-                <div className="col-span-1" />
-              </div>
-              {socios.map((socio, idx) => (
-                <div key={socio.id} className="grid grid-cols-12 gap-2 items-center p-2 rounded-md border bg-muted/20">
-                  <span className="col-span-1 text-[11px] text-muted-foreground text-center font-medium">{idx + 1}</span>
-                  {nfv('soc_nome')         && <div className="col-span-3"><input placeholder="Nome completo" value={socio.nome} onChange={e => updateSocio(socio.id, 'nome', e.target.value)} className={inputCls} /></div>}
-                  {nfv('soc_documento')    && <div className="col-span-3"><input placeholder={isBR ? '000.000.000-00' : 'Documento'} value={socio.documento} onChange={e => updateSocio(socio.id, 'documento', e.target.value)} className={inputCls} /></div>}
-                  {nfv('soc_participacao') && <div className="col-span-2"><input placeholder="0,00 %" value={socio.participacao} onChange={e => updateSocio(socio.id, 'participacao', e.target.value)} className={inputCls} /></div>}
-                  {nfv('soc_cargo')        && <div className="col-span-2"><input placeholder="Ex: Sócio-Diretor" value={socio.cargo} onChange={e => updateSocio(socio.id, 'cargo', e.target.value)} className={inputCls} /></div>}
-                  <div className="col-span-1 flex justify-center">
-                    <button type="button" onClick={() => removeSocio(socio.id)} className="text-muted-foreground hover:text-destructive transition-colors">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          <button type="button" onClick={addSocio} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors">
-            <Plus className="h-3.5 w-3.5" />Adicionar sócio
-          </button>
+        <Section key="socios" icon={Users} title="Quadro de Sócios" isOpen={open.has('socios')} onToggle={() => toggle('socios')}>
+          <SociosFields form={form} isVisible={isVisible} />
         </Section>
       )
     }
-
     const cs = customSections.find(s => s.id === key)
     if (cs) return (
-      <Section key={cs.id} icon={Layers} title={cs.label}
-        isOpen={open.has(cs.id)} onToggle={() => toggle(cs.id)} customFields={vfs(cs.id)}
-      >
-        {vfs(cs.id).length === 0 && (
-          <p className="text-[11px] text-muted-foreground text-center py-2">Nenhum campo nesta seção.</p>
-        )}
+      <Section key={cs.id} icon={Layers} title={cs.label} isOpen={open.has(cs.id)} onToggle={() => toggle(cs.id)}>
+        {vfs(cs.id).length === 0
+          ? <p className="text-[11px] text-muted-foreground text-center py-2">Nenhum campo nesta seção.</p>
+          : <CustomFieldsGrid fields={vfs(cs.id)} />}
       </Section>
     )
-
     return null
   }
 
@@ -765,20 +281,9 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
         </div>
       )}
 
-      <div className="rounded-xl border bg-card shadow-sm p-1 grid grid-cols-4 gap-1">
-        {CATEGORIES.map(cat => (
-          <button key={cat.value} type="button" onClick={() => { setCategory(cat.value); setDocValue('') }}
-            className={cn('rounded-md py-1.5 px-3 text-xs font-medium transition-all',
-              category === cat.value
-                ? 'bg-primary text-primary-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted',
-            )}>
-            {cat.label}
-          </button>
-        ))}
-      </div>
+      <CategoryTabs value={v.category} onChange={(c: PartnerCategory) => form.setCategory(c)} />
 
-      <form ref={formRef} className="space-y-2" onSubmit={handleSubmit}>
+      <form className="space-y-2" onSubmit={handleSubmit}>
 
         {resolvedOrder.map(key => renderSection(key))}
 
@@ -817,3 +322,5 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
     </div>
   )
 }
+
+export type { PartnerFormValues }

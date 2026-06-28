@@ -9,10 +9,10 @@ export interface CustomSection {
   name: string
 }
 
-const STORAGE_KEY      = 'primeapps:sections:parceiros'
-const ORDER_KEY        = 'primeapps:sections:parceiros:order'
-const DEFAULT_OPEN_KEY = 'primeapps:sections:parceiros:defaultOpen'
-const CHANGE_EVENT     = 'primeapps:sections:parceiros:change'
+const STORAGE_KEY      = 'nxt:sections:parceiros'
+const ORDER_KEY        = 'nxt:sections:parceiros:order'
+const DEFAULT_OPEN_KEY = 'nxt:sections:parceiros:defaultOpen'
+const CHANGE_EVENT     = 'nxt:sections:parceiros:change'
 
 function readStorage(): CustomSection[] {
   try {

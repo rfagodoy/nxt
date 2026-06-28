@@ -38,6 +38,12 @@ export class OrgUnitsController {
     return this.service.findChildren(groupCompanyId, parentId, organizationId)
   }
 
+  @Get(':id')
+  @ApiOperation({ summary: 'Detalhe completo de uma unidade (inclui usuários)' })
+  findOne(@Param('id') id: string, @CurrentOrg() organizationId: string) {
+    return this.service.findOne(id, organizationId)
+  }
+
   @Patch(':id')
   @ApiOperation({ summary: 'Atualiza unidade organizacional' })
   update(@Param('id') id: string, @Body() dto: UpdateOrgUnitDto, @CurrentOrg() organizationId: string) {

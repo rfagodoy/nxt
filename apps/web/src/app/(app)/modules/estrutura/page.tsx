@@ -3,12 +3,13 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Building2, Plus, Pencil, Trash2, X, ChevronRight, ChevronDown,
-  Network, CornerDownRight, Search,
+  Network, Search,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { useLookupTable, type LookupEntry } from '@/hooks/use-lookup-table'
 import { TIPOS_UNIDADE_KEY, INIT_TIPOS_UNIDADE, CLASS_COLOR } from '@/lib/unit-types'
+import { useWorkspace } from '@/contexts/workspace-context'
 
 /** Aparência (cor + rótulos) de uma unidade a partir do seu tipo configurável. */
 function unitTypeView(typeMap: Record<string, LookupEntry>, natureza: string) {
@@ -114,58 +115,6 @@ function CompanyModal({ initial, onSave, onClose }: { initial?: Company; onSave:
   )
 }
 
-/* ─── modal de unidade ───────────────────────────────────── */
-
-function UnitModal({ initial, parentName, tipos, onSave, onClose }: { initial?: Unit; parentName?: string; tipos: LookupEntry[]; onSave: (d: Partial<Unit>) => void; onClose: () => void }) {
-  const [nome,        setNome]   = useState(initial?.nome ?? '')
-  const [codigo,      setCodigo] = useState(initial?.codigo ?? '')
-  const [natureza,    setNat]    = useState(initial?.natureza ?? tipos[0]?.id ?? 'ADMINISTRATIVA')
-  const [responsavel, setResp]   = useState(initial?.responsavel ?? '')
-  const [status,      setStatus] = useState(initial?.status ?? 'ATIVA')
-
-  return (
-    <Modal title={initial ? 'Editar unidade' : 'Nova unidade'} onClose={onClose}>
-      {parentName && (
-        <p className="text-[11px] text-muted-foreground flex items-center gap-1.5"><CornerDownRight className="h-3 w-3" /> subordinada a <span className="font-medium text-foreground">{parentName}</span></p>
-      )}
-      <div className="grid grid-cols-[9rem_1fr] gap-3">
-        <div>
-          <label className={labelCls}>Código</label>
-          <input value={codigo ?? ''} onChange={e => setCodigo(alnum15(e.target.value))} maxLength={15} placeholder="Alfanum. 15" className={cn(inputCls, 'font-mono uppercase')} />
-        </div>
-        <div>
-          <label className={labelCls}>Nome <span className="text-red-500">*</span></label>
-          <input value={nome} onChange={e => setNome(e.target.value)} className={inputCls} autoFocus />
-        </div>
-      </div>
-      <div>
-        <label className={labelCls}>Tipo de unidade</label>
-        <select value={natureza} onChange={e => setNat(e.target.value)} className={inputCls}>
-          {initial?.natureza && !tipos.some(t => t.id === initial.natureza) && <option value={initial.natureza}>{initial.natureza}</option>}
-          {tipos.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
-        </select>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={labelCls}>Responsável</label>
-          <input value={responsavel ?? ''} onChange={e => setResp(e.target.value)} className={inputCls} />
-        </div>
-        <div>
-          <label className={labelCls}>Status</label>
-          <select value={status} onChange={e => setStatus(e.target.value)} className={inputCls}>
-            {STATUS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-          </select>
-        </div>
-      </div>
-      <div className="flex justify-end gap-2 pt-1">
-        <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Cancelar</button>
-        <button type="button" disabled={!nome.trim()}
-          onClick={() => onSave({ nome: nome.trim(), codigo: codigo?.trim() || undefined, natureza, responsavel: responsavel?.trim() || undefined, status })}
-          className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors">Salvar</button>
-      </div>
-    </Modal>
-  )
-}
 
 /* ─── linha da tabela do organograma ─────────────────────── */
 
@@ -215,7 +164,13 @@ function OrgChart({ companyId, onChanged }: { companyId: string; onChanged: () =
   const [search,   setSearch]   = useState('')
   const [results,  setResults]  = useState<Unit[] | null>(null)
   const [scrollTop, setScrollTop] = useState(0)
-  const [unitModal, setUnitModal] = useState<{ initial?: Unit; parent?: Unit } | null>(null)
+  const ws = useWorkspace()
+  /* abrir unidade (editar) ou nova unidade como ABA na área de trabalho */
+  const openEditUnit = (u: Unit) => ws.open({ id: `unit:${u.id}`, kind: 'unit', mode: 'detail', label: u.nome, data: u })
+  const openNewUnit  = (parent?: Unit) => ws.open({
+    id: `unit:new:${companyId}:${parent?.id ?? 'root'}`, kind: 'unit', mode: 'new', label: 'Nova unidade',
+    data: { companyId, parentId: parent?.id ?? null, parentName: parent?.nome ?? null },
+  })
   const tipos = useLookupTable(TIPOS_UNIDADE_KEY, INIT_TIPOS_UNIDADE)
   const typeMap = useMemo(() => Object.fromEntries(tipos.entries.map(t => [t.id, t])) as Record<string, LookupEntry>, [tipos.entries])
 
@@ -276,17 +231,13 @@ function OrgChart({ companyId, onChanged }: { companyId: string; onChanged: () =
     return out
   }, [cache, expanded])
 
-  const saveUnit = async (data: Partial<Unit>) => {
-    const editing = unitModal?.initial
-    const parent  = unitModal?.parent
-    const result  = editing
-      ? await api(`/api/org-units/${editing.id}`, { method: 'PATCH', body: JSON.stringify(data) })
-      : await api(`/api/org-units`, { method: 'POST', body: JSON.stringify({ groupCompanyId: companyId, parentId: parent?.id, ...data }) })
-    if (!result) { alert('Não foi possível salvar a unidade. Tente novamente.'); return } // mantém o modal aberto
-    if (!editing && parent) setExpanded(prev => new Set(prev).add(parent.id))
-    setUnitModal(null)
-    await refresh()
-  }
+  /* recarrega a árvore quando uma unidade é salva/criada na área de trabalho */
+  useEffect(() => {
+    const h = () => { void refresh() }
+    window.addEventListener('nxt:workspace:refresh', h)
+    return () => window.removeEventListener('nxt:workspace:refresh', h)
+  }, [refresh])
+
   const removeUnit = async (u: Unit) => {
     if (!confirm(`Remover a unidade "${u.nome}" e todas as subunidades?`)) return
     const ok = await api(`/api/org-units/${u.id}`, { method: 'DELETE' })
@@ -314,7 +265,7 @@ function OrgChart({ companyId, onChanged }: { companyId: string; onChanged: () =
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar unidade..."
               className="h-7 w-48 rounded-md border border-input bg-background pl-7 pr-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
           </div>
-          <button type="button" onClick={() => setUnitModal({})} className="inline-flex items-center gap-1 text-xs text-primary hover:text-primary/80 font-medium whitespace-nowrap"><Plus className="h-3.5 w-3.5" />Unidade raiz</button>
+          <button type="button" onClick={() => openNewUnit()} className="inline-flex items-center gap-1 text-xs text-primary hover:text-primary/80 font-medium whitespace-nowrap"><Plus className="h-3.5 w-3.5" />Unidade raiz</button>
         </div>
       </div>
 
@@ -337,7 +288,7 @@ function OrgChart({ companyId, onChanged }: { companyId: string; onChanged: () =
             {slice.map((row, i) => (
               <div key={row.unit.id} style={{ position: 'absolute', top: (start + i) * ROW_H, left: 0, right: 0 }}>
                 <UnitRow row={row} flatMode={inSearch} typeMap={typeMap} onToggle={toggle}
-                  onAddChild={u => setUnitModal({ parent: u })} onEdit={u => setUnitModal({ initial: u })} onRemove={removeUnit} />
+                  onAddChild={u => openNewUnit(u)} onEdit={u => openEditUnit(u)} onRemove={removeUnit} />
               </div>
             ))}
           </div>
@@ -354,7 +305,6 @@ function OrgChart({ companyId, onChanged }: { companyId: string; onChanged: () =
         <span className="text-[10px] text-muted-foreground">{inSearch ? `${total} resultado(s)` : `${total} unidade(s) visível(is)`}</span>
       </div>
 
-      {unitModal && <UnitModal initial={unitModal.initial} parentName={unitModal.parent?.nome} tipos={tipos.active} onSave={saveUnit} onClose={() => setUnitModal(null)} />}
     </div>
   )
 }

@@ -9,9 +9,9 @@ export interface CustomSection {
   name: string
 }
 
-const STORAGE_KEY  = 'primeapps:sections:contratos'
-const ORDER_KEY    = 'primeapps:sections:contratos:order'
-const CHANGE_EVENT = 'primeapps:sections:contratos:change'
+const STORAGE_KEY  = 'nxt:sections:contratos'
+const ORDER_KEY    = 'nxt:sections:contratos:order'
+const CHANGE_EVENT = 'nxt:sections:contratos:change'
 
 function readStorage(): CustomSection[] {
   try {

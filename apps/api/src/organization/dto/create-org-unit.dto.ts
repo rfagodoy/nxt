@@ -1,4 +1,4 @@
-import { IsString, IsOptional } from 'class-validator'
+import { IsString, IsOptional, IsArray } from 'class-validator'
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 
 export class CreateOrgUnitDto {
@@ -34,4 +34,14 @@ export class CreateOrgUnitDto {
   @IsOptional()
   @IsString()
   status?: string
+
+  @ApiPropertyOptional({ type: [Object], description: 'Usuários envolvidos (lista livre)' })
+  @IsOptional()
+  @IsArray()
+  usuarios?: object[]
+
+  @ApiPropertyOptional({ description: 'Usuário que originou o registro (auditoria futura)' })
+  @IsOptional()
+  @IsString()
+  user?: string
 }

@@ -54,7 +54,7 @@ export const PAISES: string[] = [
 /**
  * Chave única da tabela editável de Países (settings + seletores de parceiro).
  */
-export const PAISES_STORAGE_KEY = 'primeapps:settings:tabelas:paises:v2'
+export const PAISES_STORAGE_KEY = 'nxt:settings:tabelas:paises:v2'
 
 /**
  * Seed da tabela de Países no formato LookupEntry, derivado de PAISES.

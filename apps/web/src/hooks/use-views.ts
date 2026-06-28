@@ -14,10 +14,10 @@ export interface SavedView {
 
 export type ViewState = Pick<SavedView, 'sort' | 'filters' | 'logic'>
 
-const VIEWS_EVENT = 'primeapps:views-update'
+const VIEWS_EVENT = 'nxt:views-update'
 
 export function useViews(moduleSlug: string) {
-  const key = `primeapps:views:${moduleSlug}`
+  const key = `nxt:views:${moduleSlug}`
   const [views, setViews] = useState<SavedView[]>([])
 
   const load = useCallback(() => {

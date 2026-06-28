@@ -8,7 +8,14 @@ export class OrgUnitsService {
   constructor(private readonly prisma: PrismaService) {}
 
   create(dto: CreateOrgUnitDto, organizationId: string) {
-    return this.prisma.orgUnit.create({ data: { ...dto, organizationId } as never })
+    const { user, ...data } = dto; void user  // `user` é só p/ auditoria futura
+    return this.prisma.orgUnit.create({ data: { ...data, organizationId } as never })
+  }
+
+  async findOne(id: string, organizationId: string) {
+    const u = await this.prisma.orgUnit.findFirst({ where: { id, organizationId } })
+    if (!u) throw new NotFoundException('Unidade não encontrada')
+    return u
   }
 
   private toNode(u: Record<string, unknown> & { _count: { children: number } }) {
@@ -77,7 +84,8 @@ export class OrgUnitsService {
 
   async update(id: string, dto: UpdateOrgUnitDto, organizationId: string) {
     await this.ensure(id, organizationId)
-    return this.prisma.orgUnit.update({ where: { id }, data: dto as never })
+    const { user, ...data } = dto; void user
+    return this.prisma.orgUnit.update({ where: { id }, data: data as never })
   }
 
   async remove(id: string, organizationId: string) {

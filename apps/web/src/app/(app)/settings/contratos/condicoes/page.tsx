@@ -19,7 +19,7 @@ export default function CondicoesPagamento() {
       title="Condições de pagamento"
       description="Formas e prazos de pagamento disponíveis em contratos"
       icon={CreditCard}
-      storageKey="primeapps:settings:contratos:condicoes"
+      storageKey="nxt:settings:contratos:condicoes"
       initialData={INITIAL}
     />
   )

@@ -24,8 +24,8 @@ export interface CustomField {
   options?: SelectOption[]
 }
 
-const STORAGE_KEY  = 'primeapps:fields:contratos'
-const CHANGE_EVENT = 'primeapps:fields:contratos:change'
+const STORAGE_KEY  = 'nxt:fields:contratos'
+const CHANGE_EVENT = 'nxt:fields:contratos:change'
 
 function readStorage(): CustomField[] {
   try {
@@ -107,9 +107,9 @@ export const BASE_TABLE_COLUMNS: BaseColumn[] = [
   { key: 'situacao',        label: 'Situação'    },
 ]
 
-const BASECOL_KEY          = 'primeapps:columns:contratos:hidden'
-const BASECOL_CHANGE_EVENT = 'primeapps:columns:contratos:hidden:change'
-export const COLUMN_ORDER_RESET_EVENT = 'primeapps:columns:contratos:order:reset'
+const BASECOL_KEY          = 'nxt:columns:contratos:hidden'
+const BASECOL_CHANGE_EVENT = 'nxt:columns:contratos:hidden:change'
+export const COLUMN_ORDER_RESET_EVENT = 'nxt:columns:contratos:order:reset'
 
 function readHiddenBaseCols(): string[] {
   try { const raw = localStorage.getItem(BASECOL_KEY); return raw ? (JSON.parse(raw) as string[]) : [] } catch { return [] }
@@ -159,8 +159,8 @@ export const NATIVE_FIELDS: NativeField[] = [
   { key: 'condicao_pagamento', label: 'Condição de pagamento' },
 ]
 
-const NATVIS_KEY   = 'primeapps:fields:contratos:nativevis'
-const NATVIS_EVENT = 'primeapps:fields:contratos:nativevis:change'
+const NATVIS_KEY   = 'nxt:fields:contratos:nativevis'
+const NATVIS_EVENT = 'nxt:fields:contratos:nativevis:change'
 
 function readNativeVis(): Record<string, boolean> {
   try { const raw = localStorage.getItem(NATVIS_KEY); return raw ? (JSON.parse(raw) as Record<string, boolean>) : {} } catch { return {} }

@@ -26,7 +26,7 @@ export const CLASS_COLOR: Record<string, { dot: string; label: string; cls: stri
   LUCRO:  { dot: 'bg-emerald-500', label: 'Lucro',  cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
 }
 
-export const TIPOS_UNIDADE_KEY = 'primeapps:settings:org:tiposUnidade'
+export const TIPOS_UNIDADE_KEY = 'nxt:settings:org:tiposUnidade'
 
 export const INIT_TIPOS_UNIDADE: LookupEntry[] = [
   { id: 'ADMINISTRATIVA', label: 'Administrativa',  classificacao: CLASSIFICACAO.NEUTRO, active: true },

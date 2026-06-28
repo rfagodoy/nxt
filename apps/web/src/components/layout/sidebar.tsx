@@ -7,7 +7,7 @@ import { useSession, signOut } from 'next-auth/react'
 import { useTheme } from 'next-themes'
 import {
   LayoutDashboard, GitBranch, PanelLeft,
-  Table2, Building2, Sun, Moon, LogOut,
+  Table2, Sun, Moon, LogOut,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSidebar } from '@/contexts/sidebar-context'
@@ -30,7 +30,6 @@ const sections: NavSection[] = [
   {
     label: 'Configurações',
     items: [
-      { href: '/settings/empresas',  label: 'Estrutura organizacional', icon: Building2 },
       { href: '/processes',          label: 'Processos', icon: GitBranch },
       { href: '/settings/tabelas',   label: 'Tabelas',   icon: Table2   },
     ],

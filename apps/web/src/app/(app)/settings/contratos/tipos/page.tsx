@@ -18,7 +18,7 @@ export default function TiposContrato() {
       title="Tipos de contrato"
       description="Categorias disponíveis para classificar contratos"
       icon={Tag}
-      storageKey="primeapps:settings:contratos:tipos"
+      storageKey="nxt:settings:contratos:tipos"
       initialData={INITIAL}
     />
   )

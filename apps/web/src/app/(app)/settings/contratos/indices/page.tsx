@@ -19,7 +19,7 @@ export default function IndicesReajuste() {
       title="Índices de reajuste"
       description="Índices econômicos utilizados para reajuste de contratos"
       icon={TrendingUp}
-      storageKey="primeapps:settings:contratos:indices"
+      storageKey="nxt:settings:contratos:indices"
       initialData={INITIAL}
     />
   )

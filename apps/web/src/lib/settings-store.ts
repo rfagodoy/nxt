@@ -16,6 +16,19 @@ import { apiFetch } from './http'
 
 const apiUrl = () => process.env.NEXT_PUBLIC_API_URL ?? ''
 
+/* Migração única (cliente): chaves legadas 'primeapps:' → 'nxt:' no cache local.
+   O backend é migrado por SQL; isto só evita o flash de "seed" na 1ª carga por navegador. */
+if (typeof window !== 'undefined') {
+  try {
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith('primeapps:')) {
+        const nk = 'nxt:' + k.slice(10)
+        if (localStorage.getItem(nk) === null) localStorage.setItem(nk, localStorage.getItem(k) as string)
+      }
+    }
+  } catch { /* quota/SSR */ }
+}
+
 /** Vazio por enquanto (sem login). No futuro, retorna o id do usuário logado. */
 export function currentUserId(): string {
   return ''

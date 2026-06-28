@@ -172,7 +172,7 @@ export default function DashboardPage() {
 
         {/* ── Hero ── */}
         <div className="relative overflow-hidden rounded-xl p-5 text-white shadow-sm sm:col-span-2
-                        bg-gradient-to-br from-primary to-[hsl(258_70%_50%)]">
+                        bg-gradient-to-br from-[hsl(240_26%_36%)] to-[hsl(258_22%_31%)]">
           <div className="pointer-events-none absolute -right-8 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
           <div className="pointer-events-none absolute -bottom-12 right-16 h-32 w-32 rounded-full bg-white/10 blur-2xl" />
           <div className="relative">
@@ -294,7 +294,7 @@ export default function DashboardPage() {
             <Clock className="h-4 w-4 text-muted-foreground" />
             <h2 className="text-xs font-semibold">Atividade recente</h2>
           </div>
-          <div className="space-y-1">
+          <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
             {data && data.activity.length > 0 ? data.activity.map(a => (
               <div key={`${a.kind}-${a.id}`} className="flex items-center gap-2.5 rounded-md px-1.5 py-1.5 hover:bg-muted/50 transition-colors">
                 <span className={cn('flex h-6 w-6 shrink-0 items-center justify-center rounded-full',

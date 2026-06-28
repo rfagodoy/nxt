@@ -1,19 +1,49 @@
 'use client'
 
+import { useEffect } from 'react'
+import { usePathname } from 'next/navigation'
 import { SidebarProvider } from '@/contexts/sidebar-context'
+import { WorkspaceProvider, useWorkspace } from '@/contexts/workspace-context'
 import { Sidebar } from './sidebar'
+import { WorkspaceBar } from './workspace-bar'
+import { WorkspaceHost } from './workspace-host'
+
+/* Ao navegar entre módulos pelo menu, volta a mostrar a lista roteada
+   (as abas de documento permanecem abertas na barra global). */
+function DeactivateOnNav() {
+  const pathname = usePathname()
+  const { setActive } = useWorkspace()
+  useEffect(() => { setActive(null) }, [pathname]) // eslint-disable-line react-hooks/exhaustive-deps
+  return null
+}
+
+function ShellInner({ children }: { children: React.ReactNode }) {
+  const { activeId } = useWorkspace()
+  return (
+    <div className="flex h-screen overflow-hidden">
+      <Sidebar />
+      <div className="flex flex-col flex-1 overflow-hidden min-w-0">
+        <WorkspaceBar />
+        <main className="flex-1 overflow-y-auto bg-muted/10">
+          <div className="mx-auto w-full max-w-[1400px] p-6">
+            {/* lista roteada: sempre montada (preserva estado), escondida quando um documento está ativo */}
+            <div className={activeId != null ? 'hidden' : ''}>{children}</div>
+            {/* documentos da área de trabalho (mostra só o ativo) */}
+            <WorkspaceHost />
+          </div>
+        </main>
+      </div>
+      <DeactivateOnNav />
+    </div>
+  )
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
-      <div className="flex h-screen overflow-hidden">
-        <Sidebar />
-        <div className="flex flex-col flex-1 overflow-hidden min-w-0">
-          <main className="flex-1 overflow-y-auto bg-muted/10">
-            <div className="mx-auto w-full max-w-[1400px] p-6">{children}</div>
-          </main>
-        </div>
-      </div>
+      <WorkspaceProvider>
+        <ShellInner>{children}</ShellInner>
+      </WorkspaceProvider>
     </SidebarProvider>
   )
 }

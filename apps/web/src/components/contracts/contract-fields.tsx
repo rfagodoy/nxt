@@ -9,7 +9,7 @@ import { INIT_PAPEIS, PAPEIS_KEY, ORIGEM, origemDoPapel } from '@/lib/contract-r
 import {
   TIPOS_KEY, OBJETOS_KEY, MOEDAS_KEY, CONDICOES_KEY, INDICES_KEY,
   INIT_TIPOS, INIT_OBJETOS, INIT_MOEDAS, INIT_CONDICOES, INIT_INDICES,
-  SITUACOES, PERIODICIDADES, TIPOS_DOCUMENTO, STATUS_ASSINATURA,
+  SITUACOES, PERIODICIDADES, TIPOS_DOCUMENTO, STATUS_ASSINATURA, effectiveSituacao,
   newCParte, newCReajuste, newCDocumento,
   type ContractFormValues, type CParte, type CReajuste, type CDocumento,
 } from '@/lib/contract-options'
@@ -82,7 +82,10 @@ function Sel({ value, onChange, ro, options, placeholder }: { value: string; onC
   )
 }
 
-const lookupOpts = (entries: { id: string; label: string }[]) => entries.map(e => ({ value: e.label, label: e.label }))
+/* PADRÃO: referência a tabela auxiliar guarda o id estável; o rótulo é resolvido ao vivo.
+   lookupOpts → value = id; labelOf resolve id → rótulo atual (fallback no próprio valor p/ dados legados gravados como rótulo). */
+const lookupOpts = (entries: { id: string; label: string }[]) => entries.map(e => ({ value: e.id, label: e.label }))
+const labelOf    = (entries: { id: string; label: string }[], value: string) => entries.find(e => e.id === value)?.label ?? value
 
 /** Campo monetário com máscara pt-BR e prefixo do código da moeda. `value` é o número como string. */
 function MoneyField({ value, moedaCode, onChange, ro }: { value: string; moedaCode: string; onChange: (v: string) => void; ro?: boolean }) {
@@ -103,51 +106,48 @@ function MoneyField({ value, moedaCode, onChange, ro }: { value: string; moedaCo
 
 /* ─── grupos de campos ───────────────────────────────────── */
 
-/** Dados Gerais: Número, Situação, Tipo, Título, Descrição, Objeto. Número e Situação seguem editáveis mesmo em modo leitura. */
+/** Dados Gerais: Número, Situação, Título, Descrição, Objeto, Tipo. Número segue editável mesmo em leitura;
+ *  Situação é sempre só-leitura e preenchida automaticamente pelo ciclo de vida (ver effectiveSituacao). */
 export function IdentificacaoFields({ form, ro }: { form: ContractForm; ro?: boolean }) {
   const tipos   = useLookupTable(TIPOS_KEY, INIT_TIPOS)
   const objetos = useLookupTable(OBJETOS_KEY, INIT_OBJETOS)
-  const [objetoInput, setObjetoInput] = useState('')
   const v = form.values
-  const addObjeto = () => { if (objetoInput && !v.objeto.includes(objetoInput)) { form.set('objeto', [...v.objeto, objetoInput]); setObjetoInput('') } }
+  /* objeto guarda o id da entrada (resolução ao vivo); adiciona ao escolher no dropdown */
+  const addObjeto = (id: string) => { if (id && !v.objeto.includes(id)) form.set('objeto', [...v.objeto, id]) }
 
   return (
     <div className="grid grid-cols-2 gap-3">
       <Field label="Número" required><Txt value={v.numero} onChange={x => form.set('numero', x)} placeholder="CTR-2026-001" /></Field>
-      <Field label="Situação" required><Sel value={v.situacao} onChange={x => form.set('situacao', x)} options={SITUACOES} /></Field>
-      <Field label="Tipo de contrato" required><Sel value={v.tipo} onChange={x => form.set('tipo', x)} ro={ro} options={lookupOpts(tipos.active)} placeholder="Selecione..." /></Field>
+      <Field label="Situação"><span className={readCls}>{SITUACOES.find(s => s.value === effectiveSituacao(v.situacao, v.prazoIndeterminado ? '' : v.terminoVigencia))?.label ?? '—'}</span></Field>
       <Field label="Título" required span2><Txt value={v.titulo} onChange={x => form.set('titulo', x)} ro={ro} placeholder="Título resumido do contrato" /></Field>
       <Field label="Descrição" span2><Area value={v.descricao} onChange={x => form.set('descricao', x)} ro={ro} rows={4} placeholder="Descrição detalhada do objeto e escopo do contrato..." /></Field>
       <Field label="Objeto do contrato" span2>
         <div className="space-y-1.5">
           {v.objeto.length === 0 && ro && <p className={readCls}>—</p>}
-          {v.objeto.map((label, i) => (
-            <div key={label} className="flex items-center justify-between rounded-md border bg-muted/20 px-3 py-1.5">
-              <div className="flex items-center gap-2"><span className="text-[10px] font-medium text-muted-foreground w-4 shrink-0 text-right">{i + 1}.</span><span className="text-xs">{label}</span></div>
-              {!ro && <button type="button" onClick={() => form.set('objeto', v.objeto.filter(x => x !== label))} className="text-muted-foreground hover:text-destructive transition-colors ml-2"><Trash2 className="h-3 w-3" /></button>}
+          {v.objeto.map((id, i) => (
+            <div key={id} className="flex items-center justify-between rounded-md border bg-muted/20 px-3 py-1.5">
+              <div className="flex items-center gap-2"><span className="text-[10px] font-medium text-muted-foreground w-4 shrink-0 text-right">{i + 1}.</span><span className="text-xs">{labelOf(objetos.entries, id)}</span></div>
+              {!ro && <button type="button" onClick={() => form.set('objeto', v.objeto.filter(x => x !== id))} className="text-muted-foreground hover:text-destructive transition-colors ml-2"><Trash2 className="h-3 w-3" /></button>}
             </div>
           ))}
           {!ro && (
-            <div className="flex gap-2">
-              <select value={objetoInput} onChange={e => setObjetoInput(e.target.value)} className={cn(inputCls, 'flex-1')}>
-                <option value="">Selecione um objeto para adicionar...</option>
-                {objetos.active.filter(o => !v.objeto.includes(o.label)).map(o => <option key={o.id} value={o.label}>{o.label}</option>)}
-              </select>
-              <button type="button" onClick={addObjeto} disabled={!objetoInput} className="flex h-7 items-center gap-1.5 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"><Plus className="h-3.5 w-3.5" />Adicionar</button>
-            </div>
+            <select value="" onChange={e => addObjeto(e.target.value)} className={cn(inputCls)}>
+              <option value="">Adicionar objeto...</option>
+              {objetos.active.filter(o => !v.objeto.includes(o.id)).map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
           )}
         </div>
       </Field>
+      <Field label="Tipo de contrato" required span2><Sel value={v.tipo} onChange={x => form.set('tipo', x)} ro={ro} options={lookupOpts(tipos.active)} placeholder="Selecione..." /></Field>
     </div>
   )
 }
 
-/** Vigência: Início, Prazo indeterminado, Término, Data de assinatura. */
+/** Vigência: Prazo indeterminado, Início, Término, Data de assinatura (grade 2×2). */
 export function VigenciaFields({ form, ro }: { form: ContractForm; ro?: boolean }) {
   const v = form.values
   return (
     <div className="grid grid-cols-2 gap-3">
-      <Field label="Início da vigência" required><Txt type="date" value={v.inicioVigencia} onChange={x => form.set('inicioVigencia', x)} ro={ro} /></Field>
       <Field label="Prazo indeterminado">
         {ro ? <span className={readCls}>{v.prazoIndeterminado ? 'Sim' : 'Não'}</span> : (
           <label className="flex items-center gap-2 h-7 cursor-pointer">
@@ -156,6 +156,7 @@ export function VigenciaFields({ form, ro }: { form: ContractForm; ro?: boolean 
           </label>
         )}
       </Field>
+      <Field label="Início da vigência" required><Txt type="date" value={v.inicioVigencia} onChange={x => form.set('inicioVigencia', x)} ro={ro} /></Field>
       {!v.prazoIndeterminado && <Field label="Término da vigência"><Txt type="date" value={v.terminoVigencia} onChange={x => form.set('terminoVigencia', x)} ro={ro} /></Field>}
       <Field label="Data de assinatura"><Txt type="date" value={v.dataAssinatura} onChange={x => form.set('dataAssinatura', x)} ro={ro} /></Field>
     </div>
@@ -170,7 +171,7 @@ export function ValoresFields({ form, ro }: { form: ContractForm; ro?: boolean }
   const moedaOpts = moedas.active.map(m => ({ value: m.code ?? m.label, label: m.code ? `${m.code} — ${m.label}` : m.label }))
   return (
     <div className="grid grid-cols-2 gap-3">
-      <Field label="Moeda"><Sel value={v.moeda} onChange={x => form.set('moeda', x)} ro={ro} options={moedaOpts} /></Field>
+      <Field label="Moeda"><Sel value={v.moeda} onChange={x => form.set('moeda', x)} ro={ro} options={moedaOpts} placeholder="Selecione..." /></Field>
       <Field label="Valor da parcela"><MoneyField value={v.valorParcela} moedaCode={v.moeda} onChange={x => form.set('valorParcela', x)} ro={ro} /></Field>
       <Field label="Valor total do contrato" required><MoneyField value={v.valorTotal} moedaCode={v.moeda} onChange={x => form.set('valorTotal', x)} ro={ro} /></Field>
       <Field label="Condição de pagamento"><Sel value={v.condicaoPagamento} onChange={x => form.set('condicaoPagamento', x)} ro={ro} options={lookupOpts(condicoes.active)} placeholder="Selecione..." /></Field>
@@ -347,12 +348,12 @@ export function PartesFields({ form, ro, onOpenSearch, onNewPartner }: {
               return (
                 <div key={p.id} className={cn(COLS, 'group px-3 py-1.5 hover:bg-muted/30', idx === 0 && 'border-l-2 border-l-primary/50')} title={idx === 0 ? 'Parte principal' : undefined}>
                   {ro ? (
-                    <span className="text-xs font-medium truncate">{p.papel || '—'}</span>
+                    <span className="text-xs font-medium truncate">{labelOf(papeis.entries, p.papel) || '—'}</span>
                   ) : (
                     <select value={p.papel} onChange={e => onPapel(e.target.value)} className={cn(inputCls, 'h-7')}>
                       <option value="">Selecione...</option>
-                      {p.papel && !papeis.active.some(pp => pp.label === p.papel) && <option value={p.papel}>{p.papel}</option>}
-                      {papeis.active.map(pp => <option key={pp.id} value={pp.label}>{pp.label}</option>)}
+                      {p.papel && !papeis.active.some(pp => pp.id === p.papel) && <option value={p.papel}>{labelOf(papeis.entries, p.papel)}</option>}
+                      {papeis.active.map(pp => <option key={pp.id} value={pp.id}>{pp.label}</option>)}
                     </select>
                   )}
                   {ro ? (

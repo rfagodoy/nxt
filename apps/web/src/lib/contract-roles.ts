@@ -17,7 +17,7 @@ export const ORIGEM_OPTIONS = [
 ]
 
 /** Chave versionada para forçar o re-seed com o campo `origem`. */
-export const PAPEIS_KEY = 'primeapps:settings:contratos:papeis:v2'
+export const PAPEIS_KEY = 'nxt:settings:contratos:papeis:v2'
 
 /** Fonte única dos papéis (usada pela tela de configuração e pelo formulário). */
 export const INIT_PAPEIS: LookupEntry[] = [
@@ -30,8 +30,8 @@ export const INIT_PAPEIS: LookupEntry[] = [
   { id: '7', label: 'Garantidor',           origem: ORIGEM.EMPRESA_PARCEIRO, active: false },
 ]
 
-/** Descobre a origem de um papel pelo seu rótulo. */
-export function origemDoPapel(papeis: LookupEntry[], papelLabel: string): string {
-  const found = papeis.find(p => p.label === papelLabel)
+/** Descobre a origem de um papel pelo seu id (com fallback por rótulo para dados legados). */
+export function origemDoPapel(papeis: LookupEntry[], papel: string): string {
+  const found = papeis.find(p => p.id === papel) ?? papeis.find(p => p.label === papel)
   return found?.origem ?? ORIGEM.EMPRESA_PARCEIRO
 }

@@ -41,7 +41,7 @@ export interface LogEntry {
   changes?:    LogChange[]
 }
 
-const storageKey = (partnerId: string) => `primeapps:logs:parceiros:${partnerId}`
+const storageKey = (partnerId: string) => `nxt:logs:parceiros:${partnerId}`
 
 function readLogs(partnerId: string): LogEntry[] {
   try {
@@ -55,7 +55,7 @@ function writeLogs(partnerId: string, entries: LogEntry[]) {
 }
 
 export function getLogUser(): string {
-  try { return localStorage.getItem('primeapps:user:name') ?? 'Usuário do sistema' } catch { return 'Usuário do sistema' }
+  try { return localStorage.getItem('nxt:user:name') ?? 'Usuário do sistema' } catch { return 'Usuário do sistema' }
 }
 
 export function addPartnerLog(partnerId: string, entry: Omit<LogEntry, 'id' | 'ts'>) {
