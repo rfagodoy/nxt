@@ -1,43 +1,38 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common'
 import { PassportStrategy } from '@nestjs/passport'
 import { ExtractJwt, Strategy } from 'passport-jwt'
-import { passportJwtSecret } from 'jwks-rsa'
+import { JWT_ISSUER } from './jwt.constants'
 
 /**
- * Claims do access token emitido pelo Keycloak.
- * `org_id` é injetado por um protocol mapper do realm (atributo do usuário/organização)
- * e identifica o tenant (organizationId).
+ * Claims do access token emitido pela própria aplicação (HS256, assinado com
+ * `AUTH_JWT_SECRET`). `org_id` identifica o tenant (organizationId) e
+ * `realm_access.roles` carrega o papel do usuário — formato mantido para que
+ * CurrentOrg/CurrentUser continuem funcionando sem mudança.
  */
 export interface JwtPayload {
   sub: string
   email?: string
   preferred_username?: string
+  org_id?: string
+  role?: string
   realm_access?: { roles: string[] }
-  resource_access?: Record<string, { roles: string[] }>
   [claim: string]: unknown
 }
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor() {
-    const issuer = process.env.OIDC_ISSUER_URL
-    if (!issuer) {
-      throw new Error('OIDC_ISSUER_URL não configurado — auth não pode inicializar')
+    const secret = process.env.AUTH_JWT_SECRET
+    if (!secret) {
+      throw new Error('AUTH_JWT_SECRET não configurado — auth não pode inicializar')
     }
 
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      algorithms: ['RS256'],
-      issuer,
-      // Só valida audience se OIDC_AUDIENCE estiver definido (mapper de audience no realm).
-      ...(process.env.OIDC_AUDIENCE ? { audience: process.env.OIDC_AUDIENCE } : {}),
-      secretOrKeyProvider: passportJwtSecret({
-        cache: true,
-        rateLimit: true,
-        jwksRequestsPerMinute: 10,
-        jwksUri: `${issuer.replace(/\/$/, '')}/protocol/openid-connect/certs`,
-      }),
+      algorithms: ['HS256'],
+      issuer: JWT_ISSUER,
+      secretOrKey: secret,
     })
   }
 

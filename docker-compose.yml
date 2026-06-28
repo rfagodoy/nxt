@@ -1,17 +1,13 @@
 # Infra de desenvolvimento do Nxt.
-# Sobe o SQL Server (banco ÚNICO de toda a stack) e o Keycloak (IdP — OIDC +
-# brokering SAML/AD). NÃO há Postgres: por exigência do cliente, tanto o banco
-# da aplicação (`nxt`) quanto o store interno do Keycloak (`keycloak`) ficam no
-# mesmo SQL Server, em databases separados.
-# O realm `nxt` é importado automaticamente de infra/keycloak/realm-nxt.json.
+# Sobe apenas o SQL Server (banco ÚNICO de toda a stack). A autenticação é própria
+# da aplicação (usuários no banco, JWT assinado pela API) — NÃO há mais Keycloak
+# nem Postgres.
 #
 #   docker compose up -d
-#   Admin console: http://localhost:8080  (admin / admin)
-#   Issuer do realm: http://localhost:8080/realms/nxt
-#   Banco da app:   sqlserver://localhost:1433 (sa / Nxt_Dev_2026!), database `nxt`
+#   Banco da app: sqlserver://localhost:1433 (sa / Nxt_Dev_2026!), database `nxt`
 #
-# Obs.: este compose é a base de DEV/SaaS. Para on-premise, o mesmo Keycloak
-# é empacotado junto da aplicação (ver Fase 6 do plano de migração).
+# Após subir: rode o seed (packages/database: `npm run db:push && npm run db:seed`)
+# para criar a org demo e o usuário admin.
 
 services:
   sqlserver:
@@ -32,8 +28,7 @@ services:
       retries: 10
       start_period: 30s
 
-  # Cria os databases `nxt` (app) e `keycloak` (IdP) assim que o SQL Server sobe.
-  # Roda uma vez e encerra; o Keycloak espera ele concluir com sucesso.
+  # Cria o database `nxt` (app) assim que o SQL Server fica saudável. Roda uma vez.
   db-init:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: nxt-db-init
@@ -47,33 +42,8 @@ services:
       - -c
       - >
         /opt/mssql-tools18/bin/sqlcmd -S sqlserver -U sa -P "$$MSSQL_SA_PASSWORD" -C
-        -Q "IF DB_ID('nxt') IS NULL CREATE DATABASE nxt; IF DB_ID('keycloak') IS NULL CREATE DATABASE keycloak;"
+        -Q "IF DB_ID('nxt') IS NULL CREATE DATABASE nxt;"
     restart: 'no'
-
-  keycloak:
-    image: quay.io/keycloak/keycloak:26.0
-    container_name: nxt-keycloak
-    command: start-dev --import-realm
-    depends_on:
-      sqlserver:
-        condition: service_healthy
-      db-init:
-        condition: service_completed_successfully
-    environment:
-      KC_DB: mssql
-      KC_DB_URL: jdbc:sqlserver://sqlserver:1433;databaseName=keycloak;encrypt=true;trustServerCertificate=true
-      KC_DB_USERNAME: sa
-      KC_DB_PASSWORD: Nxt_Dev_2026!
-      KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
-      KC_HTTP_ENABLED: 'true'
-      KC_HOSTNAME_STRICT: 'false'
-      # Habilita a feature de Organizations (multi-tenant SaaS — decisão D1).
-      KC_FEATURES: organization
-    ports:
-      - '8080:8080'
-    volumes:
-      - ./infra/keycloak:/opt/keycloak/data/import:ro
 
 volumes:
   sqlserver-data:

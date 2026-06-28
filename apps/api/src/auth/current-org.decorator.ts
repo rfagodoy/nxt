@@ -5,8 +5,7 @@ const ORG_CLAIM = process.env.OIDC_ORG_CLAIM || 'org_id'
 
 /**
  * Injeta o organizationId do tenant a partir da claim do token (default `org_id`).
- * Substitui o antigo @Query('organizationId') / 'TODO_GET_FROM_CLERK': a origem
- * passa a ser o token assinado pelo Keycloak, nunca o cliente.
+ * A origem é sempre o token (JWT assinado pela própria API), nunca o cliente.
  */
 export const CurrentOrg = createParamDecorator(
   (_data: unknown, ctx: ExecutionContext): string => {

@@ -1,25 +1,82 @@
 'use client'
 
 import { Suspense, useState } from 'react'
-import { signIn } from 'next-auth/react'
 import { useSearchParams } from 'next/navigation'
-import { GitBranch, Package, FileText, LogIn } from 'lucide-react'
+import { GitBranch, Package, FileText, LogIn, Loader2, AlertCircle } from 'lucide-react'
 import { Logo } from '@/components/layout/logo'
 
-function SignInButton() {
+function SignInForm() {
   const params = useSearchParams()
   const callbackUrl = params.get('callbackUrl') || '/dashboard'
+
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      })
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null
+        setError(data?.error ?? 'Não foi possível entrar.')
+        setLoading(false)
+        return
+      }
+      // Cookie de sessão já definido pelo handler. Navegação COMPLETA (não
+      // client-side) para o SessionProvider remontar e ler a sessão fresca.
+      window.location.href = callbackUrl
+    } catch {
+      setError('Serviço indisponível. Tente novamente.')
+      setLoading(false)
+    }
+  }
+
+  const field =
+    'h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:opacity-50'
 
   return (
-    <button
-      onClick={() => { setLoading(true); void signIn('keycloak', { callbackUrl }) }}
-      disabled={loading}
-      className="inline-flex w-full items-center justify-center gap-2 h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
-    >
-      <LogIn className="h-4 w-4" />
-      {loading ? 'Redirecionando...' : 'Entrar com SSO'}
-    </button>
+    <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4">
+      {error && (
+        <div className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <div className="space-y-1.5">
+        <label htmlFor="email" className="text-xs font-medium text-foreground">E-mail</label>
+        <input
+          id="email" type="email" autoComplete="username" required autoFocus
+          value={email} onChange={(e) => setEmail(e.target.value)} disabled={loading}
+          placeholder="voce@empresa.com" className={field}
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <label htmlFor="password" className="text-xs font-medium text-foreground">Senha</label>
+        <input
+          id="password" type="password" autoComplete="current-password" required
+          value={password} onChange={(e) => setPassword(e.target.value)} disabled={loading}
+          placeholder="••••••••" className={field}
+        />
+      </div>
+
+      <button
+        type="submit" disabled={loading || !email || !password}
+        className="inline-flex w-full items-center justify-center gap-2 h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+      >
+        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
+        {loading ? 'Entrando...' : 'Entrar'}
+      </button>
+    </form>
   )
 }
 
@@ -65,7 +122,7 @@ export default function SignInPage() {
         <p className="text-white/70 text-sm">© 2026 Nxt. Todos os direitos reservados.</p>
       </div>
 
-      {/* Painel direito — login SSO */}
+      {/* Painel direito — login */}
       <div className="flex flex-col items-center justify-center p-8 bg-background">
         <div className="flex items-center gap-2 mb-8 lg:hidden">
           <Logo variant="mark" />
@@ -75,15 +132,13 @@ export default function SignInPage() {
         <div className="w-full max-w-sm space-y-2 mb-6 text-center lg:text-left">
           <h2 className="text-2xl font-semibold tracking-tight">Entrar na sua conta</h2>
           <p className="text-muted-foreground text-sm">
-            Você será redirecionado para o login seguro da sua organização.
+            Acesse com seu e-mail e senha.
           </p>
         </div>
 
-        <div className="w-full max-w-sm">
-          <Suspense fallback={null}>
-            <SignInButton />
-          </Suspense>
-        </div>
+        <Suspense fallback={null}>
+          <SignInForm />
+        </Suspense>
       </div>
     </div>
   )

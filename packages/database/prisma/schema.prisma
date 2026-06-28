@@ -17,7 +17,7 @@ datasource db {
 
 model Organization {
   id         String   @id @default(cuid())
-  externalId String   @unique // id da organização no IdP (Keycloak)
+  externalId String   @unique // id externo opcional (provisionamento/SSO); em dev = id
   name       String
   slug       String   @unique
   createdAt DateTime @default(now())
@@ -25,8 +25,33 @@ model Organization {
 
   processes ProcessDefinition[]
   modules   Module[]
+  users     User[]
 
   @@map("organizations")
+}
+
+// ─── Usuários (autenticação própria) ─────────────────────────────────────────
+// Identidade gerida pela própria aplicação (sem IdP externo). A senha é guardada
+// como hash bcrypt; o login emite um JWT assinado por nós (HS256). O par
+// (organizationId, email) é único — e-mail se repete entre tenants, não dentro.
+
+model User {
+  id             String    @id @default(cuid())
+  organizationId String
+  email          String
+  passwordHash   String
+  name           String
+  role           String    @default("user") // 'admin' | 'user'
+  status         String    @default("ATIVO") // 'ATIVO' | 'INATIVO'
+  lastLoginAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+  @@map("users")
 }
 
 // ─── Processo BPMN ──────────────────────────────────────────────────────────

@@ -1,34 +1,30 @@
-import type { NextFetchEvent, NextRequest } from 'next/server'
-import { auth } from '@/auth'
+import { NextResponse, type NextRequest } from 'next/server'
+import { SESSION_COOKIE, decodeToken, isExpired } from '@/lib/session'
 
 /**
- * Protege todo o grupo (app): usuário não autenticado é mandado para /sign-in
- * (que redireciona ao Keycloak). Autenticado tentando acessar /sign-in volta ao app.
+ * Protege o app: sem sessão válida (cookie httpOnly com o nosso JWT) → /sign-in.
+ * Autenticado tentando acessar /sign-in volta ao app. A verificação real do
+ * token acontece na API; aqui só lemos as claims para rotear.
  */
-const handler = auth((req) => {
+export function middleware(req: NextRequest) {
   const { pathname, origin } = req.nextUrl
-  const isAuthed = !!req.auth
+  const token = req.cookies.get(SESSION_COOKIE)?.value
+  const decoded = token ? decodeToken(token) : null
+  const isAuthed = !!decoded && !isExpired(decoded.exp)
   const isAuthRoute = pathname.startsWith('/sign-in') || pathname.startsWith('/sign-up')
 
   if (!isAuthed && !isAuthRoute) {
     const url = new URL('/sign-in', origin)
     url.searchParams.set('callbackUrl', pathname)
-    return Response.redirect(url)
+    return NextResponse.redirect(url)
   }
   if (isAuthed && isAuthRoute) {
-    return Response.redirect(new URL('/dashboard', origin))
+    return NextResponse.redirect(new URL('/dashboard', origin))
   }
-})
-
-// Wrapper com tipos concretos: evita o TS2742 do export default inferido.
-export default function middleware(request: NextRequest, event: NextFetchEvent) {
-  return (handler as unknown as (
-    req: NextRequest,
-    ev: NextFetchEvent,
-  ) => Response | undefined)(request, event)
+  return NextResponse.next()
 }
 
 export const config = {
-  // Tudo exceto rotas internas do Auth.js, assets do Next e arquivos estáticos.
-  matcher: ['/((?!api/auth|_next/static|_next/image|favicon.ico|.*\\.).*)'],
+  // Tudo exceto as rotas /api (inclui nossos handlers de auth), assets e estáticos.
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|.*\\.).*)'],
 }

@@ -1,15 +1,16 @@
 import 'server-only'
-import { auth } from '@/auth'
+import { cookies } from 'next/headers'
+import { SESSION_COOKIE } from '@/lib/session'
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? ''
 
 /**
- * Fetch autenticado para Server Components / SSR. Pega o token da sessão no
- * servidor (auth()) e anexa o Bearer. O tenant vem do token no backend.
+ * Fetch autenticado para Server Components / SSR. Lê o token do cookie de sessão
+ * e anexa o Bearer. O tenant vem do token no backend.
  */
 export async function serverFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const session = await auth()
+  const token = (await cookies()).get(SESSION_COOKIE)?.value
   const headers = new Headers(init.headers)
-  if (session?.accessToken) headers.set('Authorization', `Bearer ${session.accessToken}`)
+  if (token) headers.set('Authorization', `Bearer ${token}`)
   return fetch(`${API}${path}`, { cache: 'no-store', ...init, headers })
 }

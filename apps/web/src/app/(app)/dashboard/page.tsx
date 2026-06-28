@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useSession } from 'next-auth/react'
+import { useSession } from '@/lib/session-context'
 import {
   FileText, Users, GitBranch, Database, Loader2, AlertTriangle,
   Clock, Plus, ArrowRight, TrendingUp, TrendingDown,

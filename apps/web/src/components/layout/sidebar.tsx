@@ -3,11 +3,11 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { useSession, signOut } from 'next-auth/react'
+import { useSession, logout } from '@/lib/session-context'
 import { useTheme } from 'next-themes'
 import {
   LayoutDashboard, GitBranch, PanelLeft,
-  Table2, Sun, Moon, LogOut,
+  Table2, Sun, Moon, LogOut, Users,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSidebar } from '@/contexts/sidebar-context'
@@ -32,6 +32,7 @@ const sections: NavSection[] = [
     items: [
       { href: '/processes',          label: 'Processos', icon: GitBranch },
       { href: '/settings/tabelas',   label: 'Tabelas',   icon: Table2   },
+      { href: '/settings/usuarios',  label: 'Usuários',  icon: Users    },
     ],
   },
 ]
@@ -133,7 +134,7 @@ function SidebarFooter({ collapsed }: { collapsed: boolean }) {
     </button>
   )
   const LogoutBtn = (
-    <button onClick={() => void signOut({ callbackUrl: '/sign-in' })}
+    <button onClick={() => void logout()}
       title="Sair"
       className={cn(iconBtn, 'h-8 w-8 shrink-0 hover:text-red-400')}>
       <LogOut className="h-4 w-4" />
