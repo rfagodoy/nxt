@@ -302,7 +302,7 @@ export default function ContratosPage() {
             <span className="text-[10px] text-muted-foreground/70 tabular-nums whitespace-nowrap">{doc || ''}</span>
           </>
         ) : null
-        const ctn = linha('Contratante', 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400', row.contratante_nome, row.contratante_doc)
+        const ctn = linha('Contratante', 'bg-slate-500/10 text-slate-600 dark:text-slate-400', row.contratante_nome, row.contratante_doc)
         const ctd = linha('Contratada',  'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', row.contratada_nome, row.contratada_doc)
         return (
           <td key={key} className={cn('px-3 py-1 text-xs', sticky)}>

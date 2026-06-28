@@ -5,7 +5,15 @@ const config: Config = {
   content: ['./src/**/*.{ts,tsx}'],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['var(--font-sans)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['var(--font-mono)', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+      },
       colors: {
+        // Marca Nxt (valores fixos da identidade — usar direto: bg-forest, text-spark…)
+        forest: '#0C1410', // Forest Ink
+        spark: '#C6F24E', // Lime Spark
+        mist: '#F2F6F1', // Mist
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',

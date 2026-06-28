@@ -42,7 +42,7 @@ const TABLES = [
     icon:        UserCheck,
     label:       'Papéis no contrato',
     description: 'Funções que as partes exercem: contratante, contratada, garantidor...',
-    color:       'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400',
+    color:       'bg-slate-500/10 text-slate-600 dark:text-slate-400',
   },
   {
     href:        '/settings/contratos/anexos',

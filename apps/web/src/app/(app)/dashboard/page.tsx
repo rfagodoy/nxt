@@ -34,7 +34,7 @@ interface Summary {
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
 const NUM = new Intl.NumberFormat('pt-BR')
 
-const INDIGO = 'hsl(243 75% 58%)'
+const ACCENT = 'hsl(154 70% 40%)' // Emerald da marca (sparklines, séries)
 
 function greeting(): string {
   const h = new Date().getHours()
@@ -79,7 +79,7 @@ function useCountUp(target: number, duration = 900): number {
 }
 
 /* ─────────────────────────── micro-componentes ───────────────────────────── */
-function Sparkline({ data, color = INDIGO }: { data: number[]; color?: string }) {
+function Sparkline({ data, color = ACCENT }: { data: number[]; color?: string }) {
   const chartData = data.map((v, i) => ({ i, v }))
   const id = useMemo(() => `sp-${Math.random().toString(36).slice(2)}`, [])
   return (
@@ -172,9 +172,9 @@ export default function DashboardPage() {
 
         {/* ── Hero ── */}
         <div className="relative overflow-hidden rounded-xl p-5 text-white shadow-sm sm:col-span-2
-                        bg-gradient-to-br from-[hsl(240_26%_36%)] to-[hsl(258_22%_31%)]">
-          <div className="pointer-events-none absolute -right-8 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
-          <div className="pointer-events-none absolute -bottom-12 right-16 h-32 w-32 rounded-full bg-white/10 blur-2xl" />
+                        bg-gradient-to-br from-[hsl(156_42%_11%)] to-[hsl(150_44%_6%)]">
+          <div className="pointer-events-none absolute -right-8 -top-10 h-40 w-40 rounded-full bg-primary/25 blur-2xl" />
+          <div className="pointer-events-none absolute -bottom-12 right-16 h-32 w-32 rounded-full bg-spark/15 blur-2xl" />
           <div className="relative">
             <p className="text-[11px] font-medium uppercase tracking-widest text-white/70">{todayLabel()}</p>
             <h1 className="mt-1 text-lg font-semibold tracking-tight">

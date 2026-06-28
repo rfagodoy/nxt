@@ -101,7 +101,7 @@ export function WorkspaceBar() {
               className={cn(tabBase,
                 active ? activeCls : 'text-muted-foreground hover:text-foreground hover:bg-card/70',
                 overIdx === i && drag !== null && drag !== i && 'ring-1 ring-primary/40')}>
-              <Icon className={cn('h-3.5 w-3.5 shrink-0', active ? (t.kind === 'contract' ? 'text-indigo-500' : 'text-emerald-500') : '')} />
+              <Icon className={cn('h-3.5 w-3.5 shrink-0', active ? (t.kind === 'contract' ? 'text-primary' : 'text-emerald-500') : '')} />
               <span className="text-xs font-medium max-w-[160px] truncate">{t.label}</span>
               <span className="relative ml-0.5 flex h-4 w-4 items-center justify-center shrink-0">
                 {isDirty && <span className="absolute h-1.5 w-1.5 rounded-full bg-amber-500 group-hover:opacity-0 transition-opacity" title="Alterações não salvas" />}

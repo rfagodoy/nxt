@@ -4,89 +4,90 @@
 
 @layer base {
   :root {
-    /* página: lavanda-cinza muito suave, dá personalidade sem pesar */
-    --background: 240 18% 94%;
-    --foreground: 240 45% 10%;
+    /* página: Mist — off-white frio levemente esverdeado (identidade Nxt) */
+    --background: 120 16% 96%;
+    --foreground: 156 28% 11%;
 
-    /* cards, header: branco — "flutuam" sobre o fundo lavanda */
+    /* cards: branco puro — "flutuam" sobre o Mist */
     --card: 0 0% 100%;
-    --card-foreground: 240 45% 10%;
+    --card-foreground: 156 28% 11%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 240 45% 10%;
+    --popover-foreground: 156 28% 11%;
 
-    --border: 240 12% 86%;
-    --input: 240 12% 86%;
+    --border: 150 14% 88%;
+    --input: 150 14% 88%;
 
-    /* índigo vibrante como primário */
-    --primary: 243 75% 58%;
+    /* Emerald — acento primário da marca (botões/ações/ativos) */
+    --primary: 154 76% 35%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 240 16% 91%;
-    --secondary-foreground: 240 45% 10%;
+    --secondary: 150 16% 92%;
+    --secondary-foreground: 156 28% 11%;
 
-    --muted: 240 16% 91%;
-    --muted-foreground: 240 10% 46%;
+    --muted: 150 16% 92%;
+    --muted-foreground: 150 8% 42%;
 
-    --accent: 240 16% 91%;
-    --accent-foreground: 240 45% 10%;
+    --accent: 150 16% 92%;
+    --accent-foreground: 156 28% 11%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
 
-    --ring: 243 75% 58%;
+    --ring: 154 76% 35%;
     --radius: 0.5rem;
 
-    /* sidebar (modo claro): lavanda bem clara, texto escuro, índigo só no ativo */
-    --sidebar-bg:        240 33% 97%;
-    --sidebar-fg:        240 40% 18%;
-    --sidebar-border:    240 16% 89%;
-    --sidebar-muted:     240 10% 50%;
-    --sidebar-active-bg: 243 75% 95%;
-    --sidebar-active-fg: 243 72% 48%;
-    --sidebar-hover-bg:  240 22% 93%;
+    /* sidebar (claro): verde-clara, texto Forest Ink, Esmeralda no ativo */
+    --sidebar-bg:        140 22% 97%;
+    --sidebar-fg:        156 26% 16%;
+    --sidebar-border:    150 14% 90%;
+    --sidebar-muted:     150 8% 46%;
+    --sidebar-active-bg: 152 52% 90%;
+    --sidebar-active-fg: 155 80% 24%;
+    --sidebar-hover-bg:  145 24% 94%;
   }
 
   .dark {
-    /* página: índigo-preto profundo */
-    --background: 240 28% 7%;
-    --foreground: 240 20% 88%;
+    /* página: Forest Ink — verde quase-preto (identidade Nxt) */
+    --background: 153 30% 6%;
+    --foreground: 140 14% 90%;
 
-    /* cards, header: claramente mais claros — cria camadas */
-    --card: 240 22% 13%;
-    --card-foreground: 240 20% 88%;
+    /* cards: Forest Ink elevado — cria camadas */
+    --card: 156 26% 9%;
+    --card-foreground: 140 14% 90%;
 
-    --popover: 240 20% 15%;
-    --popover-foreground: 240 20% 88%;
+    --popover: 156 26% 10%;
+    --popover-foreground: 140 14% 90%;
 
-    --border: 240 16% 21%;
-    --input: 240 16% 21%;
+    --border: 154 20% 16%;
+    --input: 154 20% 16%;
 
-    --primary: 243 75% 64%;
-    --primary-foreground: 0 0% 100%;
+    /* Emerald mais viva no escuro, com texto Forest Ink (alto contraste) */
+    --primary: 152 66% 46%;
+    --primary-foreground: 150 40% 7%;
 
-    --secondary: 240 18% 18%;
-    --secondary-foreground: 240 20% 88%;
+    --secondary: 153 20% 14%;
+    --secondary-foreground: 140 14% 90%;
 
-    --muted: 240 18% 18%;
-    --muted-foreground: 240 12% 54%;
+    --muted: 153 18% 14%;
+    --muted-foreground: 145 10% 56%;
 
-    --accent: 240 18% 18%;
-    --accent-foreground: 240 20% 88%;
+    --accent: 153 20% 14%;
+    --accent-foreground: 140 14% 90%;
 
     --destructive: 0 70% 54%;
     --destructive-foreground: 0 0% 100%;
 
-    --ring: 243 75% 64%;
+    --ring: 152 66% 46%;
 
-    /* sidebar: mais escura que o fundo, cria hierarquia */
-    --sidebar-bg:        238 38% 9%;
-    --sidebar-fg:        238 18% 76%;
-    --sidebar-border:    238 28% 14%;
-    --sidebar-muted:     238 14% 44%;
-    --sidebar-active-bg: 243 58% 22%;
-    --sidebar-active-fg: 0 0% 100%;
-    --sidebar-hover-bg:  238 32% 14%;
+    /* sidebar: Forest Ink mais profundo que o fundo */
+    --sidebar-bg:        156 36% 5%;
+    --sidebar-fg:        140 12% 80%;
+    --sidebar-border:    154 22% 12%;
+    --sidebar-muted:     145 10% 48%;
+    --sidebar-active-bg: 153 48% 13%;
+    --sidebar-active-fg: 151 64% 56%;
+    --sidebar-hover-bg:  154 26% 11%;
   }
 }
 
