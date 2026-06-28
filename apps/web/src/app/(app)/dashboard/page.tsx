@@ -166,11 +166,14 @@ export default function DashboardPage() {
   const attention = (data?.contracts.expiring.length ?? 0) + (data?.instances.stuck.length ?? 0)
 
   return (
-    <div className="space-y-3">
-      {/* grid bento */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    // Cockpit de tela única no desktop: ocupa a altura disponível e NÃO rola a
+    // página (o hero fica sempre ancorado). As linhas são auto/auto/1fr — a 3ª
+    // (painéis) estica e rola por dentro. `lg:min-h` é o piso de segurança:
+    // em telas muito baixas o conteúdo volta a rolar via <main>. Abaixo de lg
+    // (tablet/mobile) o layout flui e rola normalmente.
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:h-full lg:min-h-[560px] lg:grid-cols-4 lg:[grid-template-rows:auto_auto_minmax(0,1fr)]">
 
-        {/* ── Hero ── */}
+      {/* ── Hero ── */}
         <div className="relative overflow-hidden rounded-xl p-5 text-white shadow-sm sm:col-span-2
                         bg-gradient-to-br from-[hsl(156_42%_11%)] to-[hsl(150_44%_6%)]">
           <div className="pointer-events-none absolute -right-8 -top-10 h-40 w-40 rounded-full bg-primary/25 blur-2xl" />
@@ -250,7 +253,7 @@ export default function DashboardPage() {
         />
 
         {/* ── Precisa da sua atenção ── */}
-        <Tile className="sm:col-span-2">
+        <Tile className="sm:col-span-2 lg:flex lg:flex-col lg:min-h-0">
           <div className="mb-2 flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-amber-500" />
             <h2 className="text-xs font-semibold">Precisa da sua atenção</h2>
@@ -260,7 +263,7 @@ export default function DashboardPage() {
               </span>
             )}
           </div>
-          <div className="space-y-1">
+          <div className="space-y-1 lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
             {c?.expiring.map(e => (
               <AttentionRow key={e.id}
                 icon={<CalendarClock className="h-3.5 w-3.5 text-amber-500" />}
@@ -280,7 +283,7 @@ export default function DashboardPage() {
               />
             ))}
             {attention === 0 && (
-              <div className="flex flex-col items-center justify-center gap-1.5 py-6 text-center">
+              <div className="flex flex-col items-center justify-center gap-1.5 py-6 text-center lg:h-full">
                 <CheckCircle2 className="h-7 w-7 text-emerald-500/80" />
                 <p className="text-xs text-muted-foreground">Nenhuma pendência. Tudo em dia! 🎉</p>
               </div>
@@ -289,12 +292,12 @@ export default function DashboardPage() {
         </Tile>
 
         {/* ── Atividade recente ── */}
-        <Tile className="sm:col-span-2">
+        <Tile className="sm:col-span-2 lg:flex lg:flex-col lg:min-h-0">
           <div className="mb-2 flex items-center gap-2">
             <Clock className="h-4 w-4 text-muted-foreground" />
             <h2 className="text-xs font-semibold">Atividade recente</h2>
           </div>
-          <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
+          <div className="space-y-1 max-h-72 overflow-y-auto pr-1 lg:max-h-none lg:flex-1 lg:min-h-0">
             {data && data.activity.length > 0 ? data.activity.map(a => (
               <div key={`${a.kind}-${a.id}`} className="flex items-center gap-2.5 rounded-md px-1.5 py-1.5 hover:bg-muted/50 transition-colors">
                 <span className={cn('flex h-6 w-6 shrink-0 items-center justify-center rounded-full',
@@ -316,7 +319,6 @@ export default function DashboardPage() {
             )}
           </div>
         </Tile>
-      </div>
     </div>
   )
 }

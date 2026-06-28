@@ -25,9 +25,11 @@ function ShellInner({ children }: { children: React.ReactNode }) {
       <div className="flex flex-col flex-1 overflow-hidden min-w-0">
         <WorkspaceBar />
         <main className="flex-1 overflow-y-auto bg-muted/10">
-          <div className="mx-auto w-full max-w-[1400px] p-6">
-            {/* lista roteada: sempre montada (preserva estado), escondida quando um documento está ativo */}
-            <div className={activeId != null ? 'hidden' : ''}>{children}</div>
+          <div className="mx-auto h-full w-full max-w-[1400px] p-6">
+            {/* lista roteada: sempre montada (preserva estado), escondida quando um documento está ativo.
+                `h-full` passa a altura adiante para telas que querem preencher (ex.: dashboard);
+                telas de altura natural ignoram (renderizam no topo e rolam via <main>). */}
+            <div className={activeId != null ? 'hidden' : 'h-full'}>{children}</div>
             {/* documentos da área de trabalho (mostra só o ativo) */}
             <WorkspaceHost />
           </div>
