@@ -17,14 +17,17 @@ export interface EmpresaItem { id: string; nome: string; documento: string }
  * - UNIDADE: unidades da estrutura (busca server)
  * Busca server-side escala para milhares de registros.
  */
-export function EntitySearchModal({ origem, empresas, onSelect, onClose, onNewPartner }: {
+export function EntitySearchModal({ origem, empresas, excludeIds, onSelect, onClose, onNewPartner }: {
   origem: string
   empresas: EmpresaItem[]
+  /** ids de entidades já usadas neste papel — não devem aparecer (evita duplicidade) */
+  excludeIds?: string[]
   onSelect: (e: EntityRef) => void
   onClose: () => void
   onNewPartner: () => void
 }) {
   const isUnidade = origem === ORIGEM.UNIDADE
+  const exclude = useMemo(() => new Set(excludeIds ?? []), [excludeIds])
   const [q, setQ] = useState('')
   const [parceiros, setParceiros] = useState<EmpresaItem[]>([])
   const [unidades,  setUnidades]  = useState<{ id: string; nome: string; documento: string; empresa?: string; codigo?: string }[]>([])
@@ -55,10 +58,14 @@ export function EntitySearchModal({ origem, empresas, onSelect, onClose, onNewPa
   const empresasFiltered = useMemo(() => {
     if (isUnidade) return []
     const lq = q.toLowerCase().trim(); const dq = q.replace(/\D/g, '')
-    return empresas.filter(e => !q || e.nome.toLowerCase().includes(lq) || (dq.length > 0 && e.documento.replace(/\D/g, '').includes(dq)))
-  }, [q, empresas, isUnidade])
+    return empresas.filter(e => !exclude.has(e.id) && (!q || e.nome.toLowerCase().includes(lq) || (dq.length > 0 && e.documento.replace(/\D/g, '').includes(dq))))
+  }, [q, empresas, isUnidade, exclude])
 
-  const hasResults = isUnidade ? unidades.length > 0 : (empresasFiltered.length + parceiros.length) > 0
+  /* remove entidades já usadas neste papel (parceiros/unidades vêm do servidor, filtra no cliente) */
+  const parceirosShown = useMemo(() => parceiros.filter(p => !exclude.has(p.id)), [parceiros, exclude])
+  const unidadesShown  = useMemo(() => unidades.filter(u => !exclude.has(u.id)), [unidades, exclude])
+
+  const hasResults = isUnidade ? unidadesShown.length > 0 : (empresasFiltered.length + parceirosShown.length) > 0
   const title = isUnidade ? 'Selecionar unidade' : 'Selecionar empresa do grupo ou parceiro'
 
   return (
@@ -91,7 +98,7 @@ export function EntitySearchModal({ origem, empresas, onSelect, onClose, onNewPa
             </button>
           ))}
 
-          {!isUnidade && parceiros.map(p => (
+          {!isUnidade && parceirosShown.map(p => (
             <button key={`par_${p.id}`} type="button" onClick={() => onSelect({ ref_tipo: 'PARCEIRO', ref_id: p.id, nome: p.nome, documento: p.documento })}
               className="w-full flex items-center justify-between gap-2 px-4 py-2.5 hover:bg-muted transition-colors text-left">
               <span className="min-w-0 flex items-center gap-2">
@@ -102,7 +109,7 @@ export function EntitySearchModal({ origem, empresas, onSelect, onClose, onNewPa
             </button>
           ))}
 
-          {isUnidade && unidades.map(u => (
+          {isUnidade && unidadesShown.map(u => (
             <button key={`un_${u.id}`} type="button" onClick={() => onSelect({ ref_tipo: 'UNIDADE', ref_id: u.id, nome: u.nome, documento: u.documento })}
               className="w-full flex items-center justify-between gap-2 px-4 py-2.5 hover:bg-muted transition-colors text-left">
               <span className="min-w-0 truncate"><span className="text-xs font-medium">{u.nome}</span>{u.empresa && <span className="text-[10px] text-muted-foreground ml-1.5">· {u.empresa}</span>}</span>

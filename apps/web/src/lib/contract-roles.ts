@@ -35,3 +35,40 @@ export function origemDoPapel(papeis: LookupEntry[], papel: string): string {
   const found = papeis.find(p => p.id === papel) ?? papeis.find(p => p.label === papel)
   return found?.origem ?? ORIGEM.EMPRESA_PARCEIRO
 }
+
+/**
+ * Polo do papel: os dois lados opostos de um contrato. Uma mesma entidade não pode
+ * estar nos dois lados (contratante E contratada). Inferido pelo rótulo do papel.
+ */
+export function ladoDoPapel(papeis: LookupEntry[], papel: string): 'CONTRATANTE' | 'CONTRATADA' | 'NEUTRO' {
+  const found = papeis.find(p => p.id === papel) ?? papeis.find(p => p.label === papel)
+  const label = (found?.label ?? papel).toLowerCase()
+  if (label.includes('contratante')) return 'CONTRATANTE'
+  if (/contratad[ao]/.test(label))   return 'CONTRATADA'
+  return 'NEUTRO'
+}
+
+/**
+ * Valida as Partes envolvidas:
+ * 1. a MESMA entidade não pode repetir no MESMO papel;
+ * 2. a MESMA entidade não pode ser contratante E contratada no mesmo contrato.
+ * Retorna a 1ª mensagem de erro, ou null.
+ */
+export function validatePartes(partes: { papel: string; ref_id: string }[], papeis: LookupEntry[]): string | null {
+  const noMesmoPapel = new Set<string>()
+  const contratantes = new Set<string>()
+  const contratadas  = new Set<string>()
+  for (const p of partes) {
+    if (!p.papel || !p.ref_id) continue
+    const chave = `${p.papel}::${p.ref_id}`
+    if (noMesmoPapel.has(chave)) return 'A mesma entidade não pode ser usada duas vezes no mesmo papel (Partes envolvidas).'
+    noMesmoPapel.add(chave)
+    const lado = ladoDoPapel(papeis, p.papel)
+    if (lado === 'CONTRATANTE') contratantes.add(p.ref_id)
+    if (lado === 'CONTRATADA')  contratadas.add(p.ref_id)
+  }
+  for (const id of contratantes) if (contratadas.has(id)) {
+    return 'A mesma entidade não pode ser contratante e contratada no mesmo contrato (Partes envolvidas).'
+  }
+  return null
+}
