@@ -172,6 +172,36 @@ export const newCAditivo     = (numero = ''): CAditivo   => ({
 /** Soma os valores de uma lista de lançamentos (campo `valor` é número como string). */
 export const somaLancamentos = (arr: CLancamento[]) => arr.reduce((s, x) => s + (parseFloat(x.valor) || 0), 0)
 
+/** Validações de negócio compartilhadas entre cadastro e edição. Retorna a 1ª mensagem, ou null. */
+export function validateContract(v: ContractFormValues): string | null {
+  /* Vigência: início não pode ser posterior ao término (datas ISO comparam lexicograficamente).
+     As Partes são validadas à parte (validatePartes, em contract-roles) — precisam do papel. */
+  if (!v.prazoIndeterminado && v.inicioVigencia && v.terminoVigencia && v.terminoVigencia < v.inicioVigencia) {
+    return 'A data de início da vigência não pode ser posterior à data de término.'
+  }
+  /* Reajustes: informado o índice, Data de reajuste e Periodicidade tornam-se obrigatórios. */
+  if (v.reajustes.some(r => r.indice && (!r.data || !r.periodicidade))) {
+    return 'Em Reajustes, informe a Data de reajuste e a Periodicidade de cada índice selecionado.'
+  }
+  return null
+}
+
+/** Lançamentos (pagamentos/recebimentos): cada linha exige Data, Valor (>0) e Forma.
+ *  Retorna a seção com problema (p/ focar a aba) e a mensagem, ou null. */
+export function validateLancamentos(v: ContractFormValues): { field: 'pagamentos' | 'recebimentos'; msg: string } | null {
+  const secoes = [
+    { field: 'pagamentos'   as const, label: 'Pagamentos',   ativo: temPagamentos(v.natureza) },
+    { field: 'recebimentos' as const, label: 'Recebimentos', ativo: temRecebimentos(v.natureza) },
+  ]
+  for (const s of secoes) {
+    if (!s.ativo) continue
+    if (v[s.field].some(l => !l.data || !(parseFloat(l.valor) > 0) || !l.forma)) {
+      return { field: s.field, msg: `Em ${s.label}, informe Data, Valor e Forma de cada lançamento.` }
+    }
+  }
+  return null
+}
+
 /* ─── derivação do estado VIGENTE (original + aditivos ATIVOS aplicados em ordem) ──
    O contrato guarda os valores ORIGINAIS; cada aditivo ATIVO, em ordem, sobrepõe os
    campos que altera (o último vence). Aditivo em RASCUNHO NÃO aplica efeito — só após

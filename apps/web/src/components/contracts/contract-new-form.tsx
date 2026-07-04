@@ -12,7 +12,9 @@ import {
   useContractForm, IdentificacaoFields, VigenciaFields, ValoresFields,
   ReajustesFields, PartesFields, DocumentosFields, LancamentosFields,
 } from './contract-fields'
-import { emptyContractForm, contractToPayload, newCParte, temPagamentos, temRecebimentos } from '@/lib/contract-options'
+import { emptyContractForm, contractToPayload, newCParte, temPagamentos, temRecebimentos, validateContract, validateLancamentos } from '@/lib/contract-options'
+import { useLookupTable } from '@/hooks/use-lookup-table'
+import { PAPEIS_KEY, INIT_PAPEIS, validatePartes } from '@/lib/contract-roles'
 
 /* ─── seção colapsável ───────────────────────────────────── */
 function Section({ icon: Icon, title, isOpen, onToggle, hasError, children }: {
@@ -44,9 +46,10 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
   const form = useContractForm({ ...emptyContractForm(), partes: [newCParte('')] })
   const v = form.values
   const router = useRouter()
+  const papeis = useLookupTable(PAPEIS_KEY, INIT_PAPEIS)
 
   const [empresas,    setEmpresas]    = useState<{ id: string; nome: string; documento: string }[]>([])
-  const [searchModal, setSearchModal] = useState<{ parteId: string; origem: string } | null>(null)
+  const [searchModal, setSearchModal] = useState<{ parteId: string; origem: string; excludeIds: string[] } | null>(null)
   const [open,        setOpen]        = useState<Set<string>>(new Set(['dados_gerais']))
   const [errors,      setErrors]      = useState<Set<string>>(new Set())
   const [saveError,   setSaveError]   = useState<string | null>(null)
@@ -77,6 +80,18 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
     }
     setErrors(err)
     if (err.size > 0) { setOpen(prev => new Set([...prev, ...err])); return }
+
+    /* lançamentos: Data/Valor/Forma obrigatórios em cada pagamento/recebimento */
+    const lErr = validateLancamentos(v)
+    if (lErr) { setSaveError(lErr.msg); setOpen(prev => new Set([...prev, lErr.field])); return }
+
+    /* partes: sem entidade repetida no mesmo papel, nem a mesma como contratante e contratada */
+    const pErr = validatePartes(v.partes, papeis.active)
+    if (pErr) { setSaveError(pErr); setOpen(prev => new Set([...prev, 'partes'])); return }
+
+    /* validações de negócio (vigência início≤término, reajuste com índice → data+periodicidade) */
+    const bizErr = validateContract(v)
+    if (bizErr) { setSaveError(bizErr); return }
 
     setSaveError(null)
     setSaving(status === 'VIGENTE' ? 'active' : 'draft')
@@ -120,7 +135,7 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
 
         <Section icon={Users} title="Partes Envolvidas" isOpen={open.has('partes')} onToggle={() => toggleSection('partes')} hasError={errors.has('partes')}>
           <PartesFields form={form}
-            onOpenSearch={(parteId, origem) => setSearchModal({ parteId, origem })}
+            onOpenSearch={(parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds })}
             onNewPartner={() => router.push('/modules/parceiros/new?from=contratos')} />
         </Section>
 
@@ -179,6 +194,7 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
         <EntitySearchModal
           origem={searchModal.origem}
           empresas={empresas}
+          excludeIds={searchModal.excludeIds}
           onSelect={(e) => { form.setParteEntity(searchModal.parteId, e); setSearchModal(null) }}
           onClose={() => setSearchModal(null)}
           onNewPartner={() => router.push('/modules/parceiros/new?from=contratos')}

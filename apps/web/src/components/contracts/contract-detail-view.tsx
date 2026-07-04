@@ -6,8 +6,9 @@ import { FileText, Users, Calendar, Banknote, TrendingUp, TrendingDown, RefreshC
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { useContractForm, IdentificacaoFields, VigenciaFields, ValoresFields, ReajustesFields, PartesFields, DocumentosFields, LancamentosFields, AditivosFields } from '@/components/contracts/contract-fields'
-import { emptyContractForm, contractFromApi, contractToPayload, effectiveSituacao, normalizeSituacao, temPagamentos, temRecebimentos, terminoVigente, TIPOS_KEY, INIT_TIPOS, type CAditivo } from '@/lib/contract-options'
+import { emptyContractForm, contractFromApi, contractToPayload, effectiveSituacao, normalizeSituacao, temPagamentos, temRecebimentos, terminoVigente, validateContract, validateLancamentos, TIPOS_KEY, INIT_TIPOS, type CAditivo } from '@/lib/contract-options'
 import { useLookupTable } from '@/hooks/use-lookup-table'
+import { PAPEIS_KEY, INIT_PAPEIS, validatePartes } from '@/lib/contract-roles'
 import { EntitySearchModal } from '@/components/contracts/entity-search-modal'
 import { getLogUser } from '@/hooks/use-partner-logs'
 
@@ -71,7 +72,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
   const v = form.values
   const router  = useRouter()
   const [empresas,    setEmpresas]    = useState<{ id: string; nome: string; documento: string }[]>([])
-  const [searchModal, setSearchModal] = useState<{ parteId: string; origem: string } | null>(null)
+  const [searchModal, setSearchModal] = useState<{ parteId: string; origem: string; excludeIds: string[] } | null>(null)
   const [cessaoSearch, setCessaoSearch] = useState<{ aditivoId: string; cessaoId: string; origem: string } | null>(null)
   useEffect(() => {
     void (async () => {
@@ -123,6 +124,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
   /* o contrato guarda o ID do tipo (resolução ao vivo); exibir o RÓTULO, não o id */
   const tipos     = useLookupTable(TIPOS_KEY, INIT_TIPOS)
   const tipoLabel = tipos.entries.find(t => t.id === v.tipo)?.label ?? v.tipo
+  const papeis    = useLookupTable(PAPEIS_KEY, INIT_PAPEIS)
 
   const sectionTabs = [
     { id: 'dados_gerais', label: 'Dados Gerais',      icon: FileText },
@@ -137,9 +139,27 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
   ]
 
   const handleSave = async (statusOverride?: string, motivoTexto?: string, aditivosOverride?: CAditivo[]) => {
-    /* data de assinatura é obrigatória em todo aditivo */
-    const ad = aditivosOverride ?? v.aditivos
-    if (ad.some(a => !a.data)) { setSaveError('Informe a data de assinatura de todos os aditivos.'); setTab('aditivos'); return }
+    /* A obrigatoriedade da data de assinatura é validada na ATIVAÇÃO de cada aditivo
+       (validarAtivacao em AditivosFields). Não bloqueamos o save/transição do contrato:
+       um rascunho pode ficar incompleto, e um aditivo ATIVO sem data só existe por legado. */
+    const isAditivoOp  = aditivosOverride !== undefined
+    const isPlainSave  = statusOverride === undefined
+    const isActivation = statusOverride === 'VIGENTE'
+    /* Lançamentos exigem Data/Valor/Forma sempre que persistem — inclusive no save do
+       contrato travado, que é justamente quando se registram pagamentos/recebimentos. */
+    if (!isAditivoOp && (isPlainSave || isActivation)) {
+      const lErr = validateLancamentos(v)
+      if (lErr) { setSaveError(lErr.msg); setTab(lErr.field); return }
+    }
+    /* Validações de negócio (vigência, reajustes, partes) só ao ativar ou salvar um
+       contrato destravado — NÃO em transições (revisão/encerrar) nem em operações de
+       aditivo, para não travar a reabertura/correção. */
+    if (!isAditivoOp && (isActivation || (isPlainSave && !locked))) {
+      const pErr = validatePartes(v.partes, papeis.active)
+      if (pErr) { setSaveError(pErr); setTab('partes'); return }
+      const bizErr = validateContract(v)
+      if (bizErr) { setSaveError(bizErr); return }
+    }
     setSaving(true); setSaveError(null)
     const nextSit = statusOverride ?? v.situacao
     const vals = { ...v, situacao: nextSit, ...(aditivosOverride ? { aditivos: aditivosOverride } : {}) }
@@ -284,7 +304,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
         <DSection active={tab === 'dados_gerais'}><IdentificacaoFields form={form} ro={locked} /></DSection>
         <DSection active={tab === 'partes'}>
           <PartesFields form={form} ro={locked}
-            onOpenSearch={(parteId, origem) => setSearchModal({ parteId, origem })}
+            onOpenSearch={(parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds })}
             onNewPartner={() => router.push('/modules/parceiros/new?from=contratos')} />
         </DSection>
         <DSection active={tab === 'vigencia'}><VigenciaFields form={form} ro={locked} /></DSection>
@@ -300,6 +320,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
         <EntitySearchModal
           origem={searchModal.origem}
           empresas={empresas}
+          excludeIds={searchModal.excludeIds}
           onSelect={(e) => { form.setParteEntity(searchModal.parteId, e); setSearchModal(null) }}
           onClose={() => setSearchModal(null)}
           onNewPartner={() => router.push('/modules/parceiros/new?from=contratos')}

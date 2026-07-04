@@ -1,15 +1,15 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { Plus, Trash2, Search, Upload, Download, Loader2, X, Eye, ChevronDown } from 'lucide-react'
+import { Plus, Trash2, Search, Upload, Download, Loader2, X, Eye, ChevronDown, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { useLookupTable } from '@/hooks/use-lookup-table'
-import { INIT_PAPEIS, PAPEIS_KEY, ORIGEM, origemDoPapel } from '@/lib/contract-roles'
+import { INIT_PAPEIS, PAPEIS_KEY, ORIGEM, origemDoPapel, ladoDoPapel } from '@/lib/contract-roles'
 import {
   TIPOS_KEY, OBJETOS_KEY, MOEDAS_KEY, CONDICOES_KEY, INDICES_KEY, TIPOS_ADITIVO_KEY, FORMAS_PGTO_KEY,
   INIT_TIPOS, INIT_OBJETOS, INIT_MOEDAS, INIT_CONDICOES, INIT_INDICES, INIT_TIPOS_ADITIVO, INIT_FORMAS_PGTO,
-  SITUACOES, PERIODICIDADES, TIPOS_DOCUMENTO, STATUS_ASSINATURA, effectiveSituacao,
+  SITUACOES, PERIODICIDADES, TIPOS_DOCUMENTO, effectiveSituacao,
   NATUREZAS, ACOES_TERMINO, temPagamentos, temRecebimentos, somaLancamentos,
   valorVigente, parcelaVigente, terminoVigente, objetoVigente, partesVigentes, terminoVigenteAntes, proximoDiaISO,
   newCParte, newCReajuste, newCDocumento, newCLancamento, newCAditivo, newCCessao,
@@ -82,13 +82,13 @@ function Field({ label, required, span2, children }: { label: string; required?:
   )
 }
 
-function Txt({ value, onChange, ro, type = 'text', placeholder }: { value: string; onChange: (v: string) => void; ro?: boolean; type?: string; placeholder?: string }) {
+function Txt({ value, onChange, ro, type = 'text', placeholder, min }: { value: string; onChange: (v: string) => void; ro?: boolean; type?: string; placeholder?: string; min?: string }) {
   if (ro) {
     /* datas (ISO yyyy-mm-dd) são exibidas como dd/mm/aaaa em leitura */
     const display = type === 'date' && value ? new Date(value + 'T00:00:00').toLocaleDateString('pt-BR') : value
     return <span className={readCls}>{display || '—'}</span>
   }
-  return <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className={inputCls} />
+  return <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} min={min} className={inputCls} />
 }
 
 function Area({ value, onChange, ro, placeholder, rows = 3 }: { value: string; onChange: (v: string) => void; ro?: boolean; placeholder?: string; rows?: number }) {
@@ -222,7 +222,7 @@ export function VigenciaFields({ form, ro }: { form: ContractForm; ro?: boolean 
         )}
       </Field>
       <Field label="Início da vigência" required><Txt type="date" value={v.inicioVigencia} onChange={x => form.set('inicioVigencia', x)} ro={ro} /></Field>
-      {!v.prazoIndeterminado && <Field label="Término da vigência"><Txt type="date" value={ro ? terminoVigente(v) : v.terminoVigencia} onChange={x => form.set('terminoVigencia', x)} ro={ro} /></Field>}
+      {!v.prazoIndeterminado && <Field label="Término da vigência"><Txt type="date" value={ro ? terminoVigente(v) : v.terminoVigencia} onChange={x => form.set('terminoVigencia', x)} ro={ro} min={v.inicioVigencia || undefined} /></Field>}
       <Field label="Data de assinatura"><Txt type="date" value={v.dataAssinatura} onChange={x => form.set('dataAssinatura', x)} ro={ro} /></Field>
 
       {!v.prazoIndeterminado && (
@@ -355,26 +355,60 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
   )
 }
 
-/** Reajustes (múltiplos): Índice, Data, Periodicidade. */
+/** Reajustes (múltiplos) em tabela compacta: Índice · Data · Periodicidade.
+ *  Um índice só pode ser usado uma vez — o dropdown oferece apenas os ainda não utilizados. */
 export function ReajustesFields({ form, ro }: { form: ContractForm; ro?: boolean }) {
   const indices = useLookupTable(INDICES_KEY, INIT_INDICES)
   const v = form.values
+  const COLS = 'grid grid-cols-[1fr_10rem_10rem_1.25rem] items-center gap-2'
+  const cell = cn(inputCls, 'h-7')
   return (
-    <div className="space-y-3">
-      {v.reajustes.length === 0 && <p className="text-xs text-muted-foreground">{ro ? 'Sem reajustes.' : 'Nenhum reajuste. Adicione abaixo.'}</p>}
-      {v.reajustes.map((r, idx) => (
-        <div key={r.id} className="rounded-md border bg-card overflow-hidden">
-          <div className="flex items-center justify-between px-3 py-1.5 bg-muted/30 border-b">
-            <span className="text-[11px] font-semibold text-muted-foreground">Reajuste {idx + 1}</span>
-            {!ro && <button type="button" onClick={() => form.remReaj(r.id)} className="text-muted-foreground hover:text-destructive transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>}
+    <div className="space-y-2">
+      {v.reajustes.length === 0 ? (
+        <p className="text-xs text-muted-foreground">{ro ? 'Sem reajustes.' : 'Nenhum reajuste. Adicione abaixo.'}</p>
+      ) : (
+        <div className="rounded-md border overflow-hidden">
+          <div className={cn(COLS, 'px-3 py-1.5 bg-muted/40 border-b text-[10px] font-semibold uppercase tracking-wide text-muted-foreground')}>
+            <span>Índice de reajuste</span><span>Data de reajuste</span><span>Periodicidade</span><span />
           </div>
-          <div className="p-3 grid grid-cols-3 gap-3">
-            <Field label="Índice de reajuste"><Sel value={r.indice} onChange={x => form.updReaj(r.id, 'indice', x)} ro={ro} options={lookupOpts(indices.active)} placeholder="Selecione..." /></Field>
-            <Field label="Data de reajuste"><Txt type="date" value={r.data} onChange={x => form.updReaj(r.id, 'data', x)} ro={ro} /></Field>
-            <Field label="Periodicidade"><Sel value={r.periodicidade} onChange={x => form.updReaj(r.id, 'periodicidade', x)} ro={ro} options={PERIODICIDADES.map(p => ({ value: p, label: p }))} placeholder="Selecione..." /></Field>
+          <div className="divide-y divide-border/50">
+            {v.reajustes.map(r => {
+              /* índices já usados por OUTROS reajustes não são oferecidos (sem duplicidade) */
+              const usados = new Set(v.reajustes.filter(o => o.id !== r.id && o.indice).map(o => o.indice))
+              const opts   = indices.active.filter(i => !usados.has(i.id))
+              return (
+                <div key={r.id} className={cn(COLS, 'group px-3 py-1.5 hover:bg-muted/30')}>
+                  {ro ? (
+                    <span className="text-xs font-medium truncate">{labelOf(indices.entries, r.indice) || '—'}</span>
+                  ) : (
+                    <select value={r.indice} onChange={e => form.updReaj(r.id, 'indice', e.target.value)} className={cell}>
+                      <option value="">Selecione...</option>
+                      {r.indice && !indices.active.some(i => i.id === r.indice) && <option value={r.indice}>{labelOf(indices.entries, r.indice)}</option>}
+                      {opts.map(i => <option key={i.id} value={i.id}>{i.label}</option>)}
+                    </select>
+                  )}
+                  {ro ? (
+                    <span className="text-xs truncate">{r.data ? new Date(r.data + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}</span>
+                  ) : (
+                    <input type="date" value={r.data} onChange={e => form.updReaj(r.id, 'data', e.target.value)} className={cell} />
+                  )}
+                  {ro ? (
+                    <span className="text-xs truncate">{r.periodicidade || '—'}</span>
+                  ) : (
+                    <select value={r.periodicidade} onChange={e => form.updReaj(r.id, 'periodicidade', e.target.value)} className={cell}>
+                      <option value="">Selecione...</option>
+                      {PERIODICIDADES.map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  )}
+                  {!ro ? (
+                    <button type="button" onClick={() => form.remReaj(r.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>
+                  ) : <span />}
+                </div>
+              )
+            })}
           </div>
         </div>
-      ))}
+      )}
       {!ro && <button type="button" onClick={form.addReaj} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar reajuste</button>}
     </div>
   )
@@ -383,11 +417,20 @@ export function ReajustesFields({ form, ro }: { form: ContractForm; ro?: boolean
 /** Documentos (múltiplos): Nome, Tipo, Data, Status de assinatura, Arquivo, Observação. */
 export function DocumentosFields({ form, ro }: { form: ContractForm; ro?: boolean }) {
   const v = form.values
+  const [open, setOpen] = useState<Set<string>>(new Set())
+  const toggle   = (id: string) => setOpen(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const collapse = (id: string) => setOpen(p => { const n = new Set(p); n.delete(id); return n })
+  /* novo documento já abre expandido; os existentes (carregados) começam recolhidos */
+  const handleAdd = () => {
+    const novo = newCDocumento()
+    form.setValues(p => ({ ...p, documentos: [...p.documentos, novo] }))
+    setOpen(p => new Set(p).add(novo.id))
+  }
   return (
     <div className="space-y-3">
       {v.documentos.length === 0 && <p className="text-xs text-muted-foreground">{ro ? 'Nenhum documento.' : 'Nenhum documento. Adicione abaixo.'}</p>}
-      {v.documentos.map((doc, idx) => <DocumentoCard key={doc.id} doc={doc} idx={idx} ro={ro} form={form} />)}
-      {!ro && <button type="button" onClick={form.addDoc} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar documento</button>}
+      {v.documentos.map((doc, idx) => <DocumentoCard key={doc.id} doc={doc} idx={idx} ro={ro} form={form} open={open.has(doc.id)} onToggle={() => toggle(doc.id)} onCollapse={() => collapse(doc.id)} />)}
+      {!ro && <button type="button" onClick={handleAdd} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar documento</button>}
     </div>
   )
 }
@@ -397,27 +440,39 @@ function isPreviewable(name: string): boolean {
   return /\.(pdf|png|jpe?g|gif|webp|svg|txt|md)$/i.test(name)
 }
 
-function DocumentoCard({ doc, idx, ro, form }: { doc: CDocumento; idx: number; ro?: boolean; form: ContractForm }) {
+/** Abre um anexo (por key) numa janela POP-UP separada — assim o usuário continua navegando
+ *  pelo sistema e alterna livremente entre o anexo e os dados do contrato.
+ *  Retorna mensagem de erro, ou null em caso de sucesso. */
+async function openAnexoPopup(key: string): Promise<string | null> {
+  try {
+    const res = await apiFetch(`/api/files/${encodeURIComponent(key)}`)
+    if (!res.ok) return 'Falha ao abrir'
+    const url = URL.createObjectURL(await res.blob())
+    const w = window.open(url, 'nxt_anexo', 'popup,width=1024,height=800,resizable=yes,scrollbars=yes')
+    if (!w) { URL.revokeObjectURL(url); return 'Permita pop-ups para visualizar o documento.' }
+    w.focus()
+    /* libera o blob quando o pop-up é fechado */
+    const timer = setInterval(() => { if (w.closed) { clearInterval(timer); URL.revokeObjectURL(url) } }, 1000)
+    return null
+  } catch {
+    return 'Falha ao abrir'
+  }
+}
+
+function DocumentoCard({ doc, idx, ro, form, open, onToggle, onCollapse }: { doc: CDocumento; idx: number; ro?: boolean; form: ContractForm; open: boolean; onToggle: () => void; onCollapse: () => void }) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState<'up' | 'down' | 'view' | null>(null)
   const [err, setErr]   = useState('')
-  const [preview, setPreview] = useState<{ url: string; name: string } | null>(null)
   const canPreview = isPreviewable(doc.arquivo_nome)
 
+  /* item 3: abre o anexo num pop-up separado (não bloqueia a navegação no sistema) */
   const handlePreview = async () => {
     if (!doc.arquivo_key) return
     setErr(''); setBusy('view')
-    try {
-      const res = await apiFetch(`/api/files/${encodeURIComponent(doc.arquivo_key)}`)
-      if (!res.ok) throw new Error('Falha ao abrir')
-      const url = URL.createObjectURL(await res.blob())
-      setPreview({ url, name: doc.arquivo_nome || 'documento' })
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Falha ao abrir')
-    } finally { setBusy(null) }
+    const e = await openAnexoPopup(doc.arquivo_key)
+    if (e) setErr(e)
+    setBusy(null)
   }
-
-  const closePreview = () => { if (preview) URL.revokeObjectURL(preview.url); setPreview(null) }
 
   const handleUpload = async (f: File) => {
     setErr(''); setBusy('up')
@@ -427,6 +482,7 @@ function DocumentoCard({ doc, idx, ro, form }: { doc: CDocumento; idx: number; r
       if (!res.ok) throw new Error(res.status === 413 ? 'Arquivo muito grande (máx. 25 MB)' : 'Falha no upload')
       const meta = await res.json() as { key: string; name: string }
       form.patchDoc(doc.id, { arquivo_key: meta.key, arquivo_nome: meta.name })
+      onCollapse()  // item 2: após anexar, recolhe o detalhamento (mostra só o resumo)
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Falha no upload')
     } finally { setBusy(null) }
@@ -456,102 +512,96 @@ function DocumentoCard({ doc, idx, ro, form }: { doc: CDocumento; idx: number; r
   }
 
   return (
-    <>
-    <div className="rounded-md border bg-card overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-muted/30 border-b">
-        <span className="text-[11px] font-semibold text-muted-foreground">Documento {idx + 1}</span>
-        {!ro && <button type="button" onClick={() => form.remDoc(doc.id)} className="text-muted-foreground hover:text-destructive transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>}
+    <div className="rounded-xl border bg-card overflow-hidden shadow-sm">
+      {/* linha-resumo (sempre visível): clique para expandir/recolher o detalhamento */}
+      <div className={cn('flex items-center gap-2 px-3 py-2 bg-muted/30', open && 'border-b')}>
+        <button type="button" onClick={onToggle} className="flex flex-1 items-center gap-2 min-w-0 text-left">
+          <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
+          <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <span className="text-[11px] font-semibold truncate">{doc.nome.trim() || `Documento ${idx + 1}`}</span>
+          {doc.tipo && <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{doc.tipo}</span>}
+        </button>
+        {/* recolhido + com arquivo: link para visualizar/baixar */}
+        {!open && doc.arquivo_key && (
+          <div className="flex items-center gap-3 shrink-0">
+            {canPreview && (
+              <button type="button" onClick={handlePreview} disabled={busy === 'view'} className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary/80 transition-colors disabled:opacity-50">
+                {busy === 'view' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />}Visualizar
+              </button>
+            )}
+            <button type="button" onClick={handleDownload} disabled={busy === 'down'} className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary/80 transition-colors disabled:opacity-50">
+              {busy === 'down' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}Baixar
+            </button>
+          </div>
+        )}
+        {/* excluir sempre disponível — erros de cadastro acontecem, mesmo com o contrato já travado */}
+        <button type="button" onClick={() => form.remDoc(doc.id)} title="Excluir documento" className="shrink-0 text-muted-foreground hover:text-destructive transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
       </div>
-      <div className="p-3 space-y-3">
+
+      {err && !open && <p className="px-3 pb-2 text-[11px] text-red-500">{err}</p>}
+
+      {open && (
+      <div className="p-4 space-y-3">
         <div className="grid grid-cols-3 gap-3">
           <Field label="Nome do documento" required span2><Txt value={doc.nome} onChange={x => form.updDoc(doc.id, 'nome', x)} ro={ro} placeholder="Ex: Contrato assinado, Proposta comercial..." /></Field>
           <Field label="Tipo"><Sel value={doc.tipo} onChange={x => form.updDoc(doc.id, 'tipo', x)} ro={ro} options={TIPOS_DOCUMENTO.map(t => ({ value: t, label: t }))} placeholder="Selecione..." /></Field>
         </div>
-        <div className="grid grid-cols-3 gap-3">
-          <Field label="Data do documento"><Txt type="date" value={doc.data} onChange={x => form.updDoc(doc.id, 'data', x)} ro={ro} /></Field>
-          <Field label="Status de assinatura" span2><Sel value={doc.status_assinatura} onChange={x => form.updDoc(doc.id, 'status_assinatura', x)} ro={ro} options={STATUS_ASSINATURA} /></Field>
-        </div>
-        <div className="grid grid-cols-3 gap-3">
-          <Field label="Arquivo" span2>
-            {ro ? (
-              doc.arquivo_key ? (
-                <div className="flex items-center gap-4">
-                  {canPreview && (
-                    <button type="button" onClick={handlePreview} disabled={busy === 'view'}
-                      className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors disabled:opacity-50">
-                      {busy === 'view' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}Visualizar
-                    </button>
-                  )}
-                  <button type="button" onClick={handleDownload} disabled={busy === 'down'}
-                    className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors disabled:opacity-50">
-                    {busy === 'down' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}{doc.arquivo_nome || 'Baixar'}
-                  </button>
-                </div>
-              ) : <span className={readCls}>{doc.arquivo_nome || '—'}</span>
-            ) : (
-              <div className="space-y-1">
-                <div className="flex gap-2">
-                  <input readOnly value={doc.arquivo_nome} placeholder="Nenhum arquivo selecionado"
-                    className={cn(inputCls, 'flex-1 cursor-default text-muted-foreground')} />
-                  {doc.arquivo_key ? (
-                    <>
-                      {canPreview && (
-                        <button type="button" onClick={handlePreview} disabled={busy === 'view'} title="Visualizar"
-                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border hover:bg-muted transition-colors disabled:opacity-50">
-                          {busy === 'view' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
-                        </button>
-                      )}
-                      <button type="button" onClick={handleDownload} disabled={busy === 'down'} title="Baixar"
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border hover:bg-muted transition-colors disabled:opacity-50">
-                        {busy === 'down' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                      </button>
-                      <button type="button" onClick={handleRemoveFile} title="Remover arquivo"
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </>
-                  ) : (
-                    <button type="button" onClick={() => fileRef.current?.click()} disabled={busy === 'up'}
-                      className="flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-50">
-                      {busy === 'up' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}{busy === 'up' ? 'Enviando...' : 'Anexar'}
-                    </button>
-                  )}
-                  <input ref={fileRef} type="file" className="hidden"
-                    onChange={e => { const f = e.target.files?.[0]; if (f) void handleUpload(f); e.target.value = '' }} />
-                </div>
-                {err && <p className="text-[11px] text-red-500">{err}</p>}
-              </div>
-            )}
-          </Field>
-          <Field label="Observação" span2><Area value={doc.observacao} onChange={x => form.updDoc(doc.id, 'observacao', x)} ro={ro} placeholder="Observações sobre o documento..." /></Field>
-        </div>
-      </div>
-    </div>
 
-    {preview && (
-      <div className="fixed inset-0 z-[100] flex flex-col bg-black/70 backdrop-blur-sm" onClick={closePreview}>
-        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-card border-b shrink-0" onClick={e => e.stopPropagation()}>
-          <span className="text-xs font-medium truncate">{preview.name}</span>
-          <div className="flex items-center gap-2 shrink-0">
-            <button type="button" onClick={handleDownload}
-              className="inline-flex items-center gap-1.5 h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors">
-              <Download className="h-3.5 w-3.5" />Baixar
+        {/* Arquivo: chip elegante quando anexado; dropzone tracejada quando vazio */}
+        <div className="space-y-1">
+          <label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Arquivo</label>
+          {doc.arquivo_key ? (
+            <div className="flex items-center gap-3 rounded-lg border bg-muted/20 px-3 py-2.5">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><FileText className="h-4 w-4" /></div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-medium">{doc.arquivo_nome || 'Arquivo'}</p>
+                <p className="text-[10px] text-muted-foreground">{canPreview ? 'Pré-visualizável' : 'Anexado'}</p>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                {canPreview && (
+                  <button type="button" onClick={handlePreview} disabled={busy === 'view'} title="Visualizar"
+                    className="inline-flex items-center gap-1.5 h-7 rounded-md border px-2.5 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-50">
+                    {busy === 'view' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}<span className="hidden md:inline">Ver</span>
+                  </button>
+                )}
+                <button type="button" onClick={handleDownload} disabled={busy === 'down'} title="Baixar"
+                  className="inline-flex items-center gap-1.5 h-7 rounded-md border px-2.5 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-50">
+                  {busy === 'down' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}<span className="hidden md:inline">Baixar</span>
+                </button>
+                {!ro && (
+                  <button type="button" onClick={handleRemoveFile} title="Remover arquivo"
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : ro ? (
+            <span className={readCls}>Nenhum arquivo anexado</span>
+          ) : (
+            <button type="button" onClick={() => fileRef.current?.click()} disabled={busy === 'up'}
+              className="group flex w-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed py-5 text-center hover:border-primary/50 hover:bg-primary/5 transition-colors disabled:opacity-60">
+              {busy === 'up' ? <Loader2 className="h-5 w-5 animate-spin text-primary" /> : <Upload className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />}
+              <span className="text-xs font-medium">{busy === 'up' ? 'Enviando...' : 'Anexar arquivo'}</span>
+              <span className="text-[10px] text-muted-foreground">PDF, imagem ou documento · máx. 25 MB</span>
             </button>
-            <button type="button" onClick={closePreview}
-              className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-muted transition-colors"><X className="h-4 w-4" /></button>
-          </div>
+          )}
+          <input ref={fileRef} type="file" className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) void handleUpload(f); e.target.value = '' }} />
+          {err && <p className="text-[11px] text-red-500">{err}</p>}
         </div>
-        <iframe src={preview.url} title={preview.name} className="flex-1 w-full bg-white" onClick={e => e.stopPropagation()} />
+
+        <Field label="Observação"><Area value={doc.observacao} onChange={x => form.updDoc(doc.id, 'observacao', x)} ro={ro} placeholder="Observações sobre o documento..." /></Field>
       </div>
-    )}
-    </>
+      )}
+    </div>
   )
 }
 
 /** Partes em tabela compacta: Papel · Nome/Razão Social · Documento (lupa via modal do shell). */
 export function PartesFields({ form, ro, onOpenSearch, onNewPartner }: {
   form: ContractForm; ro?: boolean
-  onOpenSearch: (parteId: string, origem: string) => void
+  onOpenSearch: (parteId: string, origem: string, excludeIds: string[]) => void
   onNewPartner: () => void
 }) {
   const papeis = useLookupTable(PAPEIS_KEY, INIT_PAPEIS)
@@ -576,7 +626,19 @@ export function PartesFields({ form, ro, onOpenSearch, onNewPartner }: {
                 form.updParte(p.id, 'papel', val)
                 if (origemDoPapel(papeis.active, val) !== origem) form.setParteEntity(p.id, { ref_tipo: '', ref_id: '', nome: '', documento: '' })
               }
-              const open = () => { if (p.papel && !ro) onOpenSearch(p.id, origem) }
+              const open = () => {
+                if (!p.papel || ro) return
+                /* Exclui entidades já usadas: (1) no MESMO papel; (2) no lado OPOSTO
+                   (contratante ↔ contratada) — a mesma entidade não pode estar nos dois lados. */
+                const meuLado = ladoDoPapel(papeis.active, p.papel)
+                const oposto  = meuLado === 'CONTRATANTE' ? 'CONTRATADA' : meuLado === 'CONTRATADA' ? 'CONTRATANTE' : null
+                const excludeIds = v.partes.filter(o => {
+                  if (o.id === p.id || !o.ref_id) return false
+                  if (o.papel === p.papel) return true
+                  return oposto !== null && ladoDoPapel(papeis.active, o.papel) === oposto
+                }).map(o => o.ref_id)
+                onOpenSearch(p.id, origem, excludeIds)
+              }
               return (
                 <div key={p.id} className={cn(COLS, 'group px-3 py-1.5 hover:bg-muted/30', idx === 0 && 'border-l-2 border-l-primary/50')} title={idx === 0 ? 'Parte principal' : undefined}>
                   {ro ? (
@@ -610,7 +672,7 @@ export function PartesFields({ form, ro, onOpenSearch, onNewPartner }: {
       )}
       {!ro && (
         <div className="flex items-center gap-3">
-          <button type="button" onClick={() => form.addParte(papeis.active[0]?.label ?? '')} className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar parte</button>
+          <button type="button" onClick={() => form.addParte(papeis.active[0]?.id ?? '')} className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar parte</button>
           <button type="button" onClick={onNewPartner} className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"><Plus className="h-3 w-3" />Cadastrar novo parceiro</button>
         </div>
       )}
@@ -661,7 +723,6 @@ function AditivoCard({ a, idx, form, open, onToggle, onOpenCessaoSearch, onActiv
   const fileRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState<'up' | 'down' | 'view' | null>(null)
   const [err, setErr]   = useState('')
-  const [preview, setPreview] = useState<{ url: string; name: string } | null>(null)
   const canPreview = isPreviewable(a.arquivo_nome)
 
   const upload = async (f: File) => {
@@ -684,16 +745,14 @@ function AditivoCard({ a, idx, form, open, onToggle, onOpenCessaoSearch, onActiv
       const el = document.createElement('a'); el.href = url; el.download = a.arquivo_nome || 'aditivo'; document.body.appendChild(el); el.click(); el.remove(); URL.revokeObjectURL(url)
     } catch { /* ignore */ } finally { setBusy(null) }
   }
+  /* item 3: abre o anexo do aditivo num pop-up separado (não bloqueia a navegação) */
   const handlePreview = async () => {
     if (!a.arquivo_key) return
     setErr(''); setBusy('view')
-    try {
-      const res = await apiFetch(`/api/files/${encodeURIComponent(a.arquivo_key)}`)
-      if (!res.ok) throw new Error('Falha ao abrir')
-      setPreview({ url: URL.createObjectURL(await res.blob()), name: a.arquivo_nome || 'documento' })
-    } catch (e) { setErr(e instanceof Error ? e.message : 'Falha ao abrir') } finally { setBusy(null) }
+    const e = await openAnexoPopup(a.arquivo_key)
+    if (e) setErr(e)
+    setBusy(null)
   }
-  const closePreview = () => { if (preview) URL.revokeObjectURL(preview.url); setPreview(null) }
 
   const [actErr, setActErr] = useState('')
   const addObj  = (id: string) => { if (id && !a.novoObjeto.includes(id)) form.patchAditivo(a.id, { novoObjeto: [...a.novoObjeto, id] }) }
@@ -712,7 +771,7 @@ function AditivoCard({ a, idx, form, open, onToggle, onOpenCessaoSearch, onActiv
     if (a.alteraValor   !== wantV) patch.alteraValor   = wantV
     if (a.alteraObjeto  !== wantO) patch.alteraObjeto  = wantO
     if (a.alteraPartes  !== wantP) patch.alteraPartes  = wantP
-    if (wantT && !a.novoTermino)            patch.novoTermino = terminoVigenteAntes(v, idx)
+    /* "Novo término" começa VAZIO — o usuário informa a nova data (não pré-preenche com o vigente) */
     if (wantO && a.novoObjeto.length === 0) patch.novoObjeto  = objetoVigente(v)
     if (Object.keys(patch).length) form.patchAditivo(a.id, patch)
   }, [efeitoKey]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -742,13 +801,13 @@ function AditivoCard({ a, idx, form, open, onToggle, onOpenCessaoSearch, onActiv
   }
   /* valor total resultante até este aditivo (inicial + acréscimos até idx) */
   const totalApos = (parseFloat(v.valorTotal) || 0) + v.aditivos.slice(0, idx + 1).reduce((s, x) => s + (x.alteraValor && x.novoValor ? (parseFloat(x.novoValor) || 0) : 0), 0)
-  const tiposLabel = a.tipos.map(id => labelOf(tiposAditivo.entries, id)).join(', ')
-  const resumo = [
-    a.alteraTermino && a.novoTermino ? `término → ${fmtBR(a.novoTermino)}` : '',
-    a.alteraValor && a.novoValor ? `valor → ${v.moeda ? v.moeda + ' ' : ''}${(parseFloat(a.novoValor) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '',
-    a.alteraObjeto ? 'objeto alterado' : '',
-    a.alteraPartes ? `cessão${a.cessoes.length > 1 ? ` (${a.cessoes.length})` : ''}` : '',
-  ].filter(Boolean).join(' · ')
+  /* chips de efeito (Opção B): pílulas escaneáveis do que o aditivo altera, no lugar da string corrida */
+  const chips = [
+    a.alteraTermino ? (a.novoTermino ? `Novo término ${fmtBR(a.novoTermino)}` : 'Prorrogação') : '',
+    a.alteraValor   ? (a.novoValor ? `+ ${v.moeda ? v.moeda + ' ' : ''}${(parseFloat(a.novoValor) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'Reajuste de valor') : '',
+    a.alteraObjeto  ? 'Novo objeto' : '',
+    a.alteraPartes  ? `Cessão${a.cessoes.length > 1 ? ` (${a.cessoes.length})` : ''}` : '',
+  ].filter(Boolean)
 
   return (
     <>
@@ -759,10 +818,26 @@ function AditivoCard({ a, idx, form, open, onToggle, onOpenCessaoSearch, onActiv
           <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
           <span className="text-[11px] font-semibold shrink-0">{a.numero ? `${a.numero}º Termo aditivo` : `Aditivo ${idx + 1}`}</span>
           <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold', lock ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400')}>{lock ? 'Ativo' : 'Rascunho'}</span>
-          {tiposLabel && <span className="text-[11px] text-muted-foreground shrink-0 truncate max-w-[160px]">· {tiposLabel}</span>}
-          {resumo && <span className="text-[10px] text-muted-foreground truncate hidden md:inline">· {resumo}</span>}
+          {chips.length > 0 && (
+            <span className="flex items-center gap-1 overflow-hidden">
+              {chips.map(c => <span key={c} className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-foreground/70">{c}</span>)}
+            </span>
+          )}
           <span className="ml-auto shrink-0 text-[10px] text-muted-foreground tabular-nums pl-2">{a.data ? fmtBR(a.data) : ''}</span>
         </button>
+        {/* recolhido + com arquivo: link para visualizar/baixar o anexo (igual aos documentos) */}
+        {!open && a.arquivo_key && (
+          <div className="flex items-center gap-3 shrink-0">
+            {canPreview && (
+              <button type="button" onClick={handlePreview} disabled={busy === 'view'} className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary/80 transition-colors disabled:opacity-50">
+                {busy === 'view' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />}Visualizar
+              </button>
+            )}
+            <button type="button" onClick={download} disabled={busy === 'down'} className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary/80 transition-colors disabled:opacity-50">
+              {busy === 'down' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}Baixar
+            </button>
+          </div>
+        )}
         {!lock && <button type="button" onClick={() => form.remAditivo(a.id)} title="Excluir aditivo (rascunho)" className="shrink-0 text-muted-foreground hover:text-destructive transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>}
       </div>
       {open && (
@@ -923,19 +998,6 @@ function AditivoCard({ a, idx, form, open, onToggle, onOpenCessaoSearch, onActiv
       </div>
       )}
     </div>
-
-    {preview && (
-      <div className="fixed inset-0 z-[100] flex flex-col bg-black/70 backdrop-blur-sm" onClick={closePreview}>
-        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-card border-b shrink-0" onClick={e => e.stopPropagation()}>
-          <span className="text-xs font-medium truncate">{preview.name}</span>
-          <div className="flex items-center gap-2 shrink-0">
-            <button type="button" onClick={download} className="inline-flex items-center gap-1.5 h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors"><Download className="h-3.5 w-3.5" />Baixar</button>
-            <button type="button" onClick={closePreview} className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-muted transition-colors"><X className="h-4 w-4" /></button>
-          </div>
-        </div>
-        <iframe src={preview.url} title={preview.name} className="flex-1 w-full bg-white" onClick={e => e.stopPropagation()} />
-      </div>
-    )}
     </>
   )
 }
