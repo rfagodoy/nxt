@@ -11,6 +11,7 @@ import {
 import { Area, AreaChart, ResponsiveContainer } from 'recharts'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
+import { useWorkspace } from '@/contexts/workspace-context'
 
 /* ─────────────────────────── tipos (espelham o DashboardService) ─────────── */
 interface Summary {
@@ -137,6 +138,7 @@ function Tile({ className, children, onClick }: { className?: string; children: 
 /* ─────────────────────────── página ──────────────────────────────────────── */
 export default function DashboardPage() {
   const router = useRouter()
+  const ws = useWorkspace()
   const { data: session } = useSession()
   const [data, setData] = useState<Summary | null>(null)
   const [loading, setLoading] = useState(true)
@@ -189,11 +191,11 @@ export default function DashboardPage() {
                 : <><Sparkles className="h-3.5 w-3.5" />Tudo em dia por aqui</>}
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <button onClick={() => router.push('/modules/contratos/new')}
+              <button onClick={() => ws.open({ id: 'contract:new', kind: 'contract', mode: 'new', label: 'Novo contrato' })}
                 className="inline-flex items-center gap-1.5 rounded-md bg-white px-3 py-1.5 text-xs font-semibold text-primary shadow-sm hover:bg-white/90 transition-colors">
                 <Plus className="h-3.5 w-3.5" />Novo contrato
               </button>
-              <button onClick={() => router.push('/modules/parceiros/new')}
+              <button onClick={() => ws.open({ id: 'partner:new', kind: 'partner', mode: 'new', label: 'Novo parceiro' })}
                 className="inline-flex items-center gap-1.5 rounded-md bg-white/15 px-3 py-1.5 text-xs font-medium text-white ring-1 ring-inset ring-white/25 hover:bg-white/25 transition-colors">
                 <Plus className="h-3.5 w-3.5" />Novo parceiro
               </button>

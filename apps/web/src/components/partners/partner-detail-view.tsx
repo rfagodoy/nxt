@@ -256,7 +256,10 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
   }
 
   return (
-    <div className="space-y-3 pb-6">
+    <div className="flex flex-col h-full min-h-0">
+
+      {/* cabeçalho fixo: identidade + ações + abas (padrão do sistema) */}
+      <div className="shrink-0 space-y-3">
 
       {/* cabeçalho de identidade */}
       <div className="rounded-xl border bg-card px-4 py-3 flex items-start justify-between gap-4 shadow-sm">
@@ -352,7 +355,9 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
         ))}
       </div>
 
-      <form ref={formRef} className="space-y-2" onSubmit={e => e.preventDefault()}>
+      </div>{/* fim do cabeçalho fixo */}
+
+      <form ref={formRef} className="flex-1 min-h-0 overflow-y-auto space-y-2 pt-3" onSubmit={e => e.preventDefault()}>
 
         {/* Identificação */}
         <DSection active={tab === 'identificacao'}>
@@ -442,8 +447,8 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
                 </div>
               )}
 
-              {/* tabela */}
-              <div className="rounded-lg border max-h-[calc(100vh-24rem)] overflow-auto">
+              {/* tabela — rola junto com o conteúdo (cabeçalho da tabela fixa no topo da área rolável) */}
+              <div className="rounded-lg border">
                 <table className="w-full text-xs">
                   <thead className="sticky top-0 z-10">
                     <tr className="border-b bg-[hsl(240_5%_97%)] dark:bg-[hsl(240_21%_15%)]">

@@ -74,7 +74,7 @@ export function WorkspaceHost() {
   return (
     <>
       {tabs.map(t => (
-        <div key={t.id} className={activeId === t.id ? '' : 'hidden'}>
+        <div key={t.id} className={activeId === t.id ? 'h-full' : 'hidden'}>
           <Document tab={t} />
         </div>
       ))}

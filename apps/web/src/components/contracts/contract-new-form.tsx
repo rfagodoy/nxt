@@ -3,16 +3,16 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, FileText, Calendar, DollarSign, RefreshCw, Users, Paperclip, ChevronDown } from 'lucide-react'
+import { ArrowLeft, FileText, Calendar, DollarSign, RefreshCw, Users, Paperclip, ChevronDown, TrendingDown, TrendingUp } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { getLogUser } from '@/hooks/use-partner-logs'
 import { EntitySearchModal } from './entity-search-modal'
 import {
   useContractForm, IdentificacaoFields, VigenciaFields, ValoresFields,
-  ReajustesFields, PartesFields, DocumentosFields,
+  ReajustesFields, PartesFields, DocumentosFields, LancamentosFields,
 } from './contract-fields'
-import { emptyContractForm, contractToPayload, newCParte } from '@/lib/contract-options'
+import { emptyContractForm, contractToPayload, newCParte, temPagamentos, temRecebimentos } from '@/lib/contract-options'
 
 /* ─── seção colapsável ───────────────────────────────────── */
 function Section({ icon: Icon, title, isOpen, onToggle, hasError, children }: {
@@ -131,6 +131,18 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
         <Section icon={DollarSign} title="Valores" isOpen={open.has('valores')} onToggle={() => toggleSection('valores')}>
           <ValoresFields form={form} />
         </Section>
+
+        {temPagamentos(v.natureza) && (
+          <Section icon={TrendingDown} title="Pagamentos realizados" isOpen={open.has('pagamentos')} onToggle={() => toggleSection('pagamentos')}>
+            <LancamentosFields form={form} field="pagamentos" moedaCode={v.moeda} />
+          </Section>
+        )}
+
+        {temRecebimentos(v.natureza) && (
+          <Section icon={TrendingUp} title="Recebimentos realizados" isOpen={open.has('recebimentos')} onToggle={() => toggleSection('recebimentos')}>
+            <LancamentosFields form={form} field="recebimentos" moedaCode={v.moeda} />
+          </Section>
+        )}
 
         <Section icon={RefreshCw} title="Reajuste" isOpen={open.has('reajuste')} onToggle={() => toggleSection('reajuste')}>
           <ReajustesFields form={form} />

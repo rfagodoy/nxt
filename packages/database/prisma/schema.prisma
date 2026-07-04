@@ -218,12 +218,17 @@ model Contract {
   numero              String
   titulo              String
   tipo                String
+  natureza            String?  // DESPESA | RECEITA | AMBOS
   descricao           String?
   objeto              String   @default("[]") @db.NVarChar(Max) // [JSON]
   situacao            String   @default("PENDENTE")
   inicioVigencia      String?
   terminoVigencia     String?
   prazoIndeterminado  Boolean  @default(false)
+  acaoTermino         String?  // MANUAL | RENOVAR | ENCERRAR — o que fazer no término
+  renovacaoAnos       Int?     // prazo da renovação automática
+  renovacaoMeses      Int?
+  renovacaoDias       Int?
   dataAssinatura      String?
   moeda               String   @default("BRL")
   valorTotal          Float    @default(0)
@@ -234,6 +239,9 @@ model Contract {
   observacoes         String?
   partes              String   @default("[]") @db.NVarChar(Max) // [JSON]
   reajustes           String   @default("[]") @db.NVarChar(Max) // [JSON]
+  pagamentos          String   @default("[]") @db.NVarChar(Max) // [JSON] — pagamentos realizados (Despesa/Ambos)
+  recebimentos        String   @default("[]") @db.NVarChar(Max) // [JSON] — recebimentos realizados (Receita/Ambos)
+  aditivos            String   @default("[]") @db.NVarChar(Max) // [JSON] — termos aditivos (alteram término/valor/objeto/partes em vigor)
   documentos          String   @default("[]") @db.NVarChar(Max) // [JSON]
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt

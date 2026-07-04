@@ -2,11 +2,11 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { FileText, Users, Calendar, Banknote, TrendingUp, Paperclip } from 'lucide-react'
+import { FileText, Users, Calendar, Banknote, TrendingUp, TrendingDown, RefreshCw, Paperclip, FilePlus2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
-import { useContractForm, IdentificacaoFields, VigenciaFields, ValoresFields, ReajustesFields, PartesFields, DocumentosFields } from '@/components/contracts/contract-fields'
-import { emptyContractForm, contractFromApi, contractToPayload, effectiveSituacao, normalizeSituacao, TIPOS_KEY, INIT_TIPOS } from '@/lib/contract-options'
+import { useContractForm, IdentificacaoFields, VigenciaFields, ValoresFields, ReajustesFields, PartesFields, DocumentosFields, LancamentosFields, AditivosFields } from '@/components/contracts/contract-fields'
+import { emptyContractForm, contractFromApi, contractToPayload, effectiveSituacao, normalizeSituacao, temPagamentos, temRecebimentos, terminoVigente, TIPOS_KEY, INIT_TIPOS, type CAditivo } from '@/lib/contract-options'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { EntitySearchModal } from '@/components/contracts/entity-search-modal'
 import { getLogUser } from '@/hooks/use-partner-logs'
@@ -58,7 +58,7 @@ export const SIT_DOT_CLS: Record<string, string> = {
 /* painel de aba: só renderiza quando a aba está ativa */
 export function DSection({ active, children }: { active: boolean; children: React.ReactNode }) {
   if (!active) return null
-  return <div className="rounded-lg border bg-card p-4 space-y-3">{children}</div>
+  return <div className="rounded-xl border bg-card p-4 space-y-3 shadow-sm">{children}</div>
 }
 
 /* ══════════════════════════════════════════════════════════════ */
@@ -72,6 +72,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
   const router  = useRouter()
   const [empresas,    setEmpresas]    = useState<{ id: string; nome: string; documento: string }[]>([])
   const [searchModal, setSearchModal] = useState<{ parteId: string; origem: string } | null>(null)
+  const [cessaoSearch, setCessaoSearch] = useState<{ aditivoId: string; cessaoId: string; origem: string } | null>(null)
   useEffect(() => {
     void (async () => {
       try {
@@ -115,7 +116,8 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
 
   /* estado persistido (EM_CADASTRO | VIGENTE | ENCERRADO | RESCINDIDO) e situação exibida (resolve VENCIDO) */
   const stored = normalizeSituacao(v.situacao)
-  const sit    = effectiveSituacao(v.situacao, v.prazoIndeterminado ? '' : v.terminoVigencia)
+  /* situação considera o término VIGENTE (com aditivos): prorrogou → não fica "Vencido" */
+  const sit    = effectiveSituacao(v.situacao, v.prazoIndeterminado ? '' : terminoVigente(v))
   const locked = stored !== 'EM_CADASTRO'
 
   /* o contrato guarda o ID do tipo (resolução ao vivo); exibir o RÓTULO, não o id */
@@ -127,25 +129,42 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
     { id: 'partes',       label: 'Partes',            icon: Users },
     { id: 'vigencia',     label: 'Vigência',          icon: Calendar },
     { id: 'valor',        label: 'Valor e Pagamento', icon: Banknote },
-    { id: 'reajuste',     label: 'Reajuste',          icon: TrendingUp },
+    ...(temPagamentos(v.natureza)   ? [{ id: 'pagamentos',   label: 'Pagamentos',   icon: TrendingDown }] : []),
+    ...(temRecebimentos(v.natureza) ? [{ id: 'recebimentos', label: 'Recebimentos', icon: TrendingUp }]   : []),
+    { id: 'reajuste',     label: 'Reajuste',          icon: RefreshCw },
+    { id: 'aditivos',     label: 'Aditivos',          icon: FilePlus2 },
     { id: 'documentos',   label: 'Documentos',        icon: Paperclip },
   ]
 
-  const handleSave = async (statusOverride?: string, motivoTexto?: string) => {
+  const handleSave = async (statusOverride?: string, motivoTexto?: string, aditivosOverride?: CAditivo[]) => {
+    /* data de assinatura é obrigatória em todo aditivo */
+    const ad = aditivosOverride ?? v.aditivos
+    if (ad.some(a => !a.data)) { setSaveError('Informe a data de assinatura de todos os aditivos.'); setTab('aditivos'); return }
     setSaving(true); setSaveError(null)
     const nextSit = statusOverride ?? v.situacao
+    const vals = { ...v, situacao: nextSit, ...(aditivosOverride ? { aditivos: aditivosOverride } : {}) }
     try {
       const res = await apiFetch(`/api/contracts/${row.id}`, {
         method: 'PATCH',
-        body:   JSON.stringify(contractToPayload({ ...v, situacao: nextSit }, { user: getLogUser(), motivo: motivoTexto })),
+        body:   JSON.stringify(contractToPayload(vals, { user: getLogUser(), motivo: motivoTexto })),
       })
-      if (res.ok) { if (statusOverride) form.set('situacao', statusOverride); cleanRef.current = JSON.stringify({ ...v, situacao: nextSit }); onDirtyChange?.(false); onSaved?.() }
+      if (res.ok) { if (statusOverride) form.set('situacao', statusOverride); cleanRef.current = JSON.stringify(vals); onDirtyChange?.(false); onSaved?.() }
       else setSaveError(`Erro ao salvar contrato (${res.status}).`)
     } catch {
       setSaveError('Não foi possível conectar ao servidor.')
     } finally {
       setSaving(false)
     }
+  }
+
+  /* ativar/abrir-para-revisão de um aditivo: muda situação e persiste imediatamente (override evita estado obsoleto) */
+  const activateAditivo = (id: string) => {
+    const novos = v.aditivos.map(x => x.id === id ? { ...x, situacao: 'ATIVO' } : x)
+    form.set('aditivos', novos); void handleSave(undefined, undefined, novos)
+  }
+  const reviseAditivo = (id: string) => {
+    const novos = v.aditivos.map(x => x.id === id ? { ...x, situacao: 'RASCUNHO' } : x)
+    form.set('aditivos', novos); void handleSave(undefined, undefined, novos)
   }
 
   const confirmAction = () => {
@@ -163,7 +182,10 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
   }
 
   return (
-    <div className="space-y-3 pb-6">
+    <div className="flex flex-col h-full min-h-0">
+
+      {/* cabeçalho fixo: identidade + ações + abas (padrão do sistema) */}
+      <div className="shrink-0 space-y-3">
 
       {/* cabeçalho de identidade */}
       <div className="rounded-xl border bg-card px-4 py-3 flex items-start justify-between gap-4 shadow-sm">
@@ -184,17 +206,19 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
         <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
           <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Fechar</button>
 
+          {/* Salvar sempre disponível: permite registrar pagamentos/recebimentos mesmo com o contrato travado */}
+          {!showMotivo && (
+            <button type="button" onClick={() => { void handleSave() }} disabled={saving}
+              className="inline-flex items-center h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted disabled:opacity-40 transition-colors">
+              {saving ? 'Salvando...' : 'Salvar'}
+            </button>
+          )}
+
           {stored === 'EM_CADASTRO' && !showMotivo && (
-            <>
-              <button type="button" onClick={() => { void handleSave() }} disabled={saving}
-                className="inline-flex items-center h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted disabled:opacity-40 transition-colors">
-                {saving ? 'Salvando...' : 'Salvar'}
-              </button>
-              <button type="button" onClick={() => { void handleSave('VIGENTE') }} disabled={saving}
-                className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors">
-                {saving ? 'Salvando...' : 'Ativar'}
-              </button>
-            </>
+            <button type="button" onClick={() => { void handleSave('VIGENTE') }} disabled={saving}
+              className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors">
+              {saving ? 'Salvando...' : 'Ativar'}
+            </button>
           )}
 
           {stored === 'VIGENTE' && !showMotivo && (
@@ -254,7 +278,9 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
         ))}
       </div>
 
-      <form className="space-y-2" onSubmit={e => e.preventDefault()}>
+      </div>{/* fim do cabeçalho fixo */}
+
+      <form className="flex-1 min-h-0 overflow-y-auto space-y-2 pt-3" onSubmit={e => e.preventDefault()}>
         <DSection active={tab === 'dados_gerais'}><IdentificacaoFields form={form} ro={locked} /></DSection>
         <DSection active={tab === 'partes'}>
           <PartesFields form={form} ro={locked}
@@ -263,7 +289,10 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
         </DSection>
         <DSection active={tab === 'vigencia'}><VigenciaFields form={form} ro={locked} /></DSection>
         <DSection active={tab === 'valor'}><ValoresFields form={form} ro={locked} /></DSection>
+        {temPagamentos(v.natureza)   && <DSection active={tab === 'pagamentos'}><LancamentosFields form={form} field="pagamentos" moedaCode={v.moeda} /></DSection>}
+        {temRecebimentos(v.natureza) && <DSection active={tab === 'recebimentos'}><LancamentosFields form={form} field="recebimentos" moedaCode={v.moeda} /></DSection>}
         <DSection active={tab === 'reajuste'}><ReajustesFields form={form} ro={locked} /></DSection>
+        <DSection active={tab === 'aditivos'}><AditivosFields form={form} onOpenCessaoSearch={(aditivoId, cessaoId, origem) => setCessaoSearch({ aditivoId, cessaoId, origem })} onActivate={activateAditivo} onRevise={reviseAditivo} /></DSection>
         <DSection active={tab === 'documentos'}><DocumentosFields form={form} ro={locked} /></DSection>
       </form>
 
@@ -273,6 +302,16 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
           empresas={empresas}
           onSelect={(e) => { form.setParteEntity(searchModal.parteId, e); setSearchModal(null) }}
           onClose={() => setSearchModal(null)}
+          onNewPartner={() => router.push('/modules/parceiros/new?from=contratos')}
+        />
+      )}
+
+      {cessaoSearch && (
+        <EntitySearchModal
+          origem={cessaoSearch.origem}
+          empresas={empresas}
+          onSelect={(e) => { form.patchCessao(cessaoSearch.aditivoId, cessaoSearch.cessaoId, { ref_tipo: e.ref_tipo, ref_id: e.ref_id, nome: e.nome, documento: e.documento }); setCessaoSearch(null) }}
+          onClose={() => setCessaoSearch(null)}
           onNewPartner={() => router.push('/modules/parceiros/new?from=contratos')}
         />
       )}

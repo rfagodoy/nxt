@@ -10,6 +10,7 @@ export interface LookupEntry {
   active: boolean
   origem?: string         // papéis: origem da parte no contrato
   classificacao?: string  // tipos de unidade: Custo | Lucro | Neutro
+  efeito?: string         // tipos de aditivo: termino | valor | objeto | partes | nenhum
 }
 
 export function useLookupTable(storageKey: string, initialData: LookupEntry[]) {

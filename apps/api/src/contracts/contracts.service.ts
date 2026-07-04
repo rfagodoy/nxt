@@ -92,11 +92,33 @@ export class ContractsService {
     return new Map(entries.map(e => [e.id, e.label]))
   }
 
+  /* Aplica os termos aditivos sobre o registro (em memória) para refletir o estado
+     VIGENTE na listagem/dashboard: término, valor, objeto e partes (cessão). O original
+     persistido não muda — a tela de detalhe recebe o bruto e deriva o vigente no front.
+     Mesma lógica de terminoVigente/valorVigente/partesVigentes do front. */
+  private applyAditivos(c: Record<string, unknown>) {
+    const aditivos = (c.aditivos as Array<Record<string, unknown>>) ?? []
+    for (const a of aditivos) {
+      if (a.situacao === 'RASCUNHO') continue  // só aditivo ATIVO aplica (legado sem situacao = ativo)
+      if (a.alteraTermino && a.novoTermino) c.terminoVigencia = a.novoTermino
+      if (a.alteraValor && a.novoValor != null) c.valorTotal = (Number(c.valorTotal) || 0) + (Number(a.novoValor) || 0)  // acréscimo somado ao inicial
+      if (a.alteraValor && a.novaParcela != null) c.valorParcela = a.novaParcela
+      if (a.alteraObjeto) c.objeto = (a.novoObjeto as unknown[]) ?? []
+      if (a.alteraPartes) {
+        const cessoes = (a.cessoes as Array<Record<string, string>>) ?? []
+        for (const ce of cessoes)
+          c.partes = ((c.partes as Array<Record<string, string>>) ?? []).map(p =>
+            p.id === ce.parteId ? { ...p, ref_tipo: ce.ref_tipo, ref_id: ce.ref_id, nome: ce.nome, documento: ce.documento } : p)
+      }
+    }
+  }
+
   async findAll(organizationId: string) {
     const data = await this.prisma.contract.findMany({
       where:   { organizationId },
       orderBy: { createdAt: 'desc' },
     })
+    for (const c of data as Array<Record<string, unknown>>) this.applyAditivos(c)
     await this.resolvePartesLive(data as Array<{ partes: unknown }>, organizationId)
 
     /* Resolve ao vivo os rótulos de tabelas auxiliares usados na listagem:

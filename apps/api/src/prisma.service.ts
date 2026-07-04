@@ -13,7 +13,7 @@ const JSON_FIELDS: Record<string, string[]> = {
   ModuleRecord: ['data'],
   Partner: ['contatos', 'enderecos', 'bancos', 'socios'],
   PartnerAuditLog: ['changes'],
-  Contract: ['objeto', 'partes', 'reajustes', 'documentos'],
+  Contract: ['objeto', 'partes', 'reajustes', 'documentos', 'pagamentos', 'recebimentos', 'aditivos'],
   OrgUnit: ['usuarios'],
   AppSetting: ['value'],
 }

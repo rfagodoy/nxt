@@ -17,6 +17,11 @@ export class UpdateContractDto {
   @IsString()
   tipo?: string
 
+  @ApiPropertyOptional({ description: 'Natureza: DESPESA | RECEITA | AMBOS' })
+  @IsOptional()
+  @IsString()
+  natureza?: string
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
@@ -46,6 +51,26 @@ export class UpdateContractDto {
   @IsOptional()
   @IsBoolean()
   prazoIndeterminado?: boolean
+
+  @ApiPropertyOptional({ description: 'Ação no término: MANUAL | RENOVAR | ENCERRAR' })
+  @IsOptional()
+  @IsString()
+  acaoTermino?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  renovacaoAnos?: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  renovacaoMeses?: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  renovacaoDias?: number
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -96,6 +121,21 @@ export class UpdateContractDto {
   @IsOptional()
   @IsArray()
   reajustes?: object[]
+
+  @ApiPropertyOptional({ type: [Object] })
+  @IsOptional()
+  @IsArray()
+  pagamentos?: object[]
+
+  @ApiPropertyOptional({ type: [Object] })
+  @IsOptional()
+  @IsArray()
+  recebimentos?: object[]
+
+  @ApiPropertyOptional({ type: [Object] })
+  @IsOptional()
+  @IsArray()
+  aditivos?: object[]
 
   @ApiPropertyOptional({ type: [Object] })
   @IsOptional()
