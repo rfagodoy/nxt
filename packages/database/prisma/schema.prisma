@@ -219,7 +219,7 @@ model Contract {
   titulo              String
   tipo                String
   natureza            String?  // DESPESA | RECEITA | AMBOS
-  descricao           String?
+  descricao           String?  @db.NVarChar(Max) // texto livre longo
   objeto              String   @default("[]") @db.NVarChar(Max) // [JSON]
   situacao            String   @default("PENDENTE")
   inicioVigencia      String?
@@ -234,9 +234,9 @@ model Contract {
   valorTotal          Float    @default(0)
   valorParcela        Float?
   condicaoPagamento   String?
-  complementoValor    String?
+  complementoValor    String?  @db.NVarChar(Max) // texto livre longo
   renovacaoAutomatica Boolean  @default(false)
-  observacoes         String?
+  observacoes         String?  @db.NVarChar(Max) // texto livre longo
   partes              String   @default("[]") @db.NVarChar(Max) // [JSON]
   reajustes           String   @default("[]") @db.NVarChar(Max) // [JSON]
   pagamentos          String   @default("[]") @db.NVarChar(Max) // [JSON] — pagamentos realizados (Despesa/Ambos)
