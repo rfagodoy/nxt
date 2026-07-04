@@ -2,7 +2,6 @@ import 'server-only'
 import { SESSION_COOKIE, REFRESH_COOKIE } from './session'
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? ''
-const MAX_AGE = 60 * 60 * 24 * 7 // 7 dias (= TTL do refresh token)
 
 // Tipo mínimo do cookie store (await cookies()) que usamos nos route handlers.
 type CookieStore = {
@@ -11,13 +10,17 @@ type CookieStore = {
   delete: (name: string) => void
 }
 
+/**
+ * Cookies de SESSÃO (sem maxAge/expires): o navegador os descarta ao ser fechado,
+ * forçando novo login. A sessão sobrevive apenas enquanto o navegador estiver aberto
+ * (o access de 15min é renovado pelo refresh do cookie durante o uso).
+ */
 function cookieOptions() {
   return {
     httpOnly: true,
     sameSite: 'lax' as const,
     secure: process.env.NODE_ENV === 'production',
     path: '/',
-    maxAge: MAX_AGE,
   }
 }
 
