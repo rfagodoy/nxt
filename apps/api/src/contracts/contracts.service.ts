@@ -43,6 +43,119 @@ function toRow(c: ContractRecord) {
   }
 }
 
+/* ── Auditoria de contratos ─────────────────────────────────────────────────
+   diffContract produz mudanças LEGÍVEIS (não JSON cru): escalares, situação e
+   eventos semânticos de aditivos, lançamentos, documentos e partes.
+   Mesmo formato do PartnerAuditLog: [{ field, label, before, after }]. */
+type AuditChange = { field: string; label: string; before: string; after: string }
+type CRec = Record<string, unknown>
+type Maps = { tipo: Map<string, string>; condicao: Map<string, string>; objeto: Map<string, string>; papel: Map<string, string>; forma: Map<string, string> }
+
+const aVal = (x: unknown): string => (x == null ? '' : String(x))
+const aArr = (x: unknown): CRec[] => (Array.isArray(x) ? (x as CRec[]) : [])
+const aLbl = (m: Map<string, string>, id: string): string => (id ? (m.get(id) ?? id) : '')
+const aMoney = (x: unknown): string => {
+  if (x === '' || x == null) return ''
+  const n = Number(x)
+  return Number.isFinite(n) ? n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''
+}
+const aDate = (x: unknown): string => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(aVal(x))
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : aVal(x)
+}
+const SIT_LABEL: Record<string, string> = { EM_CADASTRO: 'Em cadastro/revisão', VIGENTE: 'Vigente', ENCERRADO: 'Encerrado', RESCINDIDO: 'Rescindido', PENDENTE: 'Em cadastro/revisão', ATIVO: 'Vigente' }
+const NAT_LABEL: Record<string, string> = { DESPESA: 'Despesa', RECEITA: 'Receita', AMBOS: 'Ambos' }
+const ACAO_LABEL: Record<string, string> = { MANUAL: 'Definir manualmente', RENOVAR: 'Renovar automaticamente', ENCERRAR: 'Encerrar automaticamente' }
+
+function diffContract(o: CRec, n: CRec, maps: Maps): AuditChange[] {
+  const ch: AuditChange[] = []
+  const push = (field: string, label: string, b: string, a: string) => { if (b !== a) ch.push({ field, label, before: b || '—', after: a || '—' }) }
+
+  /* situação + escalares */
+  push('situacao', 'Situação', SIT_LABEL[aVal(o.situacao)] ?? aVal(o.situacao), SIT_LABEL[aVal(n.situacao)] ?? aVal(n.situacao))
+  push('numero', 'Número', aVal(o.numero), aVal(n.numero))
+  push('titulo', 'Título', aVal(o.titulo), aVal(n.titulo))
+  push('descricao', 'Descrição', aVal(o.descricao), aVal(n.descricao))
+  push('natureza', 'Natureza', NAT_LABEL[aVal(o.natureza)] ?? aVal(o.natureza), NAT_LABEL[aVal(n.natureza)] ?? aVal(n.natureza))
+  push('tipo', 'Tipo de contrato', aLbl(maps.tipo, aVal(o.tipo)), aLbl(maps.tipo, aVal(n.tipo)))
+  push('inicioVigencia', 'Início da vigência', aDate(o.inicioVigencia), aDate(n.inicioVigencia))
+  push('terminoVigencia', 'Término da vigência', aDate(o.terminoVigencia), aDate(n.terminoVigencia))
+  push('prazoIndeterminado', 'Prazo indeterminado', o.prazoIndeterminado ? 'Sim' : 'Não', n.prazoIndeterminado ? 'Sim' : 'Não')
+  push('acaoTermino', 'Ação no término', ACAO_LABEL[aVal(o.acaoTermino)] ?? aVal(o.acaoTermino), ACAO_LABEL[aVal(n.acaoTermino)] ?? aVal(n.acaoTermino))
+  push('dataAssinatura', 'Data de assinatura', aDate(o.dataAssinatura), aDate(n.dataAssinatura))
+  push('moeda', 'Moeda', aVal(o.moeda), aVal(n.moeda))
+  push('valorTotal', 'Valor total', aMoney(o.valorTotal), aMoney(n.valorTotal))
+  push('valorParcela', 'Valor da parcela', aMoney(o.valorParcela), aMoney(n.valorParcela))
+  push('condicaoPagamento', 'Condição de pagamento', aLbl(maps.condicao, aVal(o.condicaoPagamento)), aLbl(maps.condicao, aVal(n.condicaoPagamento)))
+  push('complementoValor', 'Complemento do valor', aVal(o.complementoValor), aVal(n.complementoValor))
+  push('observacoes', 'Observações', aVal(o.observacoes), aVal(n.observacoes))
+  const objL = (arr: unknown) => (Array.isArray(arr) ? (arr as string[]) : []).map(id => aLbl(maps.objeto, aVal(id))).join(', ')
+  push('objeto', 'Objeto do contrato', objL(o.objeto), objL(n.objeto))
+
+  /* aditivos (ciclo de vida) */
+  const oA = aArr(o.aditivos), nA = aArr(n.aditivos)
+  const oAById = new Map(oA.map(a => [aVal(a.id), a] as [string, CRec]))
+  const nAById = new Map(nA.map(a => [aVal(a.id), a] as [string, CRec]))
+  const numA = (a: CRec) => (a.numero ? `${aVal(a.numero)}º aditivo` : 'aditivo')
+  const efA = (a: CRec) => [a.alteraTermino && 'prorrogação', a.alteraValor && 'reajuste', a.alteraObjeto && 'escopo', a.alteraPartes && 'cessão'].filter(Boolean).join(', ')
+  for (const a of nA) if (!oAById.has(aVal(a.id))) ch.push({ field: `aditivo.${aVal(a.id)}`, label: 'Aditivo criado', before: '—', after: `${numA(a)}${efA(a) ? ' — ' + efA(a) : ''}` })
+  for (const a of oA) if (!nAById.has(aVal(a.id))) ch.push({ field: `aditivo.${aVal(a.id)}`, label: 'Aditivo removido', before: numA(a), after: '—' })
+  for (const a of nA) {
+    const prev = oAById.get(aVal(a.id)); if (!prev) continue
+    const ps = aVal(prev.situacao) || 'ATIVO', ns = aVal(a.situacao) || 'ATIVO'
+    if (ps !== ns) ch.push({ field: `aditivo.${aVal(a.id)}.situacao`, label: ns === 'ATIVO' ? 'Aditivo ativado' : 'Aditivo reaberto para revisão', before: '—', after: `${numA(a)}${efA(a) ? ' — ' + efA(a) : ''}` })
+  }
+
+  /* lançamentos */
+  for (const [field, label] of [['pagamentos', 'Pagamento'], ['recebimentos', 'Recebimento']] as const) {
+    const oL = aArr(o[field]), nL = aArr(n[field])
+    const oIds = new Set(oL.map(l => aVal(l.id))), nIds = new Set(nL.map(l => aVal(l.id)))
+    const descL = (l: CRec) => [aMoney(l.valor), aLbl(maps.forma, aVal(l.forma)), aDate(l.data)].filter(Boolean).join(' · ')
+    for (const l of nL) if (!oIds.has(aVal(l.id))) ch.push({ field: `${field}.${aVal(l.id)}`, label: `${label} registrado`, before: '—', after: descL(l) })
+    for (const l of oL) if (!nIds.has(aVal(l.id))) ch.push({ field: `${field}.${aVal(l.id)}`, label: `${label} removido`, before: descL(l), after: '—' })
+  }
+
+  /* documentos */
+  const oD = aArr(o.documentos), nD = aArr(n.documentos)
+  const oDIds = new Set(oD.map(d => aVal(d.id))), nDIds = new Set(nD.map(d => aVal(d.id)))
+  const descD = (d: CRec) => aVal(d.nome) || aVal(d.arquivo_nome) || 'documento'
+  for (const d of nD) if (!oDIds.has(aVal(d.id))) ch.push({ field: `documento.${aVal(d.id)}`, label: 'Documento anexado', before: '—', after: descD(d) })
+  for (const d of oD) if (!nDIds.has(aVal(d.id))) ch.push({ field: `documento.${aVal(d.id)}`, label: 'Documento removido', before: descD(d), after: '—' })
+
+  /* partes */
+  const oP = aArr(o.partes), nP = aArr(n.partes)
+  const oPById = new Map(oP.map(p => [aVal(p.id), p] as [string, CRec]))
+  const nPById = new Map(nP.map(p => [aVal(p.id), p] as [string, CRec]))
+  const papelL = (p: CRec) => aLbl(maps.papel, aVal(p.papel)) || 'parte'
+  for (const p of nP) {
+    const prev = oPById.get(aVal(p.id))
+    if (!prev) { ch.push({ field: `parte.${aVal(p.id)}`, label: `Parte adicionada · ${papelL(p)}`, before: '—', after: aVal(p.nome) || '—' }); continue }
+    if (aVal(prev.ref_id) !== aVal(p.ref_id) || aVal(prev.papel) !== aVal(p.papel))
+      ch.push({ field: `parte.${aVal(p.id)}`, label: `Parte alterada · ${papelL(p)}`, before: aVal(prev.nome) || '—', after: aVal(p.nome) || '—' })
+  }
+  for (const p of oP) if (!nPById.has(aVal(p.id))) ch.push({ field: `parte.${aVal(p.id)}`, label: `Parte removida · ${papelL(p)}`, before: aVal(p.nome) || '—', after: '—' })
+
+  return ch
+}
+
+/* Classifica UMA mudança no seu evento: a transição de situação é ATIVADO/EM_REVISAO/...
+   (só ela); aditivo/lançamento/documento têm seus eventos; o resto é ATUALIZAÇÃO.
+   Assim, alterar campos + ativar num mesmo salvar gera logs SEPARADOS. */
+function classifyChange(c: AuditChange, novaSituacao: string): string {
+  if (c.field === 'situacao') {
+    if (novaSituacao === 'VIGENTE')     return 'ATIVADO'
+    if (novaSituacao === 'EM_CADASTRO') return 'EM_REVISAO'
+    if (novaSituacao === 'ENCERRADO')   return 'ENCERRADO'
+    if (novaSituacao === 'RESCINDIDO')  return 'RESCINDIDO'
+    return 'ATUALIZADO'
+  }
+  if (c.field.startsWith('aditivo'))     return 'ADITIVO'
+  if (c.field.startsWith('pagamentos') || c.field.startsWith('recebimentos')) return 'LANCAMENTO'
+  if (c.field.startsWith('documento'))   return 'DOCUMENTO'
+  return 'ATUALIZADO'
+}
+const isTransitionEvent = (ev: string) => ['ATIVADO', 'EM_REVISAO', 'ENCERRADO', 'RESCINDIDO'].includes(ev)
+
 @Injectable()
 export class ContractsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -79,8 +192,28 @@ export class ContractsService {
 
   async create(dto: CreateContractDto, organizationId: string) {
     const { user, ...data } = dto
-    void user
-    return this.prisma.contract.create({ data: { ...data, organizationId } as never })
+    const created = await this.prisma.contract.create({ data: { ...data, organizationId } as never })
+    await this.prisma.contractAuditLog.create({
+      data: {
+        contractId: created.id,
+        user:       user ?? 'Usuário do sistema',
+        event:      'CRIADO',
+        changes:    [{ field: 'situacao', label: 'Situação', before: '—', after: SIT_LABEL[created.situacao] ?? created.situacao }] as never,
+      },
+    })
+    return created
+  }
+
+  /* mapas id -> rótulo das tabelas auxiliares, para a auditoria mostrar nomes (não ids) */
+  private async loadMaps(organizationId: string): Promise<Maps> {
+    const [tipo, condicao, objeto, papel, forma] = await Promise.all([
+      this.loadLookupMap(organizationId, 'nxt:settings:contratos:tipos'),
+      this.loadLookupMap(organizationId, 'nxt:settings:contratos:condicoes'),
+      this.loadLookupMap(organizationId, 'nxt:settings:contratos:objetos'),
+      this.loadLookupMap(organizationId, 'nxt:settings:contratos:papeis:v2'),
+      this.loadLookupMap(organizationId, 'nxt:settings:contratos:formas-pagamento'),
+    ])
+    return { tipo, condicao, objeto, papel, forma }
   }
 
   /* Carrega uma tabela auxiliar (AppSetting de organização) como mapa id → rótulo atual. */
@@ -145,10 +278,44 @@ export class ContractsService {
   }
 
   async update(id: string, dto: UpdateContractDto, organizationId: string) {
-    await this.findOne(id, organizationId)
+    /* busca o BRUTO (sem resolvePartesLive) para o diff comparar estado gravado vs novo */
+    const old = await this.prisma.contract.findFirst({ where: { id, organizationId } })
+    if (!old) throw new NotFoundException('Contrato não encontrado')
     const { user, motivo, ...data } = dto
-    void user; void motivo
-    return this.prisma.contract.update({ where: { id }, data: data as never })
+    const updated = await this.prisma.contract.update({ where: { id }, data: data as never })
+
+    const changes = diffContract(old as CRec, updated as CRec, await this.loadMaps(organizationId))
+    if (changes.length) {
+      /* cada mudança vai pro SEU evento (situação → transição; campos → Atualização; etc.),
+         gerando um log por evento. O motivo acompanha só a transição de situação. */
+      const na = aVal(updated.situacao)
+      const byEvent = new Map<string, AuditChange[]>()
+      for (const c of changes) {
+        const ev = classifyChange(c, na)
+        const list = byEvent.get(ev) ?? []
+        list.push(c); byEvent.set(ev, list)
+      }
+      /* não-transições primeiro; a transição por último (createdAt maior → topo do histórico) */
+      const order = [...byEvent.keys()].sort((a, b) => Number(isTransitionEvent(a)) - Number(isTransitionEvent(b)))
+      for (const ev of order) {
+        await this.prisma.contractAuditLog.create({
+          data: {
+            contractId: id,
+            user:       user ?? 'Usuário do sistema',
+            event:      ev,
+            motivo:     isTransitionEvent(ev) && motivo?.trim() ? motivo.trim() : null,
+            changes:    byEvent.get(ev) as never,
+          },
+        })
+      }
+    }
+    return updated
+  }
+
+  async getAuditLogs(contractId: string, organizationId: string) {
+    const exists = await this.prisma.contract.findFirst({ where: { id: contractId, organizationId }, select: { id: true } })
+    if (!exists) throw new NotFoundException('Contrato não encontrado')
+    return this.prisma.contractAuditLog.findMany({ where: { contractId }, orderBy: { createdAt: 'desc' } })
   }
 
   async remove(id: string, organizationId: string) {

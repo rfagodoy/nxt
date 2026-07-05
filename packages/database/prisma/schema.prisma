@@ -246,8 +246,25 @@ model Contract {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
+  auditLogs ContractAuditLog[]
+
   @@index([organizationId])
   @@map("contracts")
+}
+
+model ContractAuditLog {
+  id         String   @id @default(cuid())
+  contractId String
+  user       String
+  event      String   // CRIADO | ATUALIZADO | ATIVADO | EM_REVISAO | ENCERRADO | RESCINDIDO | ADITIVO | LANCAMENTO | DOCUMENTO
+  motivo     String?
+  changes    String   @default("[]") @db.NVarChar(Max) // [JSON] [{ field, label, before, after }]
+  createdAt  DateTime @default(now())
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@index([contractId])
+  @@map("contract_audit_logs")
 }
 
 // ─── Documentos ──────────────────────────────────────────────────────────────

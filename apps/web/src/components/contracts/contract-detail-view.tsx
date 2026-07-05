@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { FileText, Users, Calendar, Banknote, TrendingUp, TrendingDown, RefreshCw, Paperclip, FilePlus2 } from 'lucide-react'
+import { FileText, Users, Calendar, Banknote, TrendingUp, TrendingDown, RefreshCw, Paperclip, FilePlus2, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { useContractForm, IdentificacaoFields, VigenciaFields, ValoresFields, ReajustesFields, PartesFields, DocumentosFields, LancamentosFields, AditivosFields } from '@/components/contracts/contract-fields'
@@ -10,6 +10,7 @@ import { emptyContractForm, contractFromApi, contractToPayload, effectiveSituaca
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { PAPEIS_KEY, INIT_PAPEIS, validatePartes } from '@/lib/contract-roles'
 import { EntitySearchModal } from '@/components/contracts/entity-search-modal'
+import { ContractHistory } from '@/components/contracts/contract-history'
 import { getLogUser } from '@/hooks/use-partner-logs'
 
 /* ─── linha da listagem (espelha o toRow() do backend) — compartilhada com a página ─── */
@@ -136,6 +137,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
     { id: 'reajuste',     label: 'Reajuste',          icon: RefreshCw },
     { id: 'aditivos',     label: 'Aditivos',          icon: FilePlus2 },
     { id: 'documentos',   label: 'Documentos',        icon: Paperclip },
+    { id: 'historico',    label: 'Histórico',         icon: Clock },
   ]
 
   const handleSave = async (statusOverride?: string, motivoTexto?: string, aditivosOverride?: CAditivo[]) => {
@@ -314,6 +316,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
         <DSection active={tab === 'reajuste'}><ReajustesFields form={form} ro={locked} /></DSection>
         <DSection active={tab === 'aditivos'}><AditivosFields form={form} onOpenCessaoSearch={(aditivoId, cessaoId, origem) => setCessaoSearch({ aditivoId, cessaoId, origem })} onActivate={activateAditivo} onRevise={reviseAditivo} /></DSection>
         <DSection active={tab === 'documentos'}><DocumentosFields form={form} ro={locked} /></DSection>
+        <DSection active={tab === 'historico'}><ContractHistory contractId={row.id} /></DSection>
       </form>
 
       {searchModal && (

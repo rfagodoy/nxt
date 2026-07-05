@@ -29,6 +29,12 @@ export class ContractsController {
     return this.contractsService.findOne(id, organizationId)
   }
 
+  @Get(':id/audit')
+  @ApiOperation({ summary: 'Histórico de auditoria (alterações) do contrato' })
+  audit(@Param('id') id: string, @CurrentOrg() organizationId: string) {
+    return this.contractsService.getAuditLogs(id, organizationId)
+  }
+
   @Patch(':id')
   @ApiOperation({ summary: 'Atualiza contrato' })
   update(@Param('id') id: string, @Body() dto: UpdateContractDto, @CurrentOrg() organizationId: string) {
