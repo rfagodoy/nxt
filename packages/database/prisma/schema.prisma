@@ -244,6 +244,7 @@ model Contract {
   aditivos            String   @default("[]") @db.NVarChar(Max) // [JSON] — termos aditivos (alteram término/valor/objeto/partes em vigor)
   documentos          String   @default("[]") @db.NVarChar(Max) // [JSON]
   renovacoes          String   @default("[]") @db.NVarChar(Max) // [JSON] renovações automáticas: [{ id, data, terminoAnterior, novoTermino, automatica }]
+  reajustesRealizados String   @default("[]") @db.NVarChar(Max) // [JSON] reajustes efetivamente aplicados: [{ id, reajusteId, competencia, indiceSnapshot, percentual, valorAnterior, valorNovo, dataAplicacao, observacao, user, createdAt }]
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
@@ -258,7 +259,7 @@ model ContractAuditLog {
   id         String   @id @default(cuid())
   contractId String
   user       String
-  event      String   // CRIADO | ATUALIZADO | ATIVADO | EM_REVISAO | ENCERRADO | RESCINDIDO | ADITIVO | LANCAMENTO | DOCUMENTO
+  event      String   // CRIADO | ATUALIZADO | ATIVADO | EM_REVISAO | ENCERRADO | RESCINDIDO | ADITIVO | REAJUSTE | LANCAMENTO | DOCUMENTO
   motivo     String?
   changes    String   @default("[]") @db.NVarChar(Max) // [JSON] [{ field, label, before, after }]
   createdAt  DateTime @default(now())

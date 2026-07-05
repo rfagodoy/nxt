@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body } from '@nestjs/common'
+import { Controller, Get, Post, Patch, Delete, Param, Body, Query } from '@nestjs/common'
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger'
 import { ContractsService } from './contracts.service'
 import { CreateContractDto } from './dto/create-contract.dto'
@@ -21,6 +21,14 @@ export class ContractsController {
   @ApiOperation({ summary: 'Lista contratos da organização' })
   findAll(@CurrentOrg() organizationId: string) {
     return this.contractsService.findAll(organizationId)
+  }
+
+  /* Import de valores mensais de índice do Banco Central (série SGS). Rota literal ANTES
+     de ':id' para não ser capturada como um id. Opcional (Fase 3): só quando há internet. */
+  @Get('indices/bcb')
+  @ApiOperation({ summary: 'Importa a série mensal de um índice do Banco Central (SGS)' })
+  importBcb(@Query('code') code: string, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.contractsService.importBcb(code, from, to)
   }
 
   @Get(':id')

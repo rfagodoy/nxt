@@ -147,6 +147,11 @@ export class UpdateContractDto {
   @IsArray()
   renovacoes?: object[]
 
+  @ApiPropertyOptional({ type: [Object], description: 'Reajustes efetivamente aplicados (fato, não agenda)' })
+  @IsOptional()
+  @IsArray()
+  reajustesRealizados?: object[]
+
   @ApiPropertyOptional({ description: 'Usuário que originou a alteração (para auditoria futura)' })
   @IsOptional()
   @IsString()

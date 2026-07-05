@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { Injectable, NotFoundException, BadRequestException, ServiceUnavailableException } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
 import { CreateContractDto } from './dto/create-contract.dto'
 import { UpdateContractDto } from './dto/update-contract.dto'
@@ -63,6 +63,10 @@ const aDate = (x: unknown): string => {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(aVal(x))
   return m ? `${m[3]}/${m[2]}/${m[1]}` : aVal(x)
 }
+const aMesAno = (x: unknown): string => {
+  const m = /^(\d{4})-(\d{2})/.exec(aVal(x))
+  return m ? `${m[2]}/${m[1]}` : aVal(x)
+}
 const SIT_LABEL: Record<string, string> = { EM_CADASTRO: 'Em cadastro/revisão', VIGENTE: 'Vigente', ENCERRADO: 'Encerrado', RESCINDIDO: 'Rescindido', PENDENTE: 'Em cadastro/revisão', ATIVO: 'Vigente' }
 const NAT_LABEL: Record<string, string> = { DESPESA: 'Despesa', RECEITA: 'Receita', AMBOS: 'Ambos' }
 const ACAO_LABEL: Record<string, string> = { MANUAL: 'Definir manualmente', RENOVAR: 'Renovar automaticamente', ENCERRAR: 'Encerrar automaticamente' }
@@ -115,6 +119,13 @@ function diffContract(o: CRec, n: CRec, maps: Maps): AuditChange[] {
     for (const l of oL) if (!nIds.has(aVal(l.id))) ch.push({ field: `${field}.${aVal(l.id)}`, label: `${label} removido`, before: descL(l), after: '—' })
   }
 
+  /* reajustes efetivamente aplicados */
+  const oR = aArr(o.reajustesRealizados), nR = aArr(n.reajustesRealizados)
+  const oRIds = new Set(oR.map(r => aVal(r.id))), nRIds = new Set(nR.map(r => aVal(r.id)))
+  const descR = (r: CRec) => [aVal(r.indiceSnapshot), r.percentual != null && aVal(r.percentual) !== '' ? `${aVal(r.percentual)}%` : '', aMesAno(r.competencia), aMoney(r.valorNovo)].filter(Boolean).join(' · ')
+  for (const r of nR) if (!oRIds.has(aVal(r.id))) ch.push({ field: `reajuste.${aVal(r.id)}`, label: 'Reajuste aplicado', before: '—', after: descR(r) })
+  for (const r of oR) if (!nRIds.has(aVal(r.id))) ch.push({ field: `reajuste.${aVal(r.id)}`, label: 'Reajuste removido', before: descR(r), after: '—' })
+
   /* documentos */
   const oD = aArr(o.documentos), nD = aArr(n.documentos)
   const oDIds = new Set(oD.map(d => aVal(d.id))), nDIds = new Set(nD.map(d => aVal(d.id)))
@@ -150,6 +161,7 @@ function classifyChange(c: AuditChange, novaSituacao: string): string {
     return 'ATUALIZADO'
   }
   if (c.field.startsWith('aditivo'))     return 'ADITIVO'
+  if (c.field.startsWith('reajuste'))    return 'REAJUSTE'
   if (c.field.startsWith('pagamentos') || c.field.startsWith('recebimentos')) return 'LANCAMENTO'
   if (c.field.startsWith('documento'))   return 'DOCUMENTO'
   return 'ATUALIZADO'
@@ -249,6 +261,10 @@ export class ContractsService {
       const nt = r.novoTermino as string | undefined
       if (nt && (!c.terminoVigencia || nt > (c.terminoVigencia as string))) c.terminoVigencia = nt
     }
+    /* reajustes efetivamente aplicados somam seu delta ao valor total (mesma lógica de valorVigente) */
+    for (const r of ((c.reajustesRealizados as Array<Record<string, unknown>>) ?? [])) {
+      c.valorTotal = (Number(c.valorTotal) || 0) + (Number(r.valorNovo) || 0) - (Number(r.valorAnterior) || 0)
+    }
   }
 
   async findAll(organizationId: string) {
@@ -326,5 +342,35 @@ export class ContractsService {
   async remove(id: string, organizationId: string) {
     await this.findOne(id, organizationId)
     return this.prisma.contract.delete({ where: { id } })
+  }
+
+  /* Consulta a série mensal de um índice na API pública do Banco Central (SGS) e devolve
+     [{ competencia: 'yyyy-mm', valor: <% do mês> }]. Fonte opcional (Fase 3): a tabela manual
+     continua sendo a fonte de verdade; este import só é usado quando o servidor tem internet. */
+  async importBcb(code: string, from?: string, to?: string): Promise<Array<{ competencia: string; valor: number }>> {
+    if (!code || !/^\d+$/.test(code)) throw new BadRequestException('Código da série (SGS) inválido.')
+    const toBcbDate = (yyyymm: string | undefined, mesesAtras: number): string => {
+      let d: Date
+      if (yyyymm && /^\d{4}-\d{2}$/.test(yyyymm)) { const [y, m] = yyyymm.split('-').map(Number); d = new Date(Date.UTC(y, m - 1, 1)) }
+      else { d = new Date(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - mesesAtras) }
+      return `01/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`
+    }
+    const di  = toBcbDate(from, 60)  // padrão: últimos 5 anos
+    const df  = toBcbDate(to, 0)
+    const url = `https://api.bcb.gov.br/dados/serie/bcdata.sgs.${code}/dados?formato=json&dataInicial=${di}&dataFinal=${df}`
+    let raw: Array<{ data: string; valor: string }>
+    try {
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(String(res.status))
+      raw = (await res.json()) as Array<{ data: string; valor: string }>
+    } catch {
+      throw new ServiceUnavailableException('Não foi possível consultar o Banco Central (verifique a conexão do servidor).')
+    }
+    return (raw ?? [])
+      .map(d => {
+        const [, mm, yyyy] = String(d.data).split('/')
+        return { competencia: yyyy && mm ? `${yyyy}-${mm}` : '', valor: Number(String(d.valor).replace(',', '.')) }
+      })
+      .filter(x => x.competencia && Number.isFinite(x.valor))
   }
 }

@@ -5,6 +5,7 @@ import { Plus, Trash2, Search, Upload, Download, Loader2, X, Eye, ChevronDown, F
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { useLookupTable } from '@/hooks/use-lookup-table'
+import { useIndiceValores } from '@/hooks/use-indice-valores'
 import { INIT_PAPEIS, PAPEIS_KEY, ORIGEM, origemDoPapel, ladoDoPapel } from '@/lib/contract-roles'
 import {
   TIPOS_KEY, OBJETOS_KEY, MOEDAS_KEY, CONDICOES_KEY, INDICES_KEY, TIPOS_ADITIVO_KEY, FORMAS_PGTO_KEY,
@@ -14,8 +15,8 @@ import {
   valorVigente, parcelaVigente, condicaoVigente, complementoVigente, terminoVigente, objetoVigente, partesVigentes, terminoVigenteAntes, objetoVigenteAntes, proximoDiaISO,
   tituloVigente, descricaoVigente, tituloVigenteInfo, descricaoVigenteInfo,
   periodosVigencia, historicoRenegociacao, historicoObjeto, historicoCessoes,
-  newCParte, newCReajuste, newCDocumento, newCLancamento, newCAditivo, newCCessao,
-  type ContractFormValues, type CParte, type CReajuste, type CDocumento, type CLancamento, type CAditivo, type CCessao,
+  newCParte, newCReajuste, newCReajusteRealizado, newCDocumento, newCLancamento, newCAditivo, newCCessao,
+  type ContractFormValues, type CParte, type CReajuste, type CReajusteRealizado, type CDocumento, type CLancamento, type CAditivo, type CCessao,
 } from '@/lib/contract-options'
 
 /* ─── controlador de estado (usado pelas duas telas) ─────── */
@@ -37,6 +38,10 @@ export function useContractForm(initial: ContractFormValues) {
   const remReaj = useCallback((id: string) => setValues(p => ({ ...p, reajustes: p.reajustes.filter(x => x.id !== id) })), [])
   const updReaj = useCallback((id: string, k: keyof Omit<CReajuste, 'id'>, v: string) =>
     setValues(p => ({ ...p, reajustes: p.reajustes.map(x => x.id !== id ? x : { ...x, [k]: v }) })), [])
+
+  /* reajustes efetivamente aplicados (fato, não agenda) */
+  const addReajRealizado = useCallback((r: CReajusteRealizado) => setValues(p => ({ ...p, reajustesRealizados: [...(p.reajustesRealizados ?? []), r] })), [])
+  const remReajRealizado = useCallback((id: string) => setValues(p => ({ ...p, reajustesRealizados: (p.reajustesRealizados ?? []).filter(x => x.id !== id) })), [])
 
   const addDoc = useCallback(() => setValues(p => ({ ...p, documentos: [...p.documentos, newCDocumento()] })), [])
   const remDoc = useCallback((id: string) => setValues(p => ({ ...p, documentos: p.documentos.filter(x => x.id !== id) })), [])
@@ -63,7 +68,7 @@ export function useContractForm(initial: ContractFormValues) {
   const patchCessao  = useCallback((aditivoId: string, cessaoId: string, patch: Partial<Omit<CCessao, 'id'>>) =>
     setValues(p => ({ ...p, aditivos: p.aditivos.map(a => a.id !== aditivoId ? a : { ...a, cessoes: a.cessoes.map(c => c.id !== cessaoId ? c : { ...c, ...patch }) }) })), [])
 
-  return { values, set, setValues, addParte, remParte, updParte, setParteEntity, addReaj, remReaj, updReaj, addDoc, remDoc, updDoc, patchDoc, addLanc, remLanc, updLanc, addAditivo, remAditivo, patchAditivo, addCessao, remCessao, patchCessao }
+  return { values, set, setValues, addParte, remParte, updParte, setParteEntity, addReaj, remReaj, updReaj, addReajRealizado, remReajRealizado, addDoc, remDoc, updDoc, patchDoc, addLanc, remLanc, updLanc, addAditivo, remAditivo, patchAditivo, addCessao, remCessao, patchCessao }
 }
 export type ContractForm = ReturnType<typeof useContractForm>
 
@@ -149,6 +154,13 @@ function MoneyField({ value, moedaCode, onChange, ro }: { value: string; moedaCo
 
 /** Data ISO (yyyy-mm-dd) → dd/mm/aaaa (— quando vazia). */
 const fmtDataBR = (iso: string) => iso ? new Date(iso + 'T00:00:00').toLocaleDateString('pt-BR') : '—'
+
+/** Data ISO (yyyy-mm[-dd]) → mm/aaaa (— quando vazia). Usado na data base de reajuste. */
+const fmtMesAnoBR = (iso: string) => {
+  if (!iso) return '—'
+  const [ano, mes] = iso.slice(0, 7).split('-')
+  return mes && ano ? `${mes}/${ano}` : '—'
+}
 
 /** Bloco de "histórico embutido" (procedência dos aditivos) — recolhível, fechado por padrão.
  *  O contador no cabeçalho sinaliza que há histórico sem poluir a tela. */
@@ -468,7 +480,7 @@ export function ReajustesFields({ form, ro }: { form: ContractForm; ro?: boolean
       ) : (
         <div className="rounded-md border overflow-hidden">
           <div className={cn(COLS, 'px-3 py-1.5 bg-muted/40 border-b text-[10px] font-semibold uppercase tracking-wide text-muted-foreground')}>
-            <span>Índice de reajuste</span><span>Data de reajuste</span><span>Periodicidade</span><span />
+            <span>Índice de reajuste</span><span>Data base de reajuste</span><span>Periodicidade</span><span />
           </div>
           <div className="divide-y divide-border/50">
             {v.reajustes.map(r => {
@@ -487,9 +499,9 @@ export function ReajustesFields({ form, ro }: { form: ContractForm; ro?: boolean
                     </select>
                   )}
                   {ro ? (
-                    <span className="text-xs truncate">{r.data ? new Date(r.data + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}</span>
+                    <span className="text-xs truncate">{fmtMesAnoBR(r.data)}</span>
                   ) : (
-                    <input type="date" value={r.data} onChange={e => form.updReaj(r.id, 'data', e.target.value)} className={cell} />
+                    <input type="month" value={r.data.slice(0, 7)} onChange={e => form.updReaj(r.id, 'data', e.target.value ? `${e.target.value}-01` : '')} className={cell} />
                   )}
                   {ro ? (
                     <span className="text-xs truncate">{r.periodicidade || '—'}</span>
@@ -509,6 +521,171 @@ export function ReajustesFields({ form, ro }: { form: ContractForm; ro?: boolean
         </div>
       )}
       {!ro && <button type="button" onClick={form.addReaj} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar reajuste</button>}
+
+      <ReajustesRealizadosBlock form={form} indices={indices} />
+    </div>
+  )
+}
+
+const REAJ_STEP_MESES: Record<string, number> = { MENSAL: 1, BIMESTRAL: 2, TRIMESTRAL: 3, QUADRIMESTRAL: 4, SEMESTRAL: 6, ANUAL: 12 }
+const stepMesesReaj = (p: string) => REAJ_STEP_MESES[String(p || '').toUpperCase()] ?? 12
+/** competência yyyy-mm + N meses → yyyy-mm */
+const addMesesComp = (yyyymm: string, meses: number) => {
+  const [y, m] = yyyymm.split('-').map(Number)
+  if (!y || !m) return ''
+  const dt = new Date(Date.UTC(y, m - 1 + meses, 1))
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}`
+}
+
+/** Bloco "Reajustes realizados": registra o FATO do reajuste (não a agenda — a próxima data segue derivada).
+ *  Alimenta o valor vigente e ancora a próxima notificação. Operável mesmo com o cadastro travado (como lançamentos):
+ *  aplicar reajuste é ação sobre o contrato vigente, persistida pelo botão "Salvar". */
+function ReajustesRealizadosBlock({ form, indices }: { form: ContractForm; indices: ReturnType<typeof useLookupTable> }) {
+  const v = form.values
+  const indiceVals = useIndiceValores()
+  const [aberto, setAberto]           = useState(false)
+  const [reajusteId, setReajusteId]   = useState('')
+  const [competencia, setCompetencia] = useState('')
+  const [percentual, setPercentual]   = useState('')
+  const [valorAnterior, setValorAnt]  = useState('')
+  const [valorNovo, setValorNovo]     = useState('')
+  const [observacao, setObservacao]   = useState('')
+  const [erro, setErro]               = useState<string | null>(null)
+
+  const moedaFmt = (s: string | number) => `${v.moeda ? v.moeda + ' ' : ''}${(Number(s) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const linhasComIndice = v.reajustes.filter(r => r.indice)
+  const realizados = [...(v.reajustesRealizados ?? [])].sort((a, b) => (a.competencia < b.competencia ? 1 : -1))
+
+  /* sugere a competência = uma periodicidade após a última aplicada (ou a data base) da linha */
+  const sugereCompetencia = (rid: string) => {
+    const linha = v.reajustes.find(r => r.id === rid); if (!linha) return ''
+    const comps = (v.reajustesRealizados ?? []).filter(x => x.reajusteId === rid).map(x => x.competencia.slice(0, 7)).filter(Boolean).sort()
+    const anchor = comps.length ? comps[comps.length - 1] : linha.data.slice(0, 7)
+    return anchor ? addMesesComp(anchor, stepMesesReaj(linha.periodicidade)) : ''
+  }
+
+  const indiceDaLinha = (rid: string) => v.reajustes.find(r => r.id === rid)?.indice ?? ''
+  /* % sugerido pela tabela de Valores de índice (Fase 3) para o índice+competência atuais */
+  const sugerido = indiceVals.get(indiceDaLinha(reajusteId), competencia)
+
+  const recalcNovo = (pctStr: string, baseStr: string) => {
+    const base = parseFloat(baseStr) || 0
+    const pct  = parseFloat(String(pctStr).replace(',', '.')) || 0
+    if (base && pct) setValorNovo((base * (1 + pct / 100)).toFixed(2))
+  }
+  /* ao definir índice+competência, se houver valor na tabela, pré-preenche o % e recalcula */
+  const aplicarSugestao = (rid: string, comp: string, base: string) => {
+    const sug = indiceVals.get(indiceDaLinha(rid), comp)
+    if (sug != null) { setPercentual(String(sug).replace('.', ',')); recalcNovo(String(sug), base) }
+  }
+
+  const abrir = () => {
+    const rid  = linhasComIndice[0]?.id ?? ''
+    const base = valorVigente(v)
+    const comp = rid ? sugereCompetencia(rid) : ''
+    const baseStr = base ? base.toFixed(2) : ''
+    setReajusteId(rid); setCompetencia(comp)
+    setPercentual(''); setValorAnt(baseStr); setValorNovo(''); setObservacao(''); setErro(null)
+    setAberto(true)
+    if (rid && comp) aplicarSugestao(rid, comp, baseStr)
+  }
+  const onSelectLinha = (rid: string) => { const comp = sugereCompetencia(rid); setReajusteId(rid); setCompetencia(comp); aplicarSugestao(rid, comp, valorAnterior) }
+  const onCompetencia = (comp: string) => { setCompetencia(comp); aplicarSugestao(reajusteId, comp, valorAnterior) }
+  const onPercentual = (p: string) => { setPercentual(p); recalcNovo(p, valorAnterior) }
+  const onValorAnterior = (val: string) => { setValorAnt(val); recalcNovo(percentual, val) }
+
+  const registrar = () => {
+    if (!reajusteId)                     { setErro('Selecione o índice do reajuste.'); return }
+    if (!competencia)                    { setErro('Informe a competência (mês/ano).'); return }
+    if (!(parseFloat(valorNovo) > 0))    { setErro('Informe o novo valor do contrato.'); return }
+    const linha = v.reajustes.find(r => r.id === reajusteId)
+    const rec = newCReajusteRealizado(reajusteId)
+    rec.competencia    = `${competencia}-01`
+    rec.indiceSnapshot = labelOf(indices.entries, linha?.indice ?? '') || ''
+    rec.percentual     = percentual ? String(parseFloat(String(percentual).replace(',', '.')) || 0) : ''
+    rec.valorAnterior  = String(parseFloat(valorAnterior) || 0)
+    rec.valorNovo      = String(parseFloat(valorNovo) || 0)
+    rec.observacao     = observacao.trim()
+    rec.dataAplicacao  = new Date().toISOString().slice(0, 10)
+    rec.createdAt      = new Date().toISOString()
+    form.addReajRealizado(rec)
+    setAberto(false)
+  }
+
+  const fmtComp = (c: string) => fmtMesAnoBR(c)
+  const selCls = cn(inputCls, 'h-7')
+
+  return (
+    <div className="space-y-2 pt-2 border-t border-border/60">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Reajustes realizados</p>
+        {!aberto && linhasComIndice.length > 0 && (
+          <button type="button" onClick={abrir} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Registrar reajuste</button>
+        )}
+      </div>
+
+      {realizados.length === 0 && !aberto ? (
+        <p className="text-xs text-muted-foreground">Nenhum reajuste aplicado.</p>
+      ) : realizados.length > 0 && (
+        <div className="rounded-md border overflow-hidden">
+          <div className="grid grid-cols-[7rem_1fr_6rem_1fr_1.25rem] items-center gap-2 px-3 py-1.5 bg-muted/40 border-b text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <span>Competência</span><span>Índice</span><span>Percentual</span><span>Valor (ant. → novo)</span><span />
+          </div>
+          <div className="divide-y divide-border/50">
+            {realizados.map(r => (
+              <div key={r.id} className="group grid grid-cols-[7rem_1fr_6rem_1fr_1.25rem] items-center gap-2 px-3 py-1.5 hover:bg-muted/30">
+                <span className="text-xs font-medium tabular-nums">{fmtComp(r.competencia)}</span>
+                <span className="text-xs truncate">{r.indiceSnapshot || '—'}</span>
+                <span className="text-xs tabular-nums">{r.percentual ? `${r.percentual.replace('.', ',')}%` : '—'}</span>
+                <span className="text-xs tabular-nums truncate">{moedaFmt(r.valorAnterior)} <span className="text-muted-foreground">→</span> <span className="font-medium">{moedaFmt(r.valorNovo)}</span></span>
+                <button type="button" onClick={() => form.remReajRealizado(r.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {aberto && (
+        <div className="rounded-md border bg-muted/20 p-3 space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <label className="space-y-1">
+              <span className="text-[10px] font-medium text-muted-foreground">Índice de reajuste</span>
+              <select value={reajusteId} onChange={e => onSelectLinha(e.target.value)} className={selCls}>
+                <option value="">Selecione...</option>
+                {linhasComIndice.map(r => <option key={r.id} value={r.id}>{labelOf(indices.entries, r.indice)}{r.periodicidade ? ` · ${r.periodicidade}` : ''}</option>)}
+              </select>
+            </label>
+            <label className="space-y-1">
+              <span className="text-[10px] font-medium text-muted-foreground">Competência (mês/ano)</span>
+              <input type="month" value={competencia} onChange={e => onCompetencia(e.target.value)} className={selCls} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[10px] font-medium text-muted-foreground">
+                Percentual aplicado (%)
+                {sugerido != null && <span className="ml-1 text-emerald-600 dark:text-emerald-400 font-normal">· índice: {String(sugerido).replace('.', ',')}%</span>}
+              </span>
+              <input value={percentual} onChange={e => onPercentual(e.target.value)} placeholder="0,00" className={selCls} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[10px] font-medium text-muted-foreground">Valor anterior</span>
+              <input value={valorAnterior} onChange={e => onValorAnterior(e.target.value)} placeholder="0,00" className={selCls} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[10px] font-medium text-muted-foreground">Novo valor</span>
+              <input value={valorNovo} onChange={e => setValorNovo(e.target.value)} placeholder="0,00" className={selCls} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[10px] font-medium text-muted-foreground">Observação</span>
+              <input value={observacao} onChange={e => setObservacao(e.target.value)} placeholder="Opcional" className={selCls} />
+            </label>
+          </div>
+          {erro && <p className="text-xs text-destructive">{erro}</p>}
+          <div className="flex items-center justify-end gap-2">
+            <button type="button" onClick={() => setAberto(false)} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Cancelar</button>
+            <button type="button" onClick={registrar} className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">Registrar</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

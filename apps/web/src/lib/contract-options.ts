@@ -133,6 +133,14 @@ export const STATUS_ASSINATURA = [
 /* ─── modelo único do formulário de contrato ─────────────── */
 export interface CParte      { id: string; papel: string; ref_tipo: string; ref_id: string; nome: string; documento: string }
 export interface CReajuste   { id: string; indice: string; data: string; periodicidade: string }
+/** Reajuste efetivamente aplicado (fato, não agenda). A próxima ocorrência continua derivada;
+ *  este registro alimenta o valor vigente, ancora a próxima data e serve de auditoria/histórico.
+ *  competencia = yyyy-mm-01 (mês de referência); valorAnterior/valorNovo guardam o delta exato. */
+export interface CReajusteRealizado {
+  id: string; reajusteId: string; competencia: string; indiceSnapshot: string
+  percentual: string; valorAnterior: string; valorNovo: string
+  dataAplicacao: string; observacao: string; user: string; createdAt: string
+}
 /** Renovação automática (cláusula, não aditamento): estende a vigência sem gerar aditivo. */
 export interface CRenovacao  { id: string; data: string; terminoAnterior: string; novoTermino: string; automatica: boolean }
 export interface CDocumento  { id: string; nome: string; tipo: string; data: string; arquivo_nome: string; arquivo_key: string; status_assinatura: string; observacao: string }
@@ -159,11 +167,13 @@ export interface ContractFormValues {
   condicaoPagamento: string; complementoValor: string
   reajustes: CReajuste[]; partes: CParte[]; documentos: CDocumento[]
   pagamentos: CLancamento[]; recebimentos: CLancamento[]; aditivos: CAditivo[]; renovacoes: CRenovacao[]
+  reajustesRealizados: CReajusteRealizado[]
 }
 
 export const uid = () => `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 export const newCParte      = (papel = ''): CParte      => ({ id: uid(), papel, ref_tipo: '', ref_id: '', nome: '', documento: '' })
 export const newCReajuste   = ():           CReajuste   => ({ id: uid(), indice: '', data: '', periodicidade: '' })
+export const newCReajusteRealizado = (reajusteId = ''): CReajusteRealizado => ({ id: uid(), reajusteId, competencia: '', indiceSnapshot: '', percentual: '', valorAnterior: '', valorNovo: '', dataAplicacao: '', observacao: '', user: '', createdAt: '' })
 export const newCDocumento  = ():           CDocumento  => ({ id: uid(), nome: '', tipo: '', data: '', arquivo_nome: '', arquivo_key: '', status_assinatura: 'nenhum', observacao: '' })
 export const newCLancamento = ():           CLancamento => ({ id: uid(), data: '', valor: '', forma: '', documento: '', observacao: '' })
 export const newCCessao      = (parteId = ''):CCessao    => ({ id: uid(), parteId, ref_tipo: '', ref_id: '', nome: '', documento: '' })
@@ -182,9 +192,9 @@ export function validateContract(v: ContractFormValues): string | null {
   if (!v.prazoIndeterminado && v.inicioVigencia && v.terminoVigencia && v.terminoVigencia < v.inicioVigencia) {
     return 'A data de início da vigência não pode ser posterior à data de término.'
   }
-  /* Reajustes: informado o índice, Data de reajuste e Periodicidade tornam-se obrigatórios. */
+  /* Reajustes: informado o índice, Data base de reajuste e Periodicidade tornam-se obrigatórios. */
   if (v.reajustes.some(r => r.indice && (!r.data || !r.periodicidade))) {
-    return 'Em Reajustes, informe a Data de reajuste e a Periodicidade de cada índice selecionado.'
+    return 'Em Reajustes, informe a Data base de reajuste e a Periodicidade de cada índice selecionado.'
   }
   return null
 }
@@ -218,10 +228,13 @@ export function terminoVigente(v: ContractFormValues): string {
   for (const r of (v.renovacoes ?? [])) if (r.novoTermino && r.novoTermino > t) t = r.novoTermino
   return t
 }
-/** Valor total vigente = valor inicial + soma dos acréscimos dos aditivos de valor ATIVOS. */
+/** Valor total vigente = valor inicial + acréscimos dos aditivos de valor ATIVOS
+ *  + deltas dos reajustes efetivamente aplicados (valorNovo − valorAnterior).
+ *  Guardar o delta (não o %) torna a soma exata e independente da ordem entre aditivo e reajuste. */
 export function valorVigente(v: ContractFormValues): number {
   let val = parseFloat(v.valorTotal) || 0
   for (const a of v.aditivos) if (aditivoAtivo(a) && a.alteraValor && a.novoValor) val += parseFloat(a.novoValor) || 0
+  for (const r of (v.reajustesRealizados ?? [])) val += (parseFloat(r.valorNovo) || 0) - (parseFloat(r.valorAnterior) || 0)
   return val
 }
 /** Parcela vigente = última parcela definida por um aditivo de valor ATIVO (ou a original). */
@@ -404,7 +417,7 @@ export function emptyContractForm(): ContractFormValues {
     acaoTermino: 'MANUAL', renovacaoAnos: '', renovacaoMeses: '', renovacaoDias: '',
     situacao: 'EM_CADASTRO', moeda: '', valorParcela: '', valorTotal: '',
     condicaoPagamento: '', complementoValor: '', reajustes: [], partes: [], documentos: [],
-    pagamentos: [], recebimentos: [], aditivos: [], renovacoes: [],
+    pagamentos: [], recebimentos: [], aditivos: [], renovacoes: [], reajustesRealizados: [],
   }
 }
 
@@ -436,6 +449,11 @@ export function contractFromApi(c: Record<string, any>): ContractFormValues {
       alteraPartes:  !!a.alteraPartes,  cessoes:     arr(a.cessoes).map((c: any) => ({ id: c.id ?? uid(), parteId: c.parteId ?? '', ref_tipo: c.ref_tipo ?? '', ref_id: c.ref_id ?? '', nome: c.nome ?? '', documento: c.documento ?? '' })),
     })),
     renovacoes: arr(c.renovacoes).map((r: any) => ({ id: r.id ?? uid(), data: r.data ?? '', terminoAnterior: r.terminoAnterior ?? '', novoTermino: r.novoTermino ?? '', automatica: r.automatica !== false })),
+    reajustesRealizados: arr(c.reajustesRealizados).map((r: any) => ({
+      id: r.id ?? uid(), reajusteId: r.reajusteId ?? '', competencia: r.competencia ?? '', indiceSnapshot: r.indiceSnapshot ?? '',
+      percentual: r.percentual != null ? String(r.percentual) : '', valorAnterior: r.valorAnterior != null ? String(r.valorAnterior) : '', valorNovo: r.valorNovo != null ? String(r.valorNovo) : '',
+      dataAplicacao: r.dataAplicacao ?? '', observacao: r.observacao ?? '', user: r.user ?? '', createdAt: r.createdAt ?? '',
+    })),
   }
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -473,6 +491,11 @@ export function contractToPayload(v: ContractFormValues, extra: Record<string, u
     })),
     partes: v.partes.map(p => ({ id: p.id, papel: p.papel, ref_tipo: p.ref_tipo, ref_id: p.ref_id, nome: p.nome, documento: p.documento })),
     renovacoes: v.renovacoes,
+    reajustesRealizados: (v.reajustesRealizados ?? []).map(r => ({
+      id: r.id, reajusteId: r.reajusteId, competencia: r.competencia, indiceSnapshot: r.indiceSnapshot,
+      percentual: parseFloat(r.percentual) || 0, valorAnterior: parseFloat(r.valorAnterior) || 0, valorNovo: parseFloat(r.valorNovo) || 0,
+      dataAplicacao: r.dataAplicacao, observacao: r.observacao, user: r.user, createdAt: r.createdAt,
+    })),
     ...extra,
   }
 }

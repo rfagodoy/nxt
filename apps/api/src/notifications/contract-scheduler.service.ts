@@ -41,6 +41,7 @@ function daysBetween(fromISO: string, toISO: string): number {
   return Math.round((b - a) / 86_400_000)
 }
 const fmtBR = (iso: string) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '')
+const fmtMesAno = (iso: string) => (iso ? iso.slice(0, 7).split('-').reverse().join('/') : '') // mm/aaaa (data base de reajuste)
 const label = (c: any) => c.titulo || `Contrato ${c.numero}`
 
 interface Upsert { dedupKey: string; contractId: string; tipo: string; severidade: string; titulo: string; mensagem: string }
@@ -125,16 +126,28 @@ export class ContractSchedulerService implements OnModuleInit {
         }
       }
 
-      // Reajuste
-      if (params.reajuste.enabled) {
+      // Reajuste (só contrato vigente; a próxima data é DERIVADA, ancorada no último reajuste aplicado)
+      if (params.reajuste.enabled && c.situacao === 'VIGENTE') {
+        const realizados = (c.reajustesRealizados as any[]) ?? []
         for (const r of ((c.reajustes as any[]) ?? [])) {
           if (!r.data || !r.indice) continue
-          const next = this.nextReajuste(r.data, r.periodicidade, today)
-          const dl = daysBetween(today, next)
-          if (dl >= 0 && dl <= params.reajuste.dias) {
-            const key = `reajuste:${c.id}:${r.id}`; activeKeys.push(key)
-            upserts.push({ dedupKey: key, contractId: c.id, tipo: 'REAJUSTE', severidade: dl <= 3 ? 'ALERTA' : 'INFO',
-              titulo: `Reajuste em ${dl} dia(s)`, mensagem: `${label(c)}: reajuste previsto para ${fmtBR(next)}.` })
+          /* âncora = última competência já aplicada desta linha; sem nenhuma, a data base do cadastro */
+          const comps = realizados.filter(x => x.reajusteId === r.id).map(x => String(x.competencia || '').slice(0, 7)).filter(Boolean).sort()
+          const anchor = (comps.length ? comps[comps.length - 1] : String(r.data).slice(0, 7)) + '-01'
+          const nextDue = addToDate(anchor, 0, this.stepMeses(r.periodicidade), 0)  // uma periodicidade após a âncora
+          const key = `reajuste:${c.id}:${r.id}`
+          if (nextDue <= today) {
+            /* Fase 2: a data já passou e não há reajuste aplicado para ela → pendente (crítico) */
+            activeKeys.push(key)
+            upserts.push({ dedupKey: key, contractId: c.id, tipo: 'REAJUSTE', severidade: 'CRITICO',
+              titulo: 'Reajuste pendente de aplicação', mensagem: `${label(c)}: reajuste pendente de aplicação desde ${fmtMesAno(nextDue)}.` })
+          } else {
+            const dl = daysBetween(today, nextDue)
+            if (dl >= 0 && dl <= params.reajuste.dias) {
+              activeKeys.push(key)
+              upserts.push({ dedupKey: key, contractId: c.id, tipo: 'REAJUSTE', severidade: dl <= 3 ? 'ALERTA' : 'INFO',
+                titulo: `Reajuste em ${dl} dia(s)`, mensagem: `${label(c)}: reajuste previsto para ${fmtMesAno(nextDue)}.` })
+            }
           }
         }
       }
@@ -181,18 +194,16 @@ export class ContractSchedulerService implements OnModuleInit {
   private valorVigente(c: any): number {
     let v = Number(c.valorTotal) || 0
     for (const a of ((c.aditivos as any[]) ?? [])) if (a.situacao !== 'RASCUNHO' && a.alteraValor && a.novoValor != null) v += Number(a.novoValor) || 0
+    for (const r of ((c.reajustesRealizados as any[]) ?? [])) v += (Number(r.valorNovo) || 0) - (Number(r.valorAnterior) || 0)
     return v
   }
   private consumo(c: any): number {
     const arr = (c.natureza === 'RECEITA' ? c.recebimentos : c.pagamentos) as any[]
     return (arr ?? []).reduce((s, l) => s + (Number(l.valor) || 0), 0)
   }
-  private nextReajuste(dataBase: string, periodicidade: string, today: string): string {
+  private stepMeses(periodicidade: string): number {
     const meses: Record<string, number> = { MENSAL: 1, BIMESTRAL: 2, TRIMESTRAL: 3, QUADRIMESTRAL: 4, SEMESTRAL: 6, ANUAL: 12 }
-    const step = meses[String(periodicidade || '').toUpperCase()] ?? 12
-    let d = dataBase.slice(0, 10); let guard = 0
-    while (d < today && guard++ < 600) d = addToDate(d, 0, step, 0)
-    return d
+    return meses[String(periodicidade || '').toUpperCase()] ?? 12
   }
   private async audit(contractId: string, event: string, changes: any[]) {
     await this.prisma.contractAuditLog.create({ data: { contractId, user: 'Sistema', event, changes: changes as never } })

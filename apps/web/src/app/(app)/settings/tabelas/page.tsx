@@ -48,7 +48,7 @@ const TABLES = [
     href:        '/settings/contratos/indices',
     icon:        TrendingUp,
     label:       'Índices de reajuste',
-    description: 'Índices econômicos para reajuste: IPCA, IGPM, CDI, SELIC...',
+    description: 'Índices para reajuste (IPCA, IGPM, CDI...) e sua série mensal de valores, manual ou importada do Banco Central.',
     color:       'bg-rose-500/10 text-rose-600 dark:text-rose-400',
   },
   {

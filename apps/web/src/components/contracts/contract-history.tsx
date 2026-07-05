@@ -22,6 +22,7 @@ const EVENT_META: Record<string, { label: string; color: string; icon: LucideIco
   ENCERRADO:  { label: 'Contrato encerrado',    color: 'gray',    icon: Lock },
   RESCINDIDO: { label: 'Contrato rescindido',   color: 'red',     icon: XCircle },
   ADITIVO:    { label: 'Termo aditivo',         color: 'purple',  icon: FilePlus2 },
+  REAJUSTE:   { label: 'Reajuste aplicado',     color: 'amber',   icon: RefreshCw },
   LANCAMENTO: { label: 'Lançamento financeiro', color: 'teal',    icon: Banknote },
   DOCUMENTO:  { label: 'Documento',             color: 'slate',   icon: Paperclip },
 }

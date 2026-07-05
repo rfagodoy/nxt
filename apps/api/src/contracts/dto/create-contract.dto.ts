@@ -143,6 +143,11 @@ export class CreateContractDto {
   @IsArray()
   renovacoes?: object[]
 
+  @ApiPropertyOptional({ type: [Object], description: 'Reajustes efetivamente aplicados (fato, não agenda)' })
+  @IsOptional()
+  @IsArray()
+  reajustesRealizados?: object[]
+
   @ApiPropertyOptional({ description: 'Usuário que originou o registro (para auditoria futura)' })
   @IsOptional()
   @IsString()
