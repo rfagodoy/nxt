@@ -68,6 +68,14 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(tabs)) } catch { /* quota */ }
   }, [tabs])
 
+  /* aviso do navegador ao recarregar/fechar a página com alterações não salvas em qualquer aba */
+  useEffect(() => {
+    if (!Object.values(dirty).some(Boolean)) return
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [dirty])
+
   const open = useCallback((tab: WorkspaceTab) => {
     setTabs(prev => (prev.some(t => t.id === tab.id) ? prev.map(t => t.id === tab.id ? { ...t, ...tab } : t) : [...prev, tab]))
     setActiveId(tab.id)

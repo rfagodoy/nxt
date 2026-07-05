@@ -15,19 +15,23 @@ export function WorkspaceBar() {
   const [overIdx, setOverIdx] = useState<number | null>(null)
   const [menu,    setMenu]    = useState<{ id: string; x: number; y: number } | null>(null)
   const [clearAt, setClearAt] = useState<{ x: number; y: number } | null>(null)
+  const [closeAsk, setCloseAsk] = useState<{ id: string; x: number; y: number } | null>(null)
+
+  /* fechar aba com alterações não salvas pede confirmação; sem alterações, fecha direto */
+  const askClose = (id: string, x: number, y: number) => { dirty[id] ? setCloseAsk({ id, x, y }) : close(id) }
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const [canL, setCanL] = useState(false)
   const [canR, setCanR] = useState(false)
 
-  /* fecha menu de contexto / confirmação ao clicar fora ou rolar */
+  /* fecha menu de contexto / confirmações ao clicar fora ou rolar */
   useEffect(() => {
-    if (!menu && !clearAt) return
-    const h = () => { setMenu(null); setClearAt(null) }
+    if (!menu && !clearAt && !closeAsk) return
+    const h = () => { setMenu(null); setClearAt(null); setCloseAsk(null) }
     window.addEventListener('mousedown', h)
     window.addEventListener('scroll', h, true)
     return () => { window.removeEventListener('mousedown', h); window.removeEventListener('scroll', h, true) }
-  }, [menu, clearAt])
+  }, [menu, clearAt, closeAsk])
 
   /* afordância de rolagem (setas) conforme overflow das abas */
   useEffect(() => {
@@ -95,7 +99,7 @@ export function WorkspaceBar() {
               onDrop={() => { if (drag !== null) reorder(drag, i); setDrag(null); setOverIdx(null) }}
               onDragEnd={() => { setDrag(null); setOverIdx(null) }}
               onClick={() => setActive(t.id)}
-              onAuxClick={e => { if (e.button === 1) { e.preventDefault(); close(t.id) } }}
+              onAuxClick={e => { if (e.button === 1) { e.preventDefault(); askClose(t.id, e.clientX, e.clientY) } }}
               onContextMenu={e => { e.preventDefault(); setActive(t.id); setMenu({ id: t.id, x: e.clientX, y: e.clientY }) }}
               title={t.label}
               className={cn(tabBase,
@@ -105,7 +109,7 @@ export function WorkspaceBar() {
               <span className="text-xs font-medium max-w-[160px] truncate">{t.label}</span>
               <span className="relative ml-0.5 flex h-4 w-4 items-center justify-center shrink-0">
                 {isDirty && <span className="absolute h-1.5 w-1.5 rounded-full bg-amber-500 group-hover:opacity-0 transition-opacity" title="Alterações não salvas" />}
-                <button type="button" onClick={e => { e.stopPropagation(); close(t.id) }}
+                <button type="button" onClick={e => { e.stopPropagation(); askClose(t.id, e.clientX, e.clientY) }}
                   className="flex h-4 w-4 items-center justify-center rounded opacity-0 group-hover:opacity-100 hover:bg-muted transition-all hover:text-foreground">
                   <X className="h-2.5 w-2.5" />
                 </button>
@@ -134,7 +138,7 @@ export function WorkspaceBar() {
       {menu && (
         <div className="fixed z-50 min-w-[160px] rounded-md border bg-card p-1 shadow-md text-xs"
           style={{ top: menu.y, left: menu.x }} onMouseDown={e => e.stopPropagation()}>
-          <button type="button" onClick={() => { close(menu.id); setMenu(null) }}
+          <button type="button" onClick={() => { const m = menu; setMenu(null); askClose(m.id, m.x, m.y) }}
             className="flex w-full items-center rounded px-2 py-1.5 hover:bg-muted text-left">Fechar</button>
           <button type="button" onClick={() => { closeOthers(menu.id); setMenu(null) }}
             className="flex w-full items-center rounded px-2 py-1.5 hover:bg-muted text-left disabled:opacity-40"
@@ -155,6 +159,20 @@ export function WorkspaceBar() {
             <button type="button" onClick={() => setClearAt(null)} className="text-muted-foreground hover:text-foreground transition-colors">Cancelar</button>
             <button type="button" onClick={() => { closeAll(); setClearAt(null) }}
               className="inline-flex items-center h-7 rounded-md bg-primary px-3 font-medium text-primary-foreground hover:bg-primary/90 transition-colors">Fechar todas</button>
+          </div>
+        </div>
+      )}
+
+      {/* confirmação de fechar aba com alterações não salvas */}
+      {closeAsk && (
+        <div className="fixed z-50 w-60 rounded-md border bg-card p-3 shadow-md text-xs"
+          style={{ top: closeAsk.y + 8, left: Math.max(8, closeAsk.x - 220) }} onMouseDown={e => e.stopPropagation()}>
+          <p className="font-medium mb-0.5">Fechar sem salvar?</p>
+          <p className="text-amber-600 dark:text-amber-400">Esta aba tem alterações não salvas que serão descartadas.</p>
+          <div className="mt-2.5 flex items-center justify-end gap-2">
+            <button type="button" onClick={() => setCloseAsk(null)} className="text-muted-foreground hover:text-foreground transition-colors">Cancelar</button>
+            <button type="button" onClick={() => { close(closeAsk.id); setCloseAsk(null) }}
+              className="inline-flex items-center h-7 rounded-md bg-destructive px-3 font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors">Descartar e fechar</button>
           </div>
         </div>
       )}
