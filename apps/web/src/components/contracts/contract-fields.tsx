@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react'
 import { Plus, Trash2, Search, Upload, Download, Loader2, X, Eye, ChevronDown, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
@@ -11,7 +11,9 @@ import {
   INIT_TIPOS, INIT_OBJETOS, INIT_MOEDAS, INIT_CONDICOES, INIT_INDICES, INIT_TIPOS_ADITIVO, INIT_FORMAS_PGTO,
   SITUACOES, PERIODICIDADES, TIPOS_DOCUMENTO, effectiveSituacao,
   NATUREZAS, ACOES_TERMINO, temPagamentos, temRecebimentos, somaLancamentos,
-  valorVigente, parcelaVigente, terminoVigente, objetoVigente, partesVigentes, terminoVigenteAntes, proximoDiaISO,
+  valorVigente, parcelaVigente, condicaoVigente, complementoVigente, terminoVigente, objetoVigente, partesVigentes, terminoVigenteAntes, objetoVigenteAntes, proximoDiaISO,
+  tituloVigente, descricaoVigente, tituloVigenteInfo, descricaoVigenteInfo,
+  periodosVigencia, historicoRenegociacao, historicoObjeto, historicoCessoes,
   newCParte, newCReajuste, newCDocumento, newCLancamento, newCAditivo, newCCessao,
   type ContractFormValues, type CParte, type CReajuste, type CDocumento, type CLancamento, type CAditivo, type CCessao,
 } from '@/lib/contract-options'
@@ -145,6 +147,25 @@ function MoneyField({ value, moedaCode, onChange, ro }: { value: string; moedaCo
   )
 }
 
+/** Data ISO (yyyy-mm-dd) → dd/mm/aaaa (— quando vazia). */
+const fmtDataBR = (iso: string) => iso ? new Date(iso + 'T00:00:00').toLocaleDateString('pt-BR') : '—'
+
+/** Bloco de "histórico embutido" (procedência dos aditivos) — recolhível, fechado por padrão.
+ *  O contador no cabeçalho sinaliza que há histórico sem poluir a tela. */
+function HistBlock({ title, count, children }: { title: string; count: number; children: ReactNode }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="col-span-2 rounded-lg border bg-muted/20 overflow-hidden">
+      <button type="button" onClick={() => setOpen(o => !o)} className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left hover:bg-muted/30 transition-colors">
+        <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</span>
+        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{count}</span>
+      </button>
+      {open && <div className="px-2.5 pb-2.5 pt-0.5 space-y-1">{children}</div>}
+    </div>
+  )
+}
+
 /* ─── grupos de campos ───────────────────────────────────── */
 
 /** Dados Gerais: Número, Situação, Título, Descrição, Objeto, Tipo. Número segue editável mesmo em leitura;
@@ -153,37 +174,66 @@ export function IdentificacaoFields({ form, ro }: { form: ContractForm; ro?: boo
   const tipos   = useLookupTable(TIPOS_KEY, INIT_TIPOS)
   const objetos = useLookupTable(OBJETOS_KEY, INIT_OBJETOS)
   const v = form.values
+  /* título/descrição podem ser alterados por aditivo de escopo — em leitura, exibe o vigente + origem */
+  const titInfo  = tituloVigenteInfo(v)
+  const descInfo = descricaoVigenteInfo(v)
   /* objeto guarda o id da entrada (resolução ao vivo); adiciona ao escolher no dropdown */
   const addObjeto = (id: string) => { if (id && !v.objeto.includes(id)) form.set('objeto', [...v.objeto, id]) }
-  /* em leitura, exibe o objeto VIGENTE (original + aditivos de escopo) */
-  const objetoList = ro ? objetoVigente(v) : v.objeto
 
   return (
     <div className="grid grid-cols-2 gap-3">
       {/* Natureza vem primeiro: é o "modo" que define o que o resto do formulário exibe */}
       <Field label="Natureza do contrato" span2><Segmented value={v.natureza} onChange={x => form.set('natureza', x)} ro={ro} options={NATUREZAS} /></Field>
       <Field label="Número" required><Txt value={v.numero} onChange={x => form.set('numero', x)} ro={ro} placeholder="CTR-2026-001" /></Field>
-      <Field label="Situação"><span className={readCls}>{SITUACOES.find(s => s.value === effectiveSituacao(v.situacao, v.prazoIndeterminado ? '' : v.terminoVigencia))?.label ?? '—'}</span></Field>
-      <Field label="Título" required span2><Txt value={v.titulo} onChange={x => form.set('titulo', x)} ro={ro} placeholder="Título resumido do contrato" /></Field>
-      <Field label="Descrição" span2><Area value={v.descricao} onChange={x => form.set('descricao', x)} ro={ro} rows={4} placeholder="Descrição detalhada do objeto e escopo do contrato..." /></Field>
+      {/* situação usa o término VIGENTE (com aditivos) — prorrogou, não fica "Vencido" */}
+      <Field label="Situação"><span className={readCls}>{SITUACOES.find(s => s.value === effectiveSituacao(v.situacao, v.prazoIndeterminado ? '' : terminoVigente(v)))?.label ?? '—'}</span></Field>
+      <Field label="Título" required span2>
+        <Txt value={ro ? tituloVigente(v) : v.titulo} onChange={x => form.set('titulo', x)} ro={ro} placeholder="Título resumido do contrato" />
+        {ro && titInfo.aditivo && <p className="mt-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">· alterado no {titInfo.aditivo}</p>}
+      </Field>
+      <Field label="Descrição" span2>
+        <Area value={ro ? descricaoVigente(v) : v.descricao} onChange={x => form.set('descricao', x)} ro={ro} rows={4} placeholder="Descrição detalhada do objeto e escopo do contrato..." />
+        {ro && descInfo.aditivo && <p className="mt-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">· alterado no {descInfo.aditivo}</p>}
+      </Field>
       <Field label="Objeto do contrato" span2>
         <div className="space-y-1.5">
-          {objetoList.length === 0 && ro && <p className={readCls}>—</p>}
-          {objetoList.map((id, i) => (
-            <div key={id} className="flex items-center justify-between rounded-md border bg-muted/20 px-3 py-1.5">
-              <div className="flex items-center gap-2"><span className="text-[10px] font-medium text-muted-foreground w-4 shrink-0 text-right">{i + 1}.</span><span className="text-xs">{labelOf(objetos.entries, id)}</span></div>
-              {!ro && <button type="button" onClick={() => form.set('objeto', v.objeto.filter(x => x !== id))} className="text-muted-foreground hover:text-destructive transition-colors ml-2"><Trash2 className="h-3 w-3" /></button>}
-            </div>
-          ))}
-          {!ro && (
-            <select value="" onChange={e => addObjeto(e.target.value)} className={cn(inputCls)}>
-              <option value="">Adicionar objeto...</option>
-              {objetos.active.filter(o => !v.objeto.includes(o.id)).map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-            </select>
+          {ro ? (() => {
+            /* leitura: diff dos aditivos de escopo — acrescido (verde) / removido (tachado vermelho) */
+            const diff = historicoObjeto(v)
+            if (diff.length === 0) return <p className={readCls}>—</p>
+            return diff.map((it, i) => (
+              <div key={it.value} className={cn('flex items-center gap-2 rounded-md border px-3 py-1.5',
+                it.status === 'removido'  ? 'border-red-200/70 bg-red-50/40 dark:border-red-900/40 dark:bg-red-950/20'
+                : it.status === 'acrescido' ? 'border-emerald-200/70 bg-emerald-50/40 dark:border-emerald-900/40 dark:bg-emerald-950/20'
+                : 'bg-muted/20')}>
+                <span className="text-[10px] font-medium text-muted-foreground w-4 shrink-0 text-right">{i + 1}.</span>
+                <span className={cn('text-xs', it.status === 'removido' && 'line-through text-muted-foreground')}>{labelOf(objetos.entries, it.value)}</span>
+                {/* procedência inline, colada ao item (a cor da linha já dá o panorama) */}
+                {it.status !== 'original' && (
+                  <span className={cn('text-[10px] font-medium', it.status === 'acrescido' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500')}>
+                    · {it.status === 'acrescido' ? 'acrescido' : 'removido'} no {it.aditivo}
+                  </span>
+                )}
+              </div>
+            ))
+          })() : (
+            <>
+              {v.objeto.map((id, i) => (
+                <div key={id} className="flex items-center justify-between rounded-md border bg-muted/20 px-3 py-1.5">
+                  <div className="flex items-center gap-2"><span className="text-[10px] font-medium text-muted-foreground w-4 shrink-0 text-right">{i + 1}.</span><span className="text-xs">{labelOf(objetos.entries, id)}</span></div>
+                  <button type="button" onClick={() => form.set('objeto', v.objeto.filter(x => x !== id))} className="text-muted-foreground hover:text-destructive transition-colors ml-2"><Trash2 className="h-3 w-3" /></button>
+                </div>
+              ))}
+              <select value="" onChange={e => addObjeto(e.target.value)} className={cn(inputCls)}>
+                <option value="">Adicionar objeto...</option>
+                {objetos.active.filter(o => !v.objeto.includes(o.id)).map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </>
           )}
         </div>
       </Field>
-      <Field label="Tipo de contrato" required span2><Sel value={v.tipo} onChange={x => form.set('tipo', x)} ro={ro} options={lookupOpts(tipos.active)} placeholder="Selecione..." /></Field>
+      <Field label="Tipo de contrato" required><Sel value={v.tipo} onChange={x => form.set('tipo', x)} ro={ro} options={lookupOpts(tipos.active)} placeholder="Selecione..." /></Field>
+      <Field label="Data de assinatura"><Txt type="date" value={v.dataAssinatura} onChange={x => form.set('dataAssinatura', x)} ro={ro} /></Field>
     </div>
   )
 }
@@ -213,6 +263,8 @@ export function VigenciaFields({ form, ro }: { form: ContractForm; ro?: boolean 
   const v = form.values
   return (
     <div className="grid grid-cols-2 gap-3">
+      {/* Ordem: Início → Prazo indeterminado → Término → Ao término (a âncora vem antes do modificador) */}
+      <Field label="Início da vigência" required><Txt type="date" value={v.inicioVigencia} onChange={x => form.set('inicioVigencia', x)} ro={ro} /></Field>
       <Field label="Prazo indeterminado">
         {ro ? <span className={readCls}>{v.prazoIndeterminado ? 'Sim' : 'Não'}</span> : (
           <label className="flex items-center gap-2 h-7 cursor-pointer">
@@ -221,17 +273,15 @@ export function VigenciaFields({ form, ro }: { form: ContractForm; ro?: boolean 
           </label>
         )}
       </Field>
-      <Field label="Início da vigência" required><Txt type="date" value={v.inicioVigencia} onChange={x => form.set('inicioVigencia', x)} ro={ro} /></Field>
       {!v.prazoIndeterminado && <Field label="Término da vigência"><Txt type="date" value={ro ? terminoVigente(v) : v.terminoVigencia} onChange={x => form.set('terminoVigencia', x)} ro={ro} min={v.inicioVigencia || undefined} /></Field>}
-      <Field label="Data de assinatura"><Txt type="date" value={v.dataAssinatura} onChange={x => form.set('dataAssinatura', x)} ro={ro} /></Field>
 
       {!v.prazoIndeterminado && (
-        <Field label="Ao término da vigência" span2={v.acaoTermino !== 'RENOVAR'}>
+        <Field label="Ao término da vigência">
           <Sel value={v.acaoTermino || 'MANUAL'} onChange={x => form.set('acaoTermino', x)} ro={ro} options={ACOES_TERMINO} />
         </Field>
       )}
       {!v.prazoIndeterminado && v.acaoTermino === 'RENOVAR' && (
-        <Field label="Renovar por">
+        <Field label="Renovar por" span2>
           {ro ? (
             <span className={readCls}>{renovacaoResumo(v) || '—'}</span>
           ) : (
@@ -243,6 +293,23 @@ export function VigenciaFields({ form, ro }: { form: ContractForm; ro?: boolean 
           )}
         </Field>
       )}
+
+      {/* Renovações: períodos completos de vigência (prazo original + prorrogações), o último "em vigor" */}
+      {ro && (() => {
+        const periodos = periodosVigencia(v)
+        if (periodos.length <= 1) return null   // sem prorrogação, não há o que historiar
+        return (
+          <HistBlock title="Renovações" count={periodos.length - 1}>
+            {periodos.map((p, i) => (
+              <div key={i} className={cn('flex items-center gap-2 text-xs', p.emVigor && 'font-medium')}>
+                <span className="tabular-nums">{fmtDataBR(p.inicio)} – {fmtDataBR(p.termino)}</span>
+                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{p.label}</span>
+                {p.emVigor && <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">em vigor</span>}
+              </div>
+            ))}
+          </HistBlock>
+        )
+      })()}
     </div>
   )
 }
@@ -267,24 +334,17 @@ export function ValoresFields({ form, ro }: { form: ContractForm; ro?: boolean }
   const moedaOpts = moedas.active.map(m => ({ value: m.code ?? m.label, label: m.code ? `${m.code} — ${m.label}` : m.label }))
   const totalPago     = somaLancamentos(v.pagamentos)
   const totalRecebido = somaLancamentos(v.recebimentos)
-  const valorOriginal   = parseFloat(v.valorTotal) || 0
-  const valorTotalNum   = valorVigente(v)          // saldo usa o valor VIGENTE (original + aditivos)
-  const temAditivoValor = valorTotalNum !== valorOriginal
-  const parcelaOriginal   = parseFloat(v.valorParcela) || 0
-  const parcelaVig        = parseFloat(parcelaVigente(v)) || 0
-  const temAditivoParcela = parcelaVig !== parcelaOriginal
+  const valorTotalNum = valorVigente(v)            // valor VIGENTE (original + aditivos) — usado no topo e no saldo
   return (
     <div className="grid grid-cols-2 gap-3">
       <Field label="Moeda"><Sel value={v.moeda} onChange={x => form.set('moeda', x)} ro={ro} options={moedaOpts} placeholder="Selecione..." /></Field>
-      <Field label="Condição de pagamento"><Sel value={v.condicaoPagamento} onChange={x => form.set('condicaoPagamento', x)} ro={ro} options={lookupOpts(condicoes.active)} placeholder="Selecione..." /></Field>
+      <Field label="Condição de pagamento"><Sel value={ro ? condicaoVigente(v) : v.condicaoPagamento} onChange={x => form.set('condicaoPagamento', x)} ro={ro} options={lookupOpts(condicoes.active)} placeholder="Selecione..." /></Field>
 
-      {/* Valor total e parcela ao lado do respectivo ORIGINAL (só quando alterado por aditivo); em edição, pareados entre si */}
+      {/* Topo: só os valores VIGENTES (o original e as alterações moram no Histórico de valor abaixo) */}
       {ro ? (
         <>
           <Field label="Valor total do contrato" required><MoneyField value={String(valorTotalNum)} moedaCode={v.moeda} onChange={x => form.set('valorTotal', x)} ro /></Field>
-          {temAditivoValor ? <MoneyRead label="Valor total original" value={valorOriginal} moedaCode={v.moeda} /> : <div />}
           <Field label="Valor da parcela"><MoneyField value={parcelaVigente(v)} moedaCode={v.moeda} onChange={x => form.set('valorParcela', x)} ro /></Field>
-          {temAditivoParcela ? <MoneyRead label="Valor da parcela original" value={parcelaOriginal} moedaCode={v.moeda} /> : <div />}
         </>
       ) : (
         <>
@@ -303,7 +363,46 @@ export function ValoresFields({ form, ro }: { form: ContractForm; ro?: boolean }
         <MoneyRead label="Saldo a receber" value={valorTotalNum - totalRecebido} moedaCode={v.moeda} strong />
       </>}
 
-      <Field label="Complemento do valor" span2><Area value={v.complementoValor} onChange={x => form.set('complementoValor', x)} ro={ro} placeholder="Ex: mais impostos, inclusive ISS, frete e demais encargos..." /></Field>
+      {/* Complemento vigente fica junto do estado atual, ANTES do histórico */}
+      <Field label="Complemento do valor" span2><Area value={ro ? complementoVigente(v) : v.complementoValor} onChange={x => form.set('complementoValor', x)} ro={ro} placeholder="Ex: mais impostos, inclusive ISS, frete e demais encargos..." /></Field>
+
+      {/* Histórico de valor: changelog por aditivo — rótulo à esquerda + valor colado (de → para, com acréscimo) */}
+      {ro && (() => {
+        const eventos = historicoRenegociacao(v)
+        if (eventos.length === 0) return null
+        const money = (s: string) => `${v.moeda ? v.moeda + ' ' : ''}${(parseFloat(s) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        const fmtVal = (kind: string, val: string) => kind === 'money' ? money(val) : kind === 'condicao' ? (labelOf(condicoes.entries, val) || '—') : val
+        return (
+          <HistBlock title="Histórico de valor" count={eventos.length}>
+            <div className="space-y-2">
+              {eventos.map((ev, i) => (
+                <div key={i} className="space-y-0.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">{ev.aditivo}{ev.data ? ` · ${fmtDataBR(ev.data)}` : ''}</p>
+                  {ev.mudancas.map((m, j) => (
+                    <div key={j} className="flex items-baseline gap-3 text-xs">
+                      <span className="w-28 shrink-0 text-muted-foreground">{m.campo}</span>
+                      {m.kind === 'texto' ? (
+                        <span className="min-w-0 truncate font-medium" title={m.para}>{m.para}</span>
+                      ) : (
+                        <span className="flex min-w-0 flex-wrap items-baseline gap-1.5">
+                          <span className="tabular-nums text-muted-foreground/50 line-through">{fmtVal(m.kind, m.de)}</span>
+                          <span className="text-muted-foreground">→</span>
+                          <span className="tabular-nums font-medium">{fmtVal(m.kind, m.para)}</span>
+                          {m.delta && (parseFloat(m.delta) || 0) !== 0 && (
+                            <span className={cn('tabular-nums', (parseFloat(m.delta) || 0) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500')}>
+                              {(parseFloat(m.delta) || 0) > 0 ? '+ ' : '− '}{money(String(Math.abs(parseFloat(m.delta) || 0)))}
+                            </span>
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </HistBlock>
+        )
+      })()}
     </div>
   )
 }
@@ -440,21 +539,71 @@ function isPreviewable(name: string): boolean {
   return /\.(pdf|png|jpe?g|gif|webp|svg|txt|md)$/i.test(name)
 }
 
-/** Abre um anexo (por key) numa janela POP-UP separada — assim o usuário continua navegando
- *  pelo sistema e alterna livremente entre o anexo e os dados do contrato.
- *  Retorna mensagem de erro, ou null em caso de sucesso. */
-async function openAnexoPopup(key: string): Promise<string | null> {
+/** HTML da janela do anexo — moldura branded Nxt que segue o TEMA (claro/escuro) do usuário. */
+function anexoShell(name: string, url: string | null, isImg: boolean, isDark: boolean): string {
+  const pal = isDark
+    ? '--head:#0C1410;--bg:#0a130e;--line:#1b2a22;--tx:#e6efe9;--mu:#8aa397;--em:#18C07A'
+    : '--head:#ffffff;--bg:#f4f7f5;--line:#e4eae7;--tx:#0C1410;--mu:#5b6b63;--em:#18C07A'
+  const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string)
+  const n = esc(name)
+  const inner = url
+    ? (isImg ? `<img src="${url}" alt="${n}"/>` : `<iframe src="${url}#toolbar=1&navpanes=0" title="${n}"></iframe>`)
+    : `<div class="ld"><div class="sp"></div><span>Carregando…</span></div>`
+  const dl = url ? `<a class="btn" href="${url}" download="${n}">Baixar</a>` : ''
+  /* logo oficial (Nxt-icone-app-primario): tile Forest Ink + barra Esmeralda + chevron Lime */
+  const logo = `<svg viewBox="0 0 120 120" width="30" height="30" aria-label="Nxt"><rect width="120" height="120" rx="28" fill="#0C1410"/><rect x="37" y="36" width="10" height="48" rx="2" fill="#18C07A"/><polyline points="58,38 84,60 58,82" fill="none" stroke="#C6F24E" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${n} — Nxt</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0}
+:root{${pal}}
+html,body{height:100%}
+body{background:var(--bg);color:var(--tx);font-family:"Manrope",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:14px;padding:10px 18px;background:var(--head);border-bottom:1px solid var(--line);flex:0 0 auto}
+.brand{display:flex;align-items:center;gap:9px}
+.brand svg{box-shadow:0 2px 10px rgba(0,0,0,.4);border-radius:8px}
+.brand .w{font-weight:800;letter-spacing:-.02em;font-size:17px;line-height:1}
+.brand .w .x{color:var(--em)}
+.sep{width:1px;height:22px;background:var(--line)}
+.name{flex:1;min-width:0;font-size:13px;font-weight:600;color:var(--mu);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.btn{display:inline-flex;align-items:center;height:32px;padding:0 16px;border:1px solid var(--em);border-radius:8px;color:var(--em);text-decoration:none;font-size:13px;font-weight:700;transition:all .15s}
+.btn:hover{background:var(--em);color:#04110b}
+main{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:${isImg ? '28px' : '0'};overflow:auto}
+iframe{width:100%;height:100%;border:0;background:#fff}
+img{max-width:100%;max-height:100%;border-radius:12px;box-shadow:0 16px 50px rgba(0,0,0,.55)}
+.ld{display:flex;flex-direction:column;align-items:center;gap:14px;color:var(--mu);font-size:13px}
+.sp{width:34px;height:34px;border:3px solid var(--line);border-top-color:var(--em);border-radius:50%;animation:s 1s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}
+</style></head><body>
+<header><div class="brand">${logo}<span class="w">N<span class="x">x</span>t</span></div><div class="sep"></div><div class="name">${n}</div>${dl}</header>
+<main>${inner}</main>
+</body></html>`
+}
+
+/** Abre o anexo numa JANELA separada (não integrada) com moldura Nxt — o usuário navega
+ *  pelo sistema em paralelo. Retorna mensagem de erro, ou null em caso de sucesso. */
+async function openAnexoJanela(key: string, name: string): Promise<string | null> {
+  /* segue o tema do usuário (next-themes aplica a classe `dark` no <html>) */
+  const isDark = document.documentElement.classList.contains('dark')
+  const W = 1200, H = 860
+  const left = Math.max(0, Math.round((window.screen.width - W) / 2))
+  const top  = Math.max(0, Math.round((window.screen.height - H) / 2))
+  const win = window.open('', '_blank', `popup,width=${W},height=${H},left=${left},top=${top},resizable=yes,scrollbars=yes`)
+  if (!win) return 'Permita pop-ups para visualizar o documento.'
+  try { win.document.write(anexoShell(name, null, false, isDark)); win.document.close() } catch { /* ignore */ }
   try {
     const res = await apiFetch(`/api/files/${encodeURIComponent(key)}`)
-    if (!res.ok) return 'Falha ao abrir'
+    if (!res.ok) throw new Error('falha')
     const url = URL.createObjectURL(await res.blob())
-    const w = window.open(url, 'nxt_anexo', 'popup,width=1024,height=800,resizable=yes,scrollbars=yes')
-    if (!w) { URL.revokeObjectURL(url); return 'Permita pop-ups para visualizar o documento.' }
-    w.focus()
-    /* libera o blob quando o pop-up é fechado */
-    const timer = setInterval(() => { if (w.closed) { clearInterval(timer); URL.revokeObjectURL(url) } }, 1000)
+    if (win.closed) { URL.revokeObjectURL(url); return null }
+    const isImg = /\.(png|jpe?g|gif|webp|svg)$/i.test(name)
+    win.document.open(); win.document.write(anexoShell(name, url, isImg, isDark)); win.document.close()
+    win.focus()
+    const timer = setInterval(() => { if (win.closed) { clearInterval(timer); URL.revokeObjectURL(url) } }, 1000)
     return null
   } catch {
+    try { win.close() } catch { /* ignore */ }
     return 'Falha ao abrir'
   }
 }
@@ -465,11 +614,11 @@ function DocumentoCard({ doc, idx, ro, form, open, onToggle, onCollapse }: { doc
   const [err, setErr]   = useState('')
   const canPreview = isPreviewable(doc.arquivo_nome)
 
-  /* item 3: abre o anexo num pop-up separado (não bloqueia a navegação no sistema) */
+  /* abre o anexo numa janela separada (moldura Nxt) — não bloqueia a navegação */
   const handlePreview = async () => {
     if (!doc.arquivo_key) return
     setErr(''); setBusy('view')
-    const e = await openAnexoPopup(doc.arquivo_key)
+    const e = await openAnexoJanela(doc.arquivo_key, doc.arquivo_nome || 'documento')
     if (e) setErr(e)
     setBusy(null)
   }
@@ -670,6 +819,26 @@ export function PartesFields({ form, ro, onOpenSearch, onNewPartner }: {
           </div>
         </div>
       )}
+
+      {/* Cessões: histórico de troca de parte por aditivo (só em leitura) — nada some */}
+      {ro && (() => {
+        const cess = historicoCessoes(v)
+        if (cess.length === 0) return null
+        return (
+          <HistBlock title="Cessões" count={cess.length}>
+            {cess.map((s, i) => (
+              <div key={i} className="flex items-center gap-2 flex-wrap text-xs">
+                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{labelOf(papeis.entries, s.papel)}</span>
+                <span className="text-muted-foreground/60 line-through truncate max-w-[200px]">{s.de}</span>
+                <span className="text-muted-foreground">→</span>
+                <span className="font-medium truncate max-w-[200px]">{s.para}</span>
+                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{s.aditivo}{s.data ? ` · ${fmtDataBR(s.data)}` : ''}</span>
+              </div>
+            ))}
+          </HistBlock>
+        )
+      })()}
+
       {!ro && (
         <div className="flex items-center gap-3">
           <button type="button" onClick={() => form.addParte(papeis.active[0]?.id ?? '')} className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar parte</button>
@@ -719,6 +888,7 @@ function AditivoCard({ a, idx, form, open, onToggle, onOpenCessaoSearch, onActiv
   const tiposAditivo = useLookupTable(TIPOS_ADITIVO_KEY, INIT_TIPOS_ADITIVO)
   const objetos = useLookupTable(OBJETOS_KEY, INIT_OBJETOS)
   const papeis  = useLookupTable(PAPEIS_KEY, INIT_PAPEIS)
+  const condicoes = useLookupTable(CONDICOES_KEY, INIT_CONDICOES)
 
   const fileRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState<'up' | 'down' | 'view' | null>(null)
@@ -745,11 +915,11 @@ function AditivoCard({ a, idx, form, open, onToggle, onOpenCessaoSearch, onActiv
       const el = document.createElement('a'); el.href = url; el.download = a.arquivo_nome || 'aditivo'; document.body.appendChild(el); el.click(); el.remove(); URL.revokeObjectURL(url)
     } catch { /* ignore */ } finally { setBusy(null) }
   }
-  /* item 3: abre o anexo do aditivo num pop-up separado (não bloqueia a navegação) */
+  /* abre o anexo do aditivo numa janela separada (moldura Nxt) — não bloqueia a navegação */
   const handlePreview = async () => {
     if (!a.arquivo_key) return
     setErr(''); setBusy('view')
-    const e = await openAnexoPopup(a.arquivo_key)
+    const e = await openAnexoJanela(a.arquivo_key, a.arquivo_nome || 'documento')
     if (e) setErr(e)
     setBusy(null)
   }
@@ -785,11 +955,15 @@ function AditivoCard({ a, idx, form, open, onToggle, onOpenCessaoSearch, onActiv
     if (!a.descricao.trim()) return 'Informe a descrição do aditivo.'
     if (a.tipos.length === 0) return 'Selecione ao menos um tipo de aditamento.'
     if (efeitos.has('termino') && !a.novoTermino) return 'Informe o novo término (prorrogação).'
+    if (efeitos.has('termino') && a.novoTermino) {
+      const anterior = terminoVigenteAntes(v, idx)
+      if (anterior && a.novoTermino <= anterior) return `O novo término deve ser posterior ao término vigente anterior (${fmtBR(anterior)}).`
+    }
     if (efeitos.has('valor') && !(parseFloat(a.novoValor) > 0)) return 'Informe o acréscimo ao valor total.'
     if (efeitos.has('objeto')) {
       const base = objetoVigente(v)  // baseline (rascunho não conta)
-      const igual = a.novoObjeto.length === base.length && a.novoObjeto.every(x => base.includes(x))
-      if (igual) return 'Altere o objeto (escopo) do contrato.'
+      const objetoIgual = a.novoObjeto.length === base.length && a.novoObjeto.every(x => base.includes(x))
+      if (objetoIgual && !a.novoTitulo && !a.novaDescricao) return 'Altere o objeto, o título ou a descrição do contrato.'
     }
     if (efeitos.has('partes') && !a.cessoes.some(c => c.parteId && c.nome)) return 'Defina ao menos uma cessão de parte.'
     return null
@@ -801,11 +975,22 @@ function AditivoCard({ a, idx, form, open, onToggle, onOpenCessaoSearch, onActiv
   }
   /* valor total resultante até este aditivo (inicial + acréscimos até idx) */
   const totalApos = (parseFloat(v.valorTotal) || 0) + v.aditivos.slice(0, idx + 1).reduce((s, x) => s + (x.alteraValor && x.novoValor ? (parseFloat(x.novoValor) || 0) : 0), 0)
+  /* rótulo do escopo pelo DIFF real (não pelo tipo): acréscimo / redução / ambos / só texto */
+  const escopoChip = (() => {
+    if (!a.alteraObjeto) return ''
+    const antes = objetoVigenteAntes(v, idx)
+    const add = a.novoObjeto.filter(x => !antes.includes(x)).length
+    const rem = antes.filter(x => !a.novoObjeto.includes(x)).length
+    if (add && rem) return 'Escopo alterado'
+    if (add) return 'Acréscimo de escopo'
+    if (rem) return 'Redução de escopo'
+    return 'Escopo revisado'
+  })()
   /* chips de efeito (Opção B): pílulas escaneáveis do que o aditivo altera, no lugar da string corrida */
   const chips = [
     a.alteraTermino ? (a.novoTermino ? `Novo término ${fmtBR(a.novoTermino)}` : 'Prorrogação') : '',
     a.alteraValor   ? (a.novoValor ? `+ ${v.moeda ? v.moeda + ' ' : ''}${(parseFloat(a.novoValor) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'Reajuste de valor') : '',
-    a.alteraObjeto  ? 'Novo objeto' : '',
+    escopoChip,
     a.alteraPartes  ? `Cessão${a.cessoes.length > 1 ? ` (${a.cessoes.length})` : ''}` : '',
   ].filter(Boolean)
 
@@ -920,41 +1105,29 @@ function AditivoCard({ a, idx, form, open, onToggle, onOpenCessaoSearch, onActiv
           <div className="rounded-md border bg-muted/20 p-3 space-y-3">
             <p className="text-[11px] font-semibold text-muted-foreground">Alterações aplicadas ao contrato</p>
 
-            {a.alteraTermino && (
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Início da prorrogação"><span className={readCls}>{fmtBR(inicioProrrog)}</span></Field>
-                <Field label="Novo término"><Txt type="date" value={a.novoTermino} onChange={x => form.patchAditivo(a.id, { novoTermino: x })} ro={lock} /></Field>
-              </div>
-            )}
-
-            {a.alteraValor && (
-              <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Acréscimo ao valor total"><MoneyField value={a.novoValor} moedaCode={v.moeda} onChange={x => form.patchAditivo(a.id, { novoValor: x })} ro={lock} /></Field>
-                  <Field label="Nova parcela"><MoneyField value={a.novaParcela} moedaCode={v.moeda} onChange={x => form.patchAditivo(a.id, { novaParcela: x })} ro={lock} /></Field>
-                </div>
-                <p className="text-[10px] text-muted-foreground">Somado ao valor inicial · novo valor total: <span className="font-semibold tabular-nums text-foreground">{v.moeda ? v.moeda + ' ' : ''}{totalApos.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></p>
-              </div>
-            )}
-
             {a.alteraObjeto && (
-              <Field label="Novo objeto (escopo)">
-                <div className="space-y-1.5">
-                  {a.novoObjeto.length === 0 && lock && <span className={readCls}>—</span>}
-                  {a.novoObjeto.map((id, i) => (
-                    <div key={id} className="flex items-center justify-between rounded-md border bg-background px-3 py-1.5">
-                      <span className="text-xs">{i + 1}. {labelOf(objetos.entries, id)}</span>
-                      {!lock && <button type="button" onClick={() => form.patchAditivo(a.id, { novoObjeto: a.novoObjeto.filter(x => x !== id) })} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3 w-3" /></button>}
-                    </div>
-                  ))}
-                  {!lock && (
-                    <select value="" onChange={e => addObj(e.target.value)} className={inputCls}>
-                      <option value="">Adicionar objeto...</option>
-                      {objetos.active.filter(o => !a.novoObjeto.includes(o.id)).map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-                    </select>
-                  )}
-                </div>
-              </Field>
+              <div className="space-y-2">
+                {/* ordem do escopo: título → descrição → objeto (título/descrição opcionais) */}
+                <Field label="Novo título"><Txt value={a.novoTitulo} onChange={x => form.patchAditivo(a.id, { novoTitulo: x })} ro={lock} placeholder="Deixe em branco para manter o título atual" /></Field>
+                <Field label="Nova descrição"><Area value={a.novaDescricao} onChange={x => form.patchAditivo(a.id, { novaDescricao: x })} ro={lock} rows={2} placeholder="Deixe em branco para manter a descrição atual" /></Field>
+                <Field label="Novo objeto (escopo)">
+                  <div className="space-y-1.5">
+                    {a.novoObjeto.length === 0 && lock && <span className={readCls}>—</span>}
+                    {a.novoObjeto.map((id, i) => (
+                      <div key={id} className="flex items-center justify-between rounded-md border bg-background px-3 py-1.5">
+                        <span className="text-xs">{i + 1}. {labelOf(objetos.entries, id)}</span>
+                        {!lock && <button type="button" onClick={() => form.patchAditivo(a.id, { novoObjeto: a.novoObjeto.filter(x => x !== id) })} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3 w-3" /></button>}
+                      </div>
+                    ))}
+                    {!lock && (
+                      <select value="" onChange={e => addObj(e.target.value)} className={inputCls}>
+                        <option value="">Adicionar objeto...</option>
+                        {objetos.active.filter(o => !a.novoObjeto.includes(o.id)).map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                      </select>
+                    )}
+                  </div>
+                </Field>
+              </div>
             )}
 
             {a.alteraPartes && (
@@ -990,6 +1163,26 @@ function AditivoCard({ a, idx, form, open, onToggle, onOpenCessaoSearch, onActiv
                   {!lock && <button type="button" onClick={() => form.addCessao(a.id)} className="flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 font-medium"><Plus className="h-3 w-3" />Adicionar cessão</button>}
                 </div>
               </Field>
+            )}
+
+            {a.alteraTermino && (
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Início da prorrogação"><span className={readCls}>{fmtBR(inicioProrrog)}</span></Field>
+                <Field label="Novo término"><Txt type="date" value={a.novoTermino} onChange={x => form.patchAditivo(a.id, { novoTermino: x })} ro={lock} /></Field>
+              </div>
+            )}
+
+            {a.alteraValor && (
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Acréscimo ao valor total"><MoneyField value={a.novoValor} moedaCode={v.moeda} onChange={x => form.patchAditivo(a.id, { novoValor: x })} ro={lock} /></Field>
+                  <Field label="Nova parcela"><MoneyField value={a.novaParcela} moedaCode={v.moeda} onChange={x => form.patchAditivo(a.id, { novaParcela: x })} ro={lock} /></Field>
+                  {/* renegociação: condição e complemento são opcionais — em branco, mantém o vigente */}
+                  <Field label="Nova condição de pagamento"><Sel value={a.novaCondicaoPagamento} onChange={x => form.patchAditivo(a.id, { novaCondicaoPagamento: x })} ro={lock} options={lookupOpts(condicoes.active)} placeholder="Manter atual..." /></Field>
+                </div>
+                <Field label="Novo complemento do valor"><Area value={a.novoComplemento} onChange={x => form.patchAditivo(a.id, { novoComplemento: x })} ro={lock} rows={2} placeholder="Deixe em branco para manter o complemento atual" /></Field>
+                <p className="text-[10px] text-muted-foreground">Somado ao valor inicial · novo valor total: <span className="font-semibold tabular-nums text-foreground">{v.moeda ? v.moeda + ' ' : ''}{totalApos.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></p>
+              </div>
             )}
           </div>
         ) : (!lock && (

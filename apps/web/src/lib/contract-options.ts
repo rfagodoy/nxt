@@ -144,7 +144,8 @@ export interface CAditivo {
   arquivo_nome: string; arquivo_key: string
   alteraTermino: boolean; novoTermino: string
   alteraValor:   boolean; novoValor:   string; novaParcela: string  // novoValor = acréscimo somado ao inicial
-  alteraObjeto:  boolean; novoObjeto:  string[]
+  novaCondicaoPagamento: string; novoComplemento: string           // renegociação: opcionais, vigente = último definido
+  alteraObjeto:  boolean; novoObjeto:  string[]; novoTitulo: string; novaDescricao: string  // escopo: título/descrição opcionais
   alteraPartes:  boolean; cessoes:     CCessao[]
 }
 
@@ -166,7 +167,7 @@ export const newCLancamento = ():           CLancamento => ({ id: uid(), data: '
 export const newCCessao      = (parteId = ''):CCessao    => ({ id: uid(), parteId, ref_tipo: '', ref_id: '', nome: '', documento: '' })
 export const newCAditivo     = (numero = ''): CAditivo   => ({
   id: uid(), numero, situacao: 'RASCUNHO', tipos: [], data: '', vigenciaInicio: '', descricao: '', arquivo_nome: '', arquivo_key: '',
-  alteraTermino: false, novoTermino: '', alteraValor: false, novoValor: '', novaParcela: '', alteraObjeto: false, novoObjeto: [], alteraPartes: false, cessoes: [],
+  alteraTermino: false, novoTermino: '', alteraValor: false, novoValor: '', novaParcela: '', novaCondicaoPagamento: '', novoComplemento: '', alteraObjeto: false, novoObjeto: [], novoTitulo: '', novaDescricao: '', alteraPartes: false, cessoes: [],
 })
 
 /** Soma os valores de uma lista de lançamentos (campo `valor` é número como string). */
@@ -225,11 +226,36 @@ export function parcelaVigente(v: ContractFormValues): string {
   for (const a of v.aditivos) if (aditivoAtivo(a) && a.alteraValor && a.novaParcela) p = a.novaParcela
   return p
 }
+/** Condição de pagamento vigente = última definida por um aditivo de valor ATIVO (ou a original). */
+export function condicaoVigente(v: ContractFormValues): string {
+  let c = v.condicaoPagamento
+  for (const a of v.aditivos) if (aditivoAtivo(a) && a.alteraValor && a.novaCondicaoPagamento) c = a.novaCondicaoPagamento
+  return c
+}
+/** Complemento do valor vigente = último definido por um aditivo de valor ATIVO (ou o original). */
+export function complementoVigente(v: ContractFormValues): string {
+  let c = v.complementoValor
+  for (const a of v.aditivos) if (aditivoAtivo(a) && a.alteraValor && a.novoComplemento) c = a.novoComplemento
+  return c
+}
 export function objetoVigente(v: ContractFormValues): string[] {
   let o = v.objeto
   for (const a of v.aditivos) if (aditivoAtivo(a) && a.alteraObjeto) o = a.novoObjeto
   return o
 }
+/** Último aditivo de escopo ATIVO que alterou um campo de texto (título/descrição): valor + origem. */
+function escopoTextoVigente(v: ContractFormValues, original: string, get: (a: CAditivo) => string): { valor: string; aditivo: string } {
+  let valor = original, aditivo = ''
+  v.aditivos.forEach((a, idx) => {
+    const novo = get(a)
+    if (aditivoAtivo(a) && a.alteraObjeto && novo && novo !== valor) { valor = novo; aditivo = rotuloAditivo(a, idx) }
+  })
+  return { valor, aditivo }
+}
+export const tituloVigenteInfo    = (v: ContractFormValues) => escopoTextoVigente(v, v.titulo, a => a.novoTitulo)
+export const descricaoVigenteInfo = (v: ContractFormValues) => escopoTextoVigente(v, v.descricao, a => a.novaDescricao)
+export const tituloVigente    = (v: ContractFormValues) => tituloVigenteInfo(v).valor
+export const descricaoVigente = (v: ContractFormValues) => descricaoVigenteInfo(v).valor
 export function partesVigentes(v: ContractFormValues): CParte[] {
   let partes = v.partes
   for (const a of v.aditivos)
@@ -237,6 +263,100 @@ export function partesVigentes(v: ContractFormValues): CParte[] {
       for (const c of a.cessoes)
         partes = partes.map(p => p.id === c.parteId ? { ...p, ref_tipo: c.ref_tipo, ref_id: c.ref_id, nome: c.nome, documento: c.documento } : p)
   return partes
+}
+
+/* ─── HISTÓRICO CONTRATUAL por dimensão (procedência dos aditivos ATIVOS) ───────
+   Reconstrói como cada aspecto evoluiu, alimentando o "histórico embutido" de cada
+   seção. Princípio: NADA some — o removido/cedido segue visível com sua origem. */
+
+const rotuloAditivo = (a: CAditivo, idx: number) => a.numero ? `${a.numero}º aditivo` : `Aditivo ${idx + 1}`
+
+/** Períodos de vigência: prazo original + cada prorrogação (contígua); o último fica "em vigor". */
+export interface PeriodoVigencia { inicio: string; termino: string; label: string; aditivo: boolean; emVigor: boolean }
+export function periodosVigencia(v: ContractFormValues): PeriodoVigencia[] {
+  if (v.prazoIndeterminado || !v.terminoVigencia) return []
+  const base: { inicio: string; termino: string; label: string; aditivo: boolean }[] = [
+    { inicio: v.inicioVigencia, termino: v.terminoVigencia, label: 'Prazo original', aditivo: false },
+  ]
+  let anterior = v.terminoVigencia
+  v.aditivos.forEach((a, idx) => {
+    if (aditivoAtivo(a) && a.alteraTermino && a.novoTermino && a.novoTermino !== anterior) {
+      base.push({ inicio: proximoDiaISO(anterior), termino: a.novoTermino, label: rotuloAditivo(a, idx), aditivo: true })
+      anterior = a.novoTermino
+    }
+  })
+  return base.map((p, i) => ({ ...p, emVigor: i === base.length - 1 }))
+}
+
+/** Histórico financeiro como CHANGELOG por evento: cada aditivo de valor ATIVO e o que ele
+ *  mudou (de → para), campo a campo. Agrupar por aditivo é mais sucinto que por dimensão. */
+export interface RenegMudanca { campo: string; de: string; para: string; kind: 'money' | 'condicao' | 'texto'; delta?: string }
+export interface RenegEvento { aditivo: string; data: string; mudancas: RenegMudanca[] }
+export function historicoRenegociacao(v: ContractFormValues): RenegEvento[] {
+  let total   = parseFloat(v.valorTotal) || 0
+  let parcela = v.valorParcela
+  let cond    = v.condicaoPagamento
+  let comp    = v.complementoValor
+  const eventos: RenegEvento[] = []
+  v.aditivos.forEach((a, idx) => {
+    if (!aditivoAtivo(a) || !a.alteraValor) return
+    const m: RenegMudanca[] = []
+    const acr = parseFloat(a.novoValor) || 0
+    if (a.novoValor && acr !== 0) {
+      const novo = total + acr
+      m.push({ campo: 'Valor total', de: String(total), para: String(novo), kind: 'money', delta: String(acr) })
+      total = novo
+    }
+    if (a.novaParcela && a.novaParcela !== parcela) {
+      const d = (parseFloat(a.novaParcela) || 0) - (parseFloat(parcela) || 0)
+      m.push({ campo: 'Parcela', de: parcela, para: a.novaParcela, kind: 'money', delta: String(d) }); parcela = a.novaParcela
+    }
+    if (a.novaCondicaoPagamento && a.novaCondicaoPagamento !== cond) {
+      m.push({ campo: 'Condição', de: cond, para: a.novaCondicaoPagamento, kind: 'condicao' }); cond = a.novaCondicaoPagamento
+    }
+    if (a.novoComplemento && a.novoComplemento !== comp) {
+      m.push({ campo: 'Complemento', de: comp, para: a.novoComplemento, kind: 'texto' }); comp = a.novoComplemento
+    }
+    if (m.length) eventos.push({ aditivo: rotuloAditivo(a, idx), data: a.data, mudancas: m })
+  })
+  return eventos
+}
+
+/** Diff do objeto: cada item com status original / acrescido / removido (e por qual aditivo). */
+export interface ObjetoDiffItem { value: string; status: 'original' | 'acrescido' | 'removido'; aditivo?: string }
+export function historicoObjeto(v: ContractFormValues): ObjetoDiffItem[] {
+  const info = new Map<string, ObjetoDiffItem>()
+  const ordem: string[] = []
+  const set = (val: string, item: ObjetoDiffItem) => { if (!info.has(val)) ordem.push(val); info.set(val, item) }
+  for (const val of v.objeto) set(val, { value: val, status: 'original' })
+  let atual = new Set(v.objeto)
+  v.aditivos.forEach((a, idx) => {
+    if (!aditivoAtivo(a) || !a.alteraObjeto) return
+    const rot = rotuloAditivo(a, idx)
+    const novo = new Set(a.novoObjeto)
+    for (const val of a.novoObjeto) if (!atual.has(val)) set(val, { value: val, status: 'acrescido', aditivo: rot })
+    for (const val of atual)       if (!novo.has(val))  set(val, { value: val, status: 'removido', aditivo: rot })
+    atual = novo
+  })
+  return ordem.map(val => info.get(val) as ObjetoDiffItem)
+}
+
+/** Cessões de parte: cada troca (de → para), o papel e por qual aditivo. */
+export interface CessaoStep { aditivo: string; data: string; papel: string; de: string; para: string }
+export function historicoCessoes(v: ContractFormValues): CessaoStep[] {
+  const steps: CessaoStep[] = []
+  let partes = v.partes.map(p => ({ ...p }))
+  v.aditivos.forEach((a, idx) => {
+    if (!aditivoAtivo(a) || !a.alteraPartes) return
+    const rot = rotuloAditivo(a, idx)
+    for (const c of a.cessoes) {
+      const alvo = partes.find(p => p.id === c.parteId)
+      if (!alvo || !c.nome) continue
+      steps.push({ aditivo: rot, data: a.data, papel: alvo.papel, de: alvo.nome, para: c.nome })
+      partes = partes.map(p => p.id === c.parteId ? { ...p, nome: c.nome } : p)
+    }
+  })
+  return steps
 }
 /** Término vigente ANTES do aditivo de índice `index` (considera só os aditivos anteriores).
    Usado para derivar o início de uma prorrogação = término anterior + 1 dia. */
@@ -247,6 +367,15 @@ export function terminoVigenteAntes(v: ContractFormValues, index: number): strin
     if (aditivoAtivo(a) && a.alteraTermino && a.novoTermino) t = a.novoTermino
   }
   return t
+}
+/** Objeto vigente ANTES do aditivo de índice `index` — baseline para o diff de escopo daquele aditivo. */
+export function objetoVigenteAntes(v: ContractFormValues, index: number): string[] {
+  let o = v.objeto
+  for (let i = 0; i < index && i < v.aditivos.length; i++) {
+    const a = v.aditivos[i]
+    if (aditivoAtivo(a) && a.alteraObjeto) o = a.novoObjeto
+  }
+  return o
 }
 /** Dia seguinte a uma data ISO (YYYY-MM-DD); '' se inválida. */
 export function proximoDiaISO(iso: string): string {
@@ -291,7 +420,8 @@ export function contractFromApi(c: Record<string, any>): ContractFormValues {
       arquivo_nome: a.arquivo_nome ?? '', arquivo_key: a.arquivo_key ?? '',
       alteraTermino: !!a.alteraTermino, novoTermino: a.novoTermino ?? '',
       alteraValor:   !!a.alteraValor,   novoValor:   a.novoValor != null ? String(a.novoValor) : '', novaParcela: a.novaParcela != null ? String(a.novaParcela) : '',
-      alteraObjeto:  !!a.alteraObjeto,  novoObjeto:  arr(a.novoObjeto) as string[],
+      novaCondicaoPagamento: a.novaCondicaoPagamento ?? '', novoComplemento: a.novoComplemento ?? '',
+      alteraObjeto:  !!a.alteraObjeto,  novoObjeto:  arr(a.novoObjeto) as string[], novoTitulo: a.novoTitulo ?? '', novaDescricao: a.novaDescricao ?? '',
       alteraPartes:  !!a.alteraPartes,  cessoes:     arr(a.cessoes).map((c: any) => ({ id: c.id ?? uid(), parteId: c.parteId ?? '', ref_tipo: c.ref_tipo ?? '', ref_id: c.ref_id ?? '', nome: c.nome ?? '', documento: c.documento ?? '' })),
     })),
   }
@@ -325,7 +455,8 @@ export function contractToPayload(v: ContractFormValues, extra: Record<string, u
       arquivo_nome: a.arquivo_nome, arquivo_key: a.arquivo_key,
       alteraTermino: a.alteraTermino, novoTermino: a.alteraTermino ? (a.novoTermino || null) : null,
       alteraValor:   a.alteraValor,   novoValor:   a.alteraValor ? (parseFloat(a.novoValor) || 0) : null, novaParcela: a.alteraValor && a.novaParcela ? (parseFloat(a.novaParcela) || 0) : null,
-      alteraObjeto:  a.alteraObjeto,  novoObjeto:  a.alteraObjeto ? a.novoObjeto : [],
+      novaCondicaoPagamento: a.alteraValor ? (a.novaCondicaoPagamento || null) : null, novoComplemento: a.alteraValor ? (a.novoComplemento || null) : null,
+      alteraObjeto:  a.alteraObjeto,  novoObjeto:  a.alteraObjeto ? a.novoObjeto : [], novoTitulo: a.alteraObjeto ? (a.novoTitulo || null) : null, novaDescricao: a.alteraObjeto ? (a.novaDescricao || null) : null,
       alteraPartes:  a.alteraPartes,  cessoes:     a.alteraPartes ? a.cessoes.map(c => ({ id: c.id, parteId: c.parteId, ref_tipo: c.ref_tipo, ref_id: c.ref_id, nome: c.nome, documento: c.documento })) : [],
     })),
     partes: v.partes.map(p => ({ id: p.id, papel: p.papel, ref_tipo: p.ref_tipo, ref_id: p.ref_id, nome: p.nome, documento: p.documento })),
