@@ -15,6 +15,7 @@ import { getLogUser } from '@/hooks/use-partner-logs'
 import {
   usePartnerForm, emptyPartnerForm, newPSoc, CategoryTabs, CustomFieldsGrid,
   IdentificacaoFields, ContatoFields, EnderecoFields, BancarioFields, SociosFields,
+  validateSociosParticipacao,
   type PartnerCategory, type PartnerFormValues,
 } from './partner-fields'
 
@@ -145,6 +146,13 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
       setOpen(prev => { const n = new Set(prev); n.add('identificacao'); return n })
       return
     }
+    const socErr = isPJ ? validateSociosParticipacao(v.socios) : null
+    if (socErr) {
+      setErrors(new Set(['socios']))
+      setOpen(prev => { const n = new Set(prev); n.add('socios'); return n })
+      setSaveError(socErr)
+      return
+    }
     setSaving('draft'); setSaveError(null)
     try {
       const res = await apiFetch(`/api/partners`, {
@@ -177,9 +185,13 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
       if (!e0?.address1 || !e0?.cidade || !e0?.pais_endereco) err.add('endereco')
     }
 
+    const socErr = isPJ ? validateSociosParticipacao(v.socios) : null
+    if (socErr) err.add('socios')
+
     setErrors(err)
     if (err.size > 0) {
       setOpen(prev => { const n = new Set(prev); err.forEach(k => n.add(k)); return n })
+      setSaveError(socErr)
       return
     }
 
@@ -231,7 +243,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
     if (key === 'socios') {
       if (!isPJ) return null
       return (
-        <Section key="socios" icon={Users} title="Quadro de Sócios" isOpen={open.has('socios')} onToggle={() => toggle('socios')}>
+        <Section key="socios" icon={Users} title="Quadro de Sócios" isOpen={open.has('socios')} onToggle={() => toggle('socios')} hasError={errors.has('socios')}>
           <SociosFields form={form} isVisible={isVisible} />
         </Section>
       )

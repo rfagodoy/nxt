@@ -9,6 +9,7 @@ import { getLogUser } from '@/hooks/use-partner-logs'
 import {
   usePartnerForm, newPCon, newPEnd, newPBan, CategoryTabs,
   IdentificacaoFields, ContatoFields, EnderecoFields, BancarioFields, SociosFields,
+  validateSociosParticipacao,
   CATEGORIES, maskCNPJ, maskCPF, type PartnerCategory,
 } from '@/components/partners/partner-fields'
 
@@ -228,6 +229,16 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
   }, [isPJ, tab])
 
   const handleSave = async (statusOverride?: string, motivoTexto?: string) => {
+    // Regra dos sócios: valida ao salvar rascunho (sem override) e ao ativar/reativar.
+    const validaSocios = statusOverride === undefined || statusOverride === 'ATIVO'
+    if (isPJ && validaSocios) {
+      const socErr = validateSociosParticipacao(v.socios)
+      if (socErr) {
+        setTab('socios')
+        setSaveError(socErr)
+        return
+      }
+    }
     setSaving(true)
     setSaveError(null)
     try {

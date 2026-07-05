@@ -41,6 +41,32 @@ export const newPEnd = (cidade = '', estado = ''): PEnd => ({ id: uid('e'), cep:
 export const newPBan = (): PBan => ({ id: uid('b'), banco: '', tipo_conta: '', agencia: '', conta: '', pix: '' })
 export const newPSoc = (): PSoc => ({ id: uid('s'), nome: '', documento: '', participacao: '', cargo: '' })
 
+/** Converte "50", "50,00", "50.00 %" -> número; string vazia -> null; inválido -> NaN. */
+const parsePart = (s: string): number | null => {
+  const t = (s ?? '').replace('%', '').replace(/\s/g, '').replace(',', '.').trim()
+  if (t === '') return null
+  const n = Number(t)
+  return Number.isFinite(n) ? n : NaN
+}
+
+/**
+ * Regra de negócio do quadro de sócios: se AO MENOS UM sócio tiver o campo
+ * Participação preenchido, a soma das participações de todos deve ser exatamente 100%.
+ * Retorna a mensagem de erro, ou `null` quando válido (inclusive quando nenhuma
+ * participação foi informada). Usado ao salvar e ao ativar o parceiro.
+ */
+export function validateSociosParticipacao(socios: PSoc[]): string | null {
+  const parsed = socios.map(s => parsePart(s.participacao))
+  if (!parsed.some(n => n !== null)) return null // nenhuma participação preenchida
+  if (parsed.some(n => Number.isNaN(n))) return 'Há sócio com o campo Participação inválido. Use apenas números (ex.: 50 ou 50,00).'
+  const soma = parsed.reduce<number>((acc, n) => acc + (n ?? 0), 0)
+  if (Math.abs(soma - 100) > 0.01) {
+    const fmt = soma.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    return `A soma das participações dos sócios deve ser 100%. Soma atual: ${fmt}%.`
+  }
+  return null
+}
+
 export function emptyPartnerForm(category: PartnerCategory = 'PJ_BR'): PartnerFormValues {
   return {
     category, documento: '', razaoSocial: '', nomeFantasia: '', ie: '', im: '', rg: '',
