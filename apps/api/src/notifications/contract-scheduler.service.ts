@@ -237,7 +237,8 @@ export class ContractSchedulerService implements OnModuleInit {
   }
   private consumo(c: any): number {
     const arr = (c.natureza === 'RECEITA' ? c.recebimentos : c.pagamentos) as any[]
-    return (arr ?? []).reduce((s, l) => s + (Number(l.valor) || 0), 0)
+    // consumo = só o que foi efetivamente pago/recebido (status 'pago'; legado sem status = pago)
+    return (arr ?? []).reduce((s, l) => s + ((l.status ?? 'pago') === 'pago' ? Number(l.valor) || 0 : 0), 0)
   }
   private stepMeses(periodicidade: string): number {
     const meses: Record<string, number> = { MENSAL: 1, BIMESTRAL: 2, TRIMESTRAL: 3, QUADRIMESTRAL: 4, SEMESTRAL: 6, ANUAL: 12 }

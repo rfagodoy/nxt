@@ -11,7 +11,7 @@ import {
   TIPOS_KEY, OBJETOS_KEY, MOEDAS_KEY, CONDICOES_KEY, INDICES_KEY, TIPOS_ADITIVO_KEY, FORMAS_PGTO_KEY,
   INIT_TIPOS, INIT_OBJETOS, INIT_MOEDAS, INIT_CONDICOES, INIT_INDICES, INIT_TIPOS_ADITIVO, INIT_FORMAS_PGTO,
   SITUACOES, PERIODICIDADES, TIPOS_DOCUMENTO, effectiveSituacao,
-  NATUREZAS, ACOES_TERMINO, temPagamentos, temRecebimentos, somaLancamentos,
+  NATUREZAS, ACOES_TERMINO, temPagamentos, temRecebimentos, somaLancamentos, somaLancamentosPagos, lancPago,
   valorVigente, parcelaVigente, condicaoVigente, complementoVigente, terminoVigente, objetoVigente, partesVigentes, terminoVigenteAntes, objetoVigenteAntes, proximoDiaISO,
   tituloVigente, descricaoVigente, tituloVigenteInfo, descricaoVigenteInfo,
   periodosVigencia, historicoRenegociacao, historicoObjeto, historicoCessoes,
@@ -55,6 +55,8 @@ export function useContractForm(initial: ContractFormValues) {
   const remLanc = useCallback((field: 'pagamentos' | 'recebimentos', id: string) => setValues(p => ({ ...p, [field]: p[field].filter(x => x.id !== id) })), [])
   const updLanc = useCallback((field: 'pagamentos' | 'recebimentos', id: string, k: keyof Omit<CLancamento, 'id'>, v: string) =>
     setValues(p => ({ ...p, [field]: p[field].map(x => x.id !== id ? x : { ...x, [k]: v }) })), [])
+  const patchLanc = useCallback((field: 'pagamentos' | 'recebimentos', id: string, patch: Partial<Omit<CLancamento, 'id'>>) =>
+    setValues(p => ({ ...p, [field]: p[field].map(x => x.id !== id ? x : { ...x, ...patch }) })), [])
 
   /* aditivos (e suas cessões aninhadas) */
   const addAditivo   = useCallback((numero = '') => setValues(p => ({ ...p, aditivos: [...p.aditivos, newCAditivo(numero)] })), [])
@@ -68,7 +70,7 @@ export function useContractForm(initial: ContractFormValues) {
   const patchCessao  = useCallback((aditivoId: string, cessaoId: string, patch: Partial<Omit<CCessao, 'id'>>) =>
     setValues(p => ({ ...p, aditivos: p.aditivos.map(a => a.id !== aditivoId ? a : { ...a, cessoes: a.cessoes.map(c => c.id !== cessaoId ? c : { ...c, ...patch }) }) })), [])
 
-  return { values, set, setValues, addParte, remParte, updParte, setParteEntity, addReaj, remReaj, updReaj, addReajRealizado, remReajRealizado, addDoc, remDoc, updDoc, patchDoc, addLanc, remLanc, updLanc, addAditivo, remAditivo, patchAditivo, addCessao, remCessao, patchCessao }
+  return { values, set, setValues, addParte, remParte, updParte, setParteEntity, addReaj, remReaj, updReaj, addReajRealizado, remReajRealizado, addDoc, remDoc, updDoc, patchDoc, addLanc, remLanc, updLanc, patchLanc, addAditivo, remAditivo, patchAditivo, addCessao, remCessao, patchCessao }
 }
 export type ContractForm = ReturnType<typeof useContractForm>
 
@@ -353,8 +355,8 @@ export function ValoresFields({ form, ro }: { form: ContractForm; ro?: boolean }
   const condicoes = useLookupTable(CONDICOES_KEY, INIT_CONDICOES)
   const v = form.values
   const moedaOpts = moedas.active.map(m => ({ value: m.code ?? m.label, label: m.code ? `${m.code} — ${m.label}` : m.label }))
-  const totalPago     = somaLancamentos(v.pagamentos)
-  const totalRecebido = somaLancamentos(v.recebimentos)
+  const totalPago     = somaLancamentosPagos(v.pagamentos)    // consumo/saldo = só o realizado (pago)
+  const totalRecebido = somaLancamentosPagos(v.recebimentos)
   const valorTotalNum = valorVigente(v)            // valor VIGENTE (original + aditivos) — usado no topo e no saldo
   return (
     <div className="grid grid-cols-2 gap-3">
@@ -459,26 +461,41 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
   const singular = field === 'pagamentos' ? 'pagamento' : 'recebimento'
   const rotulo   = field === 'pagamentos' ? 'pago' : 'recebido'
   const saldoLbl = field === 'pagamentos' ? 'Saldo a pagar' : 'Saldo a receber'
-  const total  = somaLancamentos(lista)
-  const formas = useLookupTable(FORMAS_PGTO_KEY, INIT_FORMAS_PGTO)
+  const total     = somaLancamentos(lista)         // total geral (todas as parcelas)
+  const totalPago = somaLancamentosPagos(lista)     // realizado (só pagos) — base do consumo/saldo
+  const formas    = useLookupTable(FORMAS_PGTO_KEY, INIT_FORMAS_PGTO)
   const valorContrato = valorVigente(v)
-  const pct   = valorContrato > 0 ? Math.round((total / valorContrato) * 100) : 0
-  const saldo = valorContrato - total
+  const pct   = valorContrato > 0 ? Math.round((totalPago / valorContrato) * 100) : 0
+  const saldo = valorContrato - totalPago
   const money = (n: number) => `${moedaCode ? moedaCode + ' ' : ''}${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
+  /* status por parcela: pago / a vencer / vencido (vencido é derivado: previsto + vencimento < hoje) */
+  const hoje = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` })()
+  const refDate = (l: CLancamento) => l.vencimento || l.data   // referência = vencimento (ou pagamento p/ legado)
+  const aVencer = lista.reduce((s, l) => s + (!lancPago(l) && refDate(l) >= hoje ? parseFloat(l.valor) || 0 : 0), 0)
+  const vencido = lista.reduce((s, l) => s + (!lancPago(l) && refDate(l) && refDate(l) < hoje ? parseFloat(l.valor) || 0 : 0), 0)
+  const statusInfo = (l: CLancamento) => {
+    if (lancPago(l)) return { label: field === 'pagamentos' ? 'Pago' : 'Recebido', cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' }
+    if (refDate(l) && refDate(l) < hoje) return { label: 'Vencido', cls: 'bg-red-500/10 text-red-600 dark:text-red-500' }
+    return { label: 'A vencer', cls: 'bg-muted text-muted-foreground' }
+  }
+  const marcarPago = (l: CLancamento) => form.patchLanc(field, l.id, { status: 'pago', data: l.data || l.vencimento || hoje })
+  const reabrir    = (l: CLancamento) => form.patchLanc(field, l.id, { status: 'previsto', data: '' })
 
   /* Agrupa por ano — a ORDEM só recalcula ao ADICIONAR/REMOVER/GERAR ou ao SAIR do campo de data
      (onBlur). Assim o lançamento não "pula" enquanto a data é digitada; o valor exibido é ao vivo. */
   const byId = new Map(lista.map(l => [l.id, l]))
   const buildGrupos = (): [string, string[]][] => {
     const ordenado = [...lista].sort((a, b) => {
-      if (!a.data && !b.data) return 0
-      if (!a.data) return 1   // sem data vai por último
-      if (!b.data) return -1
-      return a.data < b.data ? -1 : a.data > b.data ? 1 : 0
+      const da = refDate(a), db = refDate(b)
+      if (!da && !db) return 0
+      if (!da) return 1   // sem vencimento vai por último
+      if (!db) return -1
+      return da < db ? -1 : da > db ? 1 : 0
     })
     const byYear = new Map<string, string[]>()
     for (const l of ordenado) {
-      const ano = l.data ? l.data.slice(0, 4) : '—'
+      const ano = refDate(l) ? refDate(l).slice(0, 4) : '—'
       if (!byYear.has(ano)) byYear.set(ano, [])
       byYear.get(ano)!.push(l.id)
     }
@@ -516,24 +533,33 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
     const dt = new Date(Date.UTC(y, m - 1 + n, d))
     return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`
   }
+  /* parcela vigente numa competência (yyyy-mm): último reajuste de parcela aplicado até o mês, ou a base */
+  const parcelaNaComp = (mesISO: string) => {
+    const reajs = (v.reajustesRealizados ?? [])
+      .filter(r => r.parcelaNova && String(r.competencia).slice(0, 7) <= mesISO)
+      .sort((a, b) => (a.competencia < b.competencia ? -1 : 1))
+    return reajs.length ? reajs[reajs.length - 1].parcelaNova : ''
+  }
   const gerar = () => {
     const n = parseInt(gQtd, 10)
     if (!gData)        { setGErr('Informe a data inicial.'); return }
     if (!(n > 0))      { setGErr('Informe a quantidade de parcelas.'); return }
-    if (n > 240)       { setGErr('Máximo de 240 lançamentos por vez.'); return }
+    if (n > 240)       { setGErr('Máximo de 240 parcelas por vez.'); return }
     const novos = Array.from({ length: n }, (_, i) => {
-      const l = newCLancamento()
-      l.data  = addMesesISO(gData, i)
-      l.valor = gValor ? String(parseFloat(gValor) || 0) : ''
+      const l = newCLancamento('previsto')
+      l.vencimento = addMesesISO(gData, i)
+      /* item "b": aplica o reajuste conhecido daquele mês (senão usa o valor base informado) */
+      const reaj = parcelaNaComp(l.vencimento.slice(0, 7))
+      l.valor = String(parseFloat(reaj || gValor) || 0)
       l.forma = gForma
       return l
     })
     form.setValues(p => ({ ...p, [field]: [...p[field], ...novos] }))
-    setOpenYears(s => new Set([...s, ...novos.map(l => l.data.slice(0, 4))]))  // expande os anos gerados
+    setOpenYears(s => new Set([...s, ...novos.map(l => l.vencimento.slice(0, 4))]))  // expande os anos gerados
     setGerarOpen(false)
   }
 
-  const COLS = 'grid grid-cols-[7.5rem_9rem_8rem_6.5rem_1fr_1.5rem] items-center gap-2'
+  const COLS = 'grid grid-cols-[7rem_8rem_7rem_6rem_7rem_5.5rem_1fr_1.25rem] items-center gap-2'
   const cell = cn(inputCls, 'h-7')
 
   return (
@@ -541,9 +567,9 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
       {/* faixa de resumo (rola) */}
       {lista.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <StatTile label={`Total ${rotulo}`} value={money(total)} />
-          <StatTile label="Lançamentos" value={String(lista.length)} />
-          {valorContrato > 0 && <StatTile label="% do contrato" value={`${pct}%`} bar={pct} />}
+          <StatTile label={`Total ${rotulo}`} value={money(totalPago)} bar={valorContrato > 0 ? pct : undefined} />
+          <StatTile label="A vencer" value={money(aVencer)} />
+          <StatTile label="Vencido" value={money(vencido)} danger={vencido > 0} />
           {valorContrato > 0 && <StatTile label={saldoLbl} value={money(saldo)} danger={saldo < 0} />}
         </div>
       )}
@@ -552,7 +578,7 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
       <div className="sticky top-0 z-20 flex items-center justify-between gap-3 bg-background py-1.5 border-b border-border/60">
         <div className="flex items-center gap-4">
           <button type="button" onClick={() => form.addLanc(field)} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar {singular}</button>
-          <button type="button" onClick={abrirGerar} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-medium transition-colors"><ListPlus className="h-3.5 w-3.5" />Gerar em massa</button>
+          <button type="button" onClick={abrirGerar} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-medium transition-colors"><ListPlus className="h-3.5 w-3.5" />Gerar cronograma</button>
         </div>
         {lista.length > 0 && <span className="text-[11px] text-muted-foreground">{lista.length} lançamento{lista.length > 1 ? 's' : ''} · <span className="font-semibold tabular-nums text-foreground">{money(total)}</span></span>}
       </div>
@@ -560,10 +586,10 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
       {/* gerar em massa (painel) */}
       {gerarOpen && (
         <div className="rounded-md border bg-muted/20 p-3 space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Gerar {singular}s em série (valor fixo)</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Gerar cronograma de parcelas</p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <label className="space-y-1">
-              <span className="text-[10px] font-medium text-muted-foreground">Data inicial</span>
+              <span className="text-[10px] font-medium text-muted-foreground">Vencimento inicial</span>
               <input type="date" value={gData} onChange={e => setGData(e.target.value)} className={cell} />
             </label>
             <label className="space-y-1">
@@ -571,7 +597,7 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
               <input type="number" min="1" step="1" value={gQtd} onChange={e => setGQtd(e.target.value)} placeholder={v.qtdParcelas || 'Ex: 12'} className={cell} />
             </label>
             <label className="space-y-1">
-              <span className="text-[10px] font-medium text-muted-foreground">Valor da parcela</span>
+              <span className="text-[10px] font-medium text-muted-foreground">Valor base da parcela</span>
               <MoneyField value={gValor} moedaCode={moedaCode} bare onChange={setGValor} />
             </label>
             <label className="space-y-1">
@@ -582,17 +608,17 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
               </select>
             </label>
           </div>
-          <p className="text-[10px] text-muted-foreground">Gera 1 lançamento por mês a partir da data inicial. Você ajusta valores reajustados depois, se houver.</p>
+          <p className="text-[10px] text-muted-foreground">Gera 1 parcela por mês (a vencer), aplicando os reajustes já registrados por competência. Depois é só marcar cada parcela como paga.</p>
           {gErr && <p className="text-xs text-destructive">{gErr}</p>}
           <div className="flex items-center justify-end gap-2">
             <button type="button" onClick={() => setGerarOpen(false)} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Cancelar</button>
-            <button type="button" onClick={gerar} className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">Gerar {parseInt(gQtd, 10) > 0 ? `${parseInt(gQtd, 10)} ` : ''}{singular}s</button>
+            <button type="button" onClick={gerar} className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">Gerar {parseInt(gQtd, 10) > 0 ? `${parseInt(gQtd, 10)} ` : ''}parcelas</button>
           </div>
         </div>
       )}
 
       {lista.length === 0 ? (
-        <p className="text-xs text-muted-foreground">Nenhum {singular} lançado. Use &ldquo;Adicionar&rdquo; para um a um, ou &ldquo;Gerar em massa&rdquo; para uma série mensal.</p>
+        <p className="text-xs text-muted-foreground">Nenhuma parcela. Use &ldquo;Adicionar&rdquo; para uma a uma, ou &ldquo;Gerar cronograma&rdquo; para projetar a série mensal (a vencer).</p>
       ) : (
         <div className="rounded-md border overflow-hidden">
           <div>
@@ -619,11 +645,11 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
                     <div className="divide-y divide-border/50">
                       {/* labels de coluna (por ano expandido) */}
                       <div className={cn(COLS, 'px-3 py-1 bg-muted/10 text-[9px] font-medium uppercase tracking-wide text-muted-foreground/70')}>
-                        <span>Data</span><span className="text-right pr-2">Valor</span><span>Forma</span><span>Nº doc.</span><span>Observação</span><span />
+                        <span>Vencimento</span><span className="text-right pr-2">Valor</span><span>Forma</span><span>Nº doc.</span><span>Pagamento</span><span>Status</span><span>Observação</span><span />
                       </div>
                       {itens.map(l => (
                         <div key={l.id} className={cn(COLS, 'group px-3 py-1 hover:bg-muted/30')}>
-                          <input type="date" value={l.data} onChange={e => form.updLanc(field, l.id, 'data', e.target.value)} onBlur={e => reordenar(e.target.value ? e.target.value.slice(0, 4) : undefined)} className={cell} />
+                          <input type="date" value={l.vencimento} onChange={e => form.updLanc(field, l.id, 'vencimento', e.target.value)} onBlur={e => reordenar(e.target.value ? e.target.value.slice(0, 4) : undefined)} className={cell} />
                           <MoneyField value={l.valor} moedaCode={moedaCode} bare onChange={x => form.updLanc(field, l.id, 'valor', x)} />
                           <select value={l.forma} onChange={e => form.updLanc(field, l.id, 'forma', e.target.value)} className={cell}>
                             <option value="">Forma...</option>
@@ -631,6 +657,8 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
                             {formas.active.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
                           </select>
                           <input value={l.documento} onChange={e => form.updLanc(field, l.id, 'documento', e.target.value)} placeholder="NF 1234" className={cell} />
+                          <input type="date" value={l.data} title="Data de pagamento (preencher marca como paga)" onChange={e => form.patchLanc(field, l.id, { data: e.target.value, ...(e.target.value ? { status: 'pago' } : {}) })} className={cn(cell, !lancPago(l) && 'opacity-50')} />
+                          <button type="button" onClick={() => (lancPago(l) ? reabrir(l) : marcarPago(l))} title={lancPago(l) ? 'Reabrir (voltar a A vencer)' : 'Marcar como paga'} className={cn('inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-80', statusInfo(l).cls)}>{statusInfo(l).label}</button>
                           <input value={l.observacao} onChange={e => form.updLanc(field, l.id, 'observacao', e.target.value)} placeholder="—" className={cn(cell, 'text-muted-foreground')} />
                           <button type="button" onClick={() => form.remLanc(field, l.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>
                         </div>
@@ -641,11 +669,11 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
               )
             })}
           </div>
-          {/* rodapé com total geral */}
+          {/* rodapé: total geral (todas as parcelas) + realizado */}
           <div className={cn(COLS, 'px-3 py-1.5 bg-muted/30 border-t')}>
             <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Total</span>
             <span className="text-xs font-semibold tabular-nums text-right pr-2">{money(total)}</span>
-            <span /><span /><span /><span />
+            <span /><span /><span className="text-[10px] text-muted-foreground truncate">{rotulo}: {money(totalPago)}</span><span /><span /><span />
           </div>
         </div>
       )}

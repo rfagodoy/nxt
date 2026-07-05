@@ -165,7 +165,9 @@ export interface CReajusteRealizado {
 export interface CRenovacao  { id: string; data: string; terminoAnterior: string; novoTermino: string; automatica: boolean }
 export interface CDocumento  { id: string; nome: string; tipo: string; data: string; arquivo_nome: string; arquivo_key: string; status_assinatura: string; observacao: string }
 /** Lançamento de pagamento (Despesa) ou recebimento (Receita). Mesma forma. */
-export interface CLancamento { id: string; data: string; valor: string; forma: string; documento: string; observacao: string }
+/** Lançamento = parcela do cronograma. status 'previsto' | 'pago'; vencimento = data de vencimento;
+ *  data = data de pagamento (preenchida quando pago). "Vencido" é derivado (previsto + vencimento < hoje). */
+export interface CLancamento { id: string; status: string; vencimento: string; data: string; valor: string; forma: string; documento: string; observacao: string }
 /** Cessão de parte num aditivo: a parte `parteId` passa a ser a entidade indicada (mantém o papel). */
 export interface CCessao { id: string; parteId: string; ref_tipo: string; ref_id: string; nome: string; documento: string }
 /** Termo aditivo: altera, em vigor, término/valor/objeto/partes do contrato; original é preservado. */
@@ -195,7 +197,7 @@ export const newCParte      = (papel = ''): CParte      => ({ id: uid(), papel, 
 export const newCReajuste   = ():           CReajuste   => ({ id: uid(), indice: '', data: '', periodicidade: '' })
 export const newCReajusteRealizado = (reajusteId = ''): CReajusteRealizado => ({ id: uid(), reajusteId, competencia: '', indiceSnapshot: '', base: 'total', percentual: '', valorAnterior: '', valorNovo: '', parcelaAnterior: '', parcelaNova: '', parcelasReajustadas: '', dataAplicacao: '', observacao: '', user: '', createdAt: '' })
 export const newCDocumento  = ():           CDocumento  => ({ id: uid(), nome: '', tipo: '', data: '', arquivo_nome: '', arquivo_key: '', status_assinatura: 'nenhum', observacao: '' })
-export const newCLancamento = ():           CLancamento => ({ id: uid(), data: '', valor: '', forma: '', documento: '', observacao: '' })
+export const newCLancamento = (status = 'previsto'): CLancamento => ({ id: uid(), status, vencimento: '', data: '', valor: '', forma: '', documento: '', observacao: '' })
 export const newCCessao      = (parteId = ''):CCessao    => ({ id: uid(), parteId, ref_tipo: '', ref_id: '', nome: '', documento: '' })
 export const newCAditivo     = (numero = ''): CAditivo   => ({
   id: uid(), numero, situacao: 'RASCUNHO', tipos: [], data: '', vigenciaInicio: '', descricao: '', arquivo_nome: '', arquivo_key: '',
@@ -204,6 +206,11 @@ export const newCAditivo     = (numero = ''): CAditivo   => ({
 
 /** Soma os valores de uma lista de lançamentos (campo `valor` é número como string). */
 export const somaLancamentos = (arr: CLancamento[]) => arr.reduce((s, x) => s + (parseFloat(x.valor) || 0), 0)
+/** status efetivo (legado sem status = 'pago'). */
+export const lancStatus = (l: CLancamento) => l.status || 'pago'
+export const lancPago = (l: CLancamento) => lancStatus(l) === 'pago'
+/** Soma só dos lançamentos PAGOS — consumo e saldo consideram só o realizado. */
+export const somaLancamentosPagos = (arr: CLancamento[]) => arr.reduce((s, x) => s + (lancPago(x) ? parseFloat(x.valor) || 0 : 0), 0)
 
 /** Validações de negócio compartilhadas entre cadastro e edição. Retorna a 1ª mensagem, ou null. */
 export function validateContract(v: ContractFormValues): string | null {
@@ -228,8 +235,8 @@ export function validateLancamentos(v: ContractFormValues): { field: 'pagamentos
   ]
   for (const s of secoes) {
     if (!s.ativo) continue
-    if (v[s.field].some(l => !l.data || !(parseFloat(l.valor) > 0) || !l.forma)) {
-      return { field: s.field, msg: `Em ${s.label}, informe Data, Valor e Forma de cada lançamento.` }
+    if (v[s.field].some(l => !(l.vencimento || l.data) || !(parseFloat(l.valor) > 0) || !l.forma)) {
+      return { field: s.field, msg: `Em ${s.label}, informe Vencimento, Valor e Forma de cada parcela.` }
     }
   }
   return null
@@ -449,7 +456,7 @@ export function emptyContractForm(): ContractFormValues {
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export function contractFromApi(c: Record<string, any>): ContractFormValues {
   const arr = (x: unknown) => (Array.isArray(x) ? x : [])
-  const lanc = (x: unknown) => arr(x).map((l: any) => ({ id: l.id ?? uid(), data: l.data ?? '', valor: l.valor != null ? String(l.valor) : '', forma: l.forma ?? '', documento: l.documento ?? '', observacao: l.observacao ?? '' }))
+  const lanc = (x: unknown) => arr(x).map((l: any) => ({ id: l.id ?? uid(), status: l.status ?? 'pago', vencimento: l.vencimento ?? '', data: l.data ?? '', valor: l.valor != null ? String(l.valor) : '', forma: l.forma ?? '', documento: l.documento ?? '', observacao: l.observacao ?? '' }))
   const numStr = (x: unknown) => (x != null ? String(x) : '')
   return {
     numero: c.numero ?? '', titulo: c.titulo ?? '', descricao: c.descricao ?? '',
@@ -506,8 +513,8 @@ export function contractToPayload(v: ContractFormValues, extra: Record<string, u
     qtdParcelas: v.prazoIndeterminado ? undefined : intOrNull(v.qtdParcelas),
     condicaoPagamento: v.condicaoPagamento || undefined, complementoValor: v.complementoValor || undefined,
     reajustes: v.reajustes, documentos: v.documentos,
-    pagamentos:   pagamentos.map(l => ({ id: l.id, data: l.data, valor: parseFloat(l.valor) || 0, forma: l.forma, documento: l.documento, observacao: l.observacao })),
-    recebimentos: recebimentos.map(l => ({ id: l.id, data: l.data, valor: parseFloat(l.valor) || 0, forma: l.forma, documento: l.documento, observacao: l.observacao })),
+    pagamentos:   pagamentos.map(l => ({ id: l.id, status: l.status || 'pago', vencimento: l.vencimento, data: l.data, valor: parseFloat(l.valor) || 0, forma: l.forma, documento: l.documento, observacao: l.observacao })),
+    recebimentos: recebimentos.map(l => ({ id: l.id, status: l.status || 'pago', vencimento: l.vencimento, data: l.data, valor: parseFloat(l.valor) || 0, forma: l.forma, documento: l.documento, observacao: l.observacao })),
     aditivos: v.aditivos.map(a => ({
       id: a.id, numero: a.numero, situacao: a.situacao || 'RASCUNHO', tipos: a.tipos, data: a.data, vigenciaInicio: a.vigenciaInicio, descricao: a.descricao,
       arquivo_nome: a.arquivo_nome, arquivo_key: a.arquivo_key,
