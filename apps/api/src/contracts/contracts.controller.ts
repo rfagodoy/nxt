@@ -27,8 +27,8 @@ export class ContractsController {
      de ':id' para não ser capturada como um id. Opcional (Fase 3): só quando há internet. */
   @Get('indices/bcb')
   @ApiOperation({ summary: 'Importa a série mensal de um índice do Banco Central (SGS)' })
-  importBcb(@Query('code') code: string, @Query('from') from?: string, @Query('to') to?: string) {
-    return this.contractsService.importBcb(code, from, to)
+  importBcb(@Query('code') code: string, @Query('from') from?: string, @Query('to') to?: string, @Query('full') full?: string) {
+    return this.contractsService.importBcb(code, from, to, full === '1' || full === 'true')
   }
 
   @Get(':id')

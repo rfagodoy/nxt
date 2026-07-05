@@ -42,14 +42,32 @@ export const INIT_CONDICOES: LookupEntry[] = [
   { id: '6', label: 'Anual',      active: true },
   { id: '7', label: 'Outro',      active: true },
 ]
+/* Índices de reajuste do BCB (série SGS) — códigos verificados na API pública.
+   `code` = série SGS; usado no import do Banco Central e no schedule diário.
+   INCC-M (7832) foi descontinuado — usamos INCC-DI (192). */
+export interface BcbIndice { label: string; sgs: string }
+export const BCB_INDICES: BcbIndice[] = [
+  { label: 'IPCA',         sgs: '433'  },
+  { label: 'IPCA-15',      sgs: '7478' },
+  { label: 'INPC',         sgs: '188'  },
+  { label: 'IGP-M',        sgs: '189'  },
+  { label: 'IGP-DI',       sgs: '190'  },
+  { label: 'IGP-10',       sgs: '7447' },
+  { label: 'INCC-DI',      sgs: '192'  },
+  { label: 'IPC-BR (FGV)', sgs: '191'  },
+  { label: 'IPC-Fipe',     sgs: '193'  },
+  { label: 'CDI',          sgs: '4391' },
+  { label: 'SELIC',        sgs: '4390' },
+  { label: 'TR',           sgs: '226'  },
+  { label: 'Poupança',     sgs: '196'  },
+]
+/** Normaliza rótulo p/ casar índice existente com o canônico (IGPM ↔ IGP-M etc.). */
+export const normIndiceLabel = (s: string) => s.toUpperCase().replace(/[\s\-().]/g, '')
+
 export const INIT_INDICES: LookupEntry[] = [
-  { id: '1', label: 'IPCA',   active: true },
-  { id: '2', label: 'IGPM',   active: true },
-  { id: '3', label: 'INPC',   active: true },
-  { id: '4', label: 'CDI',    active: true },
-  { id: '5', label: 'SELIC',  active: true },
-  { id: '6', label: 'Fixo',   active: true },
-  { id: '7', label: 'Nenhum', active: true },
+  ...BCB_INDICES.map((x, i) => ({ id: String(i + 1), label: x.label, code: x.sgs, active: true })),
+  { id: 'fixo',   label: 'Fixo',   active: true },
+  { id: 'nenhum', label: 'Nenhum', active: true },
 ]
 export const INIT_TIPOS_ADITIVO: LookupEntry[] = [
   { id: '1', label: 'Prorrogação de prazo',              active: true, efeito: 'termino' },
@@ -138,7 +156,9 @@ export interface CReajuste   { id: string; indice: string; data: string; periodi
  *  competencia = yyyy-mm-01 (mês de referência); valorAnterior/valorNovo guardam o delta exato. */
 export interface CReajusteRealizado {
   id: string; reajusteId: string; competencia: string; indiceSnapshot: string
+  base: string // 'total' | 'parcela' — o que o reajuste alterou
   percentual: string; valorAnterior: string; valorNovo: string
+  parcelaAnterior: string; parcelaNova: string; parcelasReajustadas: string // nº de parcelas reajustadas (base 'parcela')
   dataAplicacao: string; observacao: string; user: string; createdAt: string
 }
 /** Renovação automática (cláusula, não aditamento): estende a vigência sem gerar aditivo. */
@@ -163,7 +183,7 @@ export interface ContractFormValues {
   numero: string; titulo: string; descricao: string; objeto: string[]; tipo: string; natureza: string
   inicioVigencia: string; prazoIndeterminado: boolean; terminoVigencia: string; dataAssinatura: string
   acaoTermino: string; renovacaoAnos: string; renovacaoMeses: string; renovacaoDias: string
-  situacao: string; moeda: string; valorParcela: string; valorTotal: string
+  situacao: string; moeda: string; valorParcela: string; valorTotal: string; qtdParcelas: string
   condicaoPagamento: string; complementoValor: string
   reajustes: CReajuste[]; partes: CParte[]; documentos: CDocumento[]
   pagamentos: CLancamento[]; recebimentos: CLancamento[]; aditivos: CAditivo[]; renovacoes: CRenovacao[]
@@ -173,7 +193,7 @@ export interface ContractFormValues {
 export const uid = () => `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 export const newCParte      = (papel = ''): CParte      => ({ id: uid(), papel, ref_tipo: '', ref_id: '', nome: '', documento: '' })
 export const newCReajuste   = ():           CReajuste   => ({ id: uid(), indice: '', data: '', periodicidade: '' })
-export const newCReajusteRealizado = (reajusteId = ''): CReajusteRealizado => ({ id: uid(), reajusteId, competencia: '', indiceSnapshot: '', percentual: '', valorAnterior: '', valorNovo: '', dataAplicacao: '', observacao: '', user: '', createdAt: '' })
+export const newCReajusteRealizado = (reajusteId = ''): CReajusteRealizado => ({ id: uid(), reajusteId, competencia: '', indiceSnapshot: '', base: 'total', percentual: '', valorAnterior: '', valorNovo: '', parcelaAnterior: '', parcelaNova: '', parcelasReajustadas: '', dataAplicacao: '', observacao: '', user: '', createdAt: '' })
 export const newCDocumento  = ():           CDocumento  => ({ id: uid(), nome: '', tipo: '', data: '', arquivo_nome: '', arquivo_key: '', status_assinatura: 'nenhum', observacao: '' })
 export const newCLancamento = ():           CLancamento => ({ id: uid(), data: '', valor: '', forma: '', documento: '', observacao: '' })
 export const newCCessao      = (parteId = ''):CCessao    => ({ id: uid(), parteId, ref_tipo: '', ref_id: '', nome: '', documento: '' })
@@ -237,10 +257,15 @@ export function valorVigente(v: ContractFormValues): number {
   for (const r of (v.reajustesRealizados ?? [])) val += (parseFloat(r.valorNovo) || 0) - (parseFloat(r.valorAnterior) || 0)
   return val
 }
-/** Parcela vigente = última parcela definida por um aditivo de valor ATIVO (ou a original). */
+/** Parcela vigente = última parcela definida, cronologicamente, por um aditivo de valor
+ *  ATIVO (novaParcela) OU por um reajuste de parcela/ambos (parcelaNova). Último vence. */
 export function parcelaVigente(v: ContractFormValues): string {
   let p = v.valorParcela
-  for (const a of v.aditivos) if (aditivoAtivo(a) && a.alteraValor && a.novaParcela) p = a.novaParcela
+  const eventos: { data: string; val: string }[] = [
+    ...v.aditivos.filter(a => aditivoAtivo(a) && a.alteraValor && a.novaParcela).map(a => ({ data: a.data, val: a.novaParcela })),
+    ...(v.reajustesRealizados ?? []).filter(r => r.parcelaNova).map(r => ({ data: r.competencia, val: r.parcelaNova })),
+  ].sort((x, y) => (x.data < y.data ? -1 : x.data > y.data ? 1 : 0))
+  for (const e of eventos) if (e.val) p = e.val
   return p
 }
 /** Condição de pagamento vigente = última definida por um aditivo de valor ATIVO (ou a original). */
@@ -415,7 +440,7 @@ export function emptyContractForm(): ContractFormValues {
     numero: '', titulo: '', descricao: '', objeto: [], tipo: '', natureza: '',
     inicioVigencia: '', prazoIndeterminado: false, terminoVigencia: '', dataAssinatura: '',
     acaoTermino: 'MANUAL', renovacaoAnos: '', renovacaoMeses: '', renovacaoDias: '',
-    situacao: 'EM_CADASTRO', moeda: '', valorParcela: '', valorTotal: '',
+    situacao: 'EM_CADASTRO', moeda: '', valorParcela: '', valorTotal: '', qtdParcelas: '',
     condicaoPagamento: '', complementoValor: '', reajustes: [], partes: [], documentos: [],
     pagamentos: [], recebimentos: [], aditivos: [], renovacoes: [], reajustesRealizados: [],
   }
@@ -433,7 +458,7 @@ export function contractFromApi(c: Record<string, any>): ContractFormValues {
     terminoVigencia: c.terminoVigencia ?? '', dataAssinatura: c.dataAssinatura ?? '',
     acaoTermino: c.acaoTermino || 'MANUAL', renovacaoAnos: numStr(c.renovacaoAnos), renovacaoMeses: numStr(c.renovacaoMeses), renovacaoDias: numStr(c.renovacaoDias),
     situacao: normalizeSituacao(c.situacao ?? 'EM_CADASTRO'), moeda: c.moeda ?? '',
-    valorParcela: numStr(c.valorParcela), valorTotal: numStr(c.valorTotal),
+    valorParcela: numStr(c.valorParcela), valorTotal: numStr(c.valorTotal), qtdParcelas: numStr(c.qtdParcelas),
     condicaoPagamento: c.condicaoPagamento ?? '', complementoValor: c.complementoValor ?? '',
     reajustes: arr(c.reajustes).map((r: any) => ({ id: r.id ?? uid(), indice: r.indice ?? '', data: r.data ?? '', periodicidade: r.periodicidade ?? '' })),
     partes: arr(c.partes).map((p: any) => ({ id: p.id ?? uid(), papel: p.papel ?? p.tipo ?? '', ref_tipo: p.ref_tipo ?? '', ref_id: p.ref_id ?? '', nome: p.nome ?? '', documento: p.documento ?? '' })),
@@ -451,7 +476,9 @@ export function contractFromApi(c: Record<string, any>): ContractFormValues {
     renovacoes: arr(c.renovacoes).map((r: any) => ({ id: r.id ?? uid(), data: r.data ?? '', terminoAnterior: r.terminoAnterior ?? '', novoTermino: r.novoTermino ?? '', automatica: r.automatica !== false })),
     reajustesRealizados: arr(c.reajustesRealizados).map((r: any) => ({
       id: r.id ?? uid(), reajusteId: r.reajusteId ?? '', competencia: r.competencia ?? '', indiceSnapshot: r.indiceSnapshot ?? '',
+      base: r.base ?? 'total',
       percentual: r.percentual != null ? String(r.percentual) : '', valorAnterior: r.valorAnterior != null ? String(r.valorAnterior) : '', valorNovo: r.valorNovo != null ? String(r.valorNovo) : '',
+      parcelaAnterior: r.parcelaAnterior != null ? String(r.parcelaAnterior) : '', parcelaNova: r.parcelaNova != null ? String(r.parcelaNova) : '', parcelasReajustadas: r.parcelasReajustadas != null ? String(r.parcelasReajustadas) : '',
       dataAplicacao: r.dataAplicacao ?? '', observacao: r.observacao ?? '', user: r.user ?? '', createdAt: r.createdAt ?? '',
     })),
   }
@@ -476,6 +503,7 @@ export function contractToPayload(v: ContractFormValues, extra: Record<string, u
     renovacaoDias:  renovar ? intOrNull(v.renovacaoDias)  : undefined,
     dataAssinatura: v.dataAssinatura || undefined, moeda: v.moeda,
     valorTotal: parseFloat(v.valorTotal) || 0, valorParcela: parseFloat(v.valorParcela) || 0,
+    qtdParcelas: v.prazoIndeterminado ? undefined : intOrNull(v.qtdParcelas),
     condicaoPagamento: v.condicaoPagamento || undefined, complementoValor: v.complementoValor || undefined,
     reajustes: v.reajustes, documentos: v.documentos,
     pagamentos:   pagamentos.map(l => ({ id: l.id, data: l.data, valor: parseFloat(l.valor) || 0, forma: l.forma, documento: l.documento, observacao: l.observacao })),
@@ -492,8 +520,9 @@ export function contractToPayload(v: ContractFormValues, extra: Record<string, u
     partes: v.partes.map(p => ({ id: p.id, papel: p.papel, ref_tipo: p.ref_tipo, ref_id: p.ref_id, nome: p.nome, documento: p.documento })),
     renovacoes: v.renovacoes,
     reajustesRealizados: (v.reajustesRealizados ?? []).map(r => ({
-      id: r.id, reajusteId: r.reajusteId, competencia: r.competencia, indiceSnapshot: r.indiceSnapshot,
+      id: r.id, reajusteId: r.reajusteId, competencia: r.competencia, indiceSnapshot: r.indiceSnapshot, base: r.base || 'total',
       percentual: parseFloat(r.percentual) || 0, valorAnterior: parseFloat(r.valorAnterior) || 0, valorNovo: parseFloat(r.valorNovo) || 0,
+      parcelaAnterior: parseFloat(r.parcelaAnterior) || 0, parcelaNova: parseFloat(r.parcelaNova) || 0, parcelasReajustadas: parseInt(r.parcelasReajustadas, 10) || 0,
       dataAplicacao: r.dataAplicacao, observacao: r.observacao, user: r.user, createdAt: r.createdAt,
     })),
     ...extra,

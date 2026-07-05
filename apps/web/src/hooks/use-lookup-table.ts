@@ -57,8 +57,10 @@ export function useLookupTable(storageKey: string, initialData: LookupEntry[]) {
     persist(ref.current.map(e => e.id === id ? { ...e, ...data } : e)), [persist])
   const toggle = useCallback((id: string) =>
     persist(ref.current.map(e => e.id === id ? { ...e, active: !e.active } : e)), [persist])
+  /** Substitui a lista inteira de uma vez (merge/sincronização em lote). */
+  const replace = useCallback((next: LookupEntry[]) => persist(next), [persist])
 
   const active = entries.filter(e => e.active)
 
-  return { entries, active, add, remove, update, toggle }
+  return { entries, active, add, remove, update, toggle, replace }
 }

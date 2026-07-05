@@ -89,6 +89,11 @@ export class CreateContractDto {
   @IsNumber()
   valorParcela?: number
 
+  @ApiPropertyOptional({ description: 'Quantidade de parcelas (parcelados de prazo determinado)' })
+  @IsOptional()
+  @IsNumber()
+  qtdParcelas?: number
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

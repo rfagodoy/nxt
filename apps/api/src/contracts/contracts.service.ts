@@ -90,6 +90,7 @@ function diffContract(o: CRec, n: CRec, maps: Maps): AuditChange[] {
   push('moeda', 'Moeda', aVal(o.moeda), aVal(n.moeda))
   push('valorTotal', 'Valor total', aMoney(o.valorTotal), aMoney(n.valorTotal))
   push('valorParcela', 'Valor da parcela', aMoney(o.valorParcela), aMoney(n.valorParcela))
+  push('qtdParcelas', 'Quantidade de parcelas', aVal(o.qtdParcelas), aVal(n.qtdParcelas))
   push('condicaoPagamento', 'Condição de pagamento', aLbl(maps.condicao, aVal(o.condicaoPagamento)), aLbl(maps.condicao, aVal(n.condicaoPagamento)))
   push('complementoValor', 'Complemento do valor', aVal(o.complementoValor), aVal(n.complementoValor))
   push('observacoes', 'Observações', aVal(o.observacoes), aVal(n.observacoes))
@@ -122,7 +123,10 @@ function diffContract(o: CRec, n: CRec, maps: Maps): AuditChange[] {
   /* reajustes efetivamente aplicados */
   const oR = aArr(o.reajustesRealizados), nR = aArr(n.reajustesRealizados)
   const oRIds = new Set(oR.map(r => aVal(r.id))), nRIds = new Set(nR.map(r => aVal(r.id)))
-  const descR = (r: CRec) => [aVal(r.indiceSnapshot), r.percentual != null && aVal(r.percentual) !== '' ? `${aVal(r.percentual)}%` : '', aMesAno(r.competencia), aMoney(r.valorNovo)].filter(Boolean).join(' · ')
+  const descR = (r: CRec) => {
+    const alvo = aVal(r.base) === 'parcela' ? aMoney(r.parcelaNova) : aMoney(r.valorNovo)
+    return [aVal(r.indiceSnapshot), aVal(r.percentual) !== '' ? `${aVal(r.percentual)}%` : '', aMesAno(r.competencia), alvo].filter(Boolean).join(' · ')
+  }
   for (const r of nR) if (!oRIds.has(aVal(r.id))) ch.push({ field: `reajuste.${aVal(r.id)}`, label: 'Reajuste aplicado', before: '—', after: descR(r) })
   for (const r of oR) if (!nRIds.has(aVal(r.id))) ch.push({ field: `reajuste.${aVal(r.id)}`, label: 'Reajuste removido', before: descR(r), after: '—' })
 
@@ -261,10 +265,17 @@ export class ContractsService {
       const nt = r.novoTermino as string | undefined
       if (nt && (!c.terminoVigencia || nt > (c.terminoVigencia as string))) c.terminoVigencia = nt
     }
-    /* reajustes efetivamente aplicados somam seu delta ao valor total (mesma lógica de valorVigente) */
-    for (const r of ((c.reajustesRealizados as Array<Record<string, unknown>>) ?? [])) {
+    /* reajustes efetivamente aplicados: delta somado ao valor total (parcela tratada abaixo) */
+    const reajustes = (c.reajustesRealizados as Array<Record<string, unknown>>) ?? []
+    for (const r of reajustes) {
       c.valorTotal = (Number(c.valorTotal) || 0) + (Number(r.valorNovo) || 0) - (Number(r.valorAnterior) || 0)
     }
+    /* parcela vigente = último evento (aditivo ATIVO ou reajuste de parcela) por data */
+    const parcelaEventos = [
+      ...aditivos.filter(a => a.situacao !== 'RASCUNHO' && a.alteraValor && a.novaParcela != null).map(a => ({ data: String(a.data ?? ''), val: a.novaParcela })),
+      ...reajustes.filter(r => Number(r.parcelaNova)).map(r => ({ data: String(r.competencia ?? ''), val: r.parcelaNova })),
+    ].sort((x, y) => (x.data < y.data ? -1 : x.data > y.data ? 1 : 0))
+    if (parcelaEventos.length) c.valorParcela = parcelaEventos[parcelaEventos.length - 1].val
   }
 
   async findAll(organizationId: string) {
@@ -347,7 +358,7 @@ export class ContractsService {
   /* Consulta a série mensal de um índice na API pública do Banco Central (SGS) e devolve
      [{ competencia: 'yyyy-mm', valor: <% do mês> }]. Fonte opcional (Fase 3): a tabela manual
      continua sendo a fonte de verdade; este import só é usado quando o servidor tem internet. */
-  async importBcb(code: string, from?: string, to?: string): Promise<Array<{ competencia: string; valor: number }>> {
+  async importBcb(code: string, from?: string, to?: string, full = false): Promise<Array<{ competencia: string; valor: number }>> {
     if (!code || !/^\d+$/.test(code)) throw new BadRequestException('Código da série (SGS) inválido.')
     const toBcbDate = (yyyymm: string | undefined, mesesAtras: number): string => {
       let d: Date
@@ -355,9 +366,10 @@ export class ContractsService {
       else { d = new Date(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - mesesAtras) }
       return `01/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`
     }
-    const di  = toBcbDate(from, 60)  // padrão: últimos 5 anos
-    const df  = toBcbDate(to, 0)
-    const url = `https://api.bcb.gov.br/dados/serie/bcdata.sgs.${code}/dados?formato=json&dataInicial=${di}&dataFinal=${df}`
+    // full = série completa (sem intervalo → BCB devolve toda a série); senão, janela padrão de 5 anos
+    const url = full
+      ? `https://api.bcb.gov.br/dados/serie/bcdata.sgs.${code}/dados?formato=json`
+      : `https://api.bcb.gov.br/dados/serie/bcdata.sgs.${code}/dados?formato=json&dataInicial=${toBcbDate(from, 60)}&dataFinal=${toBcbDate(to, 0)}`
     let raw: Array<{ data: string; valor: string }>
     try {
       const res = await fetch(url)

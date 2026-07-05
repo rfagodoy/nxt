@@ -3,10 +3,11 @@ import { NotificationsController } from './notifications.controller'
 import { NotificationsService } from './notifications.service'
 import { ContractSchedulerService } from './contract-scheduler.service'
 import { SettingsModule } from '../settings/settings.module'
+import { ContractsModule } from '../contracts/contracts.module'
 import { PrismaService } from '../prisma.service'
 
 @Module({
-  imports: [SettingsModule],
+  imports: [SettingsModule, ContractsModule],
   controllers: [NotificationsController],
   providers: [NotificationsService, ContractSchedulerService, PrismaService],
 })

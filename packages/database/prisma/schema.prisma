@@ -233,6 +233,7 @@ model Contract {
   moeda               String   @default("BRL")
   valorTotal          Float    @default(0)
   valorParcela        Float?
+  qtdParcelas         Int?     // nº de parcelas (parcelados de prazo determinado); base p/ reajuste de parcela
   condicaoPagamento   String?
   complementoValor    String?  @db.NVarChar(Max) // texto livre longo
   renovacaoAutomatica Boolean  @default(false)

@@ -1,6 +1,10 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
 import { SettingsService } from '../settings/settings.service'
+import { ContractsService } from '../contracts/contracts.service'
+
+const INDICES_KEY = 'nxt:settings:contratos:indices'
+const INDICE_VALORES_KEY = 'nxt:settings:contratos:indice-valores'
 
 /* Motor de datas do contrato: roda diariamente (agendador in-process, sem dependência
    externa) e também via POST /api/notifications/run. Duas tarefas:
@@ -16,12 +20,14 @@ interface Params {
   reajuste: { enabled: boolean; dias: number }          // antecedência única (dias)
   consumo:  { enabled: boolean; percentuais: number[] } // limites (ex.: [80,100])
   renovacaoAutomatica: boolean                          // liga/desliga a renovação global
+  indicesAutoImport: boolean                            // import diário dos valores de índice do BCB
 }
 export const DEFAULT_PARAMS: Params = {
   vigencia: { enabled: true, dias: [60, 30, 7] },
   reajuste: { enabled: true, dias: 15 },
   consumo:  { enabled: true, percentuais: [80, 100] },
   renovacaoAutomatica: true,
+  indicesAutoImport: true,
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -49,7 +55,7 @@ interface Upsert { dedupKey: string; contractId: string; tipo: string; severidad
 @Injectable()
 export class ContractSchedulerService implements OnModuleInit {
   private readonly logger = new Logger('ContractScheduler')
-  constructor(private readonly prisma: PrismaService, private readonly settings: SettingsService) {}
+  constructor(private readonly prisma: PrismaService, private readonly settings: SettingsService, private readonly contracts: ContractsService) {}
 
   onModuleInit() {
     /* agendador in-process: dispara ~3h da manhã, todo dia (sem @nestjs/schedule) */
@@ -68,8 +74,40 @@ export class ContractSchedulerService implements OnModuleInit {
   private async runAll() {
     try {
       const orgs = await this.prisma.contract.findMany({ distinct: ['organizationId'], select: { organizationId: true } })
-      for (const { organizationId } of orgs) await this.runForOrg(organizationId)
+      for (const { organizationId } of orgs) {
+        await this.importIndices(organizationId)  // atualiza valores de índice (BCB) antes das notificações
+        await this.runForOrg(organizationId)
+      }
     } catch (e) { this.logger.error(`runAll falhou: ${String(e)}`) }
+  }
+
+  /* Import diário dos valores de índice do BCB (Fase 3). Lê o catálogo de índices da org
+     (com Código SGS) e mescla a série na tabela de valores. Primeira vez de um índice =
+     série completa; depois, janela recente. Falha graciosa (offline/on-prem = no-op). */
+  async importIndices(organizationId: string): Promise<{ atualizados: number; ignorado?: boolean }> {
+    try {
+      const params = await this.loadParams(organizationId)
+      if (!params.indicesAutoImport) return { atualizados: 0, ignorado: true }
+      const catalogo = ((await this.settings.get(organizationId, INDICES_KEY)).value as Array<{ id: string; label: string; code?: string }> | null) ?? []
+      const comSgs = catalogo.filter(i => i.code && /^\d+$/.test(i.code))
+      if (!comSgs.length) return { atualizados: 0 }
+      const valores = ((await this.settings.get(organizationId, INDICE_VALORES_KEY)).value as Record<string, Record<string, number>> | null) ?? {}
+      let atualizados = 0
+      for (const idx of comSgs) {
+        try {
+          const existente = valores[idx.id] ?? {}
+          const primeira = Object.keys(existente).length === 0
+          const dados = await this.contracts.importBcb(idx.code as string, undefined, undefined, primeira)
+          if (!dados.length) continue
+          const merged = { ...existente }
+          for (const d of dados) merged[d.competencia] = d.valor
+          valores[idx.id] = merged
+          atualizados++
+        } catch (e) { this.logger.warn(`importIndices ${idx.label} (${idx.code}) falhou: ${String(e)}`) }
+      }
+      if (atualizados) await this.settings.put(organizationId, INDICE_VALORES_KEY, valores)
+      return { atualizados }
+    } catch (e) { this.logger.warn(`importIndices org ${organizationId} falhou: ${String(e)}`); return { atualizados: 0 } }
   }
 
   /** Executa o motor para UMA organização. Retorna um resumo (usado pelo endpoint /run). */
@@ -215,6 +253,7 @@ export class ContractSchedulerService implements OnModuleInit {
       if (!v) return DEFAULT_PARAMS
       return {
         renovacaoAutomatica: v.renovacaoAutomatica ?? DEFAULT_PARAMS.renovacaoAutomatica,
+        indicesAutoImport:   v.indicesAutoImport ?? DEFAULT_PARAMS.indicesAutoImport,
         vigencia: { ...DEFAULT_PARAMS.vigencia, ...v.vigencia },
         reajuste: { ...DEFAULT_PARAMS.reajuste, ...v.reajuste },
         consumo:  { ...DEFAULT_PARAMS.consumo,  ...v.consumo },
