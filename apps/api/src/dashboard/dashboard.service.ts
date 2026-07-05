@@ -6,6 +6,7 @@ const DAY = 86_400_000
 /* ── rótulos ── */
 const PARTNER_EVENT_LABEL: Record<string, string> = {
   EM_CADASTRAMENTO: 'cadastrou',
+  EM_REVISAO:       'habilitou para alteração',
   ATIVADO:          'ativou',
   INATIVADO:        'inativou',
   REATIVADO:        'reativou',

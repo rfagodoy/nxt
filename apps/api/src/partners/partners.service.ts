@@ -104,7 +104,7 @@ function statusEvent(oldS: string, newS: string): string {
   if (oldS === newS) return 'ALTERADO'
   if (newS === 'ATIVO')            return oldS === 'INATIVO' ? 'REATIVADO' : 'ATIVADO'
   if (newS === 'INATIVO')          return 'INATIVADO'
-  if (newS === 'EM_CADASTRAMENTO') return 'EM_CADASTRAMENTO'
+  if (newS === 'EM_CADASTRAMENTO') return 'EM_REVISAO' // "Habilitar para alteração" (reabertura); criação usa EM_CADASTRAMENTO
   return 'ALTERADO'
 }
 
@@ -304,15 +304,29 @@ export class PartnersService {
 
     const changes = diffPartner(old as PartnerLike, updated as PartnerLike)
     if (changes.length) {
-      await this.prisma.partnerAuditLog.create({
-        data: {
-          partnerId: id,
-          user:      user ?? 'Usuário do sistema',
-          event:     statusEvent(val(old.status), val(updated.status)),
-          motivo:    motivo?.trim() ? motivo.trim() : null,
-          changes:   changes as never,
-        },
-      })
+      /* cada mudança vai pro SEU evento: a transição de status vira Ativado/Inativado/...
+         (só a mudança de situação) e os campos viram Atualização — logs separados. */
+      const transEvent = statusEvent(val(old.status), val(updated.status))
+      const byEvent = new Map<string, AuditChange[]>()
+      for (const c of changes) {
+        const ev = c.field === 'status' ? transEvent : 'ALTERADO'
+        const list = byEvent.get(ev) ?? []
+        list.push(c); byEvent.set(ev, list)
+      }
+      const isTransition = (ev: string) => ev !== 'ALTERADO'
+      /* não-transição primeiro; a transição por último (createdAt maior → topo do histórico) */
+      const order = [...byEvent.keys()].sort((a, b) => Number(isTransition(a)) - Number(isTransition(b)))
+      for (const ev of order) {
+        await this.prisma.partnerAuditLog.create({
+          data: {
+            partnerId: id,
+            user:      user ?? 'Usuário do sistema',
+            event:     ev,
+            motivo:    isTransition(ev) && motivo?.trim() ? motivo.trim() : null,
+            changes:   byEvent.get(ev) as never,
+          },
+        })
+      }
     }
     return updated
   }

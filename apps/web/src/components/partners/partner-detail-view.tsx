@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Building2, Phone, MapPin, CreditCard, Users, Clock, Plus, X, SlidersHorizontal } from 'lucide-react'
+import { Building2, Phone, MapPin, CreditCard, Users, Clock, Plus, X, SlidersHorizontal, CheckCircle2, RotateCcw, Pencil, Ban, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { usePartnerFields, useFieldVisibility } from '@/hooks/use-partner-fields'
@@ -45,13 +45,33 @@ const STATUS_LABEL: Record<string, string> = {
   INATIVO:          'Inativo',
 }
 
+/* ── ícones/cores por evento (mesma linguagem visual do histórico de contratos) ── */
+const EVENT_META: Record<string, { label: string; color: string; icon: LucideIcon }> = {
+  EM_CADASTRAMENTO: { label: 'Cadastrado',              color: 'emerald', icon: Plus },
+  EM_REVISAO:       { label: 'Habilitado para alteração', color: 'amber',  icon: RotateCcw },
+  ATIVADO:          { label: 'Ativado',    color: 'emerald', icon: CheckCircle2 },
+  INATIVADO:        { label: 'Inativado',  color: 'gray',    icon: Ban },
+  REATIVADO:        { label: 'Reativado',  color: 'teal',    icon: RotateCcw },
+  ALTERADO:         { label: 'Atualização', color: 'blue',   icon: Pencil },
+}
+const EVENT_FALLBACK = { label: 'Alteração', color: 'blue', icon: Pencil }
+const DOT_CLS: Record<string, string> = {
+  emerald: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  blue:    'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+  amber:   'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  red:     'bg-red-500/10 text-red-600 dark:text-red-500',
+  teal:    'bg-teal-500/10 text-teal-600 dark:text-teal-400',
+  gray:    'bg-gray-500/10 text-gray-600 dark:text-gray-400',
+}
+
 /* ── filtros do Histórico (auditoria) — client-side ── */
 const HIST_COLUMNS = [
-  { key: 'ts',     label: 'Data / Hora'    },
-  { key: 'user',   label: 'Usuário'        },
-  { key: 'label',  label: 'Campo Alterado' },
-  { key: 'before', label: 'Valor Anterior' },
-  { key: 'after',  label: 'Novo Valor'     },
+  { key: 'eventLabel', label: 'Evento'         },
+  { key: 'ts',         label: 'Data / Hora'    },
+  { key: 'user',       label: 'Usuário'        },
+  { key: 'label',      label: 'Campo Alterado' },
+  { key: 'before',     label: 'Valor Anterior' },
+  { key: 'after',      label: 'Novo Valor'     },
 ]
 
 function fmtAuditTs(ts: string): string {
@@ -156,14 +176,16 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
   }, [partner.id])
   useEffect(() => { void fetchAudit() }, [fetchAudit])
 
-  /* linhas planas: cada alteração vira uma linha (Data/Hora e Usuário repetidos) */
-  const auditRows = audit.flatMap(e =>
-    (e.changes ?? []).map((c, i) => ({
+  /* linhas planas: cada alteração vira uma linha (Evento/Data/Hora/Usuário repetidos) */
+  const auditRows = audit.flatMap(e => {
+    const meta = EVENT_META[e.event] ?? EVENT_FALLBACK
+    return (e.changes ?? []).map((c, i) => ({
       key: `${e.id}_${i}`, ts: e.createdAt, user: e.user,
+      eventLabel: meta.label, color: meta.color, Icon: meta.icon,
       motivo: c.field === 'status' ? e.motivo : null,
       label: c.label, before: c.before, after: c.after,
-    })),
-  )
+    }))
+  })
 
   /* filtros do histórico (client-side, igual à tabela de parceiros) */
   const [showHistFilters, setShowHistFilters] = useState(false)
@@ -452,6 +474,7 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
                 <table className="w-full text-xs">
                   <thead className="sticky top-0 z-10">
                     <tr className="border-b bg-[hsl(240_5%_97%)] dark:bg-[hsl(240_21%_15%)]">
+                      <th className="px-4 py-1.5 text-left font-medium text-muted-foreground whitespace-nowrap">Evento</th>
                       <th className="px-4 py-1.5 text-left font-medium text-muted-foreground whitespace-nowrap">Data / Hora</th>
                       <th className="px-4 py-1.5 text-left font-medium text-muted-foreground whitespace-nowrap">Usuário</th>
                       <th className="px-4 py-1.5 text-left font-medium text-muted-foreground whitespace-nowrap">Campo Alterado</th>
@@ -461,9 +484,15 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
                   </thead>
                   <tbody>
                     {filteredAuditRows.length === 0 ? (
-                      <tr><td colSpan={5} className="px-4 py-6 text-center text-xs text-muted-foreground">Nenhum registro com os filtros aplicados.</td></tr>
+                      <tr><td colSpan={6} className="px-4 py-6 text-center text-xs text-muted-foreground">Nenhum registro com os filtros aplicados.</td></tr>
                     ) : filteredAuditRows.map(r => (
                       <tr key={r.key} className="border-b last:border-0 hover:bg-muted/20 transition-colors align-top">
+                        <td className="px-4 py-1 whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center rounded-full', DOT_CLS[r.color])}><r.Icon className="h-3 w-3" /></span>
+                            <span className="font-medium">{r.eventLabel}</span>
+                          </span>
+                        </td>
                         <td className="px-4 py-1 text-muted-foreground tabular-nums whitespace-nowrap">{fmtAuditTs(r.ts)}</td>
                         <td className="px-4 py-1 text-muted-foreground whitespace-nowrap">{r.user}</td>
                         <td className="px-4 py-1 font-medium whitespace-nowrap">{r.label}</td>
