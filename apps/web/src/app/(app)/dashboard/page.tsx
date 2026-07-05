@@ -213,7 +213,7 @@ export default function DashboardPage() {
               <div>
                 <p className="text-xs font-medium text-muted-foreground">Contratos</p>
                 <p className="text-[11px] text-muted-foreground/70">
-                  {c?.byStatus.ATIVO ?? 0} ativos · {BRL.format(c?.valorAtivos ?? 0)} em vigência
+                  {c?.byStatus.VIGENTE ?? 0} vigentes · {BRL.format(c?.valorAtivos ?? 0)} em vigência
                 </p>
               </div>
             </div>

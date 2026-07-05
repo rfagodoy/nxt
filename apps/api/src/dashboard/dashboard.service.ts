@@ -12,8 +12,6 @@ const PARTNER_EVENT_LABEL: Record<string, string> = {
   ALTERADO:         'atualizou',
 }
 
-const CONTRACT_OPEN = ['ATIVO', 'PENDENTE', 'REVISAO', 'SUSPENSO'] // estados que ainda "vencem"
-
 /**
  * Distribui datas em N baldes mensais terminando no mês atual e calcula o
  * delta % do mês corrente vs. o anterior. Alimenta as sparklines do dashboard.
@@ -57,7 +55,7 @@ export class DashboardService {
         where:  { organizationId },
         select: {
           id: true, numero: true, titulo: true, situacao: true,
-          terminoVigencia: true, prazoIndeterminado: true, valorTotal: true, createdAt: true,
+          terminoVigencia: true, prazoIndeterminado: true, valorTotal: true, createdAt: true, aditivos: true,
         },
       }),
       this.prisma.partner.findMany({
@@ -88,21 +86,38 @@ export class DashboardService {
       }),
     ])
 
-    /* ── Contratos ── */
+    /* ── Contratos ── (situação/término/valor VIGENTES: aplica aditivos ATIVOS e deriva VENCIDO) ── */
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`
+    const derivar = (c: (typeof contracts)[number]) => {
+      let termino = c.terminoVigencia
+      let valor = c.valorTotal ?? 0
+      for (const a of ((c.aditivos as unknown as Array<Record<string, unknown>>) ?? [])) {
+        if (a.situacao === 'RASCUNHO') continue  // só aditivo ATIVO aplica (legado sem situacao = ativo)
+        if (a.alteraTermino && a.novoTermino) termino = a.novoTermino as string
+        if (a.alteraValor && a.novoValor != null) valor += Number(a.novoValor) || 0
+      }
+      let situacao = c.situacao
+      if (situacao === 'VIGENTE' && !c.prazoIndeterminado && termino && termino < todayStr) situacao = 'VENCIDO'
+      return { termino, valor, situacao }
+    }
+
     const contractsByStatus: Record<string, number> = {}
     let valorAtivos = 0
     for (const c of contracts) {
-      contractsByStatus[c.situacao] = (contractsByStatus[c.situacao] ?? 0) + 1
-      if (c.situacao === 'ATIVO') valorAtivos += c.valorTotal ?? 0
+      const d = derivar(c)
+      contractsByStatus[d.situacao] = (contractsByStatus[d.situacao] ?? 0) + 1
+      if (d.situacao === 'VIGENTE') valorAtivos += d.valor
     }
     const contractSeries = buildSeries(contracts.map(c => c.createdAt))
 
     const expiring = contracts
-      .filter(c => c.terminoVigencia && !c.prazoIndeterminado && CONTRACT_OPEN.includes(c.situacao))
-      .map(c => {
-        const t = new Date(c.terminoVigencia + 'T00:00:00')
+      .map(c => ({ c, d: derivar(c) }))
+      .filter(({ c, d }) => d.termino && !c.prazoIndeterminado && d.situacao === 'VIGENTE')
+      .map(({ c, d }) => {
+        const t = new Date(d.termino + 'T00:00:00')
         const daysLeft = Math.round((t.getTime() - today.getTime()) / DAY)
-        return { id: c.id, numero: c.numero, titulo: c.titulo, terminoVigencia: c.terminoVigencia, daysLeft }
+        return { id: c.id, numero: c.numero, titulo: c.titulo, terminoVigencia: d.termino as string, daysLeft }
       })
       .filter(e => e.daysLeft >= 0 && e.daysLeft <= 30)
       .sort((a, b) => a.daysLeft - b.daysLeft)
