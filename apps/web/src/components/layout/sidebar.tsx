@@ -7,13 +7,14 @@ import { useSession, logout } from '@/lib/session-context'
 import { useTheme } from 'next-themes'
 import {
   LayoutDashboard, GitBranch, PanelLeft,
-  Table2, Sun, Moon, LogOut, Users, KeyRound,
+  Table2, Sun, Moon, LogOut, Users, KeyRound, BellRing,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSidebar } from '@/contexts/sidebar-context'
 import { SYSTEM_MODULES } from '@/lib/modules-catalog'
 import { Logo } from './logo'
 import { ChangePasswordModal } from './change-password-modal'
+import { NotificationBell } from './notification-bell'
 
 interface NavItem    { href: string; label: string; icon?: React.ElementType }
 interface NavSection { label: string; items: NavItem[] }
@@ -31,9 +32,10 @@ const sections: NavSection[] = [
   {
     label: 'Configurações',
     items: [
-      { href: '/processes',          label: 'Processos', icon: GitBranch },
-      { href: '/settings/tabelas',   label: 'Tabelas',   icon: Table2   },
-      { href: '/settings/usuarios',  label: 'Usuários',  icon: Users    },
+      { href: '/processes',           label: 'Processos',    icon: GitBranch },
+      { href: '/settings/tabelas',    label: 'Tabelas',      icon: Table2    },
+      { href: '/settings/notificacoes', label: 'Notificações', icon: BellRing },
+      { href: '/settings/usuarios',   label: 'Usuários',     icon: Users     },
     ],
   },
 ]
@@ -160,7 +162,7 @@ function SidebarFooter({ collapsed }: { collapsed: boolean }) {
     <div className="border-t border-sidebar-border p-2">
       {collapsed ? (
         <div className="flex flex-col items-center gap-1">
-          {Avatar}{ThemeBtn}{PasswordBtn}{LogoutBtn}
+          {Avatar}<NotificationBell />{ThemeBtn}{PasswordBtn}{LogoutBtn}
         </div>
       ) : (
         <div className="flex items-center gap-2">
@@ -169,6 +171,7 @@ function SidebarFooter({ collapsed }: { collapsed: boolean }) {
             <p className="truncate text-xs font-medium tracking-tight text-sidebar-foreground">{name}</p>
             {email && <p className="truncate text-[10px] text-sidebar-muted">{email}</p>}
           </div>
+          <NotificationBell />
           {ThemeBtn}
           {PasswordBtn}
           {LogoutBtn}

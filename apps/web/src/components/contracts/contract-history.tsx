@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Plus, Pencil, CheckCircle2, RotateCcw, Lock, XCircle,
+  Plus, Pencil, CheckCircle2, RotateCcw, RotateCw, Lock, XCircle,
   FilePlus2, Banknote, Paperclip, RefreshCw, Loader2, Clock,
   SlidersHorizontal, X, type LucideIcon,
 } from 'lucide-react'
@@ -17,6 +17,7 @@ const EVENT_META: Record<string, { label: string; color: string; icon: LucideIco
   CRIADO:     { label: 'Contrato criado',       color: 'emerald', icon: Plus },
   ATUALIZADO: { label: 'Atualização',           color: 'blue',    icon: Pencil },
   ATIVADO:    { label: 'Contrato ativado',      color: 'emerald', icon: CheckCircle2 },
+  RENOVADO:   { label: 'Renovado automaticamente', color: 'teal', icon: RotateCw },
   EM_REVISAO: { label: 'Aberto para revisão',   color: 'amber',   icon: RotateCcw },
   ENCERRADO:  { label: 'Contrato encerrado',    color: 'gray',    icon: Lock },
   RESCINDIDO: { label: 'Contrato rescindido',   color: 'red',     icon: XCircle },

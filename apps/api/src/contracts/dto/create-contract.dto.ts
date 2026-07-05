@@ -138,6 +138,11 @@ export class CreateContractDto {
   @IsArray()
   documentos?: object[]
 
+  @ApiPropertyOptional({ type: [Object], description: 'Renovações automáticas (cláusula, não aditivo)' })
+  @IsOptional()
+  @IsArray()
+  renovacoes?: object[]
+
   @ApiPropertyOptional({ description: 'Usuário que originou o registro (para auditoria futura)' })
   @IsOptional()
   @IsString()

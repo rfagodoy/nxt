@@ -133,6 +133,8 @@ export const STATUS_ASSINATURA = [
 /* ─── modelo único do formulário de contrato ─────────────── */
 export interface CParte      { id: string; papel: string; ref_tipo: string; ref_id: string; nome: string; documento: string }
 export interface CReajuste   { id: string; indice: string; data: string; periodicidade: string }
+/** Renovação automática (cláusula, não aditamento): estende a vigência sem gerar aditivo. */
+export interface CRenovacao  { id: string; data: string; terminoAnterior: string; novoTermino: string; automatica: boolean }
 export interface CDocumento  { id: string; nome: string; tipo: string; data: string; arquivo_nome: string; arquivo_key: string; status_assinatura: string; observacao: string }
 /** Lançamento de pagamento (Despesa) ou recebimento (Receita). Mesma forma. */
 export interface CLancamento { id: string; data: string; valor: string; forma: string; documento: string; observacao: string }
@@ -156,7 +158,7 @@ export interface ContractFormValues {
   situacao: string; moeda: string; valorParcela: string; valorTotal: string
   condicaoPagamento: string; complementoValor: string
   reajustes: CReajuste[]; partes: CParte[]; documentos: CDocumento[]
-  pagamentos: CLancamento[]; recebimentos: CLancamento[]; aditivos: CAditivo[]
+  pagamentos: CLancamento[]; recebimentos: CLancamento[]; aditivos: CAditivo[]; renovacoes: CRenovacao[]
 }
 
 export const uid = () => `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -212,6 +214,8 @@ export const aditivoAtivo = (a: CAditivo) => a.situacao === 'ATIVO'
 export function terminoVigente(v: ContractFormValues): string {
   let t = v.terminoVigencia
   for (const a of v.aditivos) if (aditivoAtivo(a) && a.alteraTermino && a.novoTermino) t = a.novoTermino
+  /* renovações automáticas (cláusula, não aditivo) estendem a vigência; a mais tardia vence */
+  for (const r of (v.renovacoes ?? [])) if (r.novoTermino && r.novoTermino > t) t = r.novoTermino
   return t
 }
 /** Valor total vigente = valor inicial + soma dos acréscimos dos aditivos de valor ATIVOS. */
@@ -275,16 +279,23 @@ const rotuloAditivo = (a: CAditivo, idx: number) => a.numero ? `${a.numero}º ad
 export interface PeriodoVigencia { inicio: string; termino: string; label: string; aditivo: boolean; emVigor: boolean }
 export function periodosVigencia(v: ContractFormValues): PeriodoVigencia[] {
   if (v.prazoIndeterminado || !v.terminoVigencia) return []
+  /* eventos que estendem a vigência: aditivos de prorrogação (ATIVOS) + renovações automáticas */
+  const eventos: { termino: string; label: string; aditivo: boolean }[] = []
+  v.aditivos.forEach((a, idx) => {
+    if (aditivoAtivo(a) && a.alteraTermino && a.novoTermino) eventos.push({ termino: a.novoTermino, label: rotuloAditivo(a, idx), aditivo: true })
+  })
+  for (const r of (v.renovacoes ?? [])) if (r.novoTermino) eventos.push({ termino: r.novoTermino, label: 'Renovação automática', aditivo: false })
+  eventos.sort((a, b) => (a.termino < b.termino ? -1 : a.termino > b.termino ? 1 : 0)) // só estende → ordem cronológica
+
   const base: { inicio: string; termino: string; label: string; aditivo: boolean }[] = [
     { inicio: v.inicioVigencia, termino: v.terminoVigencia, label: 'Prazo original', aditivo: false },
   ]
   let anterior = v.terminoVigencia
-  v.aditivos.forEach((a, idx) => {
-    if (aditivoAtivo(a) && a.alteraTermino && a.novoTermino && a.novoTermino !== anterior) {
-      base.push({ inicio: proximoDiaISO(anterior), termino: a.novoTermino, label: rotuloAditivo(a, idx), aditivo: true })
-      anterior = a.novoTermino
-    }
-  })
+  for (const e of eventos) {
+    if (e.termino <= anterior) continue
+    base.push({ inicio: proximoDiaISO(anterior), termino: e.termino, label: e.label, aditivo: e.aditivo })
+    anterior = e.termino
+  }
   return base.map((p, i) => ({ ...p, emVigor: i === base.length - 1 }))
 }
 
@@ -393,7 +404,7 @@ export function emptyContractForm(): ContractFormValues {
     acaoTermino: 'MANUAL', renovacaoAnos: '', renovacaoMeses: '', renovacaoDias: '',
     situacao: 'EM_CADASTRO', moeda: '', valorParcela: '', valorTotal: '',
     condicaoPagamento: '', complementoValor: '', reajustes: [], partes: [], documentos: [],
-    pagamentos: [], recebimentos: [], aditivos: [],
+    pagamentos: [], recebimentos: [], aditivos: [], renovacoes: [],
   }
 }
 
@@ -424,6 +435,7 @@ export function contractFromApi(c: Record<string, any>): ContractFormValues {
       alteraObjeto:  !!a.alteraObjeto,  novoObjeto:  arr(a.novoObjeto) as string[], novoTitulo: a.novoTitulo ?? '', novaDescricao: a.novaDescricao ?? '',
       alteraPartes:  !!a.alteraPartes,  cessoes:     arr(a.cessoes).map((c: any) => ({ id: c.id ?? uid(), parteId: c.parteId ?? '', ref_tipo: c.ref_tipo ?? '', ref_id: c.ref_id ?? '', nome: c.nome ?? '', documento: c.documento ?? '' })),
     })),
+    renovacoes: arr(c.renovacoes).map((r: any) => ({ id: r.id ?? uid(), data: r.data ?? '', terminoAnterior: r.terminoAnterior ?? '', novoTermino: r.novoTermino ?? '', automatica: r.automatica !== false })),
   }
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -460,6 +472,7 @@ export function contractToPayload(v: ContractFormValues, extra: Record<string, u
       alteraPartes:  a.alteraPartes,  cessoes:     a.alteraPartes ? a.cessoes.map(c => ({ id: c.id, parteId: c.parteId, ref_tipo: c.ref_tipo, ref_id: c.ref_id, nome: c.nome, documento: c.documento })) : [],
     })),
     partes: v.partes.map(p => ({ id: p.id, papel: p.papel, ref_tipo: p.ref_tipo, ref_id: p.ref_id, nome: p.nome, documento: p.documento })),
+    renovacoes: v.renovacoes,
     ...extra,
   }
 }

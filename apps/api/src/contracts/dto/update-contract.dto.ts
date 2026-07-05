@@ -142,6 +142,11 @@ export class UpdateContractDto {
   @IsArray()
   documentos?: object[]
 
+  @ApiPropertyOptional({ type: [Object], description: 'Renovações automáticas (cláusula, não aditivo)' })
+  @IsOptional()
+  @IsArray()
+  renovacoes?: object[]
+
   @ApiPropertyOptional({ description: 'Usuário que originou a alteração (para auditoria futura)' })
   @IsOptional()
   @IsString()

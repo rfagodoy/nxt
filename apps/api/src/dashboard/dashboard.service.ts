@@ -56,7 +56,7 @@ export class DashboardService {
         where:  { organizationId },
         select: {
           id: true, numero: true, titulo: true, situacao: true,
-          terminoVigencia: true, prazoIndeterminado: true, valorTotal: true, createdAt: true, aditivos: true,
+          terminoVigencia: true, prazoIndeterminado: true, valorTotal: true, createdAt: true, aditivos: true, renovacoes: true,
         },
       }),
       this.prisma.partner.findMany({
@@ -97,6 +97,11 @@ export class DashboardService {
         if (a.situacao === 'RASCUNHO') continue  // só aditivo ATIVO aplica (legado sem situacao = ativo)
         if (a.alteraTermino && a.novoTermino) termino = a.novoTermino as string
         if (a.alteraValor && a.novoValor != null) valor += Number(a.novoValor) || 0
+      }
+      /* renovações automáticas estendem a vigência (cláusula, não aditivo) */
+      for (const r of ((c.renovacoes as unknown as Array<Record<string, unknown>>) ?? [])) {
+        const nt = r.novoTermino as string | undefined
+        if (nt && (!termino || nt > termino)) termino = nt
       }
       let situacao = c.situacao
       if (situacao === 'VIGENTE' && !c.prazoIndeterminado && termino && termino < todayStr) situacao = 'VENCIDO'

@@ -15,6 +15,7 @@ import { OrganizationModule } from './organization/organization.module'
 import { FilesModule } from './files/files.module'
 import { DashboardModule } from './dashboard/dashboard.module'
 import { UsersModule } from './users/users.module'
+import { NotificationsModule } from './notifications/notifications.module'
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { UsersModule } from './users/users.module'
     FilesModule,
     DashboardModule,
     UsersModule,
+    NotificationsModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],

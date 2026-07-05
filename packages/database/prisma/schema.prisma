@@ -243,10 +243,12 @@ model Contract {
   recebimentos        String   @default("[]") @db.NVarChar(Max) // [JSON] — recebimentos realizados (Receita/Ambos)
   aditivos            String   @default("[]") @db.NVarChar(Max) // [JSON] — termos aditivos (alteram término/valor/objeto/partes em vigor)
   documentos          String   @default("[]") @db.NVarChar(Max) // [JSON]
+  renovacoes          String   @default("[]") @db.NVarChar(Max) // [JSON] renovações automáticas: [{ id, data, terminoAnterior, novoTermino, automatica }]
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  auditLogs ContractAuditLog[]
+  auditLogs     ContractAuditLog[]
+  notifications Notification[]
 
   @@index([organizationId])
   @@map("contracts")
@@ -265,6 +267,38 @@ model ContractAuditLog {
 
   @@index([contractId])
   @@map("contract_audit_logs")
+}
+
+model Notification {
+  id             String   @id @default(cuid())
+  organizationId String
+  contractId     String
+  tipo           String   // VIGENCIA | REAJUSTE | CONSUMO
+  severidade     String   @default("INFO") // INFO | ALERTA | CRITICO
+  titulo         String
+  mensagem       String   @db.NVarChar(Max)
+  dedupKey       String   // ex.: "vigencia:<contractId>:30" — único por org, evita duplicar
+  createdAt      DateTime @default(now())
+
+  contract Contract           @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  reads    NotificationRead[]
+
+  @@unique([organizationId, dedupKey])
+  @@index([organizationId])
+  @@map("notifications")
+}
+
+model NotificationRead {
+  id             String   @id @default(cuid())
+  notificationId String
+  userId         String
+  readAt         DateTime @default(now())
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, userId])
+  @@index([notificationId])
+  @@map("notification_reads")
 }
 
 // ─── Documentos ──────────────────────────────────────────────────────────────
