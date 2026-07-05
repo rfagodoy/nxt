@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react'
-import { Plus, Trash2, Search, Upload, Download, Loader2, X, Eye, ChevronDown, FileText } from 'lucide-react'
+import { Plus, Trash2, Search, Upload, Download, Loader2, X, Eye, ChevronDown, FileText, RefreshCw, ListPlus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { useLookupTable } from '@/hooks/use-lookup-table'
@@ -136,14 +136,16 @@ const lookupOpts = (entries: { id: string; label: string }[]) => entries.map(e =
 const labelOf    = (entries: { id: string; label: string }[], value: string) => entries.find(e => e.id === value)?.label ?? value
 
 /** Campo monetário com máscara pt-BR e prefixo do código da moeda. `value` é o número como string. */
-function MoneyField({ value, moedaCode, onChange, ro }: { value: string; moedaCode: string; onChange: (v: string) => void; ro?: boolean }) {
+function MoneyField({ value, moedaCode, onChange, ro, bare }: { value: string; moedaCode: string; onChange: (v: string) => void; ro?: boolean; bare?: boolean }) {
   const num     = value ? parseFloat(value) : 0
   const display = value ? num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''
-  if (ro) return <span className={readCls}>{value ? `${moedaCode} ${display}` : '—'}</span>
+  if (ro) return <span className={readCls}>{value ? (bare ? display : `${moedaCode} ${display}`) : '—'}</span>
   const handle = (e: React.ChangeEvent<HTMLInputElement>) => {
     const digits = e.target.value.replace(/\D/g, '').slice(0, 13)
     onChange(digits ? String(parseInt(digits, 10) / 100) : '')
   }
+  /* bare: sem prefixo de moeda, alinhado à direita (para listas onde a moeda vive no resumo) */
+  if (bare) return <input inputMode="numeric" value={display} onChange={handle} placeholder="0,00" className={cn(inputCls, 'h-7 text-right tabular-nums')} />
   return (
     <div className="relative">
       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-muted-foreground pointer-events-none select-none">{moedaCode}</span>
@@ -297,10 +299,17 @@ export function VigenciaFields({ form, ro }: { form: ContractForm; ro?: boolean 
           {ro ? (
             <span className={readCls}>{renovacaoResumo(v) || '—'}</span>
           ) : (
-            <div className="grid grid-cols-3 gap-2">
-              <NumBox caption="Anos"  value={v.renovacaoAnos}  onChange={x => form.set('renovacaoAnos', x)} />
-              <NumBox caption="Meses" value={v.renovacaoMeses} onChange={x => form.set('renovacaoMeses', x)} />
-              <NumBox caption="Dias"  value={v.renovacaoDias}  onChange={x => form.set('renovacaoDias', x)} />
+            <div className="space-y-2">
+              {/* "Prazo indeterminado" torna a vigência sem término (marca Prazo indeterminado = Sim e oculta o Término) */}
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={false} onChange={e => { if (e.target.checked) form.set('prazoIndeterminado', true) }} className="h-3.5 w-3.5 rounded border-gray-300 accent-primary" />
+                <span className="text-xs text-muted-foreground">Prazo indeterminado (renova sem data de término)</span>
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                <NumBox caption="Anos"  value={v.renovacaoAnos}  onChange={x => form.set('renovacaoAnos', x)} />
+                <NumBox caption="Meses" value={v.renovacaoMeses} onChange={x => form.set('renovacaoMeses', x)} />
+                <NumBox caption="Dias"  value={v.renovacaoDias}  onChange={x => form.set('renovacaoDias', x)} />
+              </div>
             </div>
           )}
         </Field>
@@ -365,6 +374,15 @@ export function ValoresFields({ form, ro }: { form: ContractForm; ro?: boolean }
         </>
       )}
 
+      {/* Quantidade de parcelas — só faz sentido em prazo determinado; base do reajuste de parcela */}
+      {!v.prazoIndeterminado && (
+        <Field label="Quantidade de parcelas">
+          {ro
+            ? <span className={readCls}>{v.qtdParcelas || '—'}</span>
+            : <input type="number" min="0" step="1" value={v.qtdParcelas} onChange={e => form.set('qtdParcelas', e.target.value)} placeholder="Ex: 12" className={inputCls} />}
+        </Field>
+      )}
+
       {/* Totais realizados (soma automática das seções) + saldo — variam conforme a natureza */}
       {temPagamentos(v.natureza)   && <MoneyRead label="Pagamentos realizados"   value={totalPago}     moedaCode={v.moeda} />}
       {temRecebimentos(v.natureza) && <MoneyRead label="Recebimentos realizados" value={totalRecebido} moedaCode={v.moeda} />}
@@ -421,108 +439,320 @@ export function ValoresFields({ form, ro }: { form: ContractForm; ro?: boolean }
 
 /** Lançamentos (pagamentos OU recebimentos): tabela densa editável na própria linha.
  *  Editável mesmo com o contrato travado — registra-se pagamentos ao longo da vigência. */
-export function LancamentosFields({ form, field, moedaCode }: { form: ContractForm; field: 'pagamentos' | 'recebimentos'; moedaCode: string }) {
-  const v = form.values
-  const lista = v[field]
-  const singular = field === 'pagamentos' ? 'pagamento' : 'recebimento'
-  const total = somaLancamentos(lista)
-  const formas = useLookupTable(FORMAS_PGTO_KEY, INIT_FORMAS_PGTO)
-  const COLS = 'grid grid-cols-[7.5rem_9.5rem_8rem_8rem_1fr_1.5rem] items-center gap-2'
-  const cell = cn(inputCls, 'h-7')
+/** Tile de resumo (padrão bento) — rótulo pequeno + valor grande, opcionalmente com barra de progresso. */
+function StatTile({ label, value, bar, danger }: { label: string; value: string; bar?: number; danger?: boolean }) {
   return (
-    <div className="space-y-2">
-      {lista.length === 0 ? (
-        <p className="text-xs text-muted-foreground">Nenhum {singular} lançado. Adicione abaixo.</p>
-      ) : (
-        <div className="rounded-md border overflow-hidden">
-          <div className={cn(COLS, 'px-3 py-1.5 bg-muted/40 border-b text-[10px] font-semibold uppercase tracking-wide text-muted-foreground')}>
-            <span>Data</span><span>Valor</span><span>Forma</span><span>Nº doc.</span><span>Observação</span><span />
-          </div>
-          <div className="divide-y divide-border/50">
-            {lista.map(l => (
-              <div key={l.id} className={cn(COLS, 'group px-3 py-1 hover:bg-muted/30')}>
-                <input type="date" value={l.data} onChange={e => form.updLanc(field, l.id, 'data', e.target.value)} className={cell} />
-                <MoneyField value={l.valor} moedaCode={moedaCode} onChange={x => form.updLanc(field, l.id, 'valor', x)} />
-                <select value={l.forma} onChange={e => form.updLanc(field, l.id, 'forma', e.target.value)} className={cell}>
-                  <option value="">Forma...</option>
-                  {l.forma && !formas.active.some(f => f.id === l.forma) && <option value={l.forma}>{labelOf(formas.entries, l.forma)}</option>}
-                  {formas.active.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
-                </select>
-                <input value={l.documento} onChange={e => form.updLanc(field, l.id, 'documento', e.target.value)} placeholder="NF 1234" className={cell} />
-                <input value={l.observacao} onChange={e => form.updLanc(field, l.id, 'observacao', e.target.value)} placeholder="—" className={cell} />
-                <button type="button" onClick={() => form.remLanc(field, l.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-      <div className="flex items-center justify-between">
-        <button type="button" onClick={() => form.addLanc(field)} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar {singular}</button>
-        {lista.length > 0 && (
-          <span className="text-[11px] text-muted-foreground">Total: <span className="font-semibold tabular-nums text-foreground">{moedaCode ? `${moedaCode} ` : ''}{total.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
-        )}
-      </div>
+    <div className="rounded-lg border bg-card px-3 py-2 shadow-sm">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground truncate">{label}</p>
+      <p className={cn('mt-0.5 text-sm font-semibold tabular-nums', danger && 'text-red-600 dark:text-red-400')}>{value}</p>
+      {bar != null && <div className="mt-1.5 h-1 rounded-full bg-muted overflow-hidden"><div className={cn('h-full rounded-full', bar >= 100 ? 'bg-red-500' : 'bg-primary')} style={{ width: `${Math.min(100, bar)}%` }} /></div>}
     </div>
   )
 }
 
-/** Reajustes (múltiplos) em tabela compacta: Índice · Data · Periodicidade.
- *  Um índice só pode ser usado uma vez — o dropdown oferece apenas os ainda não utilizados. */
-export function ReajustesFields({ form, ro }: { form: ContractForm; ro?: boolean }) {
-  const indices = useLookupTable(INDICES_KEY, INIT_INDICES)
+/** Pagamentos/Recebimentos como "extrato operacional": resumo (total, nº, % do contrato, saldo),
+ *  toolbar fixa (adicionar / gerar em massa) e lista agrupada por ano — cada ano recolhível.
+ *  Editável mesmo com o contrato travado. */
+export function LancamentosFields({ form, field, moedaCode }: { form: ContractForm; field: 'pagamentos' | 'recebimentos'; moedaCode: string }) {
   const v = form.values
-  const COLS = 'grid grid-cols-[1fr_10rem_10rem_1.25rem] items-center gap-2'
+  const lista = v[field]
+  const singular = field === 'pagamentos' ? 'pagamento' : 'recebimento'
+  const rotulo   = field === 'pagamentos' ? 'pago' : 'recebido'
+  const saldoLbl = field === 'pagamentos' ? 'Saldo a pagar' : 'Saldo a receber'
+  const total  = somaLancamentos(lista)
+  const formas = useLookupTable(FORMAS_PGTO_KEY, INIT_FORMAS_PGTO)
+  const valorContrato = valorVigente(v)
+  const pct   = valorContrato > 0 ? Math.round((total / valorContrato) * 100) : 0
+  const saldo = valorContrato - total
+  const money = (n: number) => `${moedaCode ? moedaCode + ' ' : ''}${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
+  /* Agrupa por ano — a ORDEM só recalcula ao ADICIONAR/REMOVER/GERAR ou ao SAIR do campo de data
+     (onBlur). Assim o lançamento não "pula" enquanto a data é digitada; o valor exibido é ao vivo. */
+  const byId = new Map(lista.map(l => [l.id, l]))
+  const buildGrupos = (): [string, string[]][] => {
+    const ordenado = [...lista].sort((a, b) => {
+      if (!a.data && !b.data) return 0
+      if (!a.data) return 1   // sem data vai por último
+      if (!b.data) return -1
+      return a.data < b.data ? -1 : a.data > b.data ? 1 : 0
+    })
+    const byYear = new Map<string, string[]>()
+    for (const l of ordenado) {
+      const ano = l.data ? l.data.slice(0, 4) : '—'
+      if (!byYear.has(ano)) byYear.set(ano, [])
+      byYear.get(ano)!.push(l.id)
+    }
+    return [...byYear.entries()]
+  }
+  const [grupos, setGrupos] = useState<[string, string[]][]>(buildGrupos)
+  const prevLen = useRef(lista.length)
+  useEffect(() => {
+    if (lista.length !== prevLen.current) { prevLen.current = lista.length; setGrupos(buildGrupos()) }
+  }, [lista.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* recolher/expandir por ano — default: último ano com data aberto; "Sem data" sempre visível */
+  const [openYears, setOpenYears] = useState<Set<string>>(() => {
+    const anos = buildGrupos().map(([a]) => a).filter(a => a !== '—')
+    return new Set(anos.length ? [anos[anos.length - 1]] : [])
+  })
+  const yearOpen  = (ano: string) => ano === '—' || openYears.has(ano)
+  const toggleYear = (ano: string) => setOpenYears(s => { const n = new Set(s); n.has(ano) ? n.delete(ano) : n.add(ano); return n })
+  /* onBlur da data: re-agrupa e mantém visível o ano para onde a linha foi (evita "sumir") */
+  const reordenar = (anoAbrir?: string) => { setGrupos(buildGrupos()); if (anoAbrir) setOpenYears(s => new Set(s).add(anoAbrir)) }
+
+  /* ── gerar em massa (valor fixo) ─────────────────────────── */
+  const [gerarOpen, setGerarOpen] = useState(false)
+  const [gData, setGData]   = useState('')
+  const [gQtd, setGQtd]     = useState('')
+  const [gValor, setGValor] = useState('')
+  const [gForma, setGForma] = useState('')
+  const [gErr, setGErr]     = useState<string | null>(null)
+  const abrirGerar = () => {
+    setGData(v.inicioVigencia || ''); setGQtd(v.qtdParcelas || ''); setGValor(parcelaVigente(v) || v.valorParcela || ''); setGForma(''); setGErr(null)
+    setGerarOpen(o => !o)
+  }
+  const addMesesISO = (iso: string, n: number) => {
+    const [y, m, d] = iso.split('-').map(Number)
+    const dt = new Date(Date.UTC(y, m - 1 + n, d))
+    return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`
+  }
+  const gerar = () => {
+    const n = parseInt(gQtd, 10)
+    if (!gData)        { setGErr('Informe a data inicial.'); return }
+    if (!(n > 0))      { setGErr('Informe a quantidade de parcelas.'); return }
+    if (n > 240)       { setGErr('Máximo de 240 lançamentos por vez.'); return }
+    const novos = Array.from({ length: n }, (_, i) => {
+      const l = newCLancamento()
+      l.data  = addMesesISO(gData, i)
+      l.valor = gValor ? String(parseFloat(gValor) || 0) : ''
+      l.forma = gForma
+      return l
+    })
+    form.setValues(p => ({ ...p, [field]: [...p[field], ...novos] }))
+    setOpenYears(s => new Set([...s, ...novos.map(l => l.data.slice(0, 4))]))  // expande os anos gerados
+    setGerarOpen(false)
+  }
+
+  const COLS = 'grid grid-cols-[7.5rem_9rem_8rem_6.5rem_1fr_1.5rem] items-center gap-2'
   const cell = cn(inputCls, 'h-7')
+
   return (
-    <div className="space-y-2">
-      {v.reajustes.length === 0 ? (
-        <p className="text-xs text-muted-foreground">{ro ? 'Sem reajustes.' : 'Nenhum reajuste. Adicione abaixo.'}</p>
+    <div className="space-y-3">
+      {/* faixa de resumo (rola) */}
+      {lista.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <StatTile label={`Total ${rotulo}`} value={money(total)} />
+          <StatTile label="Lançamentos" value={String(lista.length)} />
+          {valorContrato > 0 && <StatTile label="% do contrato" value={`${pct}%`} bar={pct} />}
+          {valorContrato > 0 && <StatTile label={saldoLbl} value={money(saldo)} danger={saldo < 0} />}
+        </div>
+      )}
+
+      {/* toolbar fixa (não some ao rolar a lista) */}
+      <div className="sticky top-0 z-20 flex items-center justify-between gap-3 bg-background py-1.5 border-b border-border/60">
+        <div className="flex items-center gap-4">
+          <button type="button" onClick={() => form.addLanc(field)} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar {singular}</button>
+          <button type="button" onClick={abrirGerar} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-medium transition-colors"><ListPlus className="h-3.5 w-3.5" />Gerar em massa</button>
+        </div>
+        {lista.length > 0 && <span className="text-[11px] text-muted-foreground">{lista.length} lançamento{lista.length > 1 ? 's' : ''} · <span className="font-semibold tabular-nums text-foreground">{money(total)}</span></span>}
+      </div>
+
+      {/* gerar em massa (painel) */}
+      {gerarOpen && (
+        <div className="rounded-md border bg-muted/20 p-3 space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Gerar {singular}s em série (valor fixo)</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <label className="space-y-1">
+              <span className="text-[10px] font-medium text-muted-foreground">Data inicial</span>
+              <input type="date" value={gData} onChange={e => setGData(e.target.value)} className={cell} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[10px] font-medium text-muted-foreground">Quantidade (meses)</span>
+              <input type="number" min="1" step="1" value={gQtd} onChange={e => setGQtd(e.target.value)} placeholder={v.qtdParcelas || 'Ex: 12'} className={cell} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[10px] font-medium text-muted-foreground">Valor da parcela</span>
+              <MoneyField value={gValor} moedaCode={moedaCode} bare onChange={setGValor} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[10px] font-medium text-muted-foreground">Forma</span>
+              <select value={gForma} onChange={e => setGForma(e.target.value)} className={cell}>
+                <option value="">Forma...</option>
+                {formas.active.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+              </select>
+            </label>
+          </div>
+          <p className="text-[10px] text-muted-foreground">Gera 1 lançamento por mês a partir da data inicial. Você ajusta valores reajustados depois, se houver.</p>
+          {gErr && <p className="text-xs text-destructive">{gErr}</p>}
+          <div className="flex items-center justify-end gap-2">
+            <button type="button" onClick={() => setGerarOpen(false)} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Cancelar</button>
+            <button type="button" onClick={gerar} className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">Gerar {parseInt(gQtd, 10) > 0 ? `${parseInt(gQtd, 10)} ` : ''}{singular}s</button>
+          </div>
+        </div>
+      )}
+
+      {lista.length === 0 ? (
+        <p className="text-xs text-muted-foreground">Nenhum {singular} lançado. Use &ldquo;Adicionar&rdquo; para um a um, ou &ldquo;Gerar em massa&rdquo; para uma série mensal.</p>
       ) : (
         <div className="rounded-md border overflow-hidden">
-          <div className={cn(COLS, 'px-3 py-1.5 bg-muted/40 border-b text-[10px] font-semibold uppercase tracking-wide text-muted-foreground')}>
-            <span>Índice de reajuste</span><span>Data base de reajuste</span><span>Periodicidade</span><span />
-          </div>
-          <div className="divide-y divide-border/50">
-            {v.reajustes.map(r => {
-              /* índices já usados por OUTROS reajustes não são oferecidos (sem duplicidade) */
-              const usados = new Set(v.reajustes.filter(o => o.id !== r.id && o.indice).map(o => o.indice))
-              const opts   = indices.active.filter(i => !usados.has(i.id))
+          <div>
+            {grupos.map(([ano, ids]) => {
+              const itens = ids.map(id => byId.get(id)).filter(Boolean) as typeof lista
+              if (itens.length === 0) return null
+              const semData = ano === '—'
+              const aberto  = yearOpen(ano)
               return (
-                <div key={r.id} className={cn(COLS, 'group px-3 py-1.5 hover:bg-muted/30')}>
-                  {ro ? (
-                    <span className="text-xs font-medium truncate">{labelOf(indices.entries, r.indice) || '—'}</span>
-                  ) : (
-                    <select value={r.indice} onChange={e => form.updReaj(r.id, 'indice', e.target.value)} className={cell}>
-                      <option value="">Selecione...</option>
-                      {r.indice && !indices.active.some(i => i.id === r.indice) && <option value={r.indice}>{labelOf(indices.entries, r.indice)}</option>}
-                      {opts.map(i => <option key={i.id} value={i.id}>{i.label}</option>)}
-                    </select>
+                <div key={ano} className="border-b last:border-0">
+                  {/* subcabeçalho do ano — clicável para recolher/expandir (exceto "Sem data") */}
+                  <div
+                    role={semData ? undefined : 'button'}
+                    onClick={semData ? undefined : () => toggleYear(ano)}
+                    className={cn('flex items-center justify-between px-3 py-1 bg-muted/20 border-b border-border/40', !semData && 'cursor-pointer hover:bg-muted/40 transition-colors')}>
+                    <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      {!semData && <ChevronDown className={cn('h-3 w-3 transition-transform', aberto && 'rotate-180')} />}
+                      {semData ? 'Sem data' : ano}
+                      <span className="font-normal normal-case">· {itens.length} lançamento{itens.length > 1 ? 's' : ''}</span>
+                    </span>
+                    <span className="text-[10px] tabular-nums font-medium text-muted-foreground">{money(somaLancamentos(itens))}</span>
+                  </div>
+                  {aberto && (
+                    <div className="divide-y divide-border/50">
+                      {/* labels de coluna (por ano expandido) */}
+                      <div className={cn(COLS, 'px-3 py-1 bg-muted/10 text-[9px] font-medium uppercase tracking-wide text-muted-foreground/70')}>
+                        <span>Data</span><span className="text-right pr-2">Valor</span><span>Forma</span><span>Nº doc.</span><span>Observação</span><span />
+                      </div>
+                      {itens.map(l => (
+                        <div key={l.id} className={cn(COLS, 'group px-3 py-1 hover:bg-muted/30')}>
+                          <input type="date" value={l.data} onChange={e => form.updLanc(field, l.id, 'data', e.target.value)} onBlur={e => reordenar(e.target.value ? e.target.value.slice(0, 4) : undefined)} className={cell} />
+                          <MoneyField value={l.valor} moedaCode={moedaCode} bare onChange={x => form.updLanc(field, l.id, 'valor', x)} />
+                          <select value={l.forma} onChange={e => form.updLanc(field, l.id, 'forma', e.target.value)} className={cell}>
+                            <option value="">Forma...</option>
+                            {l.forma && !formas.active.some(f => f.id === l.forma) && <option value={l.forma}>{labelOf(formas.entries, l.forma)}</option>}
+                            {formas.active.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                          </select>
+                          <input value={l.documento} onChange={e => form.updLanc(field, l.id, 'documento', e.target.value)} placeholder="NF 1234" className={cell} />
+                          <input value={l.observacao} onChange={e => form.updLanc(field, l.id, 'observacao', e.target.value)} placeholder="—" className={cn(cell, 'text-muted-foreground')} />
+                          <button type="button" onClick={() => form.remLanc(field, l.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>
+                        </div>
+                      ))}
+                    </div>
                   )}
-                  {ro ? (
-                    <span className="text-xs truncate">{fmtMesAnoBR(r.data)}</span>
-                  ) : (
-                    <input type="month" value={r.data.slice(0, 7)} onChange={e => form.updReaj(r.id, 'data', e.target.value ? `${e.target.value}-01` : '')} className={cell} />
-                  )}
-                  {ro ? (
-                    <span className="text-xs truncate">{r.periodicidade || '—'}</span>
-                  ) : (
-                    <select value={r.periodicidade} onChange={e => form.updReaj(r.id, 'periodicidade', e.target.value)} className={cell}>
-                      <option value="">Selecione...</option>
-                      {PERIODICIDADES.map(p => <option key={p} value={p}>{p}</option>)}
-                    </select>
-                  )}
-                  {!ro ? (
-                    <button type="button" onClick={() => form.remReaj(r.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>
-                  ) : <span />}
                 </div>
               )
             })}
           </div>
+          {/* rodapé com total geral */}
+          <div className={cn(COLS, 'px-3 py-1.5 bg-muted/30 border-t')}>
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Total</span>
+            <span className="text-xs font-semibold tabular-nums text-right pr-2">{money(total)}</span>
+            <span /><span /><span /><span />
+          </div>
         </div>
       )}
-      {!ro && <button type="button" onClick={form.addReaj} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar reajuste</button>}
+    </div>
+  )
+}
 
-      <ReajustesRealizadosBlock form={form} indices={indices} />
+/** Reajustes: um card recolhível por índice (padrão dos aditivos). Cada card reúne o cadastro
+ *  (índice · data base · periodicidade) e o histórico de reajustes aplicados daquele índice.
+ *  Um índice só pode ser usado uma vez. O histórico é operável mesmo com o contrato travado. */
+export function ReajustesFields({ form, ro }: { form: ContractForm; ro?: boolean }) {
+  const indices = useLookupTable(INDICES_KEY, INIT_INDICES)
+  const v = form.values
+  const [open, setOpen] = useState<Set<string>>(new Set())
+  const toggle = (id: string) => setOpen(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })
+  /* novo índice já abre expandido; os demais começam recolhidos */
+  const handleAdd = () => {
+    const novo = newCReajuste()
+    form.setValues(p => ({ ...p, reajustes: [...p.reajustes, novo] }))
+    setOpen(p => new Set(p).add(novo.id))
+  }
+  return (
+    <div className="space-y-2">
+      {v.reajustes.length === 0 && (
+        <p className="text-xs text-muted-foreground">
+          {ro ? 'Nenhum índice de reajuste cadastrado.' : 'Nenhum índice de reajuste. Adicione um índice para acompanhar as datas e registrar os reajustes aplicados.'}
+        </p>
+      )}
+      {v.reajustes.map((r, idx) => (
+        <ReajusteCard key={r.id} r={r} idx={idx} form={form} indices={indices} ro={ro} open={open.has(r.id)} onToggle={() => toggle(r.id)} />
+      ))}
+      {!ro && <button type="button" onClick={handleAdd} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar índice de reajuste</button>}
+    </div>
+  )
+}
+
+/** Card recolhível de um índice de reajuste: cabeçalho-resumo (base, periodicidade, aplicados,
+ *  último, próximo) + corpo com o cadastro e o histórico de reajustes aplicados daquele índice. */
+function ReajusteCard({ r, idx, form, indices, ro, open, onToggle }: {
+  r: CReajuste; idx: number; form: ContractForm; indices: ReturnType<typeof useLookupTable>; ro?: boolean; open: boolean; onToggle: () => void
+}) {
+  const v = form.values
+  const cell = cn(inputCls, 'h-7')
+  /* índices já usados por OUTROS reajustes não são oferecidos (sem duplicidade) */
+  const opts = indices.active.filter(i => !new Set(v.reajustes.filter(o => o.id !== r.id && o.indice).map(o => o.indice)).has(i.id))
+  const indiceLabel = labelOf(indices.entries, r.indice)
+  const realizados = (v.reajustesRealizados ?? []).filter(x => x.reajusteId === r.id).sort((a, b) => (a.competencia < b.competencia ? 1 : -1))
+  const ultimo = realizados[0]
+  const anchor = realizados.length ? realizados[0].competencia.slice(0, 7) : r.data.slice(0, 7)
+  const proxima = (r.data && r.periodicidade) ? addMesesComp(anchor, stepMesesReaj(r.periodicidade)) : ''
+
+  return (
+    <div className="rounded-md border bg-card overflow-hidden">
+      {/* cabeçalho-resumo (recolhido) — clique para expandir */}
+      <div className={cn('flex items-center gap-2 px-3 py-2 bg-muted/30', open && 'border-b')}>
+        <button type="button" onClick={onToggle} className="flex flex-1 items-center gap-2 min-w-0 text-left">
+          <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
+          <RefreshCw className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <span className="text-[11px] font-semibold shrink-0">{r.indice ? indiceLabel : `Reajuste ${idx + 1}`}</span>
+          {r.data && <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">base {fmtMesAnoBR(r.data)}</span>}
+          {r.periodicidade && <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-foreground/70">{r.periodicidade}</span>}
+          {realizados.length > 0 && <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-foreground/70">{realizados.length} aplicado{realizados.length > 1 ? 's' : ''}</span>}
+          {ultimo && <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400 tabular-nums">último {ultimo.percentual ? `${ultimo.percentual.replace('.', ',')}% · ` : ''}{fmtMesAnoBR(ultimo.competencia)}</span>}
+          {proxima && !ro && <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-foreground/70 tabular-nums">próximo {fmtMesAnoBR(proxima)}</span>}
+        </button>
+        {!ro && <button type="button" onClick={() => form.remReaj(r.id)} title="Remover índice" className="shrink-0 text-muted-foreground hover:text-destructive transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>}
+      </div>
+
+      {open && (
+        <div className="p-3 space-y-3">
+          {/* cadastro do índice */}
+          <div className="grid grid-cols-3 gap-2">
+            <label className="space-y-1">
+              <span className="text-[10px] font-medium text-muted-foreground">Índice de reajuste</span>
+              {ro
+                ? <span className={cn(readCls, 'text-xs')}>{indiceLabel || '—'}</span>
+                : (
+                  <select value={r.indice} onChange={e => form.updReaj(r.id, 'indice', e.target.value)} className={cell}>
+                    <option value="">Selecione...</option>
+                    {r.indice && !indices.active.some(i => i.id === r.indice) && <option value={r.indice}>{indiceLabel}</option>}
+                    {opts.map(i => <option key={i.id} value={i.id}>{i.label}</option>)}
+                  </select>
+                )}
+            </label>
+            <label className="space-y-1">
+              <span className="text-[10px] font-medium text-muted-foreground">Data base de reajuste</span>
+              {ro
+                ? <span className={cn(readCls, 'text-xs')}>{fmtMesAnoBR(r.data)}</span>
+                : <input type="month" value={r.data.slice(0, 7)} onChange={e => form.updReaj(r.id, 'data', e.target.value ? `${e.target.value}-01` : '')} className={cell} />}
+            </label>
+            <label className="space-y-1">
+              <span className="text-[10px] font-medium text-muted-foreground">Periodicidade</span>
+              {ro
+                ? <span className={cn(readCls, 'text-xs')}>{r.periodicidade || '—'}</span>
+                : (
+                  <select value={r.periodicidade} onChange={e => form.updReaj(r.id, 'periodicidade', e.target.value)} className={cell}>
+                    <option value="">Selecione...</option>
+                    {PERIODICIDADES.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                )}
+            </label>
+          </div>
+
+          {/* histórico de reajustes aplicados deste índice */}
+          <ReajusteRealizados form={form} indices={indices} linha={r} />
+        </div>
+      )}
     </div>
   )
 }
@@ -537,74 +767,119 @@ const addMesesComp = (yyyymm: string, meses: number) => {
   return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}`
 }
 
-/** Bloco "Reajustes realizados": registra o FATO do reajuste (não a agenda — a próxima data segue derivada).
- *  Alimenta o valor vigente e ancora a próxima notificação. Operável mesmo com o cadastro travado (como lançamentos):
- *  aplicar reajuste é ação sobre o contrato vigente, persistida pelo botão "Salvar". */
-function ReajustesRealizadosBlock({ form, indices }: { form: ContractForm; indices: ReturnType<typeof useLookupTable> }) {
+const REAJ_BASES = [
+  { v: 'total',   l: 'Valor total' },
+  { v: 'parcela', l: 'Parcela'     },
+]
+const baseCurta = (b: string) => (b === 'parcela' ? 'Parcela' : 'Total')
+
+/** Histórico de reajustes aplicados de UM índice (dentro do card do índice). Registra o FATO
+ *  do reajuste (a próxima data segue derivada). Operável mesmo com o cadastro travado (como
+ *  lançamentos), persistido pelo botão "Salvar". Base Valor total | Parcela com default inteligente;
+ *  ao reajustar a PARCELA em prazo determinado, o novo total ACRESCENTA o stream: total + nova parcela × parcelas. */
+function ReajusteRealizados({ form, indices, linha }: { form: ContractForm; indices: ReturnType<typeof useLookupTable>; linha: CReajuste }) {
   const v = form.values
   const indiceVals = useIndiceValores()
-  const [aberto, setAberto]           = useState(false)
-  const [reajusteId, setReajusteId]   = useState('')
-  const [competencia, setCompetencia] = useState('')
-  const [percentual, setPercentual]   = useState('')
-  const [valorAnterior, setValorAnt]  = useState('')
-  const [valorNovo, setValorNovo]     = useState('')
-  const [observacao, setObservacao]   = useState('')
-  const [erro, setErro]               = useState<string | null>(null)
+  const [aberto, setAberto]             = useState(false)
+  const [competencia, setCompetencia]   = useState('')
+  const [percentual, setPercentual]     = useState('')
+  const [base, setBase]                 = useState('total')
+  const [valorAnterior, setValorAnt]    = useState('')
+  const [valorNovo, setValorNovo]       = useState('')
+  const [parcelaAnterior, setParcAnt]   = useState('')
+  const [parcelaNova, setParcNova]      = useState('')
+  const [parcelasReaj, setParcelasReaj] = useState('')
+  const [observacao, setObservacao]     = useState('')
+  const [erro, setErro]                 = useState<string | null>(null)
 
   const moedaFmt = (s: string | number) => `${v.moeda ? v.moeda + ' ' : ''}${(Number(s) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-  const linhasComIndice = v.reajustes.filter(r => r.indice)
-  const realizados = [...(v.reajustesRealizados ?? [])].sort((a, b) => (a.competencia < b.competencia ? 1 : -1))
+  const realizados = (v.reajustesRealizados ?? []).filter(x => x.reajusteId === linha.id).sort((a, b) => (a.competencia < b.competencia ? 1 : -1))
+  const derivaTotal = !v.prazoIndeterminado  // parcela reajusta o total só em prazo determinado (tem nº de parcelas)
+  /* competência não pode ser futura: reajuste realizado é um fato (já ocorreu) */
+  const mesAtual = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` })()
 
-  /* sugere a competência = uma periodicidade após a última aplicada (ou a data base) da linha */
-  const sugereCompetencia = (rid: string) => {
-    const linha = v.reajustes.find(r => r.id === rid); if (!linha) return ''
-    const comps = (v.reajustesRealizados ?? []).filter(x => x.reajusteId === rid).map(x => x.competencia.slice(0, 7)).filter(Boolean).sort()
+  /* default inteligente: contrato com parcela → 'parcela'; senão 'total' */
+  const baseInteligente = () => ((parseFloat(parcelaVigente(v)) || 0) > 0 ? 'parcela' : 'total')
+
+  /* sugere a competência = uma periodicidade após a última aplicada (ou a data base) deste índice;
+     opção (a): se a próxima ocorrência for futura, não sugere nada (não há reajuste a aplicar ainda) */
+  const sugereCompetencia = () => {
+    const comps = realizados.map(x => x.competencia.slice(0, 7)).filter(Boolean).sort()
     const anchor = comps.length ? comps[comps.length - 1] : linha.data.slice(0, 7)
-    return anchor ? addMesesComp(anchor, stepMesesReaj(linha.periodicidade)) : ''
+    const prox = anchor ? addMesesComp(anchor, stepMesesReaj(linha.periodicidade)) : ''
+    return prox && prox <= mesAtual ? prox : ''
   }
+  const sugerido = indiceVals.get(linha.indice, competencia)
 
-  const indiceDaLinha = (rid: string) => v.reajustes.find(r => r.id === rid)?.indice ?? ''
-  /* % sugerido pela tabela de Valores de índice (Fase 3) para o índice+competência atuais */
-  const sugerido = indiceVals.get(indiceDaLinha(reajusteId), competencia)
-
-  const recalcNovo = (pctStr: string, baseStr: string) => {
-    const base = parseFloat(baseStr) || 0
-    const pct  = parseFloat(String(pctStr).replace(',', '.')) || 0
-    if (base && pct) setValorNovo((base * (1 + pct / 100)).toFixed(2))
+  /* recalcula novo valor total (base total) OU nova parcela + total derivado (base parcela) */
+  const recalc = (pctStr: string, b: string, vAnt: string, pAnt: string, parcReaj: string) => {
+    const pct = parseFloat(String(pctStr).replace(',', '.')) || 0
+    if (b === 'total') {
+      const va = parseFloat(vAnt) || 0
+      if (va && pct) setValorNovo((va * (1 + pct / 100)).toFixed(2))
+      return
+    }
+    // base = parcela
+    const pa = parseFloat(pAnt) || 0
+    const novaP = (pa && pct) ? pa * (1 + pct / 100) : (parseFloat(parcelaNova) || 0)
+    if (pa && pct) setParcNova(novaP.toFixed(2))
+    if (derivaTotal) {
+      // acréscimo ao total = novo stream de parcelas inteiro (nova parcela × parcelas a reajustar)
+      const totalVig = valorVigente(v)
+      const qtd = parseFloat(parcReaj) || 0
+      setValorAnt(totalVig ? totalVig.toFixed(2) : '0')
+      if (novaP) setValorNovo((totalVig + novaP * qtd).toFixed(2))
+    }
   }
-  /* ao definir índice+competência, se houver valor na tabela, pré-preenche o % e recalcula */
-  const aplicarSugestao = (rid: string, comp: string, base: string) => {
-    const sug = indiceVals.get(indiceDaLinha(rid), comp)
-    if (sug != null) { setPercentual(String(sug).replace('.', ',')); recalcNovo(String(sug), base) }
+  /* se houver valor na tabela de índices p/ este índice + competência, pré-preenche o % e recalcula */
+  const aplicarSugestao = (comp: string, b: string, vAnt: string, pAnt: string, parcReaj: string) => {
+    const sug = indiceVals.get(linha.indice, comp)
+    if (sug != null) { setPercentual(String(sug).replace('.', ',')); recalc(String(sug), b, vAnt, pAnt, parcReaj) }
   }
 
   const abrir = () => {
-    const rid  = linhasComIndice[0]?.id ?? ''
-    const base = valorVigente(v)
-    const comp = rid ? sugereCompetencia(rid) : ''
-    const baseStr = base ? base.toFixed(2) : ''
-    setReajusteId(rid); setCompetencia(comp)
-    setPercentual(''); setValorAnt(baseStr); setValorNovo(''); setObservacao(''); setErro(null)
+    const b    = baseInteligente()
+    const comp = sugereCompetencia()
+    const vAnt = b === 'total' ? (valorVigente(v) ? valorVigente(v).toFixed(2) : '') : ''
+    const pAnt = b === 'parcela' ? (parcelaVigente(v) || '') : ''
+    const pReaj = (b === 'parcela' && derivaTotal) ? (v.qtdParcelas || '') : ''
+    setCompetencia(comp); setBase(b)
+    setPercentual(''); setValorAnt(vAnt); setValorNovo(''); setParcAnt(pAnt); setParcNova(''); setParcelasReaj(pReaj); setObservacao(''); setErro(null)
     setAberto(true)
-    if (rid && comp) aplicarSugestao(rid, comp, baseStr)
+    if (comp) aplicarSugestao(comp, b, vAnt, pAnt, pReaj)
   }
-  const onSelectLinha = (rid: string) => { const comp = sugereCompetencia(rid); setReajusteId(rid); setCompetencia(comp); aplicarSugestao(rid, comp, valorAnterior) }
-  const onCompetencia = (comp: string) => { setCompetencia(comp); aplicarSugestao(reajusteId, comp, valorAnterior) }
-  const onPercentual = (p: string) => { setPercentual(p); recalcNovo(p, valorAnterior) }
-  const onValorAnterior = (val: string) => { setValorAnt(val); recalcNovo(percentual, val) }
+  const onBase = (b: string) => {
+    const vAnt  = b === 'total'   ? (valorAnterior   || (valorVigente(v) ? valorVigente(v).toFixed(2) : '')) : valorAnterior
+    const pAnt  = b === 'parcela' ? (parcelaAnterior || parcelaVigente(v) || '') : parcelaAnterior
+    const pReaj = (b === 'parcela' && derivaTotal) ? (parcelasReaj || v.qtdParcelas || '') : parcelasReaj
+    setBase(b); setValorAnt(vAnt); setParcAnt(pAnt); setParcelasReaj(pReaj); recalc(percentual, b, vAnt, pAnt, pReaj)
+  }
+  const onCompetencia = (comp: string) => { setCompetencia(comp); aplicarSugestao(comp, base, valorAnterior, parcelaAnterior, parcelasReaj) }
+  const onPercentual = (p: string) => { setPercentual(p); recalc(p, base, valorAnterior, parcelaAnterior, parcelasReaj) }
+  const onValorAnterior   = (val: string) => { setValorAnt(val); recalc(percentual, base, val, parcelaAnterior, parcelasReaj) }
+  const onParcelaAnterior = (val: string) => { setParcAnt(val); recalc(percentual, base, valorAnterior, val, parcelasReaj) }
+  const onParcelasReaj    = (val: string) => { setParcelasReaj(val); recalc(percentual, base, valorAnterior, parcelaAnterior, val) }
 
   const registrar = () => {
-    if (!reajusteId)                     { setErro('Selecione o índice do reajuste.'); return }
-    if (!competencia)                    { setErro('Informe a competência (mês/ano).'); return }
-    if (!(parseFloat(valorNovo) > 0))    { setErro('Informe o novo valor do contrato.'); return }
-    const linha = v.reajustes.find(r => r.id === reajusteId)
-    const rec = newCReajusteRealizado(reajusteId)
+    if (!linha.indice) { setErro('Defina o índice deste reajuste acima primeiro.'); return }
+    if (!competencia)  { setErro('Informe a competência (mês/ano).'); return }
+    if (competencia > mesAtual) { setErro(`A competência não pode ser futura — o reajuste ainda não ocorreu (mês atual: ${fmtMesAnoBR(mesAtual)}).`); return }
+    if (base === 'total'   && !(parseFloat(valorNovo) > 0))   { setErro('Informe o novo valor total.'); return }
+    if (base === 'parcela' && !(parseFloat(parcelaNova) > 0)) { setErro('Informe a nova parcela.'); return }
+    const rec = newCReajusteRealizado(linha.id)
     rec.competencia    = `${competencia}-01`
-    rec.indiceSnapshot = labelOf(indices.entries, linha?.indice ?? '') || ''
+    rec.indiceSnapshot = labelOf(indices.entries, linha.indice) || ''
+    rec.base           = base
     rec.percentual     = percentual ? String(parseFloat(String(percentual).replace(',', '.')) || 0) : ''
-    rec.valorAnterior  = String(parseFloat(valorAnterior) || 0)
-    rec.valorNovo      = String(parseFloat(valorNovo) || 0)
+    if (base === 'total') {
+      rec.valorAnterior = String(parseFloat(valorAnterior) || 0); rec.valorNovo = String(parseFloat(valorNovo) || 0)
+    } else {
+      rec.parcelaAnterior = String(parseFloat(parcelaAnterior) || 0); rec.parcelaNova = String(parseFloat(parcelaNova) || 0)
+      if (derivaTotal) {  // parcela também move o total, via nº de parcelas a reajustar
+        rec.parcelasReajustadas = String(parseInt(parcelasReaj, 10) || 0)
+        rec.valorAnterior = String(parseFloat(valorAnterior) || 0); rec.valorNovo = String(parseFloat(valorNovo) || 0)
+      }
+    }
     rec.observacao     = observacao.trim()
     rec.dataAplicacao  = new Date().toISOString().slice(0, 10)
     rec.createdAt      = new Date().toISOString()
@@ -613,14 +888,22 @@ function ReajustesRealizadosBlock({ form, indices }: { form: ContractForm; indic
   }
 
   const fmtComp = (c: string) => fmtMesAnoBR(c)
-  const selCls = cn(inputCls, 'h-7')
+  const transicao = (r: CReajusteRealizado) => r.base === 'parcela'
+    ? `${moedaFmt(r.parcelaAnterior)} → ${moedaFmt(r.parcelaNova)}`
+    : `${moedaFmt(r.valorAnterior)} → ${moedaFmt(r.valorNovo)}`
+  const selCls  = cn(inputCls, 'h-7')
+  const readCls2 = cn(selCls, 'bg-muted/40 text-muted-foreground')
+  /* valor das parcelas reajustadas = nova parcela × parcelas a reajustar */
+  const novoValorParcelas = (parseFloat(parcelaNova) || 0) * (parseInt(parcelasReaj, 10) || 0)
 
   return (
-    <div className="space-y-2 pt-2 border-t border-border/60">
+    <div className="space-y-2 pt-3 border-t border-border/60">
       <div className="flex items-center justify-between">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Reajustes realizados</p>
-        {!aberto && linhasComIndice.length > 0 && (
-          <button type="button" onClick={abrir} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Registrar reajuste</button>
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Reajustes aplicados</p>
+        {!aberto && (
+          linha.indice
+            ? <button type="button" onClick={abrir} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Registrar reajuste</button>
+            : <span className="text-[10px] text-muted-foreground">Defina o índice para registrar</span>
         )}
       </div>
 
@@ -628,16 +911,16 @@ function ReajustesRealizadosBlock({ form, indices }: { form: ContractForm; indic
         <p className="text-xs text-muted-foreground">Nenhum reajuste aplicado.</p>
       ) : realizados.length > 0 && (
         <div className="rounded-md border overflow-hidden">
-          <div className="grid grid-cols-[7rem_1fr_6rem_1fr_1.25rem] items-center gap-2 px-3 py-1.5 bg-muted/40 border-b text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            <span>Competência</span><span>Índice</span><span>Percentual</span><span>Valor (ant. → novo)</span><span />
+          <div className="grid grid-cols-[6.5rem_5rem_4.5rem_1fr_1.25rem] items-center gap-2 px-3 py-1.5 bg-muted/40 border-b text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <span>Competência</span><span>Percentual</span><span>Base</span><span>Ant. → novo</span><span />
           </div>
           <div className="divide-y divide-border/50">
             {realizados.map(r => (
-              <div key={r.id} className="group grid grid-cols-[7rem_1fr_6rem_1fr_1.25rem] items-center gap-2 px-3 py-1.5 hover:bg-muted/30">
+              <div key={r.id} className="group grid grid-cols-[6.5rem_5rem_4.5rem_1fr_1.25rem] items-center gap-2 px-3 py-1.5 hover:bg-muted/30">
                 <span className="text-xs font-medium tabular-nums">{fmtComp(r.competencia)}</span>
-                <span className="text-xs truncate">{r.indiceSnapshot || '—'}</span>
                 <span className="text-xs tabular-nums">{r.percentual ? `${r.percentual.replace('.', ',')}%` : '—'}</span>
-                <span className="text-xs tabular-nums truncate">{moedaFmt(r.valorAnterior)} <span className="text-muted-foreground">→</span> <span className="font-medium">{moedaFmt(r.valorNovo)}</span></span>
+                <span className="text-[10px]"><span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 font-medium text-foreground/70">{baseCurta(r.base)}</span></span>
+                <span className="text-xs tabular-nums truncate" title={r.base === 'parcela' && Number(r.parcelasReajustadas) ? `${r.parcelasReajustadas} parcela(s)` : undefined}>{transicao(r)}</span>
                 <button type="button" onClick={() => form.remReajRealizado(r.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>
               </div>
             ))}
@@ -649,32 +932,62 @@ function ReajustesRealizadosBlock({ form, indices }: { form: ContractForm; indic
         <div className="rounded-md border bg-muted/20 p-3 space-y-2">
           <div className="grid grid-cols-2 gap-2">
             <label className="space-y-1">
-              <span className="text-[10px] font-medium text-muted-foreground">Índice de reajuste</span>
-              <select value={reajusteId} onChange={e => onSelectLinha(e.target.value)} className={selCls}>
-                <option value="">Selecione...</option>
-                {linhasComIndice.map(r => <option key={r.id} value={r.id}>{labelOf(indices.entries, r.indice)}{r.periodicidade ? ` · ${r.periodicidade}` : ''}</option>)}
+              <span className="text-[10px] font-medium text-muted-foreground">Competência (mês/ano)</span>
+              <input type="month" value={competencia} max={mesAtual} onChange={e => onCompetencia(e.target.value)} className={selCls} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[10px] font-medium text-muted-foreground">Reajustar</span>
+              <select value={base} onChange={e => onBase(e.target.value)} className={selCls}>
+                {REAJ_BASES.map(b => <option key={b.v} value={b.v}>{b.l}</option>)}
               </select>
             </label>
-            <label className="space-y-1">
-              <span className="text-[10px] font-medium text-muted-foreground">Competência (mês/ano)</span>
-              <input type="month" value={competencia} onChange={e => onCompetencia(e.target.value)} className={selCls} />
-            </label>
-            <label className="space-y-1">
+            <label className="space-y-1 col-span-2">
               <span className="text-[10px] font-medium text-muted-foreground">
                 Percentual aplicado (%)
                 {sugerido != null && <span className="ml-1 text-emerald-600 dark:text-emerald-400 font-normal">· índice: {String(sugerido).replace('.', ',')}%</span>}
               </span>
               <input value={percentual} onChange={e => onPercentual(e.target.value)} placeholder="0,00" className={selCls} />
             </label>
-            <label className="space-y-1">
-              <span className="text-[10px] font-medium text-muted-foreground">Valor anterior</span>
-              <input value={valorAnterior} onChange={e => onValorAnterior(e.target.value)} placeholder="0,00" className={selCls} />
-            </label>
-            <label className="space-y-1">
-              <span className="text-[10px] font-medium text-muted-foreground">Novo valor</span>
-              <input value={valorNovo} onChange={e => setValorNovo(e.target.value)} placeholder="0,00" className={selCls} />
-            </label>
-            <label className="space-y-1">
+            {base === 'total' ? (
+              <>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-medium text-muted-foreground">Valor total anterior</span>
+                  <input value={valorAnterior} onChange={e => onValorAnterior(e.target.value)} placeholder="0,00" className={selCls} />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-medium text-muted-foreground">Novo valor total</span>
+                  <input value={valorNovo} onChange={e => setValorNovo(e.target.value)} placeholder="0,00" className={selCls} />
+                </label>
+              </>
+            ) : (
+              <>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-medium text-muted-foreground">Parcela anterior</span>
+                  <input value={parcelaAnterior} onChange={e => onParcelaAnterior(e.target.value)} placeholder="0,00" className={selCls} />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-medium text-muted-foreground">Nova parcela</span>
+                  <input value={parcelaNova} onChange={e => setParcNova(e.target.value)} placeholder="0,00" className={selCls} />
+                </label>
+                {derivaTotal && (
+                  <>
+                    <label className="space-y-1">
+                      <span className="text-[10px] font-medium text-muted-foreground">Parcelas a reajustar</span>
+                      <input type="number" min="0" step="1" value={parcelasReaj} onChange={e => onParcelasReaj(e.target.value)} placeholder={v.qtdParcelas || 'Ex: 12'} className={selCls} />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[10px] font-medium text-muted-foreground">Novo valor das parcelas</span>
+                      <input value={novoValorParcelas ? novoValorParcelas.toFixed(2) : ''} readOnly title="Nova parcela × parcelas a reajustar" className={readCls2} />
+                    </label>
+                    <label className="space-y-1 col-span-2">
+                      <span className="text-[10px] font-medium text-muted-foreground">Novo valor total do contrato (calculado)</span>
+                      <input value={valorNovo} readOnly title="Total vigente + (nova parcela × parcelas a reajustar)" className={readCls2} />
+                    </label>
+                  </>
+                )}
+              </>
+            )}
+            <label className="space-y-1 col-span-2">
               <span className="text-[10px] font-medium text-muted-foreground">Observação</span>
               <input value={observacao} onChange={e => setObservacao(e.target.value)} placeholder="Opcional" className={selCls} />
             </label>

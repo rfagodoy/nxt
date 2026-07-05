@@ -1,12 +1,12 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { TrendingUp, Plus, Trash2, Download, Loader2 } from 'lucide-react'
+import { TrendingUp, Plus, Trash2, Download, Loader2, RefreshCw, CloudDownload } from 'lucide-react'
 import { LookupTablePage } from '@/components/settings/lookup-table'
 import { apiFetch } from '@/lib/http'
-import { useLookupTable } from '@/hooks/use-lookup-table'
+import { useLookupTable, type LookupEntry } from '@/hooks/use-lookup-table'
 import { useIndiceValores } from '@/hooks/use-indice-valores'
-import { INDICES_KEY, INIT_INDICES } from '@/lib/contract-options'
+import { INDICES_KEY, INIT_INDICES, BCB_INDICES, normIndiceLabel } from '@/lib/contract-options'
 
 const inputCls = 'flex h-8 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
 const fmtComp = (yyyymm: string) => { const [y, m] = yyyymm.split('-'); return m && y ? `${m}/${y}` : yyyymm }
@@ -57,6 +57,40 @@ function IndiceValoresManager() {
     setNovaComp(''); setNovoPct('')
   }
 
+  /* ações em lote: sincronizar catálogo com o BCB + importar séries completas */
+  const [syncing, setSyncing] = useState(false)
+  const [bulkMsg, setBulkMsg] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null)
+
+  const sincronizarCatalogo = () => {
+    const merged: LookupEntry[] = indices.entries.map(e => ({ ...e }))
+    for (const c of BCB_INDICES) {
+      const found = merged.find(e => normIndiceLabel(e.label) === normIndiceLabel(c.label))
+      if (found) { if (!found.code) found.code = c.sgs }
+      else merged.push({ id: `bcb_${c.sgs}`, label: c.label, code: c.sgs, active: true })
+    }
+    indices.replace(merged)
+    setBulkMsg({ tipo: 'ok', texto: 'Catálogo sincronizado: índices do BCB adicionados e códigos SGS preenchidos.' })
+  }
+
+  const importarTudo = async () => {
+    const comSgs = indices.entries.filter(e => e.code && /^\d+$/.test(e.code))
+    if (!comSgs.length) { setBulkMsg({ tipo: 'erro', texto: 'Nenhum índice com Código SGS. Sincronize o catálogo primeiro.' }); return }
+    setSyncing(true); setBulkMsg(null)
+    let ok = 0, fail = 0
+    for (const e of comSgs) {
+      try {
+        const res = await apiFetch(`/api/contracts/indices/bcb?code=${e.code}&full=1`)
+        if (!res.ok) { fail++; continue }
+        const dados = await res.json() as Array<{ competencia: string; valor: number }>
+        const map: Record<string, number> = {}
+        for (const d of dados) map[d.competencia] = d.valor
+        if (Object.keys(map).length) { store.mergeMany(e.id, map); ok++ } else fail++
+      } catch { fail++ }
+    }
+    setSyncing(false)
+    setBulkMsg({ tipo: fail && !ok ? 'erro' : 'ok', texto: `Séries completas importadas: ${ok} índice(s)${fail ? `, ${fail} falha(s)` : ''}.` })
+  }
+
   /* import do Banco Central — SGS vem do código do índice, editável */
   const [sgs, setSgs]     = useState('')
   const [de, setDe]       = useState('')
@@ -94,6 +128,20 @@ function IndiceValoresManager() {
         <p className="text-[11px] text-muted-foreground mt-0.5">
           A série é a fonte de verdade — preencha manualmente ou importe do Banco Central. Sugere o percentual ao aplicar um reajuste.
         </p>
+      </div>
+
+      {/* ações em lote */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={sincronizarCatalogo}
+          className="inline-flex items-center gap-1.5 h-8 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors">
+          <RefreshCw className="h-3.5 w-3.5" />Sincronizar catálogo (BCB)
+        </button>
+        <button type="button" onClick={importarTudo} disabled={syncing}
+          className="inline-flex items-center gap-1.5 h-8 rounded-md border px-3 text-xs font-medium hover:bg-muted disabled:opacity-40 transition-colors">
+          {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CloudDownload className="h-3.5 w-3.5" />}
+          {syncing ? 'Importando séries...' : 'Importar séries completas'}
+        </button>
+        {bulkMsg && <span className={bulkMsg.tipo === 'ok' ? 'text-xs text-emerald-600 dark:text-emerald-400' : 'text-xs text-destructive'}>{bulkMsg.texto}</span>}
       </div>
 
       <label className="block space-y-1 max-w-xs">

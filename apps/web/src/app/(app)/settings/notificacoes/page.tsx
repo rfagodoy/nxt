@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { CalendarClock, RefreshCw, Gauge, RotateCw, Save, ShieldAlert, Check } from 'lucide-react'
+import { CalendarClock, RefreshCw, Gauge, RotateCw, Save, ShieldAlert, Check, CloudDownload } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/lib/session-context'
 import { cacheRead, pullSetting, pushSetting } from '@/lib/settings-store'
@@ -13,12 +13,14 @@ interface Params {
   reajuste: { enabled: boolean; dias: number }
   consumo:  { enabled: boolean; percentuais: number[] }
   renovacaoAutomatica: boolean
+  indicesAutoImport: boolean
 }
 const DEFAULT: Params = {
   vigencia: { enabled: true, dias: [60, 30, 7] },
   reajuste: { enabled: true, dias: 15 },
   consumo:  { enabled: true, percentuais: [80, 100] },
   renovacaoAutomatica: true,
+  indicesAutoImport: true,
 }
 
 /* parse "60, 30, 7" → [60,30,7] (positivos, únicos, ordenados desc) */
@@ -95,6 +97,10 @@ export default function NotificacoesParams() {
       <Card icon={RotateCw} color="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
         title="Renovação automática" desc="Ao vencer, contratos com ação 'Renovar' têm a vigência estendida pelo prazo definido em cada contrato (registrado no Histórico, sem gerar aditivo)."
         on={p.renovacaoAutomatica} onToggle={v => setP({ ...p, renovacaoAutomatica: v })} />
+
+      <Card icon={CloudDownload} color="bg-rose-500/10 text-rose-600 dark:text-rose-400"
+        title="Atualização automática de índices (BCB)" desc="Diariamente, importa do Banco Central a série mensal dos índices com Código SGS cadastrado. Desligue em ambientes sem internet (a tabela manual continua valendo)."
+        on={p.indicesAutoImport} onToggle={v => setP({ ...p, indicesAutoImport: v })} />
 
       <Card icon={CalendarClock} color="bg-amber-500/10 text-amber-600 dark:text-amber-400"
         title="Alerta de vigência" desc="Notifica quando o término da vigência se aproxima. Informe as faixas de antecedência — quanto menor o prazo restante, mais crítico o alerta."
