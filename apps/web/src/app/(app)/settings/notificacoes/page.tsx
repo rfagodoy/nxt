@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { CalendarClock, RefreshCw, Gauge, RotateCw, Save, ShieldAlert, Check, CloudDownload, Play, Loader2, Eye } from 'lucide-react'
+import { CalendarClock, RefreshCw, Gauge, RotateCw, Save, ShieldAlert, Check, CloudDownload, Play, Loader2, Eye, PauseCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/lib/session-context'
 import { cacheRead, pullSetting, pushSetting } from '@/lib/settings-store'
@@ -12,17 +12,20 @@ const KEY = 'nxt:settings:notificacoes'
 
 interface Params {
   vigencia: { enabled: boolean; dias: number[] }
-  reajuste: { enabled: boolean; dias: number; automatico: boolean }
+  reajuste: { enabled: boolean; dias: number }
   consumo:  { enabled: boolean; percentuais: number[] }
   renovacaoAutomatica: boolean
   indicesAutoImport: boolean
+  /** freio de emergência — quem autoriza o reajuste automático é a linha do contrato */
+  reajustePausado: boolean
 }
 const DEFAULT: Params = {
   vigencia: { enabled: true, dias: [60, 30, 7] },
-  reajuste: { enabled: true, dias: 15, automatico: false },
+  reajuste: { enabled: true, dias: 15 },
   consumo:  { enabled: true, percentuais: [80, 100] },
   renovacaoAutomatica: true,
   indicesAutoImport: true,
+  reajustePausado: false,
 }
 
 /** Resumo retornado por POST /api/notifications/run */
@@ -31,12 +34,31 @@ interface ReajusteAplicado {
   valorAnterior: number; valorNovo: number; parcelaAnterior: number; parcelaNova: number
   parcelasReajustadas: number; pagasAlcancadas: number; diferencaNaoCobrada: number
 }
+/** Reajuste devido que o motor NÃO aplicou. Sem isto a execução devolvia "0 reajustes"
+ *  sem dizer por quê, e descobrir o motivo exigia ler o banco. */
+interface ReajustePendente {
+  numero: string; indice: string; competencia: string; percentual: number
+  motivo: 'PAUSADO' | 'INTERROMPIDO' | 'MANUAL' | 'SEM_SERIE' | 'JANELA_INCOMPLETA' | 'SEM_AGENDA' | 'NAO_VENCIDO'
+}
 interface RunResult {
   dryRun: boolean; indices: number; renovados: number; encerrados: number
-  notificacoes: number; resolvidas: number; reajustes: number; detalhe: ReajusteAplicado[]
+  notificacoes: number; resolvidas: number; reajustes: number
+  detalhe: ReajusteAplicado[]; pendentes: ReajustePendente[]
 }
 const BRL = (n: number) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const mesAno = (iso: string) => (iso ? iso.slice(0, 7).split('-').reverse().join('/') : '—')
+
+/* O motivo é a mensagem — escrito para quem opera, não para quem escreveu o motor.
+   Cada texto diz ONDE está a chave: um motivo que não indica o lugar manda quem lê procurar. */
+const MOTIVO: Record<ReajustePendente['motivo'], { texto: string; acao: string }> = {
+  PAUSADO:           { texto: 'Motor de reajuste pausado', acao: 'Um administrador acionou o freio de emergência. Despause no cartão abaixo (e Salvar).' },
+  MANUAL:            { texto: 'Aplicação “Manual” no contrato', acao: 'No contrato, aba Reajustes, mude Aplicação para “Automática (Motor aplica)”.' },
+  SEM_SERIE:         { texto: 'Índice do período não publicado', acao: 'Aguarde a divulgação ou lance o valor na tabela de índices.' },
+  JANELA_INCOMPLETA: { texto: 'Índice do período publicado só em parte', acao: 'O motor tenta de novo quando o período fechar.' },
+  SEM_AGENDA:        { texto: 'Linha sem índice ou sem data base', acao: 'Complete o cadastro do reajuste no contrato.' },
+  INTERROMPIDO:      { texto: 'Renovação não pôde avançar', acao: 'Verifique o prazo de renovação do contrato.' },
+  NAO_VENCIDO:       { texto: 'Competência ainda no futuro', acao: '' },
+}
 
 /* parse "60, 30, 7" → [60,30,7] (positivos, únicos, ordenados desc) */
 const parseList = (s: string) => [...new Set(s.split(/[,\s]+/).map(Number).filter(n => Number.isFinite(n) && n > 0))].sort((a, b) => b - a)
@@ -80,6 +102,11 @@ export default function NotificacoesParams() {
   const [p, setP] = useState<Params>(() => cacheRead<Params>(KEY, DEFAULT))
   const [saved, setSaved] = useState(false)
   const [mounted, setMounted] = useState(false)
+  /* Espelho do que está GRAVADO. O motor roda no backend e lê o banco, não este formulário:
+     ligar um cartão sem salvar e clicar em Simular produziria um relatório que contradiz a
+     tela. `dirty` existe para avisar antes que isso aconteça. */
+  const [persistido, setPersistido] = useState<Params | null>(null)
+  const dirty = persistido !== null && JSON.stringify(p) !== JSON.stringify(persistido)
 
   /* execução manual do motor de datas (admin) */
   const [running,   setRunning]   = useState(false)
@@ -88,10 +115,21 @@ export default function NotificacoesParams() {
 
   useEffect(() => {
     setMounted(true)
-    void (async () => { const r = await pullSetting<Params>(KEY); if (r) setP({ ...DEFAULT, ...r, vigencia: { ...DEFAULT.vigencia, ...r.vigencia }, reajuste: { ...DEFAULT.reajuste, ...r.reajuste }, consumo: { ...DEFAULT.consumo, ...r.consumo } }) })()
+    void (async () => {
+      const r = await pullSetting<Params>(KEY)
+      /* `reajuste.automatico` do modelo antigo é descartado: era o gate global, hoje a
+         decisão é da linha do contrato. Reaproveitá-lo como "pausado" herdaria um default
+         como se fosse escolha de alguém. */
+      const { enabled, dias } = { ...DEFAULT.reajuste, ...r?.reajuste }
+      const merged: Params = r
+        ? { ...DEFAULT, ...r, vigencia: { ...DEFAULT.vigencia, ...r.vigencia }, reajuste: { enabled, dias }, consumo: { ...DEFAULT.consumo, ...r.consumo }, reajustePausado: r.reajustePausado ?? false }
+        : DEFAULT
+      setP(merged)
+      setPersistido(merged)
+    })()
   }, [])
 
-  const save = () => { pushSetting(KEY, p); setSaved(true); setTimeout(() => setSaved(false), 2000) }
+  const save = () => { pushSetting(KEY, p); setPersistido(p); setSaved(true); setTimeout(() => setSaved(false), 2000) }
 
   /** `dryRun` calcula tudo e não grava nada — serve para conferir o que o motor faria. */
   const runNow = async (dryRun = false) => {
@@ -153,14 +191,24 @@ export default function NotificacoesParams() {
               </div>
             </div>
             <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-              Roda imediatamente a rotina que normalmente executa de madrugada: import dos índices (BCB), reajuste e renovação/encerramento automáticos e geração das notificações. <strong className="font-medium text-foreground">Simular</strong> calcula tudo e não grava nada — use antes de ligar o reajuste automático.
+              Roda imediatamente a rotina que normalmente executa de madrugada: import dos índices (BCB), reajuste e renovação/encerramento automáticos e geração das notificações. <strong className="font-medium text-foreground">Simular</strong> calcula tudo e não grava nada — use sempre antes de executar.
             </p>
+            {dirty && (
+              <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400">
+                Há alterações não salvas. O motor lê os parâmetros <strong className="font-semibold">gravados</strong> — clique em <strong className="font-semibold">Salvar</strong> antes de simular ou executar, senão o relatório vai refletir a configuração antiga.
+              </p>
+            )}
             {runResult && (
               <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
                 {runResult.dryRun
                   ? <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 font-medium text-amber-600 dark:text-amber-400"><Eye className="h-3 w-3" />Ensaio — nada foi gravado</span>
                   : <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 font-medium text-emerald-600 dark:text-emerald-400"><Check className="h-3 w-3" />Concluído</span>}
                 <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">{runResult.reajustes} reajuste(s)</span>
+                {runResult.pendentes?.length > 0 && (
+                  <span className="rounded-md bg-amber-500/10 px-2 py-1 font-medium text-amber-600 dark:text-amber-400">
+                    {runResult.pendentes.length} reajuste(s) não aplicado(s)
+                  </span>
+                )}
                 <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">{runResult.renovados} renovado(s)</span>
                 <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">{runResult.encerrados} encerrado(s)</span>
                 <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">{runResult.notificacoes} notificação(ões) ativa(s)</span>
@@ -190,6 +238,27 @@ export default function NotificacoesParams() {
                             · {d.pagasAlcancadas} paga(s), {BRL(d.diferencaNaoCobrada)} não cobrado
                           </span>
                         )}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {runResult && runResult.pendentes?.length > 0 && (
+              <div className="mt-3 overflow-hidden rounded-md border border-amber-200 dark:border-amber-900">
+                <div className="grid grid-cols-[7rem_5.5rem_5rem_4rem_1fr] gap-2 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-400">
+                  <span>Contrato</span><span>Competência</span><span>Índice</span><span>%</span><span>Não aplicado porque</span>
+                </div>
+                <div className="divide-y divide-border/50">
+                  {runResult.pendentes.map((d, i) => (
+                    <div key={i} className="grid grid-cols-[7rem_5.5rem_5rem_4rem_1fr] items-center gap-2 px-3 py-1.5 text-[11px]">
+                      <span className="truncate font-medium">{d.numero}</span>
+                      <span className="tabular-nums">{mesAno(d.competencia)}</span>
+                      <span className="truncate text-muted-foreground">{d.indice}</span>
+                      <span className="tabular-nums text-muted-foreground">{d.percentual ? `${d.percentual.toFixed(2).replace('.', ',')}%` : '—'}</span>
+                      <span>
+                        {MOTIVO[d.motivo]?.texto ?? d.motivo}
+                        {MOTIVO[d.motivo]?.acao && <span className="ml-1 text-muted-foreground">· {MOTIVO[d.motivo].acao}</span>}
                       </span>
                     </div>
                   ))}
@@ -227,12 +296,16 @@ export default function NotificacoesParams() {
         </label>
       </Card>
 
-      <Card icon={Play} color="bg-teal-500/10 text-teal-600 dark:text-teal-400"
-        title="Reajuste automático"
-        desc="Quando a competência vence e o índice do período já está publicado, o motor aplica o reajuste e reprecifica as parcelas a vencer. Só age nas linhas marcadas como 'Automática' no contrato. Parcelas já pagas não são reprecificadas — a diferença vira um alerta."
-        on={p.reajuste.automatico} onToggle={v => setP({ ...p, reajuste: { ...p.reajuste, automatico: v } })}>
-        <p className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400">
-          Ligar isto sobre uma base com contratos antigos aplica os reajustes represados de uma vez. Rode o ensaio (&quot;Simular&quot;) antes.
+      {/* FREIO, não configuração. Quem decide se um reajuste é automático é a linha do
+          contrato. Este cartão nasce despausado e só deve ser tocado em emergência —
+          por isso o rótulo é um verbo de exceção, e não um "ligar/desligar" que convide
+          a ser confundido com o campo Aplicação do contrato. */}
+      <Card icon={PauseCircle} color="bg-red-500/10 text-red-600 dark:text-red-400"
+        title="Pausar motor de reajuste"
+        desc="Freio de emergência: impede o motor de aplicar QUALQUER reajuste automático, em todos os contratos, sem precisar editá-los um a um. Use se um índice vier errado do BCB ou o motor se comportar de forma inesperada. Fora isso, mantenha despausado — quem autoriza cada reajuste é o campo Aplicação do contrato."
+        on={p.reajustePausado} onToggle={v => setP({ ...p, reajustePausado: v })}>
+        <p className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400">
+          Motor pausado. Nenhum reajuste automático será aplicado enquanto isto estiver ligado — os avisos e as renovações continuam funcionando normalmente.
         </p>
       </Card>
 

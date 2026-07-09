@@ -2,9 +2,10 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import {
   daysBetween, todayISO,
   terminoVigente, valorVigente, consumo,
-  proximaDataReajuste, planejarReajuste, aplicarReajuste, pagasAlcancadas,
+  proximaDataReajuste, planejarReajuste, aplicarReajuste, pagasAlcancadas, acumuladoPeriodo,
   renovarPeriodo, campoRenovacao,
 } from '@nxt/contracts-core'
+import type { MotivoNaoAplicar } from '@nxt/contracts-core'
 import { PrismaService } from '../prisma.service'
 import { SettingsService } from '../settings/settings.service'
 import { ContractsService } from '../contracts/contracts.service'
@@ -23,20 +24,24 @@ export const NOTIF_PARAMS_KEY = 'nxt:settings:notificacoes'
 
 interface Params {
   vigencia: { enabled: boolean; dias: number[] }        // faixas de antecedência (ex.: [60,30,7])
-  /* `automatico` liga o motor de reajuste. Nasce DESLIGADO de propósito: aplicar reajuste
-     automático sobre uma base histórica é operação de mão única. Mesmo ligado, só age nas
-     linhas com aplicacao=AUTOMATICA. */
-  reajuste: { enabled: boolean; dias: number; automatico: boolean }
+  reajuste: { enabled: boolean; dias: number }          // apenas o AVISO de reajuste
   consumo:  { enabled: boolean; percentuais: number[] } // limites (ex.: [80,100])
   renovacaoAutomatica: boolean                          // liga/desliga a renovação global
   indicesAutoImport: boolean                            // import diário dos valores de índice do BCB
+  /* FREIO DE EMERGÊNCIA, não configuração. Quem decide se um reajuste é automático é a
+     linha do contrato (aplicacao=AUTOMATICA) — interruptor único, no lugar onde a decisão
+     tem contexto e consequência conhecida. Este campo existe para parar o motor de uma vez
+     quando algo dá errado (índice importado torto, cadastro que dispara reajustes demais),
+     sem editar contrato por contrato. Nasce DESPAUSADO: ligá-lo é declarar emergência. */
+  reajustePausado: boolean
 }
 export const DEFAULT_PARAMS: Params = {
   vigencia: { enabled: true, dias: [60, 30, 7] },
-  reajuste: { enabled: true, dias: 15, automatico: false },
+  reajuste: { enabled: true, dias: 15 },
   consumo:  { enabled: true, percentuais: [80, 100] },
   renovacaoAutomatica: true,
   indicesAutoImport: true,
+  reajustePausado: false,
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -53,10 +58,31 @@ interface Upsert { dedupKey: string; contractId: string; tipo: string; severidad
 /** O que o motor fez (ou, no dry-run, faria) com UM contrato. */
 interface Evolucao {
   reajustes: ReajusteAplicado[]
+  /** reajustes que o motor NÃO aplicou, e por quê */
+  pendentes: ReajustePendente[]
   renovados: number
   encerrados: number
   campoLanc: 'pagamentos' | 'recebimentos'
   gerouParcelas: boolean
+}
+
+/** Por que um reajuste devido não foi aplicado. Os cinco primeiros vêm do core
+ *  (`planejarReajuste`); os dois últimos são decisões desta camada. */
+export type MotivoPendente =
+  | MotivoNaoAplicar
+  | 'PAUSADO'        // o core aplicaria, mas um administrador acionou o freio de emergência
+  | 'INTERROMPIDO'   // o laço parou antes (renovação não pôde avançar) e travou o reajuste
+
+/** Um reajuste devido que o motor deixou de aplicar. Existe para que a execução nunca
+ *  devolva "0 reajustes" sem dizer o motivo: um silêncio custa mais tempo de quem opera
+ *  do que qualquer erro que a tela consiga mostrar. */
+export interface ReajustePendente {
+  contratoId: string; numero: string; reajusteId: string; indice: string
+  /** competência devida ('yyyy-mm-01'); '' quando a linha não tem agenda */
+  competencia: string
+  /** % que seria aplicado, quando calculável — 0 quando o índice não permite saber */
+  percentual: number
+  motivo: MotivoPendente
 }
 
 /** Um reajuste que o motor aplicou (ou, no dry-run, aplicaria). */
@@ -150,6 +176,7 @@ export class ContractSchedulerService implements OnModuleInit {
     const activeKeys: string[] = []
     const upserts: Upsert[] = []
     const reajustesAplicados: ReajusteAplicado[] = []
+    const reajustesPendentes: ReajustePendente[] = []
 
     for (const c of contracts) {
       /* 0+1) AVANÇA A LINHA DO TEMPO do contrato: reajuste e renovação INTERCALADOS por data.
@@ -161,6 +188,7 @@ export class ContractSchedulerService implements OnModuleInit {
       renovados += evolucao.renovados
       encerrados += evolucao.encerrados
       reajustesAplicados.push(...evolucao.reajustes)
+      reajustesPendentes.push(...evolucao.pendentes)
 
       if (!dryRun && (evolucao.reajustes.length || evolucao.renovados || evolucao.encerrados)) {
         await this.persistirEvolucao(c, evolucao)
@@ -234,7 +262,8 @@ export class ContractSchedulerService implements OnModuleInit {
     }
 
     if (dryRun) {
-      return { renovados, encerrados, notificacoes: activeKeys.length, resolvidas: 0, reajustes: reajustesAplicados.length, detalhe: reajustesAplicados }
+      return { renovados, encerrados, notificacoes: activeKeys.length, resolvidas: 0,
+        reajustes: reajustesAplicados.length, detalhe: reajustesAplicados, pendentes: reajustesPendentes }
     }
 
     /* grava/atualiza notificações ativas */
@@ -249,7 +278,8 @@ export class ContractSchedulerService implements OnModuleInit {
     const resolved = await this.prisma.notification.deleteMany({
       where: activeKeys.length ? { organizationId, dedupKey: { notIn: activeKeys } } : { organizationId },
     })
-    return { renovados, encerrados, notificacoes: activeKeys.length, resolvidas: resolved.count, reajustes: reajustesAplicados.length, detalhe: reajustesAplicados }
+    return { renovados, encerrados, notificacoes: activeKeys.length, resolvidas: resolved.count,
+      reajustes: reajustesAplicados.length, detalhe: reajustesAplicados, pendentes: reajustesPendentes }
   }
 
   /** Avança a linha do tempo do contrato até hoje, EM MEMÓRIA. Devolve o que fez; quem chama
@@ -266,7 +296,7 @@ export class ContractSchedulerService implements OnModuleInit {
    *  `terminoVigente` na última renovação. Rodar duas vezes no mesmo dia não repete nada.
    *  É a guarda mais importante daqui — um erro nela compõe juros diários sobre o contrato. */
   private avancarContrato(c: any, params: Params, series: Record<string, Record<string, number>>, rotulo: Map<string, string>, today: string): Evolucao {
-    const ev: Evolucao = { reajustes: [], renovados: 0, encerrados: 0, campoLanc: campoRenovacao(c.natureza), gerouParcelas: false }
+    const ev: Evolucao = { reajustes: [], pendentes: [], renovados: 0, encerrados: 0, campoLanc: campoRenovacao(c.natureza), gerouParcelas: false }
     if (c.situacao !== 'VIGENTE') return ev
 
     const anos = Number(c.renovacaoAnos) || 0, meses = Number(c.renovacaoMeses) || 0, dias = Number(c.renovacaoDias) || 0
@@ -277,9 +307,10 @@ export class ContractSchedulerService implements OnModuleInit {
       const termino = terminoVigente(c)
       const venceu = !c.prazoIndeterminado && !!termino && termino < today
 
-      /* reajuste pendente mais antigo (só linhas AUTOMATICA com índice publicado) */
+      /* reajuste pendente mais antigo (só linhas AUTOMATICA com índice publicado).
+         Quem autoriza é a linha do contrato; o freio global só é consultado para PARAR. */
       let alvo: { r: any; plano: ReturnType<typeof planejarReajuste> } | null = null
-      if (params.reajuste.automatico) {
+      if (!params.reajustePausado) {
         for (const r of ((c.reajustes as any[]) ?? [])) {
           const plano = planejarReajuste(c, r, series[r.indice], today)
           if (plano.aplicar && (!alvo || plano.competencia < alvo.plano.competencia)) alvo = { r, plano }
@@ -304,6 +335,30 @@ export class ContractSchedulerService implements OnModuleInit {
         continue
       }
       break
+    }
+
+    /* 1b) O QUE FICOU PARA TRÁS. O laço acima parou; para cada linha de reajuste, o estado
+       final diz por quê. Um `plano.aplicar` verdadeiro AQUI significa que o core aplicaria
+       e alguma coisa desta camada impediu — o interruptor global, ou um laço interrompido.
+       NAO_VENCIDO é o estado saudável (a competência ainda está no futuro) e não é pendência. */
+    for (const r of ((c.reajustes as any[]) ?? [])) {
+      const plano = planejarReajuste(c, r, series[r.indice], today)
+      if (!plano.aplicar && plano.motivo === 'NAO_VENCIDO') continue
+
+      const motivo: MotivoPendente = plano.aplicar
+        ? (params.reajustePausado ? 'PAUSADO' : 'INTERROMPIDO')
+        : (plano.motivo as MotivoNaoAplicar)
+
+      /* MANUAL para antes de acumular o índice: recalculamos só para exibir o número —
+         quem vai aplicar à mão merece ver quanto é, não só que está na hora. */
+      const percentual = plano.percentual || (plano.competencia
+        ? acumuladoPeriodo(series[r.indice], r.periodicidade, plano.competencia)?.percentual ?? 0
+        : 0)
+
+      ev.pendentes.push({
+        contratoId: c.id, numero: c.numero, reajusteId: r.id, indice: rotulo.get(r.indice) ?? r.indice ?? '—',
+        competencia: plano.competencia, percentual: Math.round(percentual * 100) / 100, motivo,
+      })
     }
 
     /* encerramento automático: só depois de esgotados reajuste e renovação */
@@ -380,11 +435,17 @@ export class ContractSchedulerService implements OnModuleInit {
       const row = await this.settings.get(organizationId, NOTIF_PARAMS_KEY)
       const v = row.value as Partial<Params> | null
       if (!v) return DEFAULT_PARAMS
+      /* `reajuste.automatico` (gate global antigo) é DESCARTADO de propósito. Ele nascia
+         `false` em toda instalação, então convertê-lo em `reajustePausado: true` deixaria
+         todo mundo com o motor pausado para sempre — herdaríamos um default como se fosse
+         uma decisão. Quem manda agora é a linha do contrato. */
+      const { enabled, dias } = { ...DEFAULT_PARAMS.reajuste, ...v.reajuste }
       return {
         renovacaoAutomatica: v.renovacaoAutomatica ?? DEFAULT_PARAMS.renovacaoAutomatica,
         indicesAutoImport:   v.indicesAutoImport ?? DEFAULT_PARAMS.indicesAutoImport,
+        reajustePausado:     v.reajustePausado ?? DEFAULT_PARAMS.reajustePausado,
         vigencia: { ...DEFAULT_PARAMS.vigencia, ...v.vigencia },
-        reajuste: { ...DEFAULT_PARAMS.reajuste, ...v.reajuste },
+        reajuste: { enabled, dias },
         consumo:  { ...DEFAULT_PARAMS.consumo,  ...v.consumo },
       }
     } catch { return DEFAULT_PARAMS }
