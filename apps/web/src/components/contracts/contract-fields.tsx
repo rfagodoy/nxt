@@ -15,7 +15,7 @@ import { INIT_PAPEIS, PAPEIS_KEY, ORIGEM, origemDoPapel, ladoDoPapel } from '@/l
 import {
   TIPOS_KEY, OBJETOS_KEY, MOEDAS_KEY, CONDICOES_KEY, INDICES_KEY, TIPOS_ADITIVO_KEY, FORMAS_PGTO_KEY,
   INIT_TIPOS, INIT_OBJETOS, INIT_MOEDAS, INIT_CONDICOES, INIT_INDICES, INIT_TIPOS_ADITIVO, INIT_FORMAS_PGTO,
-  SITUACOES, PERIODICIDADES, TIPOS_DOCUMENTO, effectiveSituacao, APLICACOES_REAJUSTE, BASES_REAJUSTE,
+  SITUACOES, PERIODICIDADES, TIPOS_DOCUMENTO, effectiveSituacao, APLICACOES_REAJUSTE,
   NATUREZAS, ACOES_TERMINO, temPagamentos, temRecebimentos, somaLancamentos, somaLancamentosPagos, lancPago,
   valorVigente, parcelaVigente, parcelaVigenteInput, condicaoVigente, complementoVigente, terminoVigente, objetoVigente, partesVigentes, terminoVigenteAntes, objetoVigenteAntes, proximoDiaISO,
   tituloVigente, descricaoVigente, tituloVigenteInfo, descricaoVigenteInfo,
@@ -820,20 +820,8 @@ function ReajusteCard({ r, idx, form, indices, ro, open, onToggle }: {
                 )}
             </label>
             {(r.aplicacao || 'MANUAL') === 'AUTOMATICA' && (
-              <label className="space-y-1">
-                <span className="text-[10px] font-medium text-muted-foreground">Reajustar</span>
-                {ro
-                  ? <span className={cn(readCls, 'text-xs')}>{BASES_REAJUSTE.find(b => b.value === (r.base ?? ''))?.label ?? '—'}</span>
-                  : (
-                    <select value={r.base ?? ''} onChange={e => form.updReaj(r.id, 'base', e.target.value)} className={cell}>
-                      {BASES_REAJUSTE.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
-                    </select>
-                  )}
-              </label>
-            )}
-            {(r.aplicacao || 'MANUAL') === 'AUTOMATICA' && (
-              <p className="col-span-1 self-end pb-1 text-[10px] text-muted-foreground">
-                O motor aplica sozinho quando a competência vence e o índice do período está publicado.
+              <p className="col-span-2 self-end pb-1 text-[10px] text-muted-foreground">
+                O motor aplica quando a competência vence e o índice do período está publicado: o percentual incide sobre cada parcela a vencer. Parcelas já pagas não são reprecificadas.
               </p>
             )}
           </div>

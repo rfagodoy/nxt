@@ -325,7 +325,9 @@ export class ContractSchedulerService implements OnModuleInit {
       observacao: 'Aplicado automaticamente pelo motor de datas.',
       user: 'Sistema', dataAplicacao: today, createdAt: new Date().toISOString(),
     })
-    const pagas = pagasAlcancadas(c, plano.competencia, Number(res.reajuste.parcelaNova) || 0)
+    /* o percentual (não a parcela nova) é o que mede a diferença: cada parcela paga
+       teria subido o seu próprio valor × % */
+    const pagas = pagasAlcancadas(c, plano.competencia, plano.percentual)
 
     c.reajustesRealizados = [...((c.reajustesRealizados as any[]) ?? []), res.reajuste]
     c.pagamentos = res.pagamentos

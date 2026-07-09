@@ -144,15 +144,32 @@ describe('aplicarReajuste — base parcela COM cronograma', () => {
     expect(valorVigente(c2)).toBe(12700)
   })
 
-  it('AMBOS reprecifica os dois lados — com a MESMA parcela vigente', () => {
-    /* O contrato tem um único `valorParcela`, então o reajuste de parcela leva os dois
-       lados ao mesmo valor, mesmo que hoje difiram (aqui: 1000 e 2000 → ambos 1100).
-       É o comportamento que já existia; preservado de propósito. Um contrato AMBOS com
-       parcelas distintas por lado simplesmente não é representável no modelo atual. */
+  it('AMBOS: o percentual incide sobre cada lado, preservando os valores', () => {
+    /* pagamentos de 1000 e recebimentos de 2000 sobem 10% cada — não são igualados. */
     const r = aplicarReajuste(ambos, { ...input, competencia: '2026-01' })
     expect(r.reajuste.parcelasReajustadas).toBe(12)
     expect(num(r.pagamentos[0].valor)).toBe(1100)
-    expect(num(r.recebimentos[0].valor)).toBe(1100)
+    expect(num(r.recebimentos[0].valor)).toBe(2200)
+  })
+
+  it('o percentual PRESERVA a estrutura do cronograma; o valor digitado à mão IGUALA', () => {
+    /* Cronograma misto: uma entrada de 150.000 (equipamento) + parcelas de 5.000.
+       Reajustar 10% sobre cada parcela → 165.000 e 5.500. Igualar destruiria a entrada. */
+    const misto = {
+      ...despesaComReajuste,
+      valorParcela: 5000,
+      pagamentos: [
+        { id: 'equip', status: 'previsto', vencimento: '2026-07-10', data: '', valor: 150000 },
+        { id: 'm1', status: 'previsto', vencimento: '2026-08-10', data: '', valor: 5000 },
+      ],
+    }
+    const porPct = aplicarReajuste(misto, { id: 'x', reajusteId: 'r1', competencia: '2026-07', percentual: 10, base: 'parcela' })
+    expect(num(porPct.pagamentos[0].valor)).toBe(165000)
+    expect(num(porPct.pagamentos[1].valor)).toBe(5500)
+
+    const porValor = aplicarReajuste(misto, { id: 'x', reajusteId: 'r1', competencia: '2026-07', percentual: 10, base: 'parcela', parcelaNova: 5500 })
+    expect(num(porValor.pagamentos[0].valor)).toBe(5500) // igualadas: renegociação de valor único
+    expect(num(porValor.pagamentos[1].valor)).toBe(5500)
   })
 
   it('RECEITA não toca em pagamentos', () => {
@@ -218,13 +235,14 @@ describe('aplicarReajuste — base parcela SEM cronograma', () => {
 })
 
 describe('arredondamento', () => {
-  it('parcela e total ficam em centavos, e o total fecha com o cronograma', () => {
-    const c = { ...despesaComReajuste, valorParcela: 333.33 }
+  it('cada parcela vai a centavos e o total fecha EXATAMENTE com a soma do cronograma', () => {
+    const c = { ...despesaComReajuste, valorParcela: 333.33, pagamentos: despesaComReajuste.pagamentos.map((l: any) => ({ ...l, valor: 333.33 })) }
     const r = aplicarReajuste(c, { id: 'x', reajusteId: 'r1', competencia: '2026-06', percentual: 4.62, base: 'parcela' })
     expect(r.reajuste.parcelaNova).toBe(348.73) // 333,33 × 1,0462 = 348,7278…
-    const alvo = parcelasAlvo(c, '2026-06')
-    const delta = alvo.reduce((s, x) => s + (348.73 - num(x.lanc.valor)), 0)
-    expect(num(r.reajuste.valorNovo)).toBeCloseTo(num(r.reajuste.valorAnterior) + delta, 2)
+
+    const antes = c.pagamentos.reduce((s: number, l: any) => s + num(l.valor), 0)
+    const depois = r.pagamentos.reduce((s, l) => s + num(l.valor), 0)
+    expect(num(r.reajuste.valorNovo) - num(r.reajuste.valorAnterior)).toBeCloseTo(depois - antes, 2)
   })
 })
 
@@ -289,30 +307,79 @@ describe('planejarReajuste — decide se o motor aplica', () => {
     expect(p.percentual).toBe(6.17)
   })
 
-  it('base explícita na linha vence o default', () => {
-    const c = comReajuste({ aplicacao: 'AUTOMATICA', base: 'total' })
-    expect(planejarReajuste(c, c.reajustes[0], serieCheia, '2027-06-01').base).toBe('total')
+  it('a base NÃO é configurável: contrato com parcela reajusta a parcela', () => {
+    const c = comReajuste({ aplicacao: 'AUTOMATICA' })
+    expect(planejarReajuste(c, c.reajustes[0], serieCheia, '2027-06-01').base).toBe('parcela')
   })
 
-  it('sem parcela no contrato, o default é base total', () => {
+  it('sem parcela no contrato, a base é o total', () => {
     const c = { ...comReajuste({ aplicacao: 'AUTOMATICA' }), valorParcela: 0, reajustesRealizados: [] }
     expect(planejarReajuste(c, c.reajustes[0], serieCheia, '2027-06-01').base).toBe('total')
   })
 })
 
 describe('pagasAlcancadas — a diferença que o motor NÃO cobra', () => {
-  it('conta as pagas a partir da competência e soma a diferença', () => {
+  it('conta as pagas a partir da competência e soma o percentual sobre cada uma', () => {
     /* despesaSimples: p1..p3 pagas (jan..mar), 1000 cada */
-    const r = pagasAlcancadas(despesaSimples, '2026-02', 1100)
+    const r = pagasAlcancadas(despesaSimples, '2026-02', 10)
     expect(r.quantidade).toBe(2)          // fev e mar
-    expect(r.diferenca).toBe(200)         // 2 × 100
+    expect(r.diferenca).toBe(200)         // 2 × (1000 × 10%)
+  })
+
+  it('a diferença respeita o valor de CADA parcela paga', () => {
+    const misto = { ...despesaSimples, pagamentos: [
+      { id: 'a', status: 'pago', vencimento: '2026-02-10', data: '2026-02-10', valor: 150000 },
+      { id: 'b', status: 'pago', vencimento: '2026-03-10', data: '2026-03-10', valor: 5000 },
+    ] }
+    const r = pagasAlcancadas(misto, '2026-02', 10)
+    expect(r.quantidade).toBe(2)
+    expect(r.diferenca).toBe(15500)       // 15.000 + 500
   })
 
   it('zero quando nenhuma paga é alcançada', () => {
-    expect(pagasAlcancadas(despesaSimples, '2026-06', 1100)).toEqual({ quantidade: 0, diferenca: 0 })
+    expect(pagasAlcancadas(despesaSimples, '2026-06', 10)).toEqual({ quantidade: 0, diferenca: 0 })
   })
 
   it('só o lado da natureza', () => {
-    expect(pagasAlcancadas(receita, '2026-01', 550).quantidade).toBe(2) // recebimentos pagos
+    expect(pagasAlcancadas(receita, '2026-01', 10).quantidade).toBe(2) // recebimentos pagos
+  })
+})
+
+describe('REGRESSÃO: contrato misto (equipamento à vista + manutenção mensal)', () => {
+  /* O CCT_2026_0001 do PO: R$ 150.000 de equipamentos + 12 × R$ 5.000 de manutenção.
+     A reprecificação antiga IGUALAVA todas as parcelas a vencer à parcela nova — se o
+     lançamento do equipamento estivesse a vencer, R$ 150.000 viraria R$ 5.250, calado.
+     Agora o percentual incide sobre cada parcela e a estrutura se preserva. */
+  const misto: any = {
+    natureza: 'DESPESA', valorTotal: 210000, valorParcela: 5000, qtdParcelas: 12,
+    aditivos: [], renovacoes: [], reajustesRealizados: [], recebimentos: [],
+    reajustes: [{ id: 'r1', indice: '1', data: '2019-04-01', periodicidade: 'Anual' }],
+    pagamentos: [
+      { id: 'equip', status: 'previsto', vencimento: '2020-05-10', data: '', valor: 150000 },
+      ...Array.from({ length: 3 }, (_, i) => ({ id: `m${i}`, status: 'previsto', vencimento: `2020-0${6 + i}-10`, data: '', valor: 5000 })),
+    ],
+  }
+
+  it('o equipamento NÃO é achatado para o valor da parcela', () => {
+    const r = aplicarReajuste(misto, { id: 'x', reajusteId: 'r1', competencia: '2020-05', percentual: 5, base: 'parcela' })
+    const v = new Map(r.pagamentos.map(l => [l.id, num(l.valor)]))
+    expect(v.get('equip')).toBe(157500) // 150.000 + 5%, não 5.250
+    expect(v.get('m0')).toBe(5250)
+  })
+
+  it('parcela paga fica intacta — o equipamento entregue não reajusta', () => {
+    const pago = { ...misto, pagamentos: misto.pagamentos.map((l: any) => (l.id === 'equip' ? { ...l, status: 'pago', data: '2020-05-10' } : l)) }
+    const r = aplicarReajuste(pago, { id: 'x', reajusteId: 'r1', competencia: '2020-05', percentual: 5, base: 'parcela' })
+    const v = new Map(r.pagamentos.map(l => [l.id, num(l.valor)]))
+    expect(v.get('equip')).toBe(150000)  // intacto
+    expect(v.get('m0')).toBe(5250)       // só a manutenção sobe
+    expect(r.reajuste.parcelasReajustadas).toBe(3)
+  })
+
+  it('o total cresce exatamente pelo que as parcelas cresceram', () => {
+    const r = aplicarReajuste(misto, { id: 'x', reajusteId: 'r1', competencia: '2020-05', percentual: 5, base: 'parcela' })
+    const antes = misto.pagamentos.reduce((s: number, l: any) => s + num(l.valor), 0)
+    const depois = r.pagamentos.reduce((s, l) => s + num(l.valor), 0)
+    expect(num(r.reajuste.valorNovo) - num(r.reajuste.valorAnterior)).toBeCloseTo(depois - antes, 2)
   })
 })

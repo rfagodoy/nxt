@@ -17,12 +17,12 @@ export const aplicacaoDe = (r: CoreReajuste): AplicacaoReajuste => {
   return a === 'AUTOMATICA' || a === 'SUSPENSA' ? a : 'MANUAL'
 }
 
-/** Base padrão de um reajuste automático: parcela quando o contrato tem parcela, senão total. */
-export const baseDe = (c: CoreContract, r: CoreReajuste): 'total' | 'parcela' => {
-  const b = String(r.base ?? '').toLowerCase()
-  if (b === 'total' || b === 'parcela') return b
-  return parcelaVigente(c) > 0 ? 'parcela' : 'total'
-}
+/** Base do reajuste automático: a PARCELA quando o contrato tem parcela, senão o TOTAL.
+ *  Não é configurável — reajustar as parcelas já é reajustar o contrato (o total cresce
+ *  pelo delta delas). Só um contrato sem parcela precisa que o total suba sozinho.
+ *  Quem precisar de outro tratamento usa a linha em modo MANUAL e escolhe a base no
+ *  momento de registrar, olhando o número. */
+export const baseDe = (c: CoreContract): 'total' | 'parcela' => (parcelaVigente(c) > 0 ? 'parcela' : 'total')
 
 /** Meses de uma periodicidade. Desconhecida/ausente = anual. */
 export const stepMeses = (periodicidade: string): number => STEP_MESES[String(periodicidade || '').toUpperCase()] ?? 12
@@ -138,7 +138,7 @@ export function planejarReajuste(
   serie: Record<string, number> | undefined,
   today: string,
 ): PlanoReajuste {
-  const base = baseDe(c, r)
+  const base = baseDe(c)
   const competencia = r.indice ? proximaDataReajuste(c, r) : ''
   if (!competencia) return { aplicar: false, motivo: 'SEM_AGENDA', competencia: '', percentual: 0, base, vencido: false }
 
@@ -161,10 +161,13 @@ export function planejarReajuste(
 
 /** Parcelas JÁ PAGAS que a competência alcança. O reajuste não as reprecifica — a
  *  diferença simplesmente não é cobrada. Devolver o número torna isso visível em vez
- *  de silencioso: quem decide cobrar ou não é uma pessoa, não o motor. */
-export function pagasAlcancadas(c: CoreContract, competencia: string, parcelaNova: number): { quantidade: number; diferenca: number } {
+ *  de silencioso: quem decide cobrar ou não é uma pessoa, não o motor.
+ *
+ *  A diferença é o percentual sobre CADA parcela paga, como seria a reprecificação. */
+export function pagasAlcancadas(c: CoreContract, competencia: string, percentual: number): { quantidade: number; diferenca: number } {
   const cmp = comp(competencia)
-  if (!cmp || !parcelaNova) return { quantidade: 0, diferenca: 0 }
+  if (!cmp || !percentual) return { quantidade: 0, diferenca: 0 }
+  const fator = 1 + percentual / 100
   let quantidade = 0
   let diferenca = 0
   for (const campo of camposDaNatureza(c.natureza)) {
@@ -172,7 +175,7 @@ export function pagasAlcancadas(c: CoreContract, competencia: string, parcelaNov
       const ref = lancRef(l)
       if (lancPago(l) && ref && comp(ref) >= cmp) {
         quantidade++
-        diferenca += parcelaNova - num(l.valor)
+        diferenca += round2(num(l.valor) * fator) - num(l.valor)
       }
     }
   }
@@ -265,14 +268,22 @@ export function aplicarReajuste(c: CoreContract, input: AplicarReajusteInput): A
 
   if (temCronograma(c)) {
     const alvo = parcelasAlvo(c, cmp)
-    const ids = new Set(alvo.map(x => x.lanc.id))
-    /* delta calculado sobre a parcela JÁ ARREDONDADA — é o valor que de fato vai
-       para as parcelas, então o total fecha exatamente com a soma do cronograma. */
-    const delta = alvo.reduce((s, x) => s + (parcelaNova - num(x.lanc.valor)), 0)
+    /* Percentual APLICA sobre cada parcela; valor digitado à mão IGUALA todas.
+       São coisas diferentes: "as parcelas sobem 5%" preserva a estrutura do cronograma
+       (uma parcela de 150.000 vira 157.500), enquanto "a parcela passa a ser R$ 5.250"
+       é uma renegociação de valor único. Igualar sempre destruiria cronogramas com
+       parcelas de valores distintos. */
+    const igualar = input.parcelaNova != null
+    const novoValorDe = (l: CoreLancamento) => (igualar ? parcelaNova : round2(num(l.valor) * fator))
+
+    const novos = new Map(alvo.map(x => [x.lanc.id, novoValorDe(x.lanc)]))
+    /* delta sobre os valores JÁ ARREDONDADOS — é o que de fato vai para as parcelas,
+       então o total fecha exatamente com a soma do cronograma. */
+    const delta = alvo.reduce((s, x) => s + (novos.get(x.lanc.id)! - num(x.lanc.valor)), 0)
     rec.parcelasReajustadas = alvo.length
     rec.valorAnterior = round2(totalVig)
     rec.valorNovo = round2(totalVig + delta)
-    const reprice = (arr: CoreLancamento[]) => arr.map(l => (ids.has(l.id) ? { ...l, valor: parcelaNova } : l))
+    const reprice = (arr: CoreLancamento[]) => arr.map(l => (novos.has(l.id) ? { ...l, valor: novos.get(l.id)! } : l))
     return { reajuste: rec, pagamentos: reprice(pagamentos), recebimentos: reprice(recebimentos) }
   }
 

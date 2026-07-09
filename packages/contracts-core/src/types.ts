@@ -45,8 +45,6 @@ export interface CoreReajuste {
   periodicidade: string
   /** ausente = MANUAL (linhas cadastradas antes da política existir) */
   aplicacao?: string
-  /** o que o reajuste altera quando aplicado automaticamente; ausente = decide pelo contrato */
-  base?: string
 }
 
 /** Reajuste efetivamente APLICADO (fato, não agenda). `valorAnterior`/`valorNovo`
