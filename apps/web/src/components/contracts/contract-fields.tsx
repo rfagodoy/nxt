@@ -143,8 +143,10 @@ function Segmented({ value, onChange, ro, options }: { value: string; onChange: 
 const lookupOpts = (entries: { id: string; label: string }[]) => entries.map(e => ({ value: e.id, label: e.label }))
 const labelOf    = (entries: { id: string; label: string }[], value: string) => entries.find(e => e.id === value)?.label ?? value
 
-/** Campo monetário com máscara pt-BR e prefixo do código da moeda. `value` é o número como string. */
-function MoneyField({ value, moedaCode, onChange, ro, bare }: { value: string; moedaCode: string; onChange: (v: string) => void; ro?: boolean; bare?: boolean }) {
+/** Campo monetário com máscara pt-BR e prefixo do código da moeda. `value` é o número como string.
+ *  `vazio`: sem placeholder e sem moldura — usado quando o valor ainda NÃO EXISTE (parcela não
+ *  baixada). Um "0,00" cinza ali sugeriria que se pagou zero. */
+function MoneyField({ value, moedaCode, onChange, ro, bare, vazio }: { value: string; moedaCode: string; onChange: (v: string) => void; ro?: boolean; bare?: boolean; vazio?: boolean }) {
   const num     = value ? parseFloat(value) : 0
   const display = value ? num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''
   if (ro) return <span className={readCls}>{value ? (bare ? display : `${moedaCode} ${display}`) : '—'}</span>
@@ -153,7 +155,10 @@ function MoneyField({ value, moedaCode, onChange, ro, bare }: { value: string; m
     onChange(digits ? String(parseInt(digits, 10) / 100) : '')
   }
   /* bare: sem prefixo de moeda, alinhado à direita (para listas onde a moeda vive no resumo) */
-  if (bare) return <input inputMode="numeric" value={display} onChange={handle} placeholder="0,00" className={cn(inputCls, 'h-7 text-right tabular-nums')} />
+  if (bare) return (
+    <input inputMode="numeric" value={display} onChange={handle} placeholder={vazio ? '' : '0,00'}
+           className={cn(inputCls, 'h-7 text-right tabular-nums', vazio && 'border-transparent bg-transparent hover:border-input focus:border-input')} />
+  )
   return (
     <div className="relative">
       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-muted-foreground pointer-events-none select-none">{moedaCode}</span>
@@ -696,13 +701,23 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
   /* A renovação manual ("Renovar período") mora na aba Vigência: ela estende a vigência e
      soma o período ao valor do contrato — gerar as parcelas é consequência, não o ato. */
 
-  /* colunas: vencimento · previsto · pago · reajusta · forma · nº doc · pagamento · status · observação · (remover)
-     As duas colunas de DATA precisam caber "dd/mm/aaaa" + o ícone do date picker do navegador:
-     abaixo de ~9rem o Chrome corta o ícone. A soma das larguras fixas é mantida sob o
-     `min-w` da tabela, que rola na horizontal em telas estreitas em vez de cortar. */
-  const COLS = 'grid grid-cols-[9rem_7.5rem_7.5rem_2.75rem_7.5rem_5.5rem_9rem_5.5rem_minmax(8rem,1fr)_1.25rem] items-center gap-2'
+  /* Dois blocos SIMÉTRICOS de data+valor — "o que era" contra "o que foi":
+       PREVISTO   → data (vencimento) · valor
+       REALIZADO  → data (baixa)      · valor
+     Depois os ATRIBUTOS da parcela: reaj. · forma · nº doc · status · observação · (remover).
+     `Reaj.` é atributo, não uma terceira dimensão do previsto: dentro do grupo ele
+     quebrava a simetria 2×2, que é o que torna a tabela legível.
+
+     As duas colunas de DATA precisam caber "dd/mm/aaaa" + o ícone do date picker do
+     navegador: abaixo de ~9rem o Chrome corta o ícone. A soma das larguras fixas fica
+     sob o `min-w` da tabela, que rola na horizontal em telas estreitas em vez de cortar. */
+  const COLS = 'grid grid-cols-[9rem_7.5rem_9rem_7.5rem_2.75rem_7.5rem_5.5rem_5.5rem_minmax(8rem,1fr)_1.25rem] items-center gap-2'
   const cell = cn(inputCls, 'h-7')
   const desvioDe = (l: CLancamento) => lancDesvio(l)
+  /* o bloco REALIZADO ganha fundo e bordas que descem por TODA a tabela: é isso que faz
+     o agrupamento existir na linha, e não só no cabeçalho. `self-stretch` faz o fundo
+     cobrir a altura inteira da linha sem deslocar o conteúdo (margem negativa desalinhava). */
+  const blocoRealizado = 'col-span-2 grid grid-cols-subgrid items-center gap-2 self-stretch bg-muted/20 border-x border-border/40'
 
   return (
     <div className="space-y-3">
@@ -791,12 +806,23 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
                   {aberto && (
                     <div className="divide-y divide-border/50">
                       {/* labels de coluna (por ano expandido) */}
-                      <div className={cn(COLS, 'px-3 py-1 bg-muted/10 text-[9px] font-medium uppercase tracking-wide text-muted-foreground/70')}>
-                        <span>Vencimento</span>
-                        <span className="text-right pr-2" title="Valor contratado da parcela">Previsto</span>
-                        <span className="text-right pr-2" title="Valor efetivamente pago. Preencher baixa a parcela.">Pago</span>
-                        <span className="text-center" title="Se marcada, o reajuste alcança esta parcela">Reaj.</span>
-                        <span>Forma</span><span>Nº doc.</span><span>Pagamento</span><span>Status</span><span>Observação</span><span />
+                      {/* faixa de grupo: dois pares simétricos — o que era, o que foi */}
+                      <div className={cn(COLS, 'px-3 pt-1 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/50')}>
+                        <span className="col-span-2 text-center">Previsto</span>
+                        <span className={cn(blocoRealizado, 'justify-items-center border-t')}>
+                          <span className="col-span-2 text-center">Realizado</span>
+                        </span>
+                        <span /><span /><span /><span /><span /><span />
+                      </div>
+                      <div className={cn(COLS, 'px-3 pb-1 text-[9px] font-medium uppercase tracking-wide text-muted-foreground/70')}>
+                        <span title="Data prevista de pagamento — é ela que produz o status Vencido">Data</span>
+                        <span className="text-right pr-2" title="Valor contratado da parcela">Valor</span>
+                        <span className={blocoRealizado}>
+                          <span title="Data em que a parcela foi baixada">Data</span>
+                          <span className="text-right pr-2" title={`Valor efetivamente ${rotulo}. Preencher baixa a parcela.`}>Valor</span>
+                        </span>
+                        <span className="text-center" title="Se marcada, o reajuste alcança o valor previsto desta parcela">Reaj.</span>
+                        <span>Forma</span><span>Nº doc.</span><span>Status</span><span>Observação</span><span />
                       </div>
                       {itens.map(l => (
                         <div key={l.id} className={cn(COLS, 'group px-3 py-1 hover:bg-muted/30')}>
@@ -809,18 +835,27 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
                                     className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 select-none text-[11px] font-semibold text-amber-600 dark:text-amber-500">≈</span>
                             )}
                           </div>
-                          {/* valor pago: preencher BAIXA a parcela; o desvio contra o previsto vira selo */}
-                          <div className="relative">
-                            <MoneyField value={l.valorPago} moedaCode={moedaCode} bare onChange={x => form.updLanc(field, l.id, 'valorPago', x)} />
-                            {desvioDe(l) !== 0 && (
-                              <span title={`${desvioDe(l) > 0 ? 'Pago a mais' : 'Pago a menos'} que o previsto`}
-                                    className={cn('pointer-events-none absolute -bottom-0.5 left-1 select-none text-[9px] font-semibold tabular-nums',
-                                      desvioDe(l) > 0 ? 'text-amber-600 dark:text-amber-500' : 'text-emerald-600 dark:text-emerald-400')}>
-                                {desvioDe(l) > 0 ? '+' : '−'}{money(Math.abs(desvioDe(l)))}
-                              </span>
-                            )}
+                          {/* ── REALIZADO: data da baixa e valor efetivo, lado a lado ──
+                              Enquanto não há baixa, as duas células ficam VAZIAS: o vazio diz
+                              "ainda não aconteceu" melhor que um 0,00 cinza, que sugeriria
+                              que se pagou zero. Continuam editáveis ao clicar. */}
+                          <div className={cn(blocoRealizado, 'py-1 -my-1')}>
+                            {/* informar a data também baixa a parcela: o pago assume o previsto */}
+                            <input type="date" value={l.data} title={`Data do ${rotulo === 'pago' ? 'pagamento' : 'recebimento'} (preencher baixa a parcela pelo valor previsto)`}
+                                   onChange={e => form.patchLanc(field, l.id, { data: e.target.value, ...(e.target.value && !lancPago(l) ? { valorPago: l.valorPrevisto } : {}) })}
+                                   className={cn(cell, !lancPago(l) && 'border-transparent bg-transparent opacity-40 hover:opacity-100 hover:border-input focus:opacity-100 focus:border-input')} />
+                            <div className="relative">
+                              <MoneyField value={l.valorPago} moedaCode={moedaCode} bare vazio={!lancPago(l)} onChange={x => form.updLanc(field, l.id, 'valorPago', x)} />
+                              {desvioDe(l) !== 0 && (
+                                <span title={`${rotulo === 'pago' ? 'Pago' : 'Recebido'} a ${desvioDe(l) > 0 ? 'mais' : 'menos'} que o previsto`}
+                                      className={cn('pointer-events-none absolute -bottom-1 right-1 select-none text-[9px] font-semibold tabular-nums',
+                                        desvioDe(l) > 0 ? 'text-amber-600 dark:text-amber-500' : 'text-emerald-600 dark:text-emerald-400')}>
+                                  {desvioDe(l) > 0 ? '+' : '−'}{money(Math.abs(desvioDe(l)))}
+                                </span>
+                              )}
+                            </div>
                           </div>
-                          {/* fora do alcance do reajuste: equipamento entregue, taxa fixa, etc. */}
+                          {/* atributo da parcela: o reajuste alcança (ou não) o valor previsto */}
                           <div className="flex justify-center">
                             <input type="checkbox" checked={l.reajustavel !== false}
                               onChange={e => form.patchLanc(field, l.id, { reajustavel: e.target.checked })}
@@ -833,11 +868,7 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
                             {formas.active.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
                           </select>
                           <input value={l.documento} onChange={e => form.updLanc(field, l.id, 'documento', e.target.value)} placeholder="NF 1234" className={cell} />
-                          {/* informar a data também baixa a parcela: o pago assume o previsto */}
-                          <input type="date" value={l.data} title="Data de pagamento (preencher baixa a parcela pelo valor previsto)"
-                                 onChange={e => form.patchLanc(field, l.id, { data: e.target.value, ...(e.target.value && !lancPago(l) ? { valorPago: l.valorPrevisto } : {}) })}
-                                 className={cn(cell, !lancPago(l) && 'opacity-50')} />
-                          <button type="button" onClick={() => (lancPago(l) ? reabrir(l) : marcarPago(l))} title={lancPago(l) ? 'Reabrir (voltar a A vencer)' : 'Marcar como paga'} className={cn('inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-80', statusInfo(l).cls)}>{statusInfo(l).label}</button>
+                          <button type="button" onClick={() => (lancPago(l) ? reabrir(l) : marcarPago(l))} title={lancPago(l) ? 'Reabrir (voltar a A vencer)' : `Marcar como ${rotulo}`} className={cn('inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-80', statusInfo(l).cls)}>{statusInfo(l).label}</button>
                           <input value={l.observacao} onChange={e => form.updLanc(field, l.id, 'observacao', e.target.value)} placeholder="—" className={cn(cell, 'text-muted-foreground')} />
                           <button type="button" onClick={() => form.remLanc(field, l.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>
                         </div>
@@ -850,14 +881,18 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
           </div>
           {/* rodapé: total geral (todas as parcelas) + realizado — acompanha o min-w da tabela */}
           <div className={cn(COLS, 'min-w-[70rem] px-3 py-1.5 bg-muted/30 border-t')}>
+            {/* mesma ordem das colunas: total previsto sob Previsto, total realizado sob Realizado */}
             <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Total</span>
             <span className="text-xs font-semibold tabular-nums text-right pr-2">{money(total)}</span>
-            <span className="text-xs font-semibold tabular-nums text-right pr-2">{money(totalPago)}</span>
+            <span className={blocoRealizado}>
+              <span />
+              <span className="text-xs font-semibold tabular-nums text-right pr-2">{money(totalPago)}</span>
+            </span>
             <span /><span /><span /><span />
             <span className={cn('text-[10px] tabular-nums truncate', desvioTotal === 0 ? 'text-muted-foreground' : desvioTotal > 0 ? 'text-amber-600 dark:text-amber-500' : 'text-emerald-600 dark:text-emerald-400')}>
               {desvioTotal === 0 ? 'sem desvio' : `desvio ${desvioTotal > 0 ? '+' : '−'}${money(Math.abs(desvioTotal))}`}
             </span>
-            <span /><span />
+            <span />
           </div>
         </div>
       )}

@@ -151,6 +151,29 @@ function diffContract(o: CRec, n: CRec, maps: Maps): AuditChange[] {
     }
     for (const l of nL) if (!oIds.has(aVal(l.id))) ch.push({ field: `${field}.${aVal(l.id)}`, label: `${label} registrado`, before: '—', after: descL(l) })
     for (const l of oL) if (!nIds.has(aVal(l.id))) ch.push({ field: `${field}.${aVal(l.id)}`, label: `${label} removido`, before: descL(l), after: '—' })
+
+    /* BAIXA e ESTORNO de parcela mexem em DINHEIRO e antes não deixavam rastro nenhum:
+       o diff só enxergava lançamento criado ou removido. Registrar a mudança do valor
+       pago (e do previsto) é o que permite responder "quem baixou esta parcela, e quando". */
+    const oById = new Map(oL.map(l => [aVal(l.id), l]))
+    const venc = (l: CRec) => aDate(l.vencimento) || aDate(l.data)
+    for (const l of nL) {
+      const prev = oById.get(aVal(l.id))
+      if (!prev) continue
+      const eraPago = lancPago(prev as never), agoraPago = lancPago(l as never)
+      const campo = `${field}.${aVal(l.id)}`
+
+      if (!eraPago && agoraPago) {
+        ch.push({ field: campo, label: `${label} baixado · venc. ${venc(l)}`, before: `previsto ${aMoney(lancPrevisto(l as never))}`, after: descL(l) })
+      } else if (eraPago && !agoraPago) {
+        ch.push({ field: campo, label: `${label} estornado · venc. ${venc(l)}`, before: descL(prev), after: `previsto ${aMoney(lancPrevisto(l as never))}` })
+      } else if (agoraPago && lancRealizado(prev as never) !== lancRealizado(l as never)) {
+        ch.push({ field: campo, label: `${label} · valor pago alterado · venc. ${venc(l)}`, before: aMoney(lancRealizado(prev as never)), after: aMoney(lancRealizado(l as never)) })
+      }
+      if (lancPrevisto(prev as never) !== lancPrevisto(l as never)) {
+        ch.push({ field: campo, label: `${label} · valor previsto alterado · venc. ${venc(l)}`, before: aMoney(lancPrevisto(prev as never)), after: aMoney(lancPrevisto(l as never)) })
+      }
+    }
   }
 
   /* reajustes efetivamente aplicados */
