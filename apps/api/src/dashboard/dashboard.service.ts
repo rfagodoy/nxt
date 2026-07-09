@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import { effectiveSituacao, terminoVigente, todayISO, valorVigente, type CoreContract } from '@nxt/contracts-core'
 import { PrismaService } from '../prisma.service'
 
 const DAY = 86_400_000
@@ -56,7 +57,10 @@ export class DashboardService {
         where:  { organizationId },
         select: {
           id: true, numero: true, titulo: true, situacao: true,
-          terminoVigencia: true, prazoIndeterminado: true, valorTotal: true, createdAt: true, aditivos: true, renovacoes: true,
+          terminoVigencia: true, prazoIndeterminado: true, valorTotal: true, createdAt: true,
+          /* `valorVigente` soma os deltas dos reajustes e o valorPeriodo das renovações —
+             sem estes campos o dashboard mostrava o valor ORIGINAL do contrato. */
+          aditivos: true, renovacoes: true, reajustesRealizados: true,
         },
       }),
       this.prisma.partner.findMany({
@@ -87,25 +91,16 @@ export class DashboardService {
       }),
     ])
 
-    /* ── Contratos ── (situação/término/valor VIGENTES: aplica aditivos ATIVOS e deriva VENCIDO) ── */
-    const pad = (n: number) => String(n).padStart(2, '0')
-    const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`
+    /* ── Contratos ── estado VIGENTE (aditivos ATIVOS + renovações + reajustes aplicados)
+       derivado por @nxt/contracts-core, a mesma implementação da listagem e do detalhe. */
+    const todayStr = todayISO()
     const derivar = (c: (typeof contracts)[number]) => {
-      let termino = c.terminoVigencia
-      let valor = c.valorTotal ?? 0
-      for (const a of ((c.aditivos as unknown as Array<Record<string, unknown>>) ?? [])) {
-        if (a.situacao === 'RASCUNHO') continue  // só aditivo ATIVO aplica (legado sem situacao = ativo)
-        if (a.alteraTermino && a.novoTermino) termino = a.novoTermino as string
-        if (a.alteraValor && a.novoValor != null) valor += Number(a.novoValor) || 0
+      const termino = terminoVigente(c as unknown as CoreContract)
+      return {
+        termino,
+        valor: valorVigente(c as unknown as CoreContract),
+        situacao: effectiveSituacao(c.situacao, c.prazoIndeterminado ? '' : termino, todayStr),
       }
-      /* renovações automáticas estendem a vigência (cláusula, não aditivo) */
-      for (const r of ((c.renovacoes as unknown as Array<Record<string, unknown>>) ?? [])) {
-        const nt = r.novoTermino as string | undefined
-        if (nt && (!termino || nt > termino)) termino = nt
-      }
-      let situacao = c.situacao
-      if (situacao === 'VIGENTE' && !c.prazoIndeterminado && termino && termino < todayStr) situacao = 'VENCIDO'
-      return { termino, valor, situacao }
     }
 
     const contractsByStatus: Record<string, number> = {}

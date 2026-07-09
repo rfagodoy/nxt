@@ -72,6 +72,28 @@ export function consumo(c: CoreContract): number {
   return arr.reduce((s, l) => s + (lancPago(l) ? num(l.valor) : 0), 0)
 }
 
+/* ─── situação ───────────────────────────────────────────────────────────────
+   Estados persistidos: EM_CADASTRO, VIGENTE, ENCERRADO, RESCINDIDO.
+   VENCIDO é DERIVADO, nunca gravado: contrato VIGENTE cujo término já passou. */
+
+/** Converte situações do modelo antigo para o ciclo atual. */
+export function normalizeSituacao(s: string): string {
+  switch (s) {
+    case 'ATIVO':                                     return 'VIGENTE'
+    case 'PENDENTE': case 'REVISAO': case 'SUSPENSO': return 'EM_CADASTRO'
+    default:                                          return s
+  }
+}
+
+/** Situação exibida: normaliza o legado e resolve 'VENCIDO'.
+ *  `termino` deve ser o término VIGENTE (com aditivos e renovações) — prorrogou, não vence.
+ *  Passe '' quando o prazo for indeterminado. */
+export function effectiveSituacao(situacao: string, termino: string | null | undefined, today: string): string {
+  const s = normalizeSituacao(situacao)
+  if (s === 'VIGENTE' && termino && termino < today) return 'VENCIDO'
+  return s
+}
+
 /** Soma de todos os lançamentos de uma lista. */
 export const somaLancamentos = (arr: CoreLancamento[]) => arr.reduce((s, l) => s + num(l.valor), 0)
 /** Soma só dos lançamentos PAGOS. */

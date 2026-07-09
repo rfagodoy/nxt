@@ -1,6 +1,7 @@
 import {
   aditivoAtivo, parcelaVigente, proximoDiaISO, somaLancamentos, somaLancamentosPagos,
-  terminoVigente, valorVigente, lancPago, lancStatus,
+  terminoVigente, valorVigente, lancPago, lancStatus, normalizeSituacao, todayISO,
+  effectiveSituacao as coreEffectiveSituacao,
 } from '@nxt/contracts-core'
 import type { LookupEntry } from '@/hooks/use-lookup-table'
 
@@ -10,7 +11,7 @@ import type { LookupEntry } from '@/hooks/use-lookup-table'
    Antes desta extração havia duas implementações das derivações, e elas divergiam. */
 export {
   aditivoAtivo, parcelaVigente, proximoDiaISO, somaLancamentos, somaLancamentosPagos,
-  terminoVigente, valorVigente, lancPago, lancStatus,
+  terminoVigente, valorVigente, lancPago, lancStatus, normalizeSituacao,
 }
 
 /** Parcela vigente formatada para um input de texto: '' quando não há parcela.
@@ -232,25 +233,12 @@ export const SITUACOES = [
 
 /* ─── ciclo de vida da situação ──────────────────────────────
    Estados persistidos: EM_CADASTRO, VIGENTE, ENCERRADO, RESCINDIDO.
-   VENCIDO é DERIVADO (nunca gravado): contrato VIGENTE cujo término já passou. */
-
-const todayISO = () => new Date().toISOString().slice(0, 10)
-
-/** Converte situações legadas (modelo antigo) para o ciclo atual. */
-export function normalizeSituacao(s: string): string {
-  switch (s) {
-    case 'ATIVO':                          return 'VIGENTE'
-    case 'PENDENTE': case 'REVISAO': case 'SUSPENSO': return 'EM_CADASTRO'
-    default:                               return s
-  }
-}
+   VENCIDO é DERIVADO (nunca gravado): contrato VIGENTE cujo término já passou.
+   A regra vive no core; aqui só injetamos "hoje". */
 
 /** Situação exibida: normaliza legado e resolve 'Vencido' (VIGENTE + término < hoje). */
-export function effectiveSituacao(situacao: string, terminoVigencia?: string | null): string {
-  const s = normalizeSituacao(situacao)
-  if (s === 'VIGENTE' && terminoVigencia && terminoVigencia < todayISO()) return 'VENCIDO'
-  return s
-}
+export const effectiveSituacao = (situacao: string, terminoVigencia?: string | null): string =>
+  coreEffectiveSituacao(situacao, terminoVigencia, todayISO())
 export const PERIODICIDADES    = ['Mensal', 'Trimestral', 'Semestral', 'Anual']
 export const TIPOS_DOCUMENTO   = ['Contrato original', 'Proposta comercial', 'Aditivo', 'Distrato', 'Ata de reunião', 'Outros']
 export const STATUS_ASSINATURA = [
