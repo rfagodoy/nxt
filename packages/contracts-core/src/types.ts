@@ -32,12 +32,21 @@ export interface CoreAditivo {
   novaParcela?: Numeric
 }
 
+/** Como o motor de datas trata esta linha de reajuste.
+ *  AUTOMATICA = aplica sozinho quando vence; MANUAL = só notifica (default, e o
+ *  comportamento histórico); SUSPENSA = nem notifica (contrato em disputa de índice). */
+export type AplicacaoReajuste = 'AUTOMATICA' | 'MANUAL' | 'SUSPENSA'
+
 /** Linha de reajuste = a AGENDA (índice + data base + periodicidade). */
 export interface CoreReajuste {
   id: string
   indice: string
   data: string
   periodicidade: string
+  /** ausente = MANUAL (linhas cadastradas antes da política existir) */
+  aplicacao?: string
+  /** o que o reajuste altera quando aplicado automaticamente; ausente = decide pelo contrato */
+  base?: string
 }
 
 /** Reajuste efetivamente APLICADO (fato, não agenda). `valorAnterior`/`valorNovo`

@@ -2,7 +2,8 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import {
   daysBetween, todayISO,
   terminoVigente, valorVigente, consumo,
-  proximaDataReajuste, renovarPeriodo, campoRenovacao,
+  proximaDataReajuste, aplicacaoDe, planejarReajuste, aplicarReajuste, pagasAlcancadas,
+  renovarPeriodo, campoRenovacao,
 } from '@nxt/contracts-core'
 import { PrismaService } from '../prisma.service'
 import { SettingsService } from '../settings/settings.service'
@@ -22,14 +23,17 @@ export const NOTIF_PARAMS_KEY = 'nxt:settings:notificacoes'
 
 interface Params {
   vigencia: { enabled: boolean; dias: number[] }        // faixas de antecedência (ex.: [60,30,7])
-  reajuste: { enabled: boolean; dias: number }          // antecedência única (dias)
+  /* `automatico` liga o motor de reajuste. Nasce DESLIGADO de propósito: aplicar reajuste
+     automático sobre uma base histórica é operação de mão única. Mesmo ligado, só age nas
+     linhas com aplicacao=AUTOMATICA. */
+  reajuste: { enabled: boolean; dias: number; automatico: boolean }
   consumo:  { enabled: boolean; percentuais: number[] } // limites (ex.: [80,100])
   renovacaoAutomatica: boolean                          // liga/desliga a renovação global
   indicesAutoImport: boolean                            // import diário dos valores de índice do BCB
 }
 export const DEFAULT_PARAMS: Params = {
   vigencia: { enabled: true, dias: [60, 30, 7] },
-  reajuste: { enabled: true, dias: 15 },
+  reajuste: { enabled: true, dias: 15, automatico: false },
   consumo:  { enabled: true, percentuais: [80, 100] },
   renovacaoAutomatica: true,
   indicesAutoImport: true,
@@ -42,7 +46,30 @@ const fmtBR = (iso: string) => (iso ? iso.slice(0, 10).split('-').reverse().join
 const fmtMesAno = (iso: string) => (iso ? iso.slice(0, 7).split('-').reverse().join('/') : '') // mm/aaaa (data base de reajuste)
 const label = (c: any) => c.titulo || `Contrato ${c.numero}`
 
+const aMoney = (n: number) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
 interface Upsert { dedupKey: string; contractId: string; tipo: string; severidade: string; titulo: string; mensagem: string }
+
+/** O que o motor fez (ou, no dry-run, faria) com UM contrato. */
+interface Evolucao {
+  reajustes: ReajusteAplicado[]
+  renovados: number
+  encerrados: number
+  campoLanc: 'pagamentos' | 'recebimentos'
+  gerouParcelas: boolean
+}
+
+/** Um reajuste que o motor aplicou (ou, no dry-run, aplicaria). */
+export interface ReajusteAplicado {
+  contratoId: string; numero: string; reajusteId: string; indice: string
+  competencia: string; percentual: number; base: 'total' | 'parcela'
+  valorAnterior: number; valorNovo: number
+  parcelaAnterior: number; parcelaNova: number; parcelasReajustadas: number
+  /** parcelas já pagas alcançadas pela competência — o motor NÃO as reprecifica */
+  pagasAlcancadas: number
+  /** quanto deixaria de ser cobrado nessas parcelas; decisão humana, não do motor */
+  diferencaNaoCobrada: number
+}
 
 @Injectable()
 export class ContractSchedulerService implements OnModuleInit {
@@ -104,67 +131,51 @@ export class ContractSchedulerService implements OnModuleInit {
 
   /** Execução sob demanda (endpoint /run, admin): espelha a rotina diária para UMA org —
    *  importa os índices do BCB (se habilitado) e roda o motor de datas/notificações.
-   *  Retorna o resumo combinado. */
-  async runNow(organizationId: string) {
-    const indices = await this.importIndices(organizationId)
-    const engine = await this.runForOrg(organizationId)
-    return { indices: indices.ignorado ? 0 : indices.atualizados, ...engine }
+   *  `dryRun` calcula tudo e não grava NADA — serve para conferir o que o motor faria
+   *  antes de deixá-lo aplicar reajustes sobre uma base histórica. */
+  async runNow(organizationId: string, dryRun = false) {
+    const indices = dryRun ? { atualizados: 0, ignorado: true } : await this.importIndices(organizationId)
+    const engine = await this.runForOrg(organizationId, dryRun)
+    return { dryRun, indices: indices.ignorado ? 0 : indices.atualizados, ...engine }
   }
 
   /** Executa o motor para UMA organização. Retorna um resumo (usado pelo endpoint /run). */
-  async runForOrg(organizationId: string) {
+  async runForOrg(organizationId: string, dryRun = false) {
     const params = await this.loadParams(organizationId)
     const today = todayISO()
     const contracts = await this.prisma.contract.findMany({ where: { organizationId } }) as any[]
+    const series = ((await this.settings.get(organizationId, INDICE_VALORES_KEY)).value as Record<string, Record<string, number>> | null) ?? {}
+    const rotuloIndice = await this.loadIndiceLabels(organizationId)
     let renovados = 0, encerrados = 0
     const activeKeys: string[] = []
     const upserts: Upsert[] = []
+    const reajustesAplicados: ReajusteAplicado[] = []
 
     for (const c of contracts) {
-      /* 1) AÇÃO no término */
-      if (c.situacao === 'VIGENTE' && !c.prazoIndeterminado) {
-        const termino = terminoVigente(c)
-        if (termino && termino < today) {
-          if (c.acaoTermino === 'RENOVAR' && params.renovacaoAutomatica) {
-            const anos = Number(c.renovacaoAnos) || 0, meses = Number(c.renovacaoMeses) || 0, dias = Number(c.renovacaoDias) || 0
-            if (anos || meses || dias) {
-              const renos = [...((c.renovacoes as any[]) ?? [])]
-              /* cada período renovado estende a vigência pelo PRAZO de renovação e, se o contrato
-                 tem cronograma, GERA suas parcelas na parcela vigente (+ valorPeriodo, que soma ao
-                 total). `renovarPeriodo` é a mesma função do botão "Gerar próximo período". */
-              const campo = campoRenovacao(c.natureza)
-              const lancs = [...((c[campo] as any[]) ?? [])]
-              let geradas = false
-              let guard = 0
-              let cur: any = c
-              while (guard++ < 120) {
-                const t = terminoVigente(cur)
-                if (!t || t >= today) break
-                const r = renovarPeriodo(cur, {
-                  campo, anos, meses, dias, data: today, automatica: true,
-                  id: `${Date.now()}_${guard}`,
-                  makeId: i => `l_${Date.now()}_${guard}_${i + 1}`,
-                })
-                if (!r) break  // prazo inválido → evita laço infinito
-                renos.push(r.renovacao)
-                if (r.lancamentos.length) { lancs.push(...r.lancamentos); geradas = true }
-                cur = { ...cur, renovacoes: renos, [campo]: lancs }
-                renovados++
-              }
-              const upd: any = { renovacoes: renos }
-              if (geradas) upd[campo] = lancs
-              await this.prisma.contract.update({ where: { id: c.id }, data: upd as never })
-              c.renovacoes = renos; if (geradas) c[campo] = lancs
-              await this.audit(c.id, 'RENOVADO', [{ field: 'renovacao', label: 'Renovação automática', before: '—', after: `vigência estendida até ${fmtBR(terminoVigente(c))}${geradas ? ' + parcelas do período geradas' : ''}` }])
-            }
-          } else if (c.acaoTermino === 'ENCERRAR') {
-            await this.prisma.contract.update({ where: { id: c.id }, data: { situacao: 'ENCERRADO' } })
-            c.situacao = 'ENCERRADO'; encerrados++
-            await this.audit(c.id, 'ENCERRADO', [{ field: 'situacao', label: 'Situação', before: 'Vigente', after: 'Encerrado' }])
-          }
-          /* MANUAL: não age — entra na notificação de vigência abaixo */
-        }
+      /* 0+1) AVANÇA A LINHA DO TEMPO do contrato: reajuste e renovação INTERCALADOS por data.
+         Não basta reajustar tudo e depois renovar tudo: num contrato com períodos represados
+         as parcelas dos períodos futuros ainda não existem quando os reajustes rodam, e as
+         parcelas criadas depois nasceriam todas no preço de hoje. A cada volta aplicamos o
+         evento MAIS ANTIGO — reajuste cuja competência cabe na vigência atual, senão renovação. */
+      const evolucao = this.avancarContrato(c, params, series, rotuloIndice, today)
+      renovados += evolucao.renovados
+      encerrados += evolucao.encerrados
+      reajustesAplicados.push(...evolucao.reajustes)
+
+      if (!dryRun && (evolucao.reajustes.length || evolucao.renovados || evolucao.encerrados)) {
+        await this.persistirEvolucao(c, evolucao)
       }
+      /* diferença que ficou de fora por já estar paga: o motor NÃO cobra, mas conta */
+      for (const a of evolucao.reajustes) {
+        if (!a.pagasAlcancadas) continue
+        const key = `reajuste-diferenca:${c.id}:${a.reajusteId}:${a.competencia.slice(0, 7)}`
+        activeKeys.push(key)
+        upserts.push({ dedupKey: key, contractId: c.id, tipo: 'REAJUSTE', severidade: 'ALERTA',
+          titulo: 'Diferença de reajuste não cobrada',
+          mensagem: `${label(c)}: o reajuste de ${fmtMesAno(a.competencia)} alcançou ${a.pagasAlcancadas} parcela(s) já paga(s). Diferença não cobrada: ${aMoney(a.diferencaNaoCobrada)}.` })
+      }
+
+      /* acaoTermino MANUAL não age aqui — entra na notificação de vigência abaixo */
 
       /* 2) AVISOS */
       const termino = terminoVigente(c)
@@ -186,6 +197,7 @@ export class ContractSchedulerService implements OnModuleInit {
       if (params.reajuste.enabled && c.situacao === 'VIGENTE') {
         for (const r of ((c.reajustes as any[]) ?? [])) {
           if (!r.indice) continue                     // linha incompleta: não há o que notificar
+          if (aplicacaoDe(r) === 'SUSPENSA') continue // política: nem notifica
           const nextDue = proximaDataReajuste(c, r)   // uma periodicidade após a última competência aplicada
           if (!nextDue) continue
           const key = `reajuste:${c.id}:${r.id}`
@@ -222,6 +234,10 @@ export class ContractSchedulerService implements OnModuleInit {
       }
     }
 
+    if (dryRun) {
+      return { renovados, encerrados, notificacoes: activeKeys.length, resolvidas: 0, reajustes: reajustesAplicados.length, detalhe: reajustesAplicados }
+    }
+
     /* grava/atualiza notificações ativas */
     for (const u of upserts) {
       await this.prisma.notification.upsert({
@@ -234,7 +250,125 @@ export class ContractSchedulerService implements OnModuleInit {
     const resolved = await this.prisma.notification.deleteMany({
       where: activeKeys.length ? { organizationId, dedupKey: { notIn: activeKeys } } : { organizationId },
     })
-    return { renovados, encerrados, notificacoes: activeKeys.length, resolvidas: resolved.count }
+    return { renovados, encerrados, notificacoes: activeKeys.length, resolvidas: resolved.count, reajustes: reajustesAplicados.length, detalhe: reajustesAplicados }
+  }
+
+  /** Avança a linha do tempo do contrato até hoje, EM MEMÓRIA. Devolve o que fez; quem chama
+   *  decide persistir (ou não, no dry-run).
+   *
+   *  A cada volta escolhe o evento MAIS ANTIGO ainda pendente:
+   *   - reajuste vencido cuja competência cabe na vigência atual → aplica e reprecifica;
+   *   - senão, se o término já passou → renova UM período (as parcelas novas já nascem
+   *     na parcela vigente, que acabou de ser reajustada).
+   *  Assim um contrato de 2019 chega a 2026 com cada período no preço do seu ano, em vez de
+   *  todos no preço de hoje.
+   *
+   *  Idempotência: `proximaDataReajuste` ancora na última competência já aplicada, e
+   *  `terminoVigente` na última renovação. Rodar duas vezes no mesmo dia não repete nada.
+   *  É a guarda mais importante daqui — um erro nela compõe juros diários sobre o contrato. */
+  private avancarContrato(c: any, params: Params, series: Record<string, Record<string, number>>, rotulo: Map<string, string>, today: string): Evolucao {
+    const ev: Evolucao = { reajustes: [], renovados: 0, encerrados: 0, campoLanc: campoRenovacao(c.natureza), gerouParcelas: false }
+    if (c.situacao !== 'VIGENTE') return ev
+
+    const anos = Number(c.renovacaoAnos) || 0, meses = Number(c.renovacaoMeses) || 0, dias = Number(c.renovacaoDias) || 0
+    const podeRenovarSempre = !c.prazoIndeterminado && c.acaoTermino === 'RENOVAR' && params.renovacaoAutomatica && (anos || meses || dias)
+
+    let guard = 0
+    while (guard++ < 200) {
+      const termino = terminoVigente(c)
+      const venceu = !c.prazoIndeterminado && !!termino && termino < today
+
+      /* reajuste pendente mais antigo (só linhas AUTOMATICA com índice publicado) */
+      let alvo: { r: any; plano: ReturnType<typeof planejarReajuste> } | null = null
+      if (params.reajuste.automatico) {
+        for (const r of ((c.reajustes as any[]) ?? [])) {
+          const plano = planejarReajuste(c, r, series[r.indice], today)
+          if (plano.aplicar && (!alvo || plano.competencia < alvo.plano.competencia)) alvo = { r, plano }
+        }
+      }
+
+      const renovar = podeRenovarSempre && venceu
+      /* o reajuste vem primeiro quando sua competência ainda cabe na vigência corrente */
+      if (alvo && (!renovar || alvo.plano.competencia <= termino)) {
+        ev.reajustes.push(this.aplicarUm(c, alvo.r, alvo.plano, rotulo, today, guard))
+        continue
+      }
+      if (renovar) {
+        const r = renovarPeriodo(c, {
+          campo: ev.campoLanc, anos, meses, dias, data: today, automatica: true,
+          id: `${Date.now()}_${guard}`, makeId: i => `l_${Date.now()}_${guard}_${i + 1}`,
+        })
+        if (!r) break // prazo inválido → evita laço infinito
+        c.renovacoes = [...((c.renovacoes as any[]) ?? []), r.renovacao]
+        if (r.lancamentos.length) { c[ev.campoLanc] = [...((c[ev.campoLanc] as any[]) ?? []), ...r.lancamentos]; ev.gerouParcelas = true }
+        ev.renovados++
+        continue
+      }
+      break
+    }
+
+    /* encerramento automático: só depois de esgotados reajuste e renovação */
+    if (!c.prazoIndeterminado && c.acaoTermino === 'ENCERRAR') {
+      const t = terminoVigente(c)
+      if (t && t < today) { c.situacao = 'ENCERRADO'; ev.encerrados++ }
+    }
+    return ev
+  }
+
+  /** Aplica UM reajuste no registro em memória e devolve o registro do que foi feito. */
+  private aplicarUm(c: any, r: any, plano: ReturnType<typeof planejarReajuste>, rotulo: Map<string, string>, today: string, seq: number): ReajusteAplicado {
+    const indice = rotulo.get(r.indice) ?? r.indice
+    const res = aplicarReajuste(c, {
+      id: `rr_${Date.now()}_${seq}_${r.id}`,
+      reajusteId: r.id, competencia: plano.competencia, percentual: plano.percentual, base: plano.base,
+      indiceSnapshot: indice,
+      observacao: 'Aplicado automaticamente pelo motor de datas.',
+      user: 'Sistema', dataAplicacao: today, createdAt: new Date().toISOString(),
+    })
+    const pagas = pagasAlcancadas(c, plano.competencia, Number(res.reajuste.parcelaNova) || 0)
+
+    c.reajustesRealizados = [...((c.reajustesRealizados as any[]) ?? []), res.reajuste]
+    c.pagamentos = res.pagamentos
+    c.recebimentos = res.recebimentos
+
+    return {
+      contratoId: c.id, numero: c.numero, reajusteId: r.id, indice,
+      competencia: plano.competencia, percentual: plano.percentual, base: plano.base,
+      valorAnterior: Number(res.reajuste.valorAnterior) || 0, valorNovo: Number(res.reajuste.valorNovo) || 0,
+      parcelaAnterior: Number(res.reajuste.parcelaAnterior) || 0, parcelaNova: Number(res.reajuste.parcelaNova) || 0,
+      parcelasReajustadas: Number(res.reajuste.parcelasReajustadas) || 0,
+      pagasAlcancadas: pagas.quantidade, diferencaNaoCobrada: pagas.diferenca,
+    }
+  }
+
+  /** Grava o estado já evoluído em memória + os logs de auditoria correspondentes. */
+  private async persistirEvolucao(c: any, ev: Evolucao) {
+    const data: any = {}
+    if (ev.reajustes.length) { data.reajustesRealizados = c.reajustesRealizados; data.pagamentos = c.pagamentos; data.recebimentos = c.recebimentos }
+    if (ev.renovados) { data.renovacoes = c.renovacoes; if (ev.gerouParcelas) data[ev.campoLanc] = c[ev.campoLanc] }
+    if (ev.encerrados) data.situacao = 'ENCERRADO'
+    await this.prisma.contract.update({ where: { id: c.id }, data: data as never })
+
+    if (ev.reajustes.length) {
+      await this.audit(c.id, 'REAJUSTE', ev.reajustes.map(a => ({
+        field: `reajuste.${a.reajusteId}`, label: 'Reajuste aplicado automaticamente',
+        before: a.base === 'parcela' ? aMoney(a.parcelaAnterior) : aMoney(a.valorAnterior),
+        after: `${a.base === 'parcela' ? aMoney(a.parcelaNova) : aMoney(a.valorNovo)} · ${a.indice} ${a.percentual.toFixed(2)}% · ${fmtMesAno(a.competencia)}`,
+      })))
+    }
+    if (ev.renovados) {
+      await this.audit(c.id, 'RENOVADO', [{ field: 'renovacao', label: 'Renovação automática', before: '—',
+        after: `vigência estendida até ${fmtBR(terminoVigente(c))}${ev.gerouParcelas ? ' + parcelas do período geradas' : ''}` }])
+    }
+    if (ev.encerrados) {
+      await this.audit(c.id, 'ENCERRADO', [{ field: 'situacao', label: 'Situação', before: 'Vigente', after: 'Encerrado' }])
+    }
+  }
+
+  /** Catálogo de índices da org como mapa id → rótulo (p/ o indiceSnapshot do reajuste). */
+  private async loadIndiceLabels(organizationId: string): Promise<Map<string, string>> {
+    const entries = ((await this.settings.get(organizationId, INDICES_KEY)).value as Array<{ id: string; label: string }> | null) ?? []
+    return new Map(entries.map(e => [e.id, e.label]))
   }
 
   private async audit(contractId: string, event: string, changes: any[]) {

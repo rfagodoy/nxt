@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { CalendarClock, RefreshCw, Gauge, RotateCw, Save, ShieldAlert, Check, CloudDownload, Play, Loader2 } from 'lucide-react'
+import { CalendarClock, RefreshCw, Gauge, RotateCw, Save, ShieldAlert, Check, CloudDownload, Play, Loader2, Eye } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/lib/session-context'
 import { cacheRead, pullSetting, pushSetting } from '@/lib/settings-store'
@@ -12,21 +12,31 @@ const KEY = 'nxt:settings:notificacoes'
 
 interface Params {
   vigencia: { enabled: boolean; dias: number[] }
-  reajuste: { enabled: boolean; dias: number }
+  reajuste: { enabled: boolean; dias: number; automatico: boolean }
   consumo:  { enabled: boolean; percentuais: number[] }
   renovacaoAutomatica: boolean
   indicesAutoImport: boolean
 }
 const DEFAULT: Params = {
   vigencia: { enabled: true, dias: [60, 30, 7] },
-  reajuste: { enabled: true, dias: 15 },
+  reajuste: { enabled: true, dias: 15, automatico: false },
   consumo:  { enabled: true, percentuais: [80, 100] },
   renovacaoAutomatica: true,
   indicesAutoImport: true,
 }
 
 /** Resumo retornado por POST /api/notifications/run */
-interface RunResult { indices: number; renovados: number; encerrados: number; notificacoes: number; resolvidas: number }
+interface ReajusteAplicado {
+  numero: string; indice: string; competencia: string; percentual: number; base: 'total' | 'parcela'
+  valorAnterior: number; valorNovo: number; parcelaAnterior: number; parcelaNova: number
+  parcelasReajustadas: number; pagasAlcancadas: number; diferencaNaoCobrada: number
+}
+interface RunResult {
+  dryRun: boolean; indices: number; renovados: number; encerrados: number
+  notificacoes: number; resolvidas: number; reajustes: number; detalhe: ReajusteAplicado[]
+}
+const BRL = (n: number) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const mesAno = (iso: string) => (iso ? iso.slice(0, 7).split('-').reverse().join('/') : '—')
 
 /* parse "60, 30, 7" → [60,30,7] (positivos, únicos, ordenados desc) */
 const parseList = (s: string) => [...new Set(s.split(/[,\s]+/).map(Number).filter(n => Number.isFinite(n) && n > 0))].sort((a, b) => b - a)
@@ -83,15 +93,16 @@ export default function NotificacoesParams() {
 
   const save = () => { pushSetting(KEY, p); setSaved(true); setTimeout(() => setSaved(false), 2000) }
 
-  const runNow = async () => {
+  /** `dryRun` calcula tudo e não grava nada — serve para conferir o que o motor faria. */
+  const runNow = async (dryRun = false) => {
     setRunning(true); setRunError(null); setRunResult(null)
     try {
-      const res = await apiFetch('/api/notifications/run', { method: 'POST' })
+      const res = await apiFetch(`/api/notifications/run${dryRun ? '?dryRun=1' : ''}`, { method: 'POST' })
       if (res.ok) {
         const r = await res.json() as RunResult
         setRunResult(r)
-        /* o motor pode ter renovado/encerrado contratos — quem está com um aberto precisa saber */
-        if (r.renovados || r.encerrados) emitContractsChanged()
+        /* o motor pode ter alterado contratos — quem está com um aberto precisa saber */
+        if (!dryRun && (r.renovados || r.encerrados || r.reajustes)) emitContractsChanged()
       }
       else if (res.status === 403) setRunError('Apenas administradores podem executar o motor.')
       else setRunError(`Falha ao executar (${res.status}).`)
@@ -130,22 +141,59 @@ export default function NotificacoesParams() {
           <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm font-semibold">Executar motor de datas agora</p>
-              <button onClick={() => void runNow()} disabled={running}
-                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-3 text-xs font-medium transition-colors hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed">
-                {running ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Executando...</> : <><Play className="h-3.5 w-3.5" />Executar agora</>}
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                <button onClick={() => void runNow(true)} disabled={running}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium transition-colors hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed">
+                  <Eye className="h-3.5 w-3.5" />Simular
+                </button>
+                <button onClick={() => void runNow()} disabled={running}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium transition-colors hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed">
+                  {running ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Executando...</> : <><Play className="h-3.5 w-3.5" />Executar agora</>}
+                </button>
+              </div>
             </div>
             <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-              Roda imediatamente a rotina que normalmente executa de madrugada: import dos índices (BCB), renovação/encerramento automático no término e geração/atualização das notificações. Útil para aplicar mudanças sem esperar o ciclo diário.
+              Roda imediatamente a rotina que normalmente executa de madrugada: import dos índices (BCB), reajuste e renovação/encerramento automáticos e geração das notificações. <strong className="font-medium text-foreground">Simular</strong> calcula tudo e não grava nada — use antes de ligar o reajuste automático.
             </p>
             {runResult && (
               <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
-                <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 font-medium text-emerald-600 dark:text-emerald-400"><Check className="h-3 w-3" />Concluído</span>
+                {runResult.dryRun
+                  ? <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 font-medium text-amber-600 dark:text-amber-400"><Eye className="h-3 w-3" />Ensaio — nada foi gravado</span>
+                  : <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 font-medium text-emerald-600 dark:text-emerald-400"><Check className="h-3 w-3" />Concluído</span>}
+                <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">{runResult.reajustes} reajuste(s)</span>
                 <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">{runResult.renovados} renovado(s)</span>
                 <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">{runResult.encerrados} encerrado(s)</span>
                 <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">{runResult.notificacoes} notificação(ões) ativa(s)</span>
-                <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">{runResult.resolvidas} resolvida(s)</span>
-                <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">{runResult.indices} índice(s) atualizado(s)</span>
+                {!runResult.dryRun && <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">{runResult.resolvidas} resolvida(s)</span>}
+                {!runResult.dryRun && <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">{runResult.indices} índice(s) atualizado(s)</span>}
+              </div>
+            )}
+            {runResult && runResult.detalhe?.length > 0 && (
+              <div className="mt-3 overflow-hidden rounded-md border">
+                <div className="grid grid-cols-[7rem_5.5rem_5rem_4rem_1fr_1fr] gap-2 border-b bg-muted/40 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  <span>Contrato</span><span>Competência</span><span>Índice</span><span>%</span><span>Ant. → novo</span><span>Parcelas</span>
+                </div>
+                <div className="divide-y divide-border/50">
+                  {runResult.detalhe.map((d, i) => (
+                    <div key={i} className="grid grid-cols-[7rem_5.5rem_5rem_4rem_1fr_1fr] items-center gap-2 px-3 py-1.5 text-[11px]">
+                      <span className="truncate font-medium">{d.numero}</span>
+                      <span className="tabular-nums">{mesAno(d.competencia)}</span>
+                      <span className="truncate text-muted-foreground">{d.indice}</span>
+                      <span className="tabular-nums">{d.percentual.toFixed(2).replace('.', ',')}%</span>
+                      <span className="tabular-nums">
+                        {d.base === 'parcela' ? `${BRL(d.parcelaAnterior)} → ${BRL(d.parcelaNova)}` : `${BRL(d.valorAnterior)} → ${BRL(d.valorNovo)}`}
+                      </span>
+                      <span className="text-muted-foreground">
+                        {d.parcelasReajustadas} reprecificada(s)
+                        {d.pagasAlcancadas > 0 && (
+                          <span className="ml-1 text-amber-600 dark:text-amber-400" title="Parcelas já pagas alcançadas pela competência — a diferença NÃO é cobrada">
+                            · {d.pagasAlcancadas} paga(s), {BRL(d.diferencaNaoCobrada)} não cobrado
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
             {runError && <p className="mt-3 text-[11px] font-medium text-red-600 dark:text-red-400">{runError}</p>}
@@ -177,6 +225,15 @@ export default function NotificacoesParams() {
           Antecedência (dias):
           <input type="number" className={cn(inputCls, 'w-24')} value={p.reajuste.dias} onChange={e => setP({ ...p, reajuste: { ...p.reajuste, dias: Math.max(0, Number(e.target.value) || 0) } })} />
         </label>
+      </Card>
+
+      <Card icon={Play} color="bg-teal-500/10 text-teal-600 dark:text-teal-400"
+        title="Reajuste automático"
+        desc="Quando a competência vence e o índice do período já está publicado, o motor aplica o reajuste e reprecifica as parcelas a vencer. Só age nas linhas marcadas como 'Automática' no contrato. Parcelas já pagas não são reprecificadas — a diferença vira um alerta."
+        on={p.reajuste.automatico} onToggle={v => setP({ ...p, reajuste: { ...p.reajuste, automatico: v } })}>
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400">
+          Ligar isto sobre uma base com contratos antigos aplica os reajustes represados de uma vez. Rode o ensaio (&quot;Simular&quot;) antes.
+        </p>
       </Card>
 
       <Card icon={Gauge} color="bg-purple-500/10 text-purple-600 dark:text-purple-400"

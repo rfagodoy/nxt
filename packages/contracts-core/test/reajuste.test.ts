@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { num } from '../src/num'
 import { valorVigente, parcelaVigente, camposDaNatureza } from '../src/derive'
-import { acumuladoPeriodo, aplicarReajuste, parcelasAlvo, proximaDataReajuste, proximaDataReajusteContrato, stepMeses } from '../src/reajuste'
+import { acumuladoPeriodo, aplicarReajuste, pagasAlcancadas, parcelasAlvo, planejarReajuste, proximaDataReajuste, proximaDataReajusteContrato, stepMeses } from '../src/reajuste'
 import { ambos, despesaComReajuste, despesaSimples, receita, reajusteParcelaAplicado, semCronograma } from './fixtures'
 
 describe('stepMeses', () => {
@@ -225,5 +225,94 @@ describe('arredondamento', () => {
     const alvo = parcelasAlvo(c, '2026-06')
     const delta = alvo.reduce((s, x) => s + (348.73 - num(x.lanc.valor)), 0)
     expect(num(r.reajuste.valorNovo)).toBeCloseTo(num(r.reajuste.valorAnterior) + delta, 2)
+  })
+})
+
+describe('planejarReajuste — decide se o motor aplica', () => {
+  /* 0,5% ao mês em 2026 e 2027 — cobre a janela de 12 meses que termina em 2027-01 */
+  const serieCheia: Record<string, number> = {}
+  for (const ano of [2026, 2027]) for (let m = 1; m <= 12; m++) serieCheia[`${ano}-${String(m).padStart(2, '0')}`] = 0.5
+  /* linha ancorada em 2026-01, anual → próxima competência 2027-01 */
+  const comReajuste = (over: any = {}) => ({
+    ...despesaComReajuste,
+    reajustes: [{ id: 'r1', indice: '1', data: '2026-01-01', periodicidade: 'Anual', ...over }],
+  })
+
+  it('linha sem índice não tem agenda', () => {
+    const c = comReajuste({ indice: '' })
+    expect(planejarReajuste(c, c.reajustes[0], serieCheia, '2027-06-01').motivo).toBe('SEM_AGENDA')
+  })
+
+  it('competência futura não vence', () => {
+    const c = comReajuste({ aplicacao: 'AUTOMATICA' })
+    const p = planejarReajuste(c, c.reajustes[0], serieCheia, '2026-06-01')
+    expect(p.aplicar).toBe(false)
+    expect(p.motivo).toBe('NAO_VENCIDO')
+    expect(p.vencido).toBe(false)
+    expect(p.competencia).toBe('2027-01-01')
+  })
+
+  it('linha SEM política nunca aplica sozinha — default é MANUAL', () => {
+    const c = comReajuste()
+    const p = planejarReajuste(c, c.reajustes[0], serieCheia, '2027-06-01')
+    expect(p.aplicar).toBe(false)
+    expect(p.motivo).toBe('MANUAL')
+    expect(p.vencido).toBe(true)   // vencido: continua notificando
+  })
+
+  it('SUSPENSA não aplica', () => {
+    const c = comReajuste({ aplicacao: 'SUSPENSA' })
+    expect(planejarReajuste(c, c.reajustes[0], serieCheia, '2027-06-01').motivo).toBe('SUSPENSA')
+  })
+
+  it('AUTOMATICA sem série publicada não aplica', () => {
+    const c = comReajuste({ aplicacao: 'AUTOMATICA' })
+    expect(planejarReajuste(c, c.reajustes[0], {}, '2027-06-01').motivo).toBe('SEM_SERIE')
+  })
+
+  it('AUTOMATICA com janela INCOMPLETA não aplica — o índice ainda não saiu por inteiro', () => {
+    const c = comReajuste({ aplicacao: 'AUTOMATICA' })
+    const parcial = { '2026-12': 0.5, '2026-11': 0.4 } // só 2 dos 12 meses
+    const p = planejarReajuste(c, c.reajustes[0], parcial, '2027-06-01')
+    expect(p.aplicar).toBe(false)
+    expect(p.motivo).toBe('JANELA_INCOMPLETA')
+    expect(p.percentual).toBeGreaterThan(0) // sabe o parcial, mas recusa usá-lo
+  })
+
+  it('AUTOMATICA, vencida e com janela completa → aplica', () => {
+    const c = comReajuste({ aplicacao: 'AUTOMATICA' })
+    const p = planejarReajuste(c, c.reajustes[0], serieCheia, '2027-06-01')
+    expect(p.aplicar).toBe(true)
+    expect(p.competencia).toBe('2027-01-01')
+    expect(p.base).toBe('parcela')     // contrato tem parcela
+    /* 1,005^12 − 1 = 6,1678…% → arredondado a 2 casas, como o registro manual faz */
+    expect(p.percentual).toBe(6.17)
+  })
+
+  it('base explícita na linha vence o default', () => {
+    const c = comReajuste({ aplicacao: 'AUTOMATICA', base: 'total' })
+    expect(planejarReajuste(c, c.reajustes[0], serieCheia, '2027-06-01').base).toBe('total')
+  })
+
+  it('sem parcela no contrato, o default é base total', () => {
+    const c = { ...comReajuste({ aplicacao: 'AUTOMATICA' }), valorParcela: 0, reajustesRealizados: [] }
+    expect(planejarReajuste(c, c.reajustes[0], serieCheia, '2027-06-01').base).toBe('total')
+  })
+})
+
+describe('pagasAlcancadas — a diferença que o motor NÃO cobra', () => {
+  it('conta as pagas a partir da competência e soma a diferença', () => {
+    /* despesaSimples: p1..p3 pagas (jan..mar), 1000 cada */
+    const r = pagasAlcancadas(despesaSimples, '2026-02', 1100)
+    expect(r.quantidade).toBe(2)          // fev e mar
+    expect(r.diferenca).toBe(200)         // 2 × 100
+  })
+
+  it('zero quando nenhuma paga é alcançada', () => {
+    expect(pagasAlcancadas(despesaSimples, '2026-06', 1100)).toEqual({ quantidade: 0, diferenca: 0 })
+  })
+
+  it('só o lado da natureza', () => {
+    expect(pagasAlcancadas(receita, '2026-01', 550).quantidade).toBe(2) // recebimentos pagos
   })
 })

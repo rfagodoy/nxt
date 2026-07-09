@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param, UseGuards } from '@nestjs/common'
+import { Controller, Get, Post, Param, Query, UseGuards } from '@nestjs/common'
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger'
 import { NotificationsService } from './notifications.service'
 import { ContractSchedulerService } from './contract-scheduler.service'
@@ -37,8 +37,8 @@ export class NotificationsController {
   @Post('run')
   @Roles('admin')
   @UseGuards(RolesGuard)
-  @ApiOperation({ summary: 'Executa o motor de datas/notificações e o import de índices na hora (admin)' })
-  run(@CurrentOrg() org: string) {
-    return this.scheduler.runNow(org)
+  @ApiOperation({ summary: 'Executa o motor de datas/notificações e o import de índices na hora (admin). Com dryRun=1 calcula tudo e NÃO grava nada.' })
+  run(@CurrentOrg() org: string, @Query('dryRun') dryRun?: string) {
+    return this.scheduler.runNow(org, dryRun === '1' || dryRun === 'true')
   }
 }

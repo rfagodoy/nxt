@@ -1,7 +1,7 @@
 import { addMesesComp, comp } from './dates'
 import { num, int, round2 } from './num'
 import { camposDaNatureza, lancPago, lancRef, parcelaVigente, valorVigente } from './derive'
-import type { CoreContract, CoreLancamento, CoreReajuste, CoreReajusteRealizado, LancField } from './types'
+import type { AplicacaoReajuste, CoreContract, CoreLancamento, CoreReajuste, CoreReajusteRealizado, LancField } from './types'
 
 /* ─── reajuste: agenda, acumulação do índice e aplicação ─────────────────────
    A LINHA de reajuste (CoreReajuste) é a agenda: índice + data base + periodicidade.
@@ -9,6 +9,20 @@ import type { CoreContract, CoreLancamento, CoreReajuste, CoreReajusteRealizado,
    sempre derivada da última competência aplicada — nunca gravada. */
 
 const STEP_MESES: Record<string, number> = { MENSAL: 1, BIMESTRAL: 2, TRIMESTRAL: 3, QUADRIMESTRAL: 4, SEMESTRAL: 6, ANUAL: 12 }
+
+/** Política de aplicação da linha. Ausente = MANUAL: uma linha cadastrada antes de a
+ *  política existir NUNCA passa a reajustar sozinha por causa de um deploy. */
+export const aplicacaoDe = (r: CoreReajuste): AplicacaoReajuste => {
+  const a = String(r.aplicacao ?? '').toUpperCase()
+  return a === 'AUTOMATICA' || a === 'SUSPENSA' ? a : 'MANUAL'
+}
+
+/** Base padrão de um reajuste automático: parcela quando o contrato tem parcela, senão total. */
+export const baseDe = (c: CoreContract, r: CoreReajuste): 'total' | 'parcela' => {
+  const b = String(r.base ?? '').toLowerCase()
+  if (b === 'total' || b === 'parcela') return b
+  return parcelaVigente(c) > 0 ? 'parcela' : 'total'
+}
 
 /** Meses de uma periodicidade. Desconhecida/ausente = anual. */
 export const stepMeses = (periodicidade: string): number => STEP_MESES[String(periodicidade || '').toUpperCase()] ?? 12
@@ -92,6 +106,78 @@ export function parcelasAlvo(c: CoreContract, competencia: string): Array<{ camp
  *  com cronograma reprecifica as parcelas reais; sem cronograma usa a quantidade. */
 export const temCronograma = (c: CoreContract): boolean =>
   camposDaNatureza(c.natureza).some(campo => (c[campo] ?? []).length > 0)
+
+/* ─── planejamento: aplicar ou não, e com qual percentual ─────────────────── */
+
+export type MotivoNaoAplicar =
+  | 'SEM_AGENDA'          // linha sem índice ou sem data base
+  | 'NAO_VENCIDO'         // a próxima competência ainda está no futuro
+  | 'MANUAL'              // política da linha: só notifica
+  | 'SUSPENSA'            // política da linha: nem notifica
+  | 'SEM_SERIE'           // nenhum valor do índice publicado para a janela
+  | 'JANELA_INCOMPLETA'   // o índice do período ainda não saiu por inteiro
+
+export interface PlanoReajuste {
+  aplicar: boolean
+  motivo?: MotivoNaoAplicar
+  /** competência a aplicar ('yyyy-mm-01'), quando há agenda */
+  competencia: string
+  /** % acumulado do índice na janela da periodicidade (0 quando não calculável) */
+  percentual: number
+  base: 'total' | 'parcela'
+  /** true quando a data já passou e nada foi aplicado — vira notificação CRÍTICA */
+  vencido: boolean
+}
+
+/** Decide o que fazer com UMA linha de reajuste, sem efeito colateral.
+ *  Aplicar com a janela do índice incompleta subestimaria o percentual — o motor
+ *  não aplica, mantém a notificação pendente e tenta de novo quando o BCB publicar. */
+export function planejarReajuste(
+  c: CoreContract,
+  r: CoreReajuste,
+  serie: Record<string, number> | undefined,
+  today: string,
+): PlanoReajuste {
+  const base = baseDe(c, r)
+  const competencia = r.indice ? proximaDataReajuste(c, r) : ''
+  if (!competencia) return { aplicar: false, motivo: 'SEM_AGENDA', competencia: '', percentual: 0, base, vencido: false }
+
+  const vencido = competencia <= today
+  const plano = { competencia, base, vencido }
+  if (!vencido) return { aplicar: false, motivo: 'NAO_VENCIDO', percentual: 0, ...plano }
+
+  const politica = aplicacaoDe(r)
+  if (politica !== 'AUTOMATICA') return { aplicar: false, motivo: politica, percentual: 0, ...plano }
+
+  const acum = acumuladoPeriodo(serie, r.periodicidade, competencia)
+  if (!acum) return { aplicar: false, motivo: 'SEM_SERIE', percentual: 0, ...plano }
+  /* percentual em 2 casas, como o registro manual faz: o motor e a pessoa devem chegar ao
+     MESMO número. O delta gravado continua exato — é ele que alimenta o valor vigente. */
+  const percentual = round2(acum.percentual)
+  if (!acum.completo) return { aplicar: false, motivo: 'JANELA_INCOMPLETA', percentual, ...plano }
+
+  return { aplicar: true, percentual, ...plano }
+}
+
+/** Parcelas JÁ PAGAS que a competência alcança. O reajuste não as reprecifica — a
+ *  diferença simplesmente não é cobrada. Devolver o número torna isso visível em vez
+ *  de silencioso: quem decide cobrar ou não é uma pessoa, não o motor. */
+export function pagasAlcancadas(c: CoreContract, competencia: string, parcelaNova: number): { quantidade: number; diferenca: number } {
+  const cmp = comp(competencia)
+  if (!cmp || !parcelaNova) return { quantidade: 0, diferenca: 0 }
+  let quantidade = 0
+  let diferenca = 0
+  for (const campo of camposDaNatureza(c.natureza)) {
+    for (const l of c[campo] ?? []) {
+      const ref = lancRef(l)
+      if (lancPago(l) && ref && comp(ref) >= cmp) {
+        quantidade++
+        diferenca += parcelaNova - num(l.valor)
+      }
+    }
+  }
+  return { quantidade, diferenca: round2(diferenca) }
+}
 
 export interface AplicarReajusteInput {
   /** id da linha de reajuste (agenda) que originou este fato */

@@ -263,7 +263,22 @@ export const STATUS_ASSINATURA = [
 
 /* ─── modelo único do formulário de contrato ─────────────── */
 export interface CParte      { id: string; papel: string; ref_tipo: string; ref_id: string; nome: string; documento: string }
-export interface CReajuste   { id: string; indice: string; data: string; periodicidade: string }
+/** Linha de reajuste = a AGENDA. `aplicacao` é a política do motor de datas:
+ *  MANUAL (default) só notifica; AUTOMATICA aplica sozinho quando vence e o índice
+ *  do período está publicado; SUSPENSA nem notifica. `base` diz o que o reajuste
+ *  automático altera — vazio deixa o motor decidir (parcela, se houver parcela). */
+export interface CReajuste   { id: string; indice: string; data: string; periodicidade: string; aplicacao: string; base: string }
+
+export const APLICACOES_REAJUSTE = [
+  { value: 'MANUAL',     label: 'Manual (só avisa)'        },
+  { value: 'AUTOMATICA', label: 'Automática (motor aplica)'},
+  { value: 'SUSPENSA',   label: 'Suspensa (não avisa)'     },
+]
+export const BASES_REAJUSTE = [
+  { value: '',        label: 'Decidir pelo contrato' },
+  { value: 'parcela', label: 'Parcela'               },
+  { value: 'total',   label: 'Valor total'           },
+]
 /** Reajuste efetivamente aplicado (fato, não agenda). A próxima ocorrência continua derivada;
  *  este registro alimenta o valor vigente, ancora a próxima data e serve de auditoria/histórico.
  *  competencia = yyyy-mm-01 (mês de referência); valorAnterior/valorNovo guardam o delta exato. */
@@ -309,7 +324,7 @@ export interface ContractFormValues {
 
 export const uid = () => `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 export const newCParte      = (papel = ''): CParte      => ({ id: uid(), papel, ref_tipo: '', ref_id: '', nome: '', documento: '' })
-export const newCReajuste   = ():           CReajuste   => ({ id: uid(), indice: '', data: '', periodicidade: '' })
+export const newCReajuste   = ():           CReajuste   => ({ id: uid(), indice: '', data: '', periodicidade: '', aplicacao: 'MANUAL', base: '' })
 export const newCReajusteRealizado = (reajusteId = ''): CReajusteRealizado => ({ id: uid(), reajusteId, competencia: '', indiceSnapshot: '', base: 'total', percentual: '', valorAnterior: '', valorNovo: '', parcelaAnterior: '', parcelaNova: '', parcelasReajustadas: '', dataAplicacao: '', observacao: '', user: '', createdAt: '' })
 export const newCDocumento  = ():           CDocumento  => ({ id: uid(), nome: '', tipo: '', data: '', arquivo_nome: '', arquivo_key: '', status_assinatura: 'nenhum', observacao: '' })
 export const newCLancamento = (status = 'previsto'): CLancamento => ({ id: uid(), status, vencimento: '', data: '', valor: '', forma: '', documento: '', observacao: '' })
@@ -544,7 +559,8 @@ export function contractFromApi(c: Record<string, any>): ContractFormValues {
     situacao: normalizeSituacao(c.situacao ?? 'EM_CADASTRO'), moeda: c.moeda ?? '',
     valorParcela: numStr(c.valorParcela), valorTotal: numStr(c.valorTotal), qtdParcelas: numStr(c.qtdParcelas),
     condicaoPagamento: c.condicaoPagamento ?? '', complementoValor: c.complementoValor ?? '',
-    reajustes: arr(c.reajustes).map((r: any) => ({ id: r.id ?? uid(), indice: r.indice ?? '', data: r.data ?? '', periodicidade: r.periodicidade ?? '' })),
+    /* linha sem `aplicacao` é anterior à política: nasce MANUAL, nunca reajusta sozinha */
+    reajustes: arr(c.reajustes).map((r: any) => ({ id: r.id ?? uid(), indice: r.indice ?? '', data: r.data ?? '', periodicidade: r.periodicidade ?? '', aplicacao: r.aplicacao ?? 'MANUAL', base: r.base ?? '' })),
     partes: arr(c.partes).map((p: any) => ({ id: p.id ?? uid(), papel: p.papel ?? p.tipo ?? '', ref_tipo: p.ref_tipo ?? '', ref_id: p.ref_id ?? '', nome: p.nome ?? '', documento: p.documento ?? '' })),
     documentos: arr(c.documentos).map((d: any) => ({ id: d.id ?? uid(), nome: d.nome ?? '', tipo: d.tipo ?? '', data: d.data ?? '', arquivo_nome: d.arquivo_nome ?? '', arquivo_key: d.arquivo_key ?? '', status_assinatura: d.status_assinatura ?? 'nenhum', observacao: d.observacao ?? '' })),
     pagamentos: lanc(c.pagamentos), recebimentos: lanc(c.recebimentos),
