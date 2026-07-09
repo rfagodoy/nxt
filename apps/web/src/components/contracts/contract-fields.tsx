@@ -1,14 +1,15 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react'
-import { Plus, Trash2, Search, Upload, Download, Loader2, X, Eye, ChevronDown, FileText, RefreshCw, ListPlus } from 'lucide-react'
+import { Plus, Trash2, Search, Upload, Download, Loader2, X, Eye, ChevronDown, FileText, RefreshCw, ListPlus, Paperclip, FileDown } from 'lucide-react'
 import {
   aplicarReajuste, acumuladoPeriodo, parcelasAlvo, proximaDataReajuste, proximaDataReajusteContrato,
-  stepMeses, temCronograma, gerarParcelas, parcelaProvisoria, totaisAVencer, renovarPeriodo, campoRenovacao,
+  planejarReajuste, stepMeses, temCronograma, gerarParcelas, parcelaProvisoria, totaisAVencer, renovarPeriodo, campoRenovacao,
   comp, currentComp, todayISO, type CoreLancamento, type LancField,
 } from '@nxt/contracts-core'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
+import { exportExcel } from '@/lib/export-excel'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { useIndiceValores } from '@/hooks/use-indice-valores'
 import { INIT_PAPEIS, PAPEIS_KEY, ORIGEM, origemDoPapel, ladoDoPapel } from '@/lib/contract-roles'
@@ -613,6 +614,7 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
   const lista = v[field]
   const singular = field === 'pagamentos' ? 'pagamento' : 'recebimento'
   const rotulo   = field === 'pagamentos' ? 'pago' : 'recebido'
+  const secao    = field === 'pagamentos' ? 'Pagamentos' : 'Recebimentos'
   const saldoLbl = field === 'pagamentos' ? 'Saldo a pagar' : 'Saldo a receber'
   const total       = somaLancamentos(lista)      // PREVISTO: o que está contratado
   const totalPago   = somaLancamentosPagos(lista)  // REALIZADO: o que foi efetivamente pago
@@ -638,7 +640,108 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
   /* Baixar = registrar o valor pago. O caso comum é "pagou o previsto", então um clique
      basta; se pagou diferente, edite a coluna Pago e o desvio aparece sozinho. */
   const marcarPago = (l: CLancamento) => form.patchLanc(field, l.id, { valorPago: l.valorPrevisto, data: l.data || l.vencimento || hoje })
+  /* Estornar preserva o comprovante: o arquivo continua no campo, some só da tela (o clipe
+     não aparece em parcela não paga). Rebaixando, ele reaparece. Apagá-lo aqui destruiria
+     um documento por causa de um clique errado no selo de status. */
   const reabrir    = (l: CLancamento) => form.patchLanc(field, l.id, { valorPago: '', data: '' })
+
+  /* ── comprovante da baixa (anexo) ──────────────────────────────────────────
+     Um único <input type=file> escondido, reaproveitado por todas as linhas: `alvoRef`
+     guarda de quem é o clique. Metadado puro — não toca em valor nem em status. */
+  const compRef = useRef<HTMLInputElement>(null)
+  const alvoRef = useRef<string>('')
+  const [anexando, setAnexando] = useState<string | null>(null)
+  const [erroAnexo, setErroAnexo] = useState('')
+
+  const pedirArquivo = (id: string) => { setErroAnexo(''); alvoRef.current = id; compRef.current?.click() }
+
+  const subirComprovante = async (f: File) => {
+    const id = alvoRef.current
+    if (!id) return
+    setErroAnexo(''); setAnexando(id)
+    try {
+      const fd = new FormData(); fd.append('file', f)
+      const res = await apiFetch('/api/files', { method: 'POST', body: fd })
+      if (!res.ok) throw new Error(res.status === 413 ? 'Arquivo muito grande (máx. 25 MB)' : 'Falha no upload')
+      const meta = await res.json() as { key: string; name: string }
+      form.patchLanc(field, id, { comprovante_key: meta.key, comprovante_nome: meta.name })
+    } catch (e) {
+      setErroAnexo(e instanceof Error ? e.message : 'Falha ao anexar o comprovante')
+    } finally { setAnexando(null) }
+  }
+
+  /* Clicar no clipe ABRE o comprovante numa janela separada, com a moldura Nxt — o mesmo
+     caminho do "Visualizar" dos Documentos do contrato (openAnexoJanela). Consultar é ler,
+     não baixar. Formato que o navegador não renderiza (zip, xml, ofx) cai no download,
+     porque uma janela em branco não é visualização. */
+  const abrirComprovante = async (l: CLancamento) => {
+    if (!l.comprovante_key) return
+    setErroAnexo(''); setAnexando(l.id)
+    const nome = l.comprovante_nome || 'comprovante'
+    try {
+      if (isPreviewable(nome)) {
+        const e = await openAnexoJanela(l.comprovante_key, nome)
+        if (e) setErroAnexo(e)
+        return
+      }
+      const res = await apiFetch(`/api/files/${encodeURIComponent(l.comprovante_key)}`)
+      if (!res.ok) throw new Error('Falha ao baixar o comprovante')
+      const url = URL.createObjectURL(await res.blob())
+      const a = document.createElement('a')
+      a.href = url; a.download = nome
+      document.body.appendChild(a); a.click(); a.remove()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      setErroAnexo(e instanceof Error ? e.message : 'Falha ao abrir o comprovante')
+    } finally { setAnexando(null) }
+  }
+
+  /* Remover LIMPA A REFERÊNCIA, não apaga o arquivo. O DELETE imediato criaria um ponteiro
+     para o vazio se a pessoa removesse e fechasse a tela sem salvar: o banco ainda teria a
+     key, o storage não teria o arquivo. Referência perdida sem salvar é reversível (basta
+     não salvar); arquivo apagado, não. O órfão é tratado por varredura, fora daqui. */
+  const removerComprovante = (l: CLancamento) =>
+    form.patchLanc(field, l.id, { comprovante_key: '', comprovante_nome: '' })
+
+  /* Exportação — leva para a planilha o que a TELA DERIVA e o banco não guarda: o status
+     (Pago/Vencido/A vencer) e o desvio. Sem eles a planilha é uma cópia pior do JSON.
+     Valores vão como número (não string) para o Excel poder somar. */
+  const exportar = async () => {
+    const ordenado = [...lista].sort((a, b) => String(refDate(a)).localeCompare(String(refDate(b))))
+    const fmtD = (d: string) => (d ? d.split('-').reverse().join('/') : '')
+    await exportExcel({
+      fileName: `${(v.numero || 'contrato').toLowerCase()}_${field}`,
+      sheet: secao,
+      title: `${secao} — ${v.numero || 'Contrato'}${v.titulo ? ` · ${v.titulo}` : ''}`,
+      columns: [
+        { header: 'Vencimento', width: 13, align: 'center' },
+        { header: 'Valor previsto', width: 15, align: 'right' },
+        { header: `Data do ${rotulo === 'pago' ? 'pagamento' : 'recebimento'}`, width: 16, align: 'center' },
+        { header: 'Valor realizado', width: 15, align: 'right' },
+        { header: 'Desvio', width: 12, align: 'right' },
+        { header: 'Status', width: 11, align: 'center' },
+        { header: 'Reajustável', width: 12, align: 'center' },
+        { header: 'Forma', width: 20 },
+        { header: 'Nº documento', width: 16 },
+        { header: 'Comprovante', width: 26 },
+        { header: 'Observação', width: 40 },
+      ],
+      rows: ordenado.map(l => [
+        fmtD(l.vencimento),
+        lancPrevisto(l),
+        fmtD(l.data),
+        lancPago(l) ? Number(l.valorPago) || 0 : '',
+        lancDesvio(l) || '',
+        statusInfo(l).label,
+        l.reajustavel === false ? 'Não' : 'Sim',
+        labelOf(formas.entries, l.forma),
+        l.documento,
+        l.comprovante_nome,
+        l.observacao,
+      ]),
+      footer: ['Total', total, '', totalPago, desvioTotal || '', '', '', '', '', '', ''],
+    })
+  }
 
   /* Agrupa por ano — a ORDEM só recalcula ao ADICIONAR/REMOVER/GERAR ou ao SAIR do campo de data
      (onBlur). Assim o lançamento não "pula" enquanto a data é digitada; o valor exibido é ao vivo. */
@@ -711,16 +814,25 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
      As duas colunas de DATA precisam caber "dd/mm/aaaa" + o ícone do date picker do
      navegador: abaixo de ~9rem o Chrome corta o ícone. A soma das larguras fixas fica
      sob o `min-w` da tabela, que rola na horizontal em telas estreitas em vez de cortar. */
-  const COLS = 'grid grid-cols-[9rem_7.5rem_9rem_7.5rem_2.75rem_7.5rem_5.5rem_5.5rem_minmax(8rem,1fr)_1.25rem] items-center gap-2'
+  /* a 5ª coluna (2rem) é o comprovante: pertence ao bloco REALIZADO, junto de data e valor */
+  const COLS = 'grid grid-cols-[9rem_7.5rem_9rem_7.5rem_4.25rem_2.75rem_7.5rem_5.5rem_5.5rem_minmax(8rem,1fr)_1.25rem] items-center gap-2'
   const cell = cn(inputCls, 'h-7')
   const desvioDe = (l: CLancamento) => lancDesvio(l)
   /* o bloco REALIZADO ganha fundo e bordas que descem por TODA a tabela: é isso que faz
      o agrupamento existir na linha, e não só no cabeçalho. `self-stretch` faz o fundo
      cobrir a altura inteira da linha sem deslocar o conteúdo (margem negativa desalinhava). */
-  const blocoRealizado = 'col-span-2 grid grid-cols-subgrid items-center gap-2 self-stretch bg-muted/20 border-x border-border/40'
+  const blocoRealizado = 'col-span-3 grid grid-cols-subgrid items-center gap-2 self-stretch bg-muted/20 border-x border-border/40'
 
   return (
     <div className="space-y-3">
+      {/* input único reaproveitado por todas as linhas — `alvoRef` diz de quem é o arquivo */}
+      <input ref={compRef} type="file" className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) void subirComprovante(f); e.target.value = '' }} />
+      {erroAnexo && (
+        <p className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-medium text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400">
+          {erroAnexo}
+        </p>
+      )}
       {/* faixa de resumo (rola) */}
       {lista.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -740,6 +852,10 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
         <div className="flex items-center gap-4">
           <button type="button" onClick={() => form.addLanc(field)} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar {singular}</button>
           <button type="button" onClick={abrirGerar} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-medium transition-colors"><ListPlus className="h-3.5 w-3.5" />Gerar cronograma</button>
+          <button type="button" onClick={() => void exportar()} disabled={!lista.length}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            <FileDown className="h-3.5 w-3.5" />Exportar
+          </button>
         </div>
         {lista.length > 0 && <span className="text-[11px] text-muted-foreground">{lista.length} lançamento{lista.length > 1 ? 's' : ''} · <span className="font-semibold tabular-nums text-foreground">{money(total)}</span></span>}
       </div>
@@ -781,9 +897,35 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
       {lista.length === 0 ? (
         <p className="text-xs text-muted-foreground">Nenhuma parcela. Use &ldquo;Adicionar&rdquo; para uma a uma, ou &ldquo;Gerar cronograma&rdquo; para projetar a série mensal (a vencer).</p>
       ) : (
-        /* rola na horizontal quando a viewport é estreita, em vez de cortar as colunas */
-        <div className="rounded-md border overflow-x-auto">
-          <div className="min-w-[70rem]">
+        /* Rolagem PRÓPRIA da tabela (horizontal quando a viewport é estreita, vertical sempre).
+           A rolagem interna não é preferência: `sticky` só ativa dentro de um scrollport, e
+           `overflow-x-auto` já fazia deste div um scrollport — só que sem altura, então o
+           cabeçalho nunca teria onde grudar. */
+        <div className="rounded-md border overflow-auto max-h-[60vh]">
+          <div className="min-w-[75rem]">
+            {/* CABEÇALHO ÚNICO, grudado no topo. Antes havia uma cópia dentro de cada ano
+                expandido — idênticas entre si, e todas sumiam ao rolar. */}
+            <div className="sticky top-0 z-20 bg-card border-b">
+              {/* faixa de grupo: dois pares simétricos — o que era, o que foi */}
+              <div className={cn(COLS, 'h-4 px-3 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/50')}>
+                <span className="col-span-2 text-center">Previsto</span>
+                <span className={cn(blocoRealizado, 'justify-items-center')}>
+                  <span className="col-span-3 text-center">Realizado</span>
+                </span>
+                <span /><span /><span /><span /><span /><span />
+              </div>
+              <div className={cn(COLS, 'h-4 px-3 text-[9px] font-medium uppercase tracking-wide text-muted-foreground/70')}>
+                <span title="Data prevista de pagamento — é ela que produz o status Vencido">Data</span>
+                <span className="text-right pr-2" title="Valor contratado da parcela">Valor</span>
+                <span className={blocoRealizado}>
+                  <span title="Data em que a parcela foi baixada">Data</span>
+                  <span className="text-right pr-2" title={`Valor efetivamente ${rotulo}. Preencher baixa a parcela.`}>Valor</span>
+                  <span className="text-center" title="Comprovante do pagamento (anexo)">Anexo</span>
+                </span>
+                <span className="text-center" title="Se marcada, o reajuste alcança o valor previsto desta parcela">Reaj.</span>
+                <span>Forma</span><span>Nº doc.</span><span>Status</span><span>Observação</span><span />
+              </div>
+            </div>
             {grupos.map(([ano, ids]) => {
               const itens = ids.map(id => byId.get(id)).filter(Boolean) as typeof lista
               if (itens.length === 0) return null
@@ -791,11 +933,13 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
               const aberto  = yearOpen(ano)
               return (
                 <div key={ano} className="border-b last:border-0">
-                  {/* subcabeçalho do ano — clicável para recolher/expandir (exceto "Sem data") */}
+                  {/* Subcabeçalho do ano — gruda LOGO ABAIXO do cabeçalho (h-4 + h-4 = 2rem),
+                      empurrado pelo ano seguinte. Fundo OPACO: um sticky translúcido deixa
+                      as linhas passarem por baixo. */}
                   <div
                     role={semData ? undefined : 'button'}
                     onClick={semData ? undefined : () => toggleYear(ano)}
-                    className={cn('flex items-center justify-between px-3 py-1 bg-muted/20 border-b border-border/40', !semData && 'cursor-pointer hover:bg-muted/40 transition-colors')}>
+                    className={cn('sticky top-8 z-10 flex items-center justify-between px-3 py-1 bg-muted border-b border-border/40', !semData && 'cursor-pointer hover:bg-muted/80 transition-colors')}>
                     <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                       {!semData && <ChevronDown className={cn('h-3 w-3 transition-transform', aberto && 'rotate-180')} />}
                       {semData ? 'Sem data' : ano}
@@ -805,25 +949,6 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
                   </div>
                   {aberto && (
                     <div className="divide-y divide-border/50">
-                      {/* labels de coluna (por ano expandido) */}
-                      {/* faixa de grupo: dois pares simétricos — o que era, o que foi */}
-                      <div className={cn(COLS, 'px-3 pt-1 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/50')}>
-                        <span className="col-span-2 text-center">Previsto</span>
-                        <span className={cn(blocoRealizado, 'justify-items-center border-t')}>
-                          <span className="col-span-2 text-center">Realizado</span>
-                        </span>
-                        <span /><span /><span /><span /><span /><span />
-                      </div>
-                      <div className={cn(COLS, 'px-3 pb-1 text-[9px] font-medium uppercase tracking-wide text-muted-foreground/70')}>
-                        <span title="Data prevista de pagamento — é ela que produz o status Vencido">Data</span>
-                        <span className="text-right pr-2" title="Valor contratado da parcela">Valor</span>
-                        <span className={blocoRealizado}>
-                          <span title="Data em que a parcela foi baixada">Data</span>
-                          <span className="text-right pr-2" title={`Valor efetivamente ${rotulo}. Preencher baixa a parcela.`}>Valor</span>
-                        </span>
-                        <span className="text-center" title="Se marcada, o reajuste alcança o valor previsto desta parcela">Reaj.</span>
-                        <span>Forma</span><span>Nº doc.</span><span>Status</span><span>Observação</span><span />
-                      </div>
                       {itens.map(l => (
                         <div key={l.id} className={cn(COLS, 'group px-3 py-1 hover:bg-muted/30')}>
                           <input type="date" value={l.vencimento} onChange={e => form.updLanc(field, l.id, 'vencimento', e.target.value)} onBlur={e => reordenar(e.target.value ? e.target.value.slice(0, 4) : undefined)} className={cell} />
@@ -854,13 +979,55 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
                                 </span>
                               )}
                             </div>
+                            {/* COMPROVANTE — só existe prova de pagamento que aconteceu.
+                                Parcela a vencer não mostra clipe; estornar esconde, não apaga. */}
+                            <div className="flex justify-center">
+                              {anexando === l.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                              ) : !lancPago(l) ? (
+                                <span className="text-[10px] text-muted-foreground/30 select-none" title="Anexe o comprovante após baixar a parcela">—</span>
+                              ) : l.comprovante_key ? (
+                                /* três ações SEMPRE visíveis: esconder a remoção atrás de hover,
+                                   num alvo de 10px, é armadilha — e o overflow do scroll da
+                                   tabela ainda cortaria o botão flutuante. */
+                                <span className="flex items-center gap-1">
+                                  <button type="button" onClick={() => void abrirComprovante(l)}
+                                    title={isPreviewable(l.comprovante_nome) ? `Abrir: ${l.comprovante_nome}` : `Baixar: ${l.comprovante_nome} (formato sem visualização)`}
+                                    className="text-emerald-600 transition-colors hover:text-emerald-700 dark:text-emerald-400">
+                                    <Eye className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button type="button" onClick={() => pedirArquivo(l.id)}
+                                    title={`Substituir comprovante (atual: ${l.comprovante_nome})`}
+                                    className="text-muted-foreground/60 transition-colors hover:text-primary">
+                                    <Upload className="h-3 w-3" />
+                                  </button>
+                                  <button type="button" onClick={() => removerComprovante(l)} title="Remover comprovante desta parcela"
+                                    className="text-muted-foreground/60 transition-colors hover:text-destructive">
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </span>
+                              ) : (
+                                <button type="button" onClick={() => pedirArquivo(l.id)} title="Anexar comprovante do pagamento"
+                                  className="text-muted-foreground/40 transition-colors hover:text-primary">
+                                  <Paperclip className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
                           </div>
-                          {/* atributo da parcela: o reajuste alcança (ou não) o valor previsto */}
+                          {/* Atributo da parcela: o reajuste alcança (ou não) o valor previsto.
+                              Parcela PAGA não é reprecificada — isso já é derivado de lancPago, e a
+                              baixa NÃO desmarca este campo. Ele guarda a INTENÇÃO ("nunca reajustar
+                              esta parcela"), não o fato. Apagá-la na baixa zeraria `pagasAlcancadas`
+                              e o alerta de diferença não cobrada morreria em silêncio. Aqui o campo
+                              só é desabilitado: mostra que não age, sem destruir o que diz. */}
                           <div className="flex justify-center">
-                            <input type="checkbox" checked={l.reajustavel !== false}
+                            <input type="checkbox" checked={l.reajustavel !== false} disabled={lancPago(l)}
                               onChange={e => form.patchLanc(field, l.id, { reajustavel: e.target.checked })}
-                              title={l.reajustavel !== false ? 'O reajuste alcança esta parcela' : 'Esta parcela não é reajustada'}
-                              className="h-3.5 w-3.5 cursor-pointer accent-primary" />
+                              title={lancPago(l)
+                                ? `Parcela ${rotulo} — o reajuste não reprecifica parcela baixada. Estorne para alterar.`
+                                : l.reajustavel !== false ? 'O reajuste alcança esta parcela' : 'Esta parcela não é reajustada'}
+                              className={cn('h-3.5 w-3.5 accent-primary',
+                                lancPago(l) ? 'cursor-not-allowed opacity-40' : 'cursor-pointer')} />
                           </div>
                           <select value={l.forma} onChange={e => form.updLanc(field, l.id, 'forma', e.target.value)} className={cell}>
                             <option value="">Forma...</option>
@@ -879,14 +1046,17 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
               )
             })}
           </div>
-          {/* rodapé: total geral (todas as parcelas) + realizado — acompanha o min-w da tabela */}
-          <div className={cn(COLS, 'min-w-[70rem] px-3 py-1.5 bg-muted/30 border-t')}>
+          {/* Rodapé: total geral + realizado — acompanha o min-w da tabela. Grudado embaixo:
+              com a rolagem interna ele ficaria enterrado sob as parcelas, e o total é o
+              número que se consulta o tempo todo. Opaco, como todo sticky. */}
+          <div className={cn(COLS, 'sticky bottom-0 z-20 min-w-[75rem] px-3 py-1.5 bg-muted border-t')}>
             {/* mesma ordem das colunas: total previsto sob Previsto, total realizado sob Realizado */}
             <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Total</span>
             <span className="text-xs font-semibold tabular-nums text-right pr-2">{money(total)}</span>
             <span className={blocoRealizado}>
               <span />
               <span className="text-xs font-semibold tabular-nums text-right pr-2">{money(totalPago)}</span>
+              <span />
             </span>
             <span /><span /><span /><span />
             <span className={cn('text-[10px] tabular-nums truncate', desvioTotal === 0 ? 'text-muted-foreground' : desvioTotal > 0 ? 'text-amber-600 dark:text-amber-500' : 'text-emerald-600 dark:text-emerald-400')}>
@@ -929,6 +1099,39 @@ export function ReajustesFields({ form, ro }: { form: ContractForm; ro?: boolean
   )
 }
 
+/* ─── consentimento informado ao ligar "Automática" ───────────────────────────
+   Marcar uma linha como AUTOMATICA autoriza o motor a aplicar TODOS os reajustes
+   represados na primeira execução — e reprecificar o cronograma inteiro. Isso é de
+   mão única. O aviso mora aqui, e não num interruptor global, porque só aqui dá para
+   dizer o número: "7 reajustes, a parcela vai de X para Y".
+
+   A projeção usa exatamente as funções que o motor de datas usará (planejarReajuste +
+   aplicarReajuste, do core). Não é uma estimativa: é o mesmo cálculo, descartado. */
+
+interface PassoBacklog { competencia: string; percentual: number; parcelaDe: number; parcelaPara: number }
+interface Backlog { passos: PassoBacklog[]; totalDe: number; totalPara: number; motivo?: string; proxima: string }
+
+function projetarBacklog(v: ContractFormValues, linha: CReajuste, serie: Record<string, number>, today: string): Backlog {
+  const lin = { ...linha, aplicacao: 'AUTOMATICA' }
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  let cur: any = { ...v, reajustes: v.reajustes.map(x => (x.id === linha.id ? lin : x)) }
+  const passos: PassoBacklog[] = []
+  const totalDe = valorVigente(v)
+  let guard = 0
+  while (guard++ < 200) {
+    const p = planejarReajuste(cur, lin, serie, today)
+    if (!p.aplicar) return { passos, totalDe, totalPara: valorVigente(cur), motivo: p.motivo, proxima: p.competencia }
+    const res = aplicarReajuste(cur, { id: `sim_${guard}`, reajusteId: lin.id, competencia: p.competencia, percentual: p.percentual, base: p.base })
+    passos.push({
+      competencia: p.competencia, percentual: p.percentual,
+      parcelaDe: Number(res.reajuste.parcelaAnterior) || 0, parcelaPara: Number(res.reajuste.parcelaNova) || 0,
+    })
+    cur = { ...cur, reajustesRealizados: [...(cur.reajustesRealizados ?? []), res.reajuste], pagamentos: res.pagamentos, recebimentos: res.recebimentos }
+  }
+  return { passos, totalDe, totalPara: valorVigente(cur), motivo: 'LIMITE', proxima: '' }
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+}
+
 /** Card recolhível de um índice de reajuste: cabeçalho-resumo (base, periodicidade, aplicados,
  *  último, próximo) + corpo com o cadastro e o histórico de reajustes aplicados daquele índice. */
 function ReajusteCard({ r, idx, form, indices, ro, open, onToggle }: {
@@ -936,6 +1139,23 @@ function ReajusteCard({ r, idx, form, indices, ro, open, onToggle }: {
 }) {
   const v = form.values
   const cell = cn(inputCls, 'h-7')
+  const money = (n: number) => `${v.moeda ? v.moeda + ' ' : ''}${(Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const indiceVals = useIndiceValores()
+  /* ligar "Automática" fica PENDENTE até a confirmação: o select mostra a intenção,
+     o formulário só recebe o valor quando a pessoa vê o número e aceita */
+  const [pendente, setPendente] = useState<Backlog | null>(null)
+  const [verPassos, setVerPassos] = useState(false)
+
+  const escolherAplicacao = (valor: string) => {
+    const atual = r.aplicacao || 'MANUAL'
+    if (valor !== 'AUTOMATICA' || atual === 'AUTOMATICA') { setPendente(null); form.updReaj(r.id, 'aplicacao', valor); return }
+    const projecao = projetarBacklog(v, r, indiceVals.serieDe(r.indice), todayISO())
+    /* sem nada represado, não há o que consentir: liga direto */
+    if (!projecao.passos.length) { form.updReaj(r.id, 'aplicacao', valor); return }
+    setPendente(projecao); setVerPassos(false)
+  }
+  const confirmarAuto = () => { form.updReaj(r.id, 'aplicacao', 'AUTOMATICA'); setPendente(null) }
+
   /* índices já usados por OUTROS reajustes não são oferecidos (sem duplicidade) */
   const opts = indices.active.filter(i => !new Set(v.reajustes.filter(o => o.id !== r.id && o.indice).map(o => o.indice)).has(i.id))
   const indiceLabel = labelOf(indices.entries, r.indice)
@@ -995,24 +1215,74 @@ function ReajusteCard({ r, idx, form, indices, ro, open, onToggle }: {
             </label>
           </div>
 
-          {/* política do motor de datas para esta linha */}
+          {/* política do motor de datas para esta linha — é AQUI que o reajuste automático
+              é autorizado. Não há interruptor global: o freio de emergência (Notificações)
+              só serve para PARAR o motor, nunca para habilitá-lo. */}
           <div className="grid grid-cols-3 gap-2">
             <label className="space-y-1">
               <span className="text-[10px] font-medium text-muted-foreground">Aplicação</span>
               {ro
                 ? <span className={cn(readCls, 'text-xs')}>{APLICACOES_REAJUSTE.find(a => a.value === (r.aplicacao || 'MANUAL'))?.label ?? '—'}</span>
                 : (
-                  <select value={r.aplicacao || 'MANUAL'} onChange={e => form.updReaj(r.id, 'aplicacao', e.target.value)} className={cell}>
+                  <select value={pendente ? 'AUTOMATICA' : (r.aplicacao || 'MANUAL')} onChange={e => escolherAplicacao(e.target.value)} className={cell}>
                     {APLICACOES_REAJUSTE.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
                   </select>
                 )}
             </label>
-            {(r.aplicacao || 'MANUAL') === 'AUTOMATICA' && (
+            {!pendente && (r.aplicacao || 'MANUAL') === 'AUTOMATICA' && (
               <p className="col-span-2 self-end pb-1 text-[10px] text-muted-foreground">
                 O motor aplica quando a competência vence e o índice do período está publicado: o percentual incide sobre cada parcela a vencer. Parcelas já pagas não são reprecificadas.
               </p>
             )}
           </div>
+
+          {/* CONSENTIMENTO INFORMADO: o número, antes do clique que não tem volta */}
+          {pendente && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
+              <p className="text-[11px] font-semibold text-amber-900 dark:text-amber-300">
+                Esta linha tem {pendente.passos.length} reajuste{pendente.passos.length > 1 ? 's' : ''} represado{pendente.passos.length > 1 ? 's' : ''} desde {fmtMesAnoBR(pendente.passos[0].competencia)}.
+              </p>
+              <p className="mt-1 text-[11px] leading-relaxed text-amber-800 dark:text-amber-400">
+                Ao salvar, a próxima execução do motor aplicará {pendente.passos.length > 1 ? 'todos' : 'ele'} de uma vez: a parcela passa de{' '}
+                <strong className="font-semibold tabular-nums">{money(pendente.passos[0].parcelaDe)}</strong> para{' '}
+                <strong className="font-semibold tabular-nums">{money(pendente.passos[pendente.passos.length - 1].parcelaPara)}</strong>, e o valor do contrato de{' '}
+                <strong className="font-semibold tabular-nums">{money(pendente.totalDe)}</strong> para{' '}
+                <strong className="font-semibold tabular-nums">{money(pendente.totalPara)}</strong>. Parcelas já pagas não são reprecificadas.
+              </p>
+              {pendente.motivo === 'SEM_SERIE' && pendente.proxima && (
+                <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-500">
+                  A cadeia para em {fmtMesAnoBR(pendente.proxima)}: o índice desse período ainda não foi publicado.
+                </p>
+              )}
+
+              <button type="button" onClick={() => setVerPassos(x => !x)} className="mt-2 inline-flex items-center gap-1 text-[10px] font-medium text-amber-900 underline-offset-2 hover:underline dark:text-amber-300">
+                <Eye className="h-3 w-3" />{verPassos ? 'Ocultar simulação' : 'Ver simulação'}
+              </button>
+              {verPassos && (
+                <div className="mt-2 max-h-48 overflow-y-auto rounded border border-amber-200 bg-background/60 dark:border-amber-900">
+                  <div className="grid grid-cols-[5.5rem_4rem_1fr] gap-2 border-b border-amber-200 px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground dark:border-amber-900">
+                    <span>Competência</span><span>%</span><span>Parcela</span>
+                  </div>
+                  {pendente.passos.map(s => (
+                    <div key={s.competencia} className="grid grid-cols-[5.5rem_4rem_1fr] gap-2 px-2 py-0.5 text-[10px] tabular-nums">
+                      <span>{fmtMesAnoBR(s.competencia)}</span>
+                      <span>{s.percentual.toFixed(2).replace('.', ',')}%</span>
+                      <span>{money(s.parcelaDe)} → {money(s.parcelaPara)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-3 flex items-center gap-2">
+                <button type="button" onClick={confirmarAuto} className="h-7 rounded-md bg-amber-600 px-3 text-[11px] font-medium text-white transition-colors hover:bg-amber-700">
+                  Entendi, ativar
+                </button>
+                <button type="button" onClick={() => setPendente(null)} className="h-7 rounded-md border border-amber-300 px-3 text-[11px] font-medium text-amber-900 transition-colors hover:bg-amber-100 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-950">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* histórico de reajustes aplicados deste índice */}
           <ReajusteRealizados form={form} indices={indices} linha={r} />

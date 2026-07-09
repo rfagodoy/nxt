@@ -284,7 +284,9 @@ export interface CDocumento  { id: string; nome: string; tipo: string; data: str
  *  `valorPrevisto` = contratado; `valorPago` = baixado ('' enquanto não se paga).
  *  "Pago" e "Vencido" são DERIVADOS (lancPago / vencimento < hoje), nunca campos.
  *  `reajustavel: false` tira a parcela do alcance do reajuste (ex.: equipamento entregue). */
-export interface CLancamento { id: string; vencimento: string; data: string; valorPrevisto: string; valorPago: string; forma: string; documento: string; observacao: string; reajustavel: boolean }
+/** `comprovante_*` é o anexo da BAIXA (mesmo par nome/key de CDocumento e CAditivo).
+ *  Metadado: não entra em regra de valor nenhuma. */
+export interface CLancamento { id: string; vencimento: string; data: string; valorPrevisto: string; valorPago: string; forma: string; documento: string; observacao: string; reajustavel: boolean; comprovante_nome: string; comprovante_key: string }
 /** Cessão de parte num aditivo: a parte `parteId` passa a ser a entidade indicada (mantém o papel). */
 export interface CCessao { id: string; parteId: string; ref_tipo: string; ref_id: string; nome: string; documento: string }
 /** Termo aditivo: altera, em vigor, término/valor/objeto/partes do contrato; original é preservado. */
@@ -314,7 +316,7 @@ export const newCParte      = (papel = ''): CParte      => ({ id: uid(), papel, 
 export const newCReajuste   = ():           CReajuste   => ({ id: uid(), indice: '', data: '', periodicidade: '', aplicacao: 'MANUAL' })
 export const newCReajusteRealizado = (reajusteId = ''): CReajusteRealizado => ({ id: uid(), reajusteId, competencia: '', indiceSnapshot: '', base: 'total', percentual: '', valorAnterior: '', valorNovo: '', parcelaAnterior: '', parcelaNova: '', parcelasReajustadas: '', dataAplicacao: '', observacao: '', user: '', createdAt: '' })
 export const newCDocumento  = ():           CDocumento  => ({ id: uid(), nome: '', tipo: '', data: '', arquivo_nome: '', arquivo_key: '', status_assinatura: 'nenhum', observacao: '' })
-export const newCLancamento = (): CLancamento => ({ id: uid(), vencimento: '', data: '', valorPrevisto: '', valorPago: '', forma: '', documento: '', observacao: '', reajustavel: true })
+export const newCLancamento = (): CLancamento => ({ id: uid(), vencimento: '', data: '', valorPrevisto: '', valorPago: '', forma: '', documento: '', observacao: '', reajustavel: true, comprovante_nome: '', comprovante_key: '' })
 export const newCCessao      = (parteId = ''):CCessao    => ({ id: uid(), parteId, ref_tipo: '', ref_id: '', nome: '', documento: '' })
 export const newCAditivo     = (numero = ''): CAditivo   => ({
   id: uid(), numero, situacao: 'RASCUNHO', tipos: [], data: '', vigenciaInicio: '', descricao: '', arquivo_nome: '', arquivo_key: '',
@@ -548,6 +550,7 @@ export function contractFromApi(c: Record<string, any>): ContractFormValues {
       valorPago:     pago     != null ? String(pago)     : '',
       forma: l.forma ?? '', documento: l.documento ?? '', observacao: l.observacao ?? '',
       reajustavel: l.reajustavel !== false,
+      comprovante_nome: l.comprovante_nome ?? '', comprovante_key: l.comprovante_key ?? '',
     }
   })
   const numStr = (x: unknown) => (x != null ? String(x) : '')
@@ -614,6 +617,8 @@ export function contractToPayload(v: ContractFormValues, extra: Record<string, u
       /* `null` (e não 0) quando não há baixa: a AUSÊNCIA é o que significa "não pago" */
       valorPago: l.valorPago === '' || l.valorPago == null ? null : parseFloat(l.valorPago) || 0,
       forma: l.forma, documento: l.documento, observacao: l.observacao, reajustavel: l.reajustavel !== false,
+      /* '' vira undefined: parcela sem comprovante não carrega chave vazia no JSON */
+      comprovante_nome: l.comprovante_nome || undefined, comprovante_key: l.comprovante_key || undefined,
     })),
     recebimentos: recebimentos.map(l => ({
       id: l.id, vencimento: l.vencimento, data: l.data,
@@ -621,6 +626,8 @@ export function contractToPayload(v: ContractFormValues, extra: Record<string, u
       /* `null` (e não 0) quando não há baixa: a AUSÊNCIA é o que significa "não pago" */
       valorPago: l.valorPago === '' || l.valorPago == null ? null : parseFloat(l.valorPago) || 0,
       forma: l.forma, documento: l.documento, observacao: l.observacao, reajustavel: l.reajustavel !== false,
+      /* '' vira undefined: parcela sem comprovante não carrega chave vazia no JSON */
+      comprovante_nome: l.comprovante_nome || undefined, comprovante_key: l.comprovante_key || undefined,
     })),
     aditivos: v.aditivos.map(a => ({
       id: a.id, numero: a.numero, situacao: a.situacao || 'RASCUNHO', tipos: a.tipos, data: a.data, vigenciaInicio: a.vigenciaInicio, descricao: a.descricao,

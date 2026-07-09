@@ -25,6 +25,12 @@ export interface CoreLancamento {
    *  Ausente = reajustável — é o caso da esmagadora maioria e de todo dado legado. */
   reajustavel?: boolean
 
+  /* Comprovante da baixa (anexo no StorageService). METADADO: nenhuma regra deste pacote
+     lê estes campos — não entram em soma, não afetam `lancPago` nem a reprecificação.
+     Ficam aqui só para que o lançamento trafegue inteiro entre front e backend. */
+  comprovante_nome?: string
+  comprovante_key?: string
+
   /* ── modelo antigo, só para LEITURA de dados gravados antes da separação ──
      Um único `valor` e um `status` textual. Nenhum caminho de escrita produz isto hoje. */
   /** @deprecated use valorPrevisto / valorPago */

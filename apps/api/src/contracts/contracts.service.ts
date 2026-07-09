@@ -173,6 +173,18 @@ function diffContract(o: CRec, n: CRec, maps: Maps): AuditChange[] {
       if (lancPrevisto(prev as never) !== lancPrevisto(l as never)) {
         ch.push({ field: campo, label: `${label} · valor previsto alterado · venc. ${venc(l)}`, before: aMoney(lancPrevisto(prev as never)), after: aMoney(lancPrevisto(l as never)) })
       }
+
+      /* comprovante: fecha a trilha de quem provou o pagamento, e quando. Compara a KEY
+         (o nome pode repetir entre arquivos diferentes); exibe o NOME, que é o que a
+         pessoa reconhece. Substituir um comprovante é remoção + anexo numa linha só. */
+      const kAnt = aVal(prev.comprovante_key), kNovo = aVal(l.comprovante_key)
+      if (kAnt !== kNovo) {
+        const nomeAnt = aVal(prev.comprovante_nome) || '(sem nome)'
+        const nomeNovo = aVal(l.comprovante_nome) || '(sem nome)'
+        if (!kAnt) ch.push({ field: `${campo}.comprovante`, label: `${label} · comprovante anexado · venc. ${venc(l)}`, before: '—', after: nomeNovo })
+        else if (!kNovo) ch.push({ field: `${campo}.comprovante`, label: `${label} · comprovante removido · venc. ${venc(l)}`, before: nomeAnt, after: '—' })
+        else ch.push({ field: `${campo}.comprovante`, label: `${label} · comprovante substituído · venc. ${venc(l)}`, before: nomeAnt, after: nomeNovo })
+      }
     }
   }
 

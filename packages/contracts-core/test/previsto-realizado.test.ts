@@ -13,7 +13,7 @@ import {
   consumo, lancDesvio, lancPago, lancPrevisto, lancRealizado,
   somaDesvios, somaLancamentos, somaLancamentosPagos, valorVigente,
 } from '../src/derive'
-import { aplicarReajuste } from '../src/reajuste'
+import { aplicarReajuste, pagasAlcancadas } from '../src/reajuste'
 import { totaisAVencer } from '../src/parcelas'
 import { cct20260001 } from './fixtures'
 
@@ -146,6 +146,76 @@ describe('o reajuste mexe no PREVISTO e nunca no valorPago', () => {
     expect(delta).toBe(somaLancamentos(r.pagamentos) - previstoAntes) // 200
     expect(valorVigente(c2)).toBe(3200)
     expect(consumo(c2)).toBe(consumoAntes) // o reajuste não reescreve o passado
+  })
+})
+
+describe('a baixa NÃO pode desmarcar `reajustavel`', () => {
+  /* REGRESSÃO de projeto: "pago" e "não reajustável" parecem a mesma coisa e não são.
+     `lancPago` já exclui a parcela da reprecificação — é fato derivado. `reajustavel`
+     guarda a INTENÇÃO de nunca reajustar (parcela de entrada, sinal, valor negociado).
+     Se a baixa apagasse a intenção, `pagasAlcancadas` devolveria zero para toda parcela
+     paga e o alerta de diferença não cobrada sumiria sem ninguém perceber. */
+  const contrato = (over: Partial<any> = {}): any => ({
+    natureza: 'DESPESA', valorTotal: 2000, valorParcela: 1000, qtdParcelas: 2,
+    aditivos: [], renovacoes: [], reajustesRealizados: [], reajustes: [], recebimentos: [],
+    pagamentos: [
+      { ...paga('p1', '2026-03-10', 1000, 1000) },   // paga, reajustável (default)
+      { ...paga('p2', '2026-03-10', 1000, 1000), reajustavel: false }, // paga, jamais reajustável
+    ],
+    ...over,
+  })
+
+  it('parcela paga e reajustável ENTRA na diferença não cobrada', () => {
+    const r = pagasAlcancadas(contrato(), '2026-03', 10)
+    expect(r.quantidade).toBe(1) // só p1 — p2 não subiria nem se estivesse a vencer
+    expect(r.diferenca).toBe(100)
+  })
+
+  it('se a baixa tivesse desmarcado reajustavel, o alerta seria zero — e mudo', () => {
+    const corrompido = contrato({
+      pagamentos: [
+        { ...paga('p1', '2026-03-10', 1000, 1000), reajustavel: false },
+        { ...paga('p2', '2026-03-10', 1000, 1000), reajustavel: false },
+      ],
+    })
+    expect(pagasAlcancadas(corrompido, '2026-03', 10)).toEqual({ quantidade: 0, diferenca: 0 })
+  })
+
+  it('o reajuste já ignora a parcela paga sem precisar do flag', () => {
+    const c = contrato({ pagamentos: [paga('p1', '2026-03-10', 1000, 1000), prevista('p2', '2026-04-10', 1000)] })
+    const r = aplicarReajuste(c, { id: 'x', reajusteId: 'r1', competencia: '2026-03', percentual: 10, base: 'parcela' })
+    const p = new Map(r.pagamentos.map(l => [l.id, l]))
+    expect(lancPrevisto(p.get('p1')!)).toBe(1000) // paga: intacta, e ela SEGUE reajustável
+    expect(p.get('p1')!.reajustavel).toBeUndefined()
+    expect(lancPrevisto(p.get('p2')!)).toBe(1100)
+    expect(r.reajuste.parcelasReajustadas).toBe(1)
+  })
+})
+
+describe('o comprovante é metadado: nenhuma regra o lê, nenhuma regra o perde', () => {
+  /* `comPrevisto` reconstrói o lançamento ao reprecificar (tira o `valor` legado). Se ele
+     enumerasse campos em vez de espalhar o resto, o anexo sumiria no primeiro reajuste —
+     e o usuário perderia o comprovante sem nenhum evento que explicasse. */
+  const comAnexo = { ...prevista('p1', '2026-04-10', 1000), comprovante_key: 'org__abc__nota.pdf', comprovante_nome: 'nota.pdf' }
+  const c: any = {
+    natureza: 'DESPESA', valorTotal: 1000, valorParcela: 1000, qtdParcelas: 1,
+    aditivos: [], renovacoes: [], reajustesRealizados: [], reajustes: [], recebimentos: [],
+    pagamentos: [comAnexo],
+  }
+
+  it('sobrevive à reprecificação do reajuste', () => {
+    const r = aplicarReajuste(c, { id: 'x', reajusteId: 'r1', competencia: '2026-03', percentual: 10, base: 'parcela' })
+    const p = r.pagamentos[0]
+    expect(lancPrevisto(p)).toBe(1100)              // o valor mudou
+    expect(p.comprovante_key).toBe('org__abc__nota.pdf') // o anexo não
+    expect(p.comprovante_nome).toBe('nota.pdf')
+  })
+
+  it('não afeta `pago`, nem soma, nem desvio', () => {
+    expect(lancPago(comAnexo)).toBe(false) // anexo não baixa a parcela
+    expect(somaLancamentos(c.pagamentos)).toBe(1000)
+    expect(somaLancamentosPagos(c.pagamentos)).toBe(0)
+    expect(lancDesvio(comAnexo)).toBe(0)
   })
 })
 
