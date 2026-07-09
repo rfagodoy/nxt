@@ -1,0 +1,78 @@
+import { num } from './num'
+import type { CoreAditivo, CoreContract, CoreLancamento, LancField } from './types'
+
+/* ─── derivação do estado VIGENTE ────────────────────────────────────────────
+   O contrato guarda os valores ORIGINAIS. Cada aditivo ATIVO, cada reajuste
+   aplicado e cada renovação sobrepõem/acumulam sobre eles, em ordem. Nada disso
+   é gravado: é sempre derivado na leitura. */
+
+/** Aditivo em RASCUNHO não aplica efeito. Registro legado sem `situacao` conta como ATIVO.
+ *
+ *  Nota: o front (`aditivoAtivo`) exigia `=== 'ATIVO'` e o backend usava `!== 'RASCUNHO'`,
+ *  divergindo justamente quando `situacao` vinha ausente. `contractFromApi` já normaliza
+ *  para 'ATIVO' nesse caso, então a semântica do backend é a que descreve os dados reais. */
+export const aditivoAtivo = (a: CoreAditivo): boolean => (a.situacao ?? 'ATIVO') === 'ATIVO'
+
+/** Campos de lançamento pertinentes à natureza do contrato. */
+export function camposDaNatureza(natureza?: string | null): LancField[] {
+  if (natureza === 'RECEITA') return ['recebimentos']
+  if (natureza === 'AMBOS') return ['pagamentos', 'recebimentos']
+  return ['pagamentos']
+}
+
+/** status efetivo do lançamento (legado sem status = 'pago'). */
+export const lancStatus = (l: CoreLancamento) => l.status || 'pago'
+export const lancPago = (l: CoreLancamento) => lancStatus(l) === 'pago'
+/** data de referência da parcela: vencimento (ou pagamento, p/ legado). */
+export const lancRef = (l: CoreLancamento) => l.vencimento || l.data || ''
+
+/** Término vigente = término original, sobreposto pelos aditivos de prorrogação ATIVOS
+ *  (o último vence) e estendido pelas renovações (a mais tardia vence). */
+export function terminoVigente(c: CoreContract): string {
+  let t = c.terminoVigencia ?? ''
+  for (const a of c.aditivos ?? []) if (aditivoAtivo(a) && a.alteraTermino && a.novoTermino) t = a.novoTermino
+  for (const r of c.renovacoes ?? []) if (r.novoTermino && r.novoTermino > t) t = r.novoTermino
+  return t
+}
+
+/** Valor total vigente = valor inicial + acréscimos dos aditivos de valor ATIVOS
+ *  + deltas dos reajustes aplicados (valorNovo − valorAnterior) + valor dos períodos renovados.
+ *  Somar o DELTA (e não recalcular pelo percentual) torna o resultado independente de ordem. */
+export function valorVigente(c: CoreContract): number {
+  let val = num(c.valorTotal)
+  for (const a of c.aditivos ?? []) if (aditivoAtivo(a) && a.alteraValor) val += num(a.novoValor)
+  for (const r of c.reajustesRealizados ?? []) val += num(r.valorNovo) - num(r.valorAnterior)
+  for (const r of c.renovacoes ?? []) val += num(r.valorPeriodo)
+  return val
+}
+
+/** Parcela vigente = última parcela definida cronologicamente por um aditivo de valor
+ *  ATIVO (novaParcela) ou por um reajuste de parcela aplicado (parcelaNova). Último vence. */
+export function parcelaVigente(c: CoreContract): number {
+  let p = num(c.valorParcela)
+  const eventos: { data: string; val: number }[] = [
+    ...(c.aditivos ?? [])
+      .filter(a => aditivoAtivo(a) && a.alteraValor && num(a.novaParcela))
+      .map(a => ({ data: String(a.data ?? ''), val: num(a.novaParcela) })),
+    ...(c.reajustesRealizados ?? [])
+      .filter(r => num(r.parcelaNova))
+      .map(r => ({ data: String(r.competencia ?? ''), val: num(r.parcelaNova) })),
+  ].sort((x, y) => (x.data < y.data ? -1 : x.data > y.data ? 1 : 0))
+  for (const e of eventos) if (e.val) p = e.val
+  return p
+}
+
+/** Consumo = só o que foi efetivamente pago/recebido.
+ *
+ *  ATENÇÃO: preserva o comportamento histórico do scheduler — natureza AMBOS conta
+ *  apenas `pagamentos`. Diverge de `camposDaNatureza`; mantido idêntico de propósito
+ *  para que a extração não mude nenhum número. Ver nota em docs. */
+export function consumo(c: CoreContract): number {
+  const arr = (c.natureza === 'RECEITA' ? c.recebimentos : c.pagamentos) ?? []
+  return arr.reduce((s, l) => s + (lancPago(l) ? num(l.valor) : 0), 0)
+}
+
+/** Soma de todos os lançamentos de uma lista. */
+export const somaLancamentos = (arr: CoreLancamento[]) => arr.reduce((s, l) => s + num(l.valor), 0)
+/** Soma só dos lançamentos PAGOS. */
+export const somaLancamentosPagos = (arr: CoreLancamento[]) => arr.reduce((s, l) => s + (lancPago(l) ? num(l.valor) : 0), 0)

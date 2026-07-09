@@ -24,6 +24,9 @@
       ],
       "@nxt/types": [
         "../../packages/types/index.ts"
+      ],
+      "@nxt/contracts-core": [
+        "../../packages/contracts-core/index.ts"
       ]
     },
     "allowJs": true,

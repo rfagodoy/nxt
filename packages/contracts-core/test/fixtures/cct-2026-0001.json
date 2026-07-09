@@ -1,0 +1,977 @@
+{
+  "numero": "CCT_2026_0001",
+  "titulo": "Fornecimento de equipamentos e serviços de manutenção preventiva e corretiva (Renovação automática)",
+  "tipo": "e_1781477964262",
+  "natureza": "DESPESA",
+  "descricao": "Contrato de fornecimento de equipamentos e prestação de serviços de manutenção preventiva e corretiva (Teste de renovação automática)",
+  "objeto": [
+    "37",
+    "66"
+  ],
+  "situacao": "VIGENTE",
+  "inicioVigencia": "2019-07-23",
+  "terminoVigencia": "2020-07-22",
+  "prazoIndeterminado": false,
+  "acaoTermino": "RENOVAR",
+  "renovacaoAnos": null,
+  "renovacaoMeses": 12,
+  "renovacaoDias": null,
+  "dataAssinatura": "2019-07-23",
+  "moeda": "BRL",
+  "valorTotal": 210000,
+  "valorParcela": 5000,
+  "qtdParcelas": 12,
+  "condicaoPagamento": "3",
+  "complementoValor": "R$ 150.000,00 referente a aquisição dos equipamentos e R$ 5.000,00 referentes aos serviços de manutenção e suporte.",
+  "renovacaoAutomatica": false,
+  "observacoes": null,
+  "partes": [
+    {
+      "id": "1783556628215_cie3s0",
+      "papel": "1",
+      "ref_tipo": "EMPRESA",
+      "ref_id": "cmrcpg3p10009poagih21i6w8",
+      "nome": "Parte 1",
+      "documento": ""
+    },
+    {
+      "id": "1783556747975_pbkgpe",
+      "papel": "2",
+      "ref_tipo": "PARCEIRO",
+      "ref_id": "cmrcokpxq000fpo30i045aqrq",
+      "nome": "Parte 2",
+      "documento": ""
+    },
+    {
+      "id": "1783556760135_gngvcs",
+      "papel": "3",
+      "ref_tipo": "UNIDADE",
+      "ref_id": "cmrcpnlkv000npoagkv6b9av7",
+      "nome": "Parte 3",
+      "documento": ""
+    },
+    {
+      "id": "1783556767583_m1ihmp",
+      "papel": "4",
+      "ref_tipo": "UNIDADE",
+      "ref_id": "cmrcpnlkv000npoagkv6b9av7",
+      "nome": "Parte 4",
+      "documento": ""
+    },
+    {
+      "id": "1783556773575_i0bl2d",
+      "papel": "5",
+      "ref_tipo": "UNIDADE",
+      "ref_id": "cmrcpnlkv000npoagkv6b9av7",
+      "nome": "Parte 5",
+      "documento": ""
+    }
+  ],
+  "reajustes": [],
+  "pagamentos": [
+    {
+      "id": "1783556968005_1co3mj",
+      "status": "pago",
+      "vencimento": "2019-07-23",
+      "data": "2019-07-23",
+      "valor": 5000,
+      "forma": "3",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "1783556968005_x3wx8g",
+      "status": "pago",
+      "vencimento": "2019-08-23",
+      "data": "2019-08-23",
+      "valor": 5000,
+      "forma": "3",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "1783556968005_sruqai",
+      "status": "pago",
+      "vencimento": "2019-09-23",
+      "data": "2019-09-23",
+      "valor": 5000,
+      "forma": "3",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "1783556968005_ko6ugn",
+      "status": "pago",
+      "vencimento": "2019-10-23",
+      "data": "2019-10-23",
+      "valor": 5000,
+      "forma": "3",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "1783556968005_1w9d5t",
+      "status": "pago",
+      "vencimento": "2019-11-23",
+      "data": "2019-11-23",
+      "valor": 5000,
+      "forma": "3",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "1783556968005_9v48q6",
+      "status": "pago",
+      "vencimento": "2019-12-23",
+      "data": "2019-12-23",
+      "valor": 5000,
+      "forma": "3",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "1783556968005_w7h51x",
+      "status": "pago",
+      "vencimento": "2020-01-23",
+      "data": "2020-01-23",
+      "valor": 5000,
+      "forma": "3",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "1783556968005_c1s8nv",
+      "status": "pago",
+      "vencimento": "2020-02-23",
+      "data": "2020-02-23",
+      "valor": 5000,
+      "forma": "3",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "1783556968005_0f275f",
+      "status": "pago",
+      "vencimento": "2020-03-23",
+      "data": "2020-03-23",
+      "valor": 5000,
+      "forma": "3",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "1783556968005_mtkgtm",
+      "status": "pago",
+      "vencimento": "2020-04-23",
+      "data": "2020-04-23",
+      "valor": 5000,
+      "forma": "3",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "1783556968006_bdvcsp",
+      "status": "pago",
+      "vencimento": "2020-05-23",
+      "data": "2020-05-23",
+      "valor": 5000,
+      "forma": "3",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "1783556968006_8pvf6f",
+      "status": "pago",
+      "vencimento": "2020-06-23",
+      "data": "2020-06-23",
+      "valor": 5000,
+      "forma": "3",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "1783557198197_jwqfxw",
+      "status": "pago",
+      "vencimento": "2019-07-23",
+      "data": "2019-07-23",
+      "valor": 150000,
+      "forma": "3",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369389_1_1",
+      "status": "previsto",
+      "vencimento": "2020-07-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_1_2",
+      "status": "previsto",
+      "vencimento": "2020-08-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_1_3",
+      "status": "previsto",
+      "vencimento": "2020-09-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_1_4",
+      "status": "previsto",
+      "vencimento": "2020-10-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_1_5",
+      "status": "previsto",
+      "vencimento": "2020-11-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_1_6",
+      "status": "previsto",
+      "vencimento": "2020-12-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_1_7",
+      "status": "previsto",
+      "vencimento": "2021-01-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_1_8",
+      "status": "previsto",
+      "vencimento": "2021-02-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_1_9",
+      "status": "previsto",
+      "vencimento": "2021-03-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_1_10",
+      "status": "previsto",
+      "vencimento": "2021-04-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_1_11",
+      "status": "previsto",
+      "vencimento": "2021-05-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_1_12",
+      "status": "previsto",
+      "vencimento": "2021-06-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_2_1",
+      "status": "previsto",
+      "vencimento": "2021-07-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_2_2",
+      "status": "previsto",
+      "vencimento": "2021-08-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_2_3",
+      "status": "previsto",
+      "vencimento": "2021-09-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_2_4",
+      "status": "previsto",
+      "vencimento": "2021-10-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_2_5",
+      "status": "previsto",
+      "vencimento": "2021-11-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_2_6",
+      "status": "previsto",
+      "vencimento": "2021-12-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_2_7",
+      "status": "previsto",
+      "vencimento": "2022-01-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_2_8",
+      "status": "previsto",
+      "vencimento": "2022-02-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_2_9",
+      "status": "previsto",
+      "vencimento": "2022-03-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_2_10",
+      "status": "previsto",
+      "vencimento": "2022-04-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_2_11",
+      "status": "previsto",
+      "vencimento": "2022-05-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_2_12",
+      "status": "previsto",
+      "vencimento": "2022-06-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_3_1",
+      "status": "previsto",
+      "vencimento": "2022-07-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_3_2",
+      "status": "previsto",
+      "vencimento": "2022-08-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_3_3",
+      "status": "previsto",
+      "vencimento": "2022-09-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_3_4",
+      "status": "previsto",
+      "vencimento": "2022-10-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_3_5",
+      "status": "previsto",
+      "vencimento": "2022-11-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_3_6",
+      "status": "previsto",
+      "vencimento": "2022-12-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_3_7",
+      "status": "previsto",
+      "vencimento": "2023-01-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_3_8",
+      "status": "previsto",
+      "vencimento": "2023-02-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_3_9",
+      "status": "previsto",
+      "vencimento": "2023-03-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_3_10",
+      "status": "previsto",
+      "vencimento": "2023-04-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_3_11",
+      "status": "previsto",
+      "vencimento": "2023-05-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_3_12",
+      "status": "previsto",
+      "vencimento": "2023-06-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_4_1",
+      "status": "previsto",
+      "vencimento": "2023-07-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_4_2",
+      "status": "previsto",
+      "vencimento": "2023-08-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_4_3",
+      "status": "previsto",
+      "vencimento": "2023-09-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_4_4",
+      "status": "previsto",
+      "vencimento": "2023-10-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_4_5",
+      "status": "previsto",
+      "vencimento": "2023-11-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_4_6",
+      "status": "previsto",
+      "vencimento": "2023-12-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_4_7",
+      "status": "previsto",
+      "vencimento": "2024-01-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_4_8",
+      "status": "previsto",
+      "vencimento": "2024-02-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_4_9",
+      "status": "previsto",
+      "vencimento": "2024-03-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_4_10",
+      "status": "previsto",
+      "vencimento": "2024-04-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_4_11",
+      "status": "previsto",
+      "vencimento": "2024-05-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_4_12",
+      "status": "previsto",
+      "vencimento": "2024-06-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_5_1",
+      "status": "previsto",
+      "vencimento": "2024-07-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_5_2",
+      "status": "previsto",
+      "vencimento": "2024-08-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_5_3",
+      "status": "previsto",
+      "vencimento": "2024-09-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_5_4",
+      "status": "previsto",
+      "vencimento": "2024-10-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_5_5",
+      "status": "previsto",
+      "vencimento": "2024-11-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_5_6",
+      "status": "previsto",
+      "vencimento": "2024-12-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_5_7",
+      "status": "previsto",
+      "vencimento": "2025-01-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_5_8",
+      "status": "previsto",
+      "vencimento": "2025-02-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_5_9",
+      "status": "previsto",
+      "vencimento": "2025-03-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_5_10",
+      "status": "previsto",
+      "vencimento": "2025-04-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_5_11",
+      "status": "previsto",
+      "vencimento": "2025-05-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_5_12",
+      "status": "previsto",
+      "vencimento": "2025-06-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_6_1",
+      "status": "previsto",
+      "vencimento": "2025-07-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_6_2",
+      "status": "previsto",
+      "vencimento": "2025-08-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_6_3",
+      "status": "previsto",
+      "vencimento": "2025-09-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_6_4",
+      "status": "previsto",
+      "vencimento": "2025-10-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_6_5",
+      "status": "previsto",
+      "vencimento": "2025-11-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_6_6",
+      "status": "previsto",
+      "vencimento": "2025-12-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_6_7",
+      "status": "previsto",
+      "vencimento": "2026-01-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_6_8",
+      "status": "previsto",
+      "vencimento": "2026-02-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_6_9",
+      "status": "previsto",
+      "vencimento": "2026-03-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_6_10",
+      "status": "previsto",
+      "vencimento": "2026-04-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_6_11",
+      "status": "previsto",
+      "vencimento": "2026-05-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    },
+    {
+      "id": "l_1783557369390_6_12",
+      "status": "previsto",
+      "vencimento": "2026-06-23",
+      "data": "",
+      "valor": 5000,
+      "forma": "",
+      "documento": "",
+      "observacao": ""
+    }
+  ],
+  "recebimentos": [],
+  "aditivos": [],
+  "documentos": [],
+  "renovacoes": [
+    {
+      "id": "1783557369390_1",
+      "data": "2026-07-08",
+      "terminoAnterior": "2020-07-22",
+      "novoTermino": "2021-07-22",
+      "automatica": true,
+      "valorPeriodo": 60000
+    },
+    {
+      "id": "1783557369390_2",
+      "data": "2026-07-08",
+      "terminoAnterior": "2021-07-22",
+      "novoTermino": "2022-07-22",
+      "automatica": true,
+      "valorPeriodo": 60000
+    },
+    {
+      "id": "1783557369390_3",
+      "data": "2026-07-08",
+      "terminoAnterior": "2022-07-22",
+      "novoTermino": "2023-07-22",
+      "automatica": true,
+      "valorPeriodo": 60000
+    },
+    {
+      "id": "1783557369390_4",
+      "data": "2026-07-08",
+      "terminoAnterior": "2023-07-22",
+      "novoTermino": "2024-07-22",
+      "automatica": true,
+      "valorPeriodo": 60000
+    },
+    {
+      "id": "1783557369390_5",
+      "data": "2026-07-08",
+      "terminoAnterior": "2024-07-22",
+      "novoTermino": "2025-07-22",
+      "automatica": true,
+      "valorPeriodo": 60000
+    },
+    {
+      "id": "1783557369390_6",
+      "data": "2026-07-08",
+      "terminoAnterior": "2025-07-22",
+      "novoTermino": "2026-07-22",
+      "automatica": true,
+      "valorPeriodo": 60000
+    }
+  ],
+  "reajustesRealizados": []
+}

@@ -11,7 +11,8 @@
     "strictPropertyInitialization": false,
     "paths": {
       "@nxt/types": ["../../packages/types/index.ts"],
-      "@nxt/database": ["../../packages/database/index.ts"]
+      "@nxt/database": ["../../packages/database/index.ts"],
+      "@nxt/contracts-core": ["../../packages/contracts-core/index.ts"]
     }
   },
   "include": ["src/**/*"],
