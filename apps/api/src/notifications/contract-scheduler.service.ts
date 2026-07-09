@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import {
   daysBetween, todayISO,
   terminoVigente, valorVigente, consumo,
-  proximaDataReajuste, aplicacaoDe, planejarReajuste, aplicarReajuste, pagasAlcancadas,
+  proximaDataReajuste, planejarReajuste, aplicarReajuste, pagasAlcancadas,
   renovarPeriodo, campoRenovacao,
 } from '@nxt/contracts-core'
 import { PrismaService } from '../prisma.service'
@@ -197,7 +197,6 @@ export class ContractSchedulerService implements OnModuleInit {
       if (params.reajuste.enabled && c.situacao === 'VIGENTE') {
         for (const r of ((c.reajustes as any[]) ?? [])) {
           if (!r.indice) continue                     // linha incompleta: não há o que notificar
-          if (aplicacaoDe(r) === 'SUSPENSA') continue // política: nem notifica
           const nextDue = proximaDataReajuste(c, r)   // uma periodicidade após a última competência aplicada
           if (!nextDue) continue
           const key = `reajuste:${c.id}:${r.id}`

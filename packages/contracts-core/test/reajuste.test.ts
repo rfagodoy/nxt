@@ -278,9 +278,33 @@ describe('planejarReajuste — decide se o motor aplica', () => {
     expect(p.vencido).toBe(true)   // vencido: continua notificando
   })
 
-  it('SUSPENSA não aplica', () => {
+  it('o extinto SUSPENSA vira MANUAL: não aplica, mas volta a AVISAR', () => {
+    /* "Suspensa" silenciava o aviso de um reajuste pendente sem resolvê-lo. Um dado
+       legado com esse valor não pode continuar mudo — é lido como MANUAL. */
     const c = comReajuste({ aplicacao: 'SUSPENSA' })
-    expect(planejarReajuste(c, c.reajustes[0], serieCheia, '2027-06-01').motivo).toBe('SUSPENSA')
+    const p = planejarReajuste(c, c.reajustes[0], serieCheia, '2027-06-01')
+    expect(p.aplicar).toBe(false)
+    expect(p.motivo).toBe('MANUAL')
+    expect(p.vencido).toBe(true)   // continua notificando
+  })
+
+  it('qualquer valor desconhecido em `aplicacao` cai em MANUAL', () => {
+    for (const v of ['', 'sim', 'automatica ', undefined]) {
+      const c = comReajuste({ aplicacao: v })
+      expect(planejarReajuste(c, c.reajustes[0], serieCheia, '2027-06-01').motivo).toBe('MANUAL')
+    }
+  })
+
+  it('reajuste de 0% substitui "suspender": não muda valor, mas ancora a próxima competência', () => {
+    const c = comReajuste({ aplicacao: 'MANUAL' })
+    const r = aplicarReajuste(c, { id: 'z', reajusteId: 'r1', competencia: '2027-01', percentual: 0, base: 'parcela' })
+    expect(r.reajuste.parcelaNova).toBe(r.reajuste.parcelaAnterior)
+    expect(num(r.reajuste.valorNovo)).toBe(num(r.reajuste.valorAnterior))
+
+    const c2 = { ...c, pagamentos: r.pagamentos, reajustesRealizados: [r.reajuste] }
+    expect(proximaDataReajuste(c2, c2.reajustes[0])).toBe('2028-01-01')
+    /* e o alerta de pendência some, porque não há mais pendência */
+    expect(planejarReajuste(c2, c2.reajustes[0], serieCheia, '2027-06-01').vencido).toBe(false)
   })
 
   it('AUTOMATICA sem série publicada não aplica', () => {

@@ -4,8 +4,8 @@ import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react'
 import { Plus, Trash2, Search, Upload, Download, Loader2, X, Eye, ChevronDown, FileText, RefreshCw, ListPlus } from 'lucide-react'
 import {
   aplicarReajuste, acumuladoPeriodo, parcelasAlvo, proximaDataReajuste, proximaDataReajusteContrato,
-  stepMeses, temCronograma, gerarParcelas, parcelaProvisoria, totaisAVencer, renovarPeriodo,
-  comp, currentComp, todayISO, type CoreLancamento,
+  stepMeses, temCronograma, gerarParcelas, parcelaProvisoria, totaisAVencer, renovarPeriodo, campoRenovacao,
+  comp, currentComp, todayISO, type CoreLancamento, type LancField,
 } from '@nxt/contracts-core'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
@@ -287,8 +287,48 @@ function NumBox({ caption, value, onChange }: { caption: string; value: string; 
 }
 
 /** Vigência: Prazo indeterminado, Início, Término, Data de assinatura + ação no término (grade 2×2). */
+/** O core devolve o lançamento com `valor` numérico; o formulário guarda string. */
+const toCLancamento = (l: CoreLancamento): CLancamento => ({ ...newCLancamento('previsto'), ...l, valor: String(l.valor) })
+
 export function VigenciaFields({ form, ro }: { form: ContractForm; ro?: boolean }) {
   const v = form.values
+
+  /* ── Renovar período (renovação MANUAL) ───────────────────────────────────
+     Mora aqui, e não na aba de pagamentos, porque o que ele faz de mais importante
+     é estender a VIGÊNCIA e somar o período ao valor do contrato — gerar as parcelas
+     é consequência. É a mesma `renovarPeriodo` que o motor de datas usa. */
+  const [renovOpen, setRenovOpen] = useState(false)
+  const [renovErr, setRenovErr]   = useState<string | null>(null)
+  const anos  = parseInt(v.renovacaoAnos, 10)  || 0
+  const meses = parseInt(v.renovacaoMeses, 10) || 0
+  const dias  = parseInt(v.renovacaoDias, 10)  || 0
+  const podeRenovar = !v.prazoIndeterminado && v.acaoTermino === 'RENOVAR' && (anos || meses || dias) > 0
+
+  const campoRenov: LancField = campoRenovacao(v.natureza)
+  /* prévia = a MESMA função que será executada, só que descartada: o que você lê é o que acontece */
+  const previa = podeRenovar
+    ? renovarPeriodo(v, { campo: campoRenov, anos, meses, dias, data: todayISO(), automatica: false, id: 'previa', makeId: i => `previa_${i}` })
+    : null
+
+  const confirmarRenovacao = () => {
+    setRenovErr(null)
+    const res = renovarPeriodo(v, {
+      campo: campoRenov, anos, meses, dias, data: todayISO(), automatica: false,
+      id: `reno_${Date.now()}`, makeId: () => uid(),
+    })
+    if (!res) { setRenovErr('Não foi possível renovar: verifique o término da vigência e o prazo de renovação.'); return }
+    const reno = {
+      id: String(res.renovacao.id), data: String(res.renovacao.data),
+      terminoAnterior: String(res.renovacao.terminoAnterior), novoTermino: String(res.renovacao.novoTermino),
+      automatica: false, valorPeriodo: String(res.renovacao.valorPeriodo),
+    }
+    const novos = res.lancamentos.map(toCLancamento)
+    form.setValues(p => ({ ...p, [campoRenov]: [...p[campoRenov], ...novos], renovacoes: [...(p.renovacoes ?? []), reno] }))
+    setRenovOpen(false)
+  }
+
+  const money = (n: number | string) => `${v.moeda ? v.moeda + ' ' : ''}${(Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
   return (
     <div className="grid grid-cols-2 gap-3">
       {/* Ordem: Início → Prazo indeterminado → Término → Ao término (a âncora vem antes do modificador) */}
@@ -327,6 +367,51 @@ export function VigenciaFields({ form, ro }: { form: ContractForm; ro?: boolean 
             </div>
           )}
         </Field>
+      )}
+
+      {/* Renovar período: ato contratual — estende a vigência e soma o período ao valor.
+          Pede confirmação porque é o único botão desta tela que muda o contrato. */}
+      {podeRenovar && (
+        <div className="col-span-2 rounded-md border bg-muted/20 p-3">
+          {!renovOpen ? (
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-medium">Renovar período</p>
+                <p className="text-[11px] text-muted-foreground">Estende a vigência pelo prazo de renovação e projeta as parcelas do novo período.</p>
+              </div>
+              <button type="button" onClick={() => { setRenovErr(null); setRenovOpen(true) }}
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-3 text-xs font-medium transition-colors hover:bg-muted">
+                <RefreshCw className="h-3.5 w-3.5" />Renovar período
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs font-medium">Confirmar renovação</p>
+              {previa ? (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] leading-relaxed text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400">
+                  A vigência passa de <strong className="tabular-nums">{fmtDataBR(String(previa.renovacao.terminoAnterior))}</strong> para{' '}
+                  <strong className="tabular-nums">{fmtDataBR(String(previa.renovacao.novoTermino))}</strong>.
+                  {previa.lancamentos.length > 0 ? (
+                    <> São geradas <strong>{previa.lancamentos.length}</strong> parcela(s) a vencer, somando{' '}
+                      <strong className="tabular-nums">{money(previa.renovacao.valorPeriodo ?? 0)}</strong> ao valor do contrato.</>
+                  ) : (
+                    <> Nenhuma parcela é gerada (o contrato ainda não tem cronograma) e o valor total não muda.</>
+                  )}
+                </div>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">Defina o término da vigência antes de renovar.</p>
+              )}
+              {renovErr && <p className="text-[11px] font-medium text-red-600 dark:text-red-400">{renovErr}</p>}
+              <div className="flex items-center justify-end gap-2">
+                <button type="button" onClick={() => setRenovOpen(false)} className="h-8 rounded-md px-3 text-xs font-medium text-muted-foreground hover:bg-muted">Cancelar</button>
+                <button type="button" onClick={confirmarRenovacao} disabled={!previa}
+                  className="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed">
+                  Confirmar renovação
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Renovações: períodos completos de vigência (prazo original + prorrogações), o último "em vigor" */}
@@ -544,43 +629,20 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
     setGData(v.inicioVigencia || ''); setGQtd(v.qtdParcelas || ''); setGValor(parcelaVigenteInput(v) || v.valorParcela || ''); setGForma(''); setGErr(null)
     setGerarOpen(o => !o)
   }
-  /* o core devolve o lançamento com `valor` numérico; o formulário guarda string */
-  const toLanc = (l: CoreLancamento): CLancamento => ({ ...newCLancamento('previsto'), ...l, valor: String(l.valor) })
-
   const gerar = () => {
     const n = parseInt(gQtd, 10)
     if (!gData)        { setGErr('Informe a data inicial.'); return }
     if (!(n > 0))      { setGErr('Informe a quantidade de parcelas.'); return }
     if (n > 240)       { setGErr('Máximo de 240 parcelas por vez.'); return }
     /* cada parcela nasce com o reajuste já conhecido do seu mês (senão, o valor base informado) */
-    const novos = gerarParcelas(v, { inicio: gData, qtd: n, valorBase: parseFloat(gValor) || 0, forma: gForma, makeId: () => uid() }).map(toLanc)
+    const novos = gerarParcelas(v, { inicio: gData, qtd: n, valorBase: parseFloat(gValor) || 0, forma: gForma, makeId: () => uid() }).map(toCLancamento)
     form.setValues(p => ({ ...p, [field]: [...p[field], ...novos] }))
     setOpenYears(s => new Set([...s, ...novos.map(l => l.vencimento.slice(0, 4))]))  // expande os anos gerados
     setGerarOpen(false)
   }
 
-  /* Gerar próximo período = renovação MANUAL. Usa `renovarPeriodo`, a MESMA função do motor
-     de datas: estende a vigência pelo PRAZO DE RENOVAÇÃO do contrato e, se já existe cronograma,
-     projeta as parcelas do período na parcela vigente. Sem cronograma, só estende a vigência. */
-  const gerarProximoPeriodo = () => {
-    setGErr(null)
-    const anos  = parseInt(v.renovacaoAnos, 10)  || 0
-    const meses = parseInt(v.renovacaoMeses, 10) || 0
-    const dias  = parseInt(v.renovacaoDias, 10)  || 0
-    if (!(anos || meses || dias)) { setGErr('Defina o prazo de renovação do contrato (aba Vigência: "Renovar por").'); setGerarOpen(true); return }
-    if (!terminoVigente(v))       { setGErr('Defina o término da vigência antes de renovar.'); setGerarOpen(true); return }
-
-    const res = renovarPeriodo(v, {
-      campo: field, anos, meses, dias, data: hoje, automatica: false,
-      id: `reno_${Date.now()}`, makeId: () => uid(),
-    })
-    if (!res) { setGErr('Prazo de renovação inválido — a nova vigência não avança a data de término.'); setGerarOpen(true); return }
-
-    const novos = res.lancamentos.map(toLanc)
-    const reno = { ...res.renovacao, id: String(res.renovacao.id), data: String(res.renovacao.data), terminoAnterior: String(res.renovacao.terminoAnterior), novoTermino: String(res.renovacao.novoTermino), automatica: false, valorPeriodo: String(res.renovacao.valorPeriodo) }
-    form.setValues(p => ({ ...p, [field]: [...p[field], ...novos], renovacoes: [...(p.renovacoes ?? []), reno] }))
-    if (novos.length) setOpenYears(s => new Set([...s, ...novos.map(l => l.vencimento.slice(0, 4))]))
-  }
+  /* A renovação manual ("Renovar período") mora na aba Vigência: ela estende a vigência e
+     soma o período ao valor do contrato — gerar as parcelas é consequência, não o ato. */
 
   /* colunas: vencimento · valor · reajusta · forma · nº doc · pagamento · status · observação · (remover) */
   const COLS = 'grid grid-cols-[7rem_8rem_3.5rem_7rem_6rem_7rem_5.5rem_1fr_1.25rem] items-center gap-2'
@@ -603,7 +665,6 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
         <div className="flex items-center gap-4">
           <button type="button" onClick={() => form.addLanc(field)} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar {singular}</button>
           <button type="button" onClick={abrirGerar} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-medium transition-colors"><ListPlus className="h-3.5 w-3.5" />Gerar cronograma</button>
-          <button type="button" onClick={gerarProximoPeriodo} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-medium transition-colors"><RefreshCw className="h-3.5 w-3.5" />Gerar próximo período</button>
         </div>
         {lista.length > 0 && <span className="text-[11px] text-muted-foreground">{lista.length} lançamento{lista.length > 1 ? 's' : ''} · <span className="font-semibold tabular-nums text-foreground">{money(total)}</span></span>}
       </div>

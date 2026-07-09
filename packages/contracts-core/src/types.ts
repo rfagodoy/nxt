@@ -37,8 +37,14 @@ export interface CoreAditivo {
 
 /** Como o motor de datas trata esta linha de reajuste.
  *  AUTOMATICA = aplica sozinho quando vence; MANUAL = só notifica (default, e o
- *  comportamento histórico); SUSPENSA = nem notifica (contrato em disputa de índice). */
-export type AplicacaoReajuste = 'AUTOMATICA' | 'MANUAL' | 'SUSPENSA'
+ *  comportamento histórico).
+ *
+ *  Não existe "suspensa". Silenciar o aviso de um reajuste pendente esconde uma
+ *  obrigação de dinheiro sem resolvê-la — e a competência ressurgiria represada ao
+ *  reativar. Para registrar que um período NÃO reajustou, aplique um reajuste de 0%:
+ *  o valor não muda, a próxima competência avança, o alerta some e o fato fica no
+ *  histórico com a sua justificativa. */
+export type AplicacaoReajuste = 'AUTOMATICA' | 'MANUAL'
 
 /** Linha de reajuste = a AGENDA (índice + data base + periodicidade). */
 export interface CoreReajuste {

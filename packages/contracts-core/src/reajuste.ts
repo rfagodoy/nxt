@@ -10,12 +10,11 @@ import type { AplicacaoReajuste, CoreContract, CoreLancamento, CoreReajuste, Cor
 
 const STEP_MESES: Record<string, number> = { MENSAL: 1, BIMESTRAL: 2, TRIMESTRAL: 3, QUADRIMESTRAL: 4, SEMESTRAL: 6, ANUAL: 12 }
 
-/** Política de aplicação da linha. Ausente = MANUAL: uma linha cadastrada antes de a
- *  política existir NUNCA passa a reajustar sozinha por causa de um deploy. */
-export const aplicacaoDe = (r: CoreReajuste): AplicacaoReajuste => {
-  const a = String(r.aplicacao ?? '').toUpperCase()
-  return a === 'AUTOMATICA' || a === 'SUSPENSA' ? a : 'MANUAL'
-}
+/** Política de aplicação da linha. Só 'AUTOMATICA' liga o motor; todo o resto é MANUAL.
+ *  Assim uma linha cadastrada antes de a política existir nunca passa a reajustar sozinha
+ *  por causa de um deploy — e um 'SUSPENSA' legado volta a AVISAR, em vez de seguir mudo. */
+export const aplicacaoDe = (r: CoreReajuste): AplicacaoReajuste =>
+  String(r.aplicacao ?? '').toUpperCase() === 'AUTOMATICA' ? 'AUTOMATICA' : 'MANUAL'
 
 /** Base do reajuste automático: a PARCELA quando o contrato tem parcela, senão o TOTAL.
  *  Não é configurável — reajustar as parcelas já é reajustar o contrato (o total cresce
@@ -112,8 +111,7 @@ export const temCronograma = (c: CoreContract): boolean =>
 export type MotivoNaoAplicar =
   | 'SEM_AGENDA'          // linha sem índice ou sem data base
   | 'NAO_VENCIDO'         // a próxima competência ainda está no futuro
-  | 'MANUAL'              // política da linha: só notifica
-  | 'SUSPENSA'            // política da linha: nem notifica
+  | 'MANUAL'              // política da linha: o motor avisa, a pessoa aplica
   | 'SEM_SERIE'           // nenhum valor do índice publicado para a janela
   | 'JANELA_INCOMPLETA'   // o índice do período ainda não saiu por inteiro
 

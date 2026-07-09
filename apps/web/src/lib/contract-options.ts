@@ -253,7 +253,9 @@ export const STATUS_ASSINATURA = [
 export interface CParte      { id: string; papel: string; ref_tipo: string; ref_id: string; nome: string; documento: string }
 /** Linha de reajuste = a AGENDA. `aplicacao` é a política do motor de datas:
  *  MANUAL (default) só notifica; AUTOMATICA aplica sozinho quando vence e o índice
- *  do período está publicado; SUSPENSA nem notifica.
+ *  do período está publicado.
+ *  Para registrar que um período NÃO reajustou, aplique um reajuste de 0%: nada muda
+ *  de valor, a próxima competência avança e o fato fica no histórico.
  *  O que o reajuste altera (parcela ou total) NÃO é configurável: reajustar as
  *  parcelas já reajusta o contrato. Ver `baseDe` no core. */
 export interface CReajuste   { id: string; indice: string; data: string; periodicidade: string; aplicacao: string }
@@ -261,7 +263,6 @@ export interface CReajuste   { id: string; indice: string; data: string; periodi
 export const APLICACOES_REAJUSTE = [
   { value: 'MANUAL',     label: 'Manual (só avisa)'        },
   { value: 'AUTOMATICA', label: 'Automática (motor aplica)'},
-  { value: 'SUSPENSA',   label: 'Suspensa (não avisa)'     },
 ]
 /** Reajuste efetivamente aplicado (fato, não agenda). A próxima ocorrência continua derivada;
  *  este registro alimenta o valor vigente, ancora a próxima data e serve de auditoria/histórico.
@@ -546,7 +547,8 @@ export function contractFromApi(c: Record<string, any>): ContractFormValues {
     valorParcela: numStr(c.valorParcela), valorTotal: numStr(c.valorTotal), qtdParcelas: numStr(c.qtdParcelas),
     condicaoPagamento: c.condicaoPagamento ?? '', complementoValor: c.complementoValor ?? '',
     /* linha sem `aplicacao` é anterior à política: nasce MANUAL, nunca reajusta sozinha */
-    reajustes: arr(c.reajustes).map((r: any) => ({ id: r.id ?? uid(), indice: r.indice ?? '', data: r.data ?? '', periodicidade: r.periodicidade ?? '', aplicacao: r.aplicacao ?? 'MANUAL' })),
+    /* só 'AUTOMATICA' liga o motor; o resto (inclusive o extinto 'SUSPENSA') vira MANUAL */
+    reajustes: arr(c.reajustes).map((r: any) => ({ id: r.id ?? uid(), indice: r.indice ?? '', data: r.data ?? '', periodicidade: r.periodicidade ?? '', aplicacao: r.aplicacao === 'AUTOMATICA' ? 'AUTOMATICA' : 'MANUAL' })),
     partes: arr(c.partes).map((p: any) => ({ id: p.id ?? uid(), papel: p.papel ?? p.tipo ?? '', ref_tipo: p.ref_tipo ?? '', ref_id: p.ref_id ?? '', nome: p.nome ?? '', documento: p.documento ?? '' })),
     documentos: arr(c.documentos).map((d: any) => ({ id: d.id ?? uid(), nome: d.nome ?? '', tipo: d.tipo ?? '', data: d.data ?? '', arquivo_nome: d.arquivo_nome ?? '', arquivo_key: d.arquivo_key ?? '', status_assinatura: d.status_assinatura ?? 'nenhum', observacao: d.observacao ?? '' })),
     pagamentos: lanc(c.pagamentos), recebimentos: lanc(c.recebimentos),
