@@ -18,6 +18,9 @@ export interface CoreLancamento {
   forma?: string
   documento?: string
   observacao?: string
+  /** false = o reajuste NÃO alcança esta parcela (ex.: equipamento entregue, taxa fixa).
+   *  Ausente = reajustável — é o caso da esmagadora maioria e de todo dado legado. */
+  reajustavel?: boolean
 }
 
 /** Termo aditivo: altera término/valor/objeto/partes em vigor. RASCUNHO não aplica efeito. */

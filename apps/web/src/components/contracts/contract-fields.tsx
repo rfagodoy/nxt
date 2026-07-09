@@ -582,7 +582,8 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
     if (novos.length) setOpenYears(s => new Set([...s, ...novos.map(l => l.vencimento.slice(0, 4))]))
   }
 
-  const COLS = 'grid grid-cols-[7rem_8rem_7rem_6rem_7rem_5.5rem_1fr_1.25rem] items-center gap-2'
+  /* colunas: vencimento · valor · reajusta · forma · nº doc · pagamento · status · observação · (remover) */
+  const COLS = 'grid grid-cols-[7rem_8rem_3.5rem_7rem_6rem_7rem_5.5rem_1fr_1.25rem] items-center gap-2'
   const cell = cn(inputCls, 'h-7')
 
   return (
@@ -669,7 +670,9 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
                     <div className="divide-y divide-border/50">
                       {/* labels de coluna (por ano expandido) */}
                       <div className={cn(COLS, 'px-3 py-1 bg-muted/10 text-[9px] font-medium uppercase tracking-wide text-muted-foreground/70')}>
-                        <span>Vencimento</span><span className="text-right pr-2">Valor</span><span>Forma</span><span>Nº doc.</span><span>Pagamento</span><span>Status</span><span>Observação</span><span />
+                        <span>Vencimento</span><span className="text-right pr-2">Valor</span>
+                        <span className="text-center" title="Se marcada, o reajuste alcança esta parcela">Reaj.</span>
+                        <span>Forma</span><span>Nº doc.</span><span>Pagamento</span><span>Status</span><span>Observação</span><span />
                       </div>
                       {itens.map(l => (
                         <div key={l.id} className={cn(COLS, 'group px-3 py-1 hover:bg-muted/30')}>
@@ -681,6 +684,13 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
                               <span title={`Valor provisório: será atualizado no reajuste de ${fmtMesAnoBR(comp(proximaDataReajusteContrato(v)))}`}
                                     className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 select-none text-[11px] font-semibold text-amber-600 dark:text-amber-500">≈</span>
                             )}
+                          </div>
+                          {/* fora do alcance do reajuste: equipamento entregue, taxa fixa, etc. */}
+                          <div className="flex justify-center">
+                            <input type="checkbox" checked={l.reajustavel !== false}
+                              onChange={e => form.patchLanc(field, l.id, { reajustavel: e.target.checked })}
+                              title={l.reajustavel !== false ? 'O reajuste alcança esta parcela' : 'Esta parcela não é reajustada'}
+                              className="h-3.5 w-3.5 cursor-pointer accent-primary" />
                           </div>
                           <select value={l.forma} onChange={e => form.updLanc(field, l.id, 'forma', e.target.value)} className={cell}>
                             <option value="">Forma...</option>
@@ -704,7 +714,7 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
           <div className={cn(COLS, 'px-3 py-1.5 bg-muted/30 border-t')}>
             <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Total</span>
             <span className="text-xs font-semibold tabular-nums text-right pr-2">{money(total)}</span>
-            <span /><span /><span className="text-[10px] text-muted-foreground truncate">{rotulo}: {money(totalPago)}</span><span /><span /><span />
+            <span /><span /><span /><span className="text-[10px] text-muted-foreground truncate">{rotulo}: {money(totalPago)}</span><span /><span /><span />
           </div>
         </div>
       )}

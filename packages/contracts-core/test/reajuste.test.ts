@@ -383,3 +383,49 @@ describe('REGRESSÃO: contrato misto (equipamento à vista + manutenção mensal
     expect(num(r.reajuste.valorNovo) - num(r.reajuste.valorAnterior)).toBeCloseTo(depois - antes, 2)
   })
 })
+
+describe('parcela marcada como NÃO reajustável', () => {
+  /* `reajustavel: false` tira a parcela do alcance do reajuste. Ausente = reajustável,
+     para que todo dado legado continue se comportando como antes. */
+  const c: any = {
+    natureza: 'DESPESA', valorTotal: 210000, valorParcela: 5000, qtdParcelas: 12,
+    aditivos: [], renovacoes: [], reajustesRealizados: [], recebimentos: [],
+    reajustes: [{ id: 'r1', indice: '1', data: '2026-01-01', periodicidade: 'Anual' }],
+    pagamentos: [
+      { id: 'equip', status: 'previsto', vencimento: '2026-07-10', data: '', valor: 150000, reajustavel: false },
+      { id: 'm1',    status: 'previsto', vencimento: '2026-08-10', data: '', valor: 5000 },
+      { id: 'm2',    status: 'previsto', vencimento: '2026-09-10', data: '', valor: 5000, reajustavel: true },
+    ],
+  }
+
+  it('fica fora de parcelasAlvo', () => {
+    const alvo = parcelasAlvo(c, '2026-07')
+    expect(alvo.map(x => x.lanc.id)).toEqual(['m1', 'm2'])
+  })
+
+  it('não é reprecificada — nem pelo percentual', () => {
+    const r = aplicarReajuste(c, { id: 'x', reajusteId: 'r1', competencia: '2026-07', percentual: 10, base: 'parcela' })
+    const v = new Map(r.pagamentos.map(l => [l.id, num(l.valor)]))
+    expect(v.get('equip')).toBe(150000)   // intacta
+    expect(v.get('m1')).toBe(5500)
+    expect(v.get('m2')).toBe(5500)
+    expect(r.reajuste.parcelasReajustadas).toBe(2)
+  })
+
+  it('nem quando o usuário digita a nova parcela à mão', () => {
+    const r = aplicarReajuste(c, { id: 'x', reajusteId: 'r1', competencia: '2026-07', percentual: 10, base: 'parcela', parcelaNova: 5500 })
+    expect(num(r.pagamentos[0].valor)).toBe(150000)
+  })
+
+  it('o total cresce só pelo que as parcelas reajustáveis cresceram', () => {
+    const r = aplicarReajuste(c, { id: 'x', reajusteId: 'r1', competencia: '2026-07', percentual: 10, base: 'parcela' })
+    expect(num(r.reajuste.valorNovo) - num(r.reajuste.valorAnterior)).toBe(1000) // 2 × 500
+  })
+
+  it('paga e não reajustável não entra na diferença não cobrada', () => {
+    const pago = { ...c, pagamentos: c.pagamentos.map((l: any) => ({ ...l, status: 'pago', data: l.vencimento })) }
+    const r = pagasAlcancadas(pago, '2026-07', 10)
+    expect(r.quantidade).toBe(2)      // só m1 e m2
+    expect(r.diferenca).toBe(1000)    // o equipamento não conta
+  })
+})

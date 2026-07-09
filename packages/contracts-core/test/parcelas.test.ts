@@ -100,3 +100,17 @@ describe('totaisAVencer', () => {
     expect(t.firme).toBe(6000)
   })
 })
+
+describe('parcela não reajustável nunca é provisória', () => {
+  it('o valor é firme: nenhum reajuste vai alcançá-la', () => {
+    const c: any = {
+      ...despesaComReajuste,
+      pagamentos: [
+        { id: 'fixa', status: 'previsto', vencimento: '2028-01-10', valor: 150000, reajustavel: false },
+        { id: 'reaj', status: 'previsto', vencimento: '2028-01-10', valor: 1000 },
+      ],
+    }
+    expect(parcelaProvisoria(c, c.pagamentos[0])).toBe(false)
+    expect(parcelaProvisoria(c, c.pagamentos[1])).toBe(true)
+  })
+})

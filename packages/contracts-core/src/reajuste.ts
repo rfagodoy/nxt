@@ -1,6 +1,6 @@
 import { addMesesComp, comp } from './dates'
 import { num, int, round2 } from './num'
-import { camposDaNatureza, lancPago, lancRef, parcelaVigente, valorVigente } from './derive'
+import { camposDaNatureza, lancPago, lancRef, lancReajustavel, parcelaVigente, valorVigente } from './derive'
 import type { AplicacaoReajuste, CoreContract, CoreLancamento, CoreReajuste, CoreReajusteRealizado, LancField } from './types'
 
 /* ─── reajuste: agenda, acumulação do índice e aplicação ─────────────────────
@@ -86,9 +86,9 @@ export function acumuladoPeriodo(
   return { percentual: (fator - 1) * 100, completo: achou === n }
 }
 
-/** Parcelas a REPRECIFICAR: a vencer (não pagas) com referência >= competência,
- *  apenas no lado da natureza do contrato (Despesa → pagamentos, Receita →
- *  recebimentos, Ambos → os dois). */
+/** Parcelas a REPRECIFICAR: a vencer (não pagas), marcadas como reajustáveis, com
+ *  referência >= competência, apenas no lado da natureza do contrato (Despesa →
+ *  pagamentos, Receita → recebimentos, Ambos → os dois). */
 export function parcelasAlvo(c: CoreContract, competencia: string): Array<{ campo: LancField; lanc: CoreLancamento }> {
   const cmp = comp(competencia)
   if (!cmp) return []
@@ -96,7 +96,7 @@ export function parcelasAlvo(c: CoreContract, competencia: string): Array<{ camp
   for (const campo of camposDaNatureza(c.natureza)) {
     for (const l of c[campo] ?? []) {
       const ref = lancRef(l)
-      if (!lancPago(l) && ref && comp(ref) >= cmp) alvo.push({ campo, lanc: l })
+      if (!lancPago(l) && lancReajustavel(l) && ref && comp(ref) >= cmp) alvo.push({ campo, lanc: l })
     }
   }
   return alvo
@@ -173,7 +173,8 @@ export function pagasAlcancadas(c: CoreContract, competencia: string, percentual
   for (const campo of camposDaNatureza(c.natureza)) {
     for (const l of c[campo] ?? []) {
       const ref = lancRef(l)
-      if (lancPago(l) && ref && comp(ref) >= cmp) {
+      /* parcela não reajustável não gera diferença: ela não subiria nem se estivesse a vencer */
+      if (lancPago(l) && lancReajustavel(l) && ref && comp(ref) >= cmp) {
         quantidade++
         diferenca += round2(num(l.valor) * fator) - num(l.valor)
       }

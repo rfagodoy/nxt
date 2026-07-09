@@ -25,6 +25,8 @@ export const lancStatus = (l: CoreLancamento) => l.status || 'pago'
 export const lancPago = (l: CoreLancamento) => lancStatus(l) === 'pago'
 /** data de referência da parcela: vencimento (ou pagamento, p/ legado). */
 export const lancRef = (l: CoreLancamento) => l.vencimento || l.data || ''
+/** O reajuste alcança esta parcela? Só `false` explícito exclui — dado legado reajusta. */
+export const lancReajustavel = (l: CoreLancamento) => l.reajustavel !== false
 
 /** Término vigente = término original, sobreposto pelos aditivos de prorrogação ATIVOS
  *  (o último vence) e estendido pelas renovações (a mais tardia vence). */

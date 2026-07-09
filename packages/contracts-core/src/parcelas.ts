@@ -1,6 +1,6 @@
 import { addMesesISO, comp } from './dates'
 import { num } from './num'
-import { lancPago, lancRef } from './derive'
+import { lancPago, lancRef, lancReajustavel } from './derive'
 import { proximaDataReajusteContrato } from './reajuste'
 import type { CoreContract, CoreLancamento } from './types'
 
@@ -63,6 +63,7 @@ export function gerarParcelas(c: CoreContract, input: GerarParcelasInput): CoreL
 /** O valor desta parcela ainda vai mudar no próximo reajuste? */
 export function parcelaProvisoria(c: CoreContract, l: CoreLancamento): boolean {
   if (lancPago(l)) return false
+  if (!lancReajustavel(l)) return false   // marcada para não reajustar: o valor é firme
   const prox = proximaDataReajusteContrato(c)
   if (!prox) return false
   const ref = lancRef(l)
