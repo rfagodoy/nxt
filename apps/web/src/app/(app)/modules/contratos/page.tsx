@@ -9,7 +9,7 @@ import {
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { useViews, type ViewState } from '@/hooks/use-views'
-import ExcelJS from 'exceljs'
+import { exportExcel } from '@/lib/export-excel'
 import { SettingsDrawer } from '@/components/contracts/field-drawer'
 import { effectiveSituacao } from '@/lib/contract-options'
 import { cacheRead, pushSetting, pullSetting } from '@/lib/settings-store'
@@ -232,28 +232,18 @@ export default function ContratosPage() {
   }
 
   const handleExport = async () => {
-    const HEADERS = COLUMNS.map(c => c.label)
-    const wb = new ExcelJS.Workbook(); wb.creator = 'Nxt'; wb.created = new Date()
-    const ws = wb.addWorksheet('Contratos')
     const exportName = activeViewId ? (views.find(v => v.id === activeViewId)?.name ?? 'Todos') : 'Todos'
-    ws.addRow([`Exportação — ${exportName}`]); ws.mergeCells(1, 1, 1, HEADERS.length)
-    const t = ws.getCell('A1'); t.font = { bold: true, size: 13, color: { argb: 'FFFFFFFF' } }
-    t.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } }; t.alignment = { vertical: 'middle', horizontal: 'center' }; ws.getRow(1).height = 28
-    const date = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
-    ws.addRow([`Gerado em ${date}  •  ${filteredRows.length} registro${filteredRows.length !== 1 ? 's' : ''}`]); ws.mergeCells(2, 1, 2, HEADERS.length)
-    const s = ws.getCell('A2'); s.font = { size: 9, italic: true, color: { argb: 'FF6B7280' } }
-    s.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFF6FF' } }; s.alignment = { vertical: 'middle', horizontal: 'center' }; ws.getRow(2).height = 18
-    const hr = ws.addRow(HEADERS)
-    hr.eachCell(c => { c.font = { bold: true, size: 10, color: { argb: 'FF1E3A8A' } }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } }; c.border = { bottom: { style: 'thin', color: { argb: 'FF93C5FD' } } } })
-    ws.getRow(3).height = 20
-    filteredRows.forEach((r, i) => {
-      const row = ws.addRow([r.numero, r.titulo, r.tipo, r.parte_principal, fmtDate(r.inicio), fmtDate(r.termino), BRL.format(r.valor_total), SIT_LABEL[effectiveSituacao(r.situacao, r.termino)] ?? r.situacao])
-      row.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: i % 2 === 0 ? 'FFFFFFFF' : 'FFF8FAFC' } }; c.font = { size: 10 } }); row.height = 18
+    await exportExcel({
+      fileName: 'contratos',
+      sheet: 'Contratos',
+      title: `Exportação — ${exportName}`,
+      columns: COLUMNS.map(c => ({ header: c.label })),
+      rows: filteredRows.map(r => [
+        r.numero, r.titulo, r.tipo, r.parte_principal,
+        fmtDate(r.inicio), fmtDate(r.termino), BRL.format(r.valor_total),
+        SIT_LABEL[effectiveSituacao(r.situacao, r.termino)] ?? r.situacao,
+      ]),
     })
-    ws.columns.forEach((col, i) => { col.width = Math.min((HEADERS[i]?.length ?? 10) + 8, 60) })
-    const buf = await wb.xlsx.writeBuffer()
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
-    a.download = `contratos_${new Date().toISOString().slice(0, 10)}.xlsx`; a.click()
   }
 
   const isModified = useMemo(() => {

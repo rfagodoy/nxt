@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { useViews, type ViewState } from '@/hooks/use-views'
 import { cacheRead, pushSetting, pullSetting } from '@/lib/settings-store'
-import ExcelJS from 'exceljs'
+import { exportExcel } from '@/lib/export-excel'
 import { SettingsDrawer } from '@/components/partners/field-drawer'
 import { usePartnerFields, useFieldVisibility, useDefaultColumns, NATIVE_FIELDS, CORE_TABLE_KEYS, COLUMN_ORDER_RESET_EVENT } from '@/hooks/use-partner-fields'
 import { useWorkspace } from '@/contexts/workspace-context'
@@ -337,76 +337,26 @@ export default function ParceirosPage() {
     } catch { return }
     if (!rows.length) return
 
-    const HEADERS = [
-      'Nome / Razão Social', 'Categoria', 'Identificador',
-      'Cidade', 'Estado', 'Contato', 'Status',
-      ...tableFields.map(f => f.label),
-    ]
-    const wb  = new ExcelJS.Workbook()
-    wb.creator = 'Nxt'; wb.created = new Date()
-    const ws  = wb.addWorksheet('Parceiros')
-    const totalCols  = HEADERS.length
     const exportName = activeViewId ? (views.find(v => v.id === activeViewId)?.name ?? 'Todos') : 'Todos'
-
-    ws.addRow([`Exportação — ${exportName}`])
-    ws.mergeCells(1, 1, 1, totalCols)
-    const titleCell = ws.getCell('A1')
-    titleCell.font  = { bold: true, size: 13, color: { argb: 'FFFFFFFF' } }
-    titleCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } }
-    titleCell.alignment = { vertical: 'middle', horizontal: 'center' }
-    ws.getRow(1).height = 28
-
     const date = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
-    ws.addRow([`Gerado em ${date}  •  ${serverTotal} registro${serverTotal !== 1 ? 's' : ''}`])
-    ws.mergeCells(2, 1, 2, totalCols)
-    const subCell = ws.getCell('A2')
-    subCell.font  = { size: 9, italic: true, color: { argb: 'FF6B7280' } }
-    subCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFF6FF' } }
-    subCell.alignment = { vertical: 'middle', horizontal: 'center' }
-    ws.getRow(2).height = 18
-
-    const headerRow = ws.addRow(HEADERS)
-    headerRow.eachCell(cell => {
-      cell.font      = { bold: true, size: 10, color: { argb: 'FF1E3A8A' } }
-      cell.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } }
-      cell.alignment = { vertical: 'middle', horizontal: 'left' }
-      cell.border    = { bottom: { style: 'thin', color: { argb: 'FF93C5FD' } } }
-    })
-    ws.getRow(3).height = 20
-
-    rows.forEach((p, idx) => {
-      const row = ws.addRow([
+    /* Campos personalizados NÃO entram: os valores ainda não são persistidos (Fase 2B).
+       Exportar a coluna vazia é pior que não exportá-la — parece dado ausente, não recurso
+       pendente. Antes daqui, os rótulos iam para a planilha e as células saíam em branco. */
+    await exportExcel({
+      fileName: 'parceiros',
+      sheet: 'Parceiros',
+      title: `Exportação — ${exportName}`,
+      subtitle: `Gerado em ${date}  •  ${serverTotal} registro${serverTotal !== 1 ? 's' : ''}`,
+      columns: [
+        { header: 'Nome / Razão Social' }, { header: 'Categoria' }, { header: 'Identificador' },
+        { header: 'Cidade' }, { header: 'Estado' }, { header: 'Contato' }, { header: 'Status' },
+      ],
+      rows: rows.map(p => [
         p.nome, p.categoria, p.identificador,
         p.cidade, p.estado, p.contato,
         STATUS_LABEL[p.status] ?? p.status,
-        ...tableFields.map(() => ''),
-      ])
-      const bgColor = idx % 2 === 0 ? 'FFFFFFFF' : 'FFF8FAFC'
-      row.eachCell(cell => {
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } }
-        cell.alignment = { vertical: 'middle' }
-        cell.font = { size: 10 }
-      })
-      row.height = 18
+      ]),
     })
-
-    ws.columns.forEach((col, i) => {
-      const header = HEADERS[i] ?? ''
-      let maxLen = header.length
-      rows.forEach(p => {
-        const vals = [p.nome, p.categoria, p.identificador, p.cidade, p.estado, p.contato, STATUS_LABEL[p.status] ?? p.status]
-        const len  = (vals[i] ?? '').length
-        if (len > maxLen) maxLen = len
-      })
-      col.width = Math.min(maxLen + 4, 60)
-    })
-
-    const buffer = await wb.xlsx.writeBuffer()
-    const blob   = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-    const url    = URL.createObjectURL(blob)
-    const a      = document.createElement('a')
-    a.href = url; a.download = `parceiros_${new Date().toISOString().slice(0, 10)}.xlsx`
-    a.click(); URL.revokeObjectURL(url)
   }
 
   const isModified = useMemo(() => {

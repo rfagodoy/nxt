@@ -8,6 +8,7 @@ import {
   ChevronLeft, Search, ArrowUp, ArrowDown, ChevronsUpDown, FileDown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { exportExcel } from '@/lib/export-excel'
 import { useLookupTable, type LookupEntry } from '@/hooks/use-lookup-table'
 
 const inputCls = 'flex h-7 w-full rounded-md border border-input bg-background px-2.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
@@ -134,36 +135,26 @@ export function LookupTablePage({
   }, [entries, search, status, sort]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleExport = async () => {
-    const ExcelJS = (await import('exceljs')).default
-    const headers = ['#', ...(withCode ? [codeLabel] : []), 'Nome', ...(selectField ? [selectField.label] : []), 'Ativo']
-    const wb = new ExcelJS.Workbook(); wb.creator = 'Nxt'
-    const ws = wb.addWorksheet(title.slice(0, 31))
-
-    ws.addRow([title]); ws.mergeCells(1, 1, 1, headers.length)
-    const t = ws.getCell('A1'); t.font = { bold: true, size: 13, color: { argb: 'FFFFFFFF' } }
-    t.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F46E5' } }; t.alignment = { vertical: 'middle', horizontal: 'center' }; ws.getRow(1).height = 26
-
-    const hr = ws.addRow(headers)
-    hr.eachCell(c => { c.font = { bold: true, size: 10, color: { argb: 'FF4338CA' } }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E7FF' } }; c.border = { bottom: { style: 'thin', color: { argb: 'FFA5B4FC' } } } })
-    ws.getRow(2).height = 18
-
-    displayed.forEach((e, i) => {
-      const row = ws.addRow([
+    const slug = title.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+    await exportExcel({
+      fileName: slug || 'tabela',
+      sheet: title,
+      title,
+      columns: [
+        { header: '#', width: 6, align: 'center' },
+        ...(withCode ? [{ header: codeLabel }] : []),
+        { header: 'Nome' },
+        ...(selectField ? [{ header: selectField.label }] : []),
+        { header: 'Ativo', width: 10, align: 'center' },
+      ],
+      rows: displayed.map((e, i) => [
         i + 1,
         ...(withCode ? [e.code ?? ''] : []),
         e.label,
         ...(selectField ? [origemLabel(e[selectField.field] as string | undefined)] : []),
         e.active ? 'Sim' : 'Não',
-      ])
-      row.eachCell(c => { c.font = { size: 10 } }); row.height = 16
+      ]),
     })
-    ws.columns.forEach((col, i) => { col.width = Math.min((headers[i]?.length ?? 10) + 10, 50) })
-
-    const buf = await wb.xlsx.writeBuffer()
-    const slug = title.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
-    a.download = `${slug || 'tabela'}_${new Date().toISOString().slice(0, 10)}.xlsx`; a.click()
   }
 
   const colCount = 4 + (withCode ? 1 : 0) + (selectField ? 1 : 0)
