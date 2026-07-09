@@ -1,4 +1,24 @@
+import {
+  aditivoAtivo, parcelaVigente, proximoDiaISO, somaLancamentos, somaLancamentosPagos,
+  terminoVigente, valorVigente, lancPago, lancStatus,
+} from '@nxt/contracts-core'
 import type { LookupEntry } from '@/hooks/use-lookup-table'
+
+/* As regras de negócio do contrato vivem em @nxt/contracts-core — implementação ÚNICA,
+   compartilhada com o backend. Este módulo re-exporta o que o front consome e mantém o
+   que é de UI: sementes das lookups, rótulos, fábricas de linha (newC*) e (de)serialização.
+   Antes desta extração havia duas implementações das derivações, e elas divergiam. */
+export {
+  aditivoAtivo, parcelaVigente, proximoDiaISO, somaLancamentos, somaLancamentosPagos,
+  terminoVigente, valorVigente, lancPago, lancStatus,
+}
+
+/** Parcela vigente formatada para um input de texto: '' quando não há parcela.
+ *  `parcelaVigente` devolve número (é o core); os campos do formulário são string. */
+export const parcelaVigenteInput = (v: ContractFormValues): string => {
+  const p = parcelaVigente(v)
+  return p ? String(p) : ''
+}
 
 /* ─── chaves das lookups (settings) ──────────────────────── */
 export const TIPOS_KEY         = 'nxt:settings:contratos:tipos'
@@ -299,14 +319,6 @@ export const newCAditivo     = (numero = ''): CAditivo   => ({
   alteraTermino: false, novoTermino: '', alteraValor: false, novoValor: '', novaParcela: '', novaCondicaoPagamento: '', novoComplemento: '', alteraObjeto: false, novoObjeto: [], novoTitulo: '', novaDescricao: '', alteraPartes: false, cessoes: [],
 })
 
-/** Soma os valores de uma lista de lançamentos (campo `valor` é número como string). */
-export const somaLancamentos = (arr: CLancamento[]) => arr.reduce((s, x) => s + (parseFloat(x.valor) || 0), 0)
-/** status efetivo (legado sem status = 'pago'). */
-export const lancStatus = (l: CLancamento) => l.status || 'pago'
-export const lancPago = (l: CLancamento) => lancStatus(l) === 'pago'
-/** Soma só dos lançamentos PAGOS — consumo e saldo consideram só o realizado. */
-export const somaLancamentosPagos = (arr: CLancamento[]) => arr.reduce((s, x) => s + (lancPago(x) ? parseFloat(x.valor) || 0 : 0), 0)
-
 /** Validações de negócio compartilhadas entre cadastro e edição. Retorna a 1ª mensagem, ou null. */
 export function validateContract(v: ContractFormValues): string | null {
   /* Vigência: início não pode ser posterior ao término (datas ISO comparam lexicograficamente).
@@ -321,7 +333,9 @@ export function validateContract(v: ContractFormValues): string | null {
   return null
 }
 
-/** Lançamentos (pagamentos/recebimentos): cada linha exige Data, Valor (>0) e Forma.
+/** Lançamentos (pagamentos/recebimentos): cada linha exige Vencimento e Valor (>0).
+ *  A Forma só é obrigatória na parcela PAGA — numa parcela projetada (a vencer) ainda
+ *  não se sabe como será paga, e exigi-la impedia salvar qualquer cronograma gerado.
  *  Retorna a seção com problema (p/ focar a aba) e a mensagem, ou null. */
 export function validateLancamentos(v: ContractFormValues): { field: 'pagamentos' | 'recebimentos'; msg: string } | null {
   const secoes = [
@@ -330,8 +344,11 @@ export function validateLancamentos(v: ContractFormValues): { field: 'pagamentos
   ]
   for (const s of secoes) {
     if (!s.ativo) continue
-    if (v[s.field].some(l => !(l.vencimento || l.data) || !(parseFloat(l.valor) > 0) || !l.forma)) {
-      return { field: s.field, msg: `Em ${s.label}, informe Vencimento, Valor e Forma de cada parcela.` }
+    if (v[s.field].some(l => !(l.vencimento || l.data) || !(parseFloat(l.valor) > 0))) {
+      return { field: s.field, msg: `Em ${s.label}, informe Vencimento e Valor de cada parcela.` }
+    }
+    if (v[s.field].some(l => lancPago(l) && !l.forma)) {
+      return { field: s.field, msg: `Em ${s.label}, informe a Forma de pagamento das parcelas já pagas.` }
     }
   }
   return null
@@ -340,37 +357,9 @@ export function validateLancamentos(v: ContractFormValues): { field: 'pagamentos
 /* ─── derivação do estado VIGENTE (original + aditivos ATIVOS aplicados em ordem) ──
    O contrato guarda os valores ORIGINAIS; cada aditivo ATIVO, em ordem, sobrepõe os
    campos que altera (o último vence). Aditivo em RASCUNHO NÃO aplica efeito — só após
-   ativação. Mesma lógica é replicada no backend (contracts.service) para a listagem. */
-export const aditivoAtivo = (a: CAditivo) => a.situacao === 'ATIVO'
+   ativação. `terminoVigente`, `valorVigente`, `parcelaVigente` e `aditivoAtivo` vêm do
+   core (re-exportados no topo). As derivações abaixo são específicas do formulário. */
 
-export function terminoVigente(v: ContractFormValues): string {
-  let t = v.terminoVigencia
-  for (const a of v.aditivos) if (aditivoAtivo(a) && a.alteraTermino && a.novoTermino) t = a.novoTermino
-  /* renovações automáticas (cláusula, não aditivo) estendem a vigência; a mais tardia vence */
-  for (const r of (v.renovacoes ?? [])) if (r.novoTermino && r.novoTermino > t) t = r.novoTermino
-  return t
-}
-/** Valor total vigente = valor inicial + acréscimos dos aditivos de valor ATIVOS
- *  + deltas dos reajustes efetivamente aplicados (valorNovo − valorAnterior).
- *  Guardar o delta (não o %) torna a soma exata e independente da ordem entre aditivo e reajuste. */
-export function valorVigente(v: ContractFormValues): number {
-  let val = parseFloat(v.valorTotal) || 0
-  for (const a of v.aditivos) if (aditivoAtivo(a) && a.alteraValor && a.novoValor) val += parseFloat(a.novoValor) || 0
-  for (const r of (v.reajustesRealizados ?? [])) val += (parseFloat(r.valorNovo) || 0) - (parseFloat(r.valorAnterior) || 0)
-  for (const r of (v.renovacoes ?? [])) val += parseFloat(r.valorPeriodo || '') || 0   // períodos renovados acumulam
-  return val
-}
-/** Parcela vigente = última parcela definida, cronologicamente, por um aditivo de valor
- *  ATIVO (novaParcela) OU por um reajuste de parcela/ambos (parcelaNova). Último vence. */
-export function parcelaVigente(v: ContractFormValues): string {
-  let p = v.valorParcela
-  const eventos: { data: string; val: string }[] = [
-    ...v.aditivos.filter(a => aditivoAtivo(a) && a.alteraValor && a.novaParcela).map(a => ({ data: a.data, val: a.novaParcela })),
-    ...(v.reajustesRealizados ?? []).filter(r => r.parcelaNova).map(r => ({ data: r.competencia, val: r.parcelaNova })),
-  ].sort((x, y) => (x.data < y.data ? -1 : x.data > y.data ? 1 : 0))
-  for (const e of eventos) if (e.val) p = e.val
-  return p
-}
 /** Condição de pagamento vigente = última definida por um aditivo de valor ATIVO (ou a original). */
 export function condicaoVigente(v: ContractFormValues): string {
   let c = v.condicaoPagamento
@@ -425,7 +414,8 @@ export function periodosVigencia(v: ContractFormValues): PeriodoVigencia[] {
   v.aditivos.forEach((a, idx) => {
     if (aditivoAtivo(a) && a.alteraTermino && a.novoTermino) eventos.push({ termino: a.novoTermino, label: rotuloAditivo(a, idx), aditivo: true })
   })
-  for (const r of (v.renovacoes ?? [])) if (r.novoTermino) eventos.push({ termino: r.novoTermino, label: 'Renovação automática', aditivo: false })
+  /* `automatica: false` = renovação registrada à mão ("Gerar próximo período") */
+  for (const r of (v.renovacoes ?? [])) if (r.novoTermino) eventos.push({ termino: r.novoTermino, label: r.automatica === false ? 'Renovação manual' : 'Renovação automática', aditivo: false })
   eventos.sort((a, b) => (a.termino < b.termino ? -1 : a.termino > b.termino ? 1 : 0)) // só estende → ordem cronológica
 
   const base: { inicio: string; termino: string; label: string; aditivo: boolean }[] = [
@@ -529,15 +519,6 @@ export function objetoVigenteAntes(v: ContractFormValues, index: number): string
   }
   return o
 }
-/** Dia seguinte a uma data ISO (YYYY-MM-DD); '' se inválida. */
-export function proximoDiaISO(iso: string): string {
-  if (!iso) return ''
-  const d = new Date(iso + 'T00:00:00')
-  if (isNaN(d.getTime())) return ''
-  d.setDate(d.getDate() + 1)
-  return d.toISOString().slice(0, 10)
-}
-
 export function emptyContractForm(): ContractFormValues {
   return {
     numero: '', titulo: '', descricao: '', objeto: [], tipo: '', natureza: '',

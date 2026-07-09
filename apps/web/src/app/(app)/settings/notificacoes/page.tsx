@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { useSession } from '@/lib/session-context'
 import { cacheRead, pullSetting, pushSetting } from '@/lib/settings-store'
 import { apiFetch } from '@/lib/http'
+import { emitContractsChanged } from '@/lib/contract-events'
 
 const KEY = 'nxt:settings:notificacoes'
 
@@ -86,7 +87,12 @@ export default function NotificacoesParams() {
     setRunning(true); setRunError(null); setRunResult(null)
     try {
       const res = await apiFetch('/api/notifications/run', { method: 'POST' })
-      if (res.ok) setRunResult(await res.json() as RunResult)
+      if (res.ok) {
+        const r = await res.json() as RunResult
+        setRunResult(r)
+        /* o motor pode ter renovado/encerrado contratos — quem está com um aberto precisa saber */
+        if (r.renovados || r.encerrados) emitContractsChanged()
+      }
       else if (res.status === 403) setRunError('Apenas administradores podem executar o motor.')
       else setRunError(`Falha ao executar (${res.status}).`)
     } catch {

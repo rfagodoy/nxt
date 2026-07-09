@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, ServiceUnavailableException } from '@nestjs/common'
+import { aditivoAtivo, parcelaVigente, terminoVigente, valorVigente, type CoreAditivo, type CoreContract } from '@nxt/contracts-core'
 import { PrismaService } from '../prisma.service'
 import { CreateContractDto } from './dto/create-contract.dto'
 import { UpdateContractDto } from './dto/update-contract.dto'
@@ -283,14 +284,16 @@ export class ContractsService {
   /* Aplica os termos aditivos sobre o registro (em memória) para refletir o estado
      VIGENTE na listagem/dashboard: término, valor, objeto e partes (cessão). O original
      persistido não muda — a tela de detalhe recebe o bruto e deriva o vigente no front.
-     Mesma lógica de terminoVigente/valorVigente/partesVigentes do front. */
+     Término/valor/parcela vêm de @nxt/contracts-core, a MESMA implementação que o front
+     usa; objeto e partes (cessão) não são financeiros e ficam aqui. */
   private applyAditivos(c: Record<string, unknown>) {
-    const aditivos = (c.aditivos as Array<Record<string, unknown>>) ?? []
-    for (const a of aditivos) {
-      if (a.situacao === 'RASCUNHO') continue  // só aditivo ATIVO aplica (legado sem situacao = ativo)
-      if (a.alteraTermino && a.novoTermino) c.terminoVigencia = a.novoTermino
-      if (a.alteraValor && a.novoValor != null) c.valorTotal = (Number(c.valorTotal) || 0) + (Number(a.novoValor) || 0)  // acréscimo somado ao inicial
-      if (a.alteraValor && a.novaParcela != null) c.valorParcela = a.novaParcela
+    /* derivar ANTES de mutar o registro — as funções do core leem o estado original */
+    const termino = terminoVigente(c as CoreContract)
+    const total   = valorVigente(c as CoreContract)
+    const parcela = parcelaVigente(c as CoreContract)
+
+    for (const a of ((c.aditivos as Array<Record<string, unknown>>) ?? [])) {
+      if (!aditivoAtivo(a as CoreAditivo)) continue
       if (a.alteraObjeto) c.objeto = (a.novoObjeto as unknown[]) ?? []
       if (a.alteraPartes) {
         const cessoes = (a.cessoes as Array<Record<string, string>>) ?? []
@@ -299,24 +302,10 @@ export class ContractsService {
             p.id === ce.parteId ? { ...p, ref_tipo: ce.ref_tipo, ref_id: ce.ref_id, nome: ce.nome, documento: ce.documento } : p)
       }
     }
-    /* renovações automáticas (cláusula, não aditivo) estendem a vigência (mais tardia vence) e
-       somam o valor do período gerado ao total do contrato */
-    for (const r of ((c.renovacoes as Array<Record<string, unknown>>) ?? [])) {
-      const nt = r.novoTermino as string | undefined
-      if (nt && (!c.terminoVigencia || nt > (c.terminoVigencia as string))) c.terminoVigencia = nt
-      c.valorTotal = (Number(c.valorTotal) || 0) + (Number(r.valorPeriodo) || 0)
-    }
-    /* reajustes efetivamente aplicados: delta somado ao valor total (parcela tratada abaixo) */
-    const reajustes = (c.reajustesRealizados as Array<Record<string, unknown>>) ?? []
-    for (const r of reajustes) {
-      c.valorTotal = (Number(c.valorTotal) || 0) + (Number(r.valorNovo) || 0) - (Number(r.valorAnterior) || 0)
-    }
-    /* parcela vigente = último evento (aditivo ATIVO ou reajuste de parcela) por data */
-    const parcelaEventos = [
-      ...aditivos.filter(a => a.situacao !== 'RASCUNHO' && a.alteraValor && a.novaParcela != null).map(a => ({ data: String(a.data ?? ''), val: a.novaParcela })),
-      ...reajustes.filter(r => Number(r.parcelaNova)).map(r => ({ data: String(r.competencia ?? ''), val: r.parcelaNova })),
-    ].sort((x, y) => (x.data < y.data ? -1 : x.data > y.data ? 1 : 0))
-    if (parcelaEventos.length) c.valorParcela = parcelaEventos[parcelaEventos.length - 1].val
+
+    if (termino) c.terminoVigencia = termino
+    c.valorTotal = total
+    if (c.valorParcela != null || parcela) c.valorParcela = parcela
   }
 
   async findAll(organizationId: string) {

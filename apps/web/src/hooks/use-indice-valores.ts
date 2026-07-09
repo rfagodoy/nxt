@@ -33,6 +33,8 @@ export function useIndiceValores() {
     const val = ref.current[indiceId]?.[yyyymm]
     return typeof val === 'number' && Number.isFinite(val) ? val : null
   }, [])
+  /** Série mensal completa de um índice — o formato que @nxt/contracts-core consome. */
+  const serieDe = useCallback((indiceId: string): Record<string, number> => ref.current[indiceId] ?? {}, [])
   const setValor = useCallback((indiceId: string, yyyymm: string, pct: number) =>
     persist({ ...ref.current, [indiceId]: { ...(ref.current[indiceId] ?? {}), [yyyymm]: pct } }), [persist])
   const removeValor = useCallback((indiceId: string, yyyymm: string) => {
@@ -43,5 +45,5 @@ export function useIndiceValores() {
   const mergeMany = useCallback((indiceId: string, map: Record<string, number>) =>
     persist({ ...ref.current, [indiceId]: { ...(ref.current[indiceId] ?? {}), ...map } }), [persist])
 
-  return { valores, get, setValor, removeValor, mergeMany }
+  return { valores, get, serieDe, setValor, removeValor, mergeMany }
 }

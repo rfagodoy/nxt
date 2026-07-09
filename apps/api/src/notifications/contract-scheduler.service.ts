@@ -1,4 +1,9 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
+import {
+  daysBetween, todayISO,
+  terminoVigente, valorVigente, consumo,
+  proximaDataReajuste, renovarPeriodo, campoRenovacao,
+} from '@nxt/contracts-core'
 import { PrismaService } from '../prisma.service'
 import { SettingsService } from '../settings/settings.service'
 import { ContractsService } from '../contracts/contracts.service'
@@ -31,21 +36,8 @@ export const DEFAULT_PARAMS: Params = {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-const pad = (n: number) => String(n).padStart(2, '0')
-function todayISO(): string { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` }
-function addToDate(iso: string, anos: number, meses: number, dias: number): string {
-  const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
-  const dt = new Date(Date.UTC(y, m - 1, d))
-  dt.setUTCFullYear(dt.getUTCFullYear() + anos)
-  dt.setUTCMonth(dt.getUTCMonth() + meses)
-  dt.setUTCDate(dt.getUTCDate() + dias)
-  return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`
-}
-function daysBetween(fromISO: string, toISO: string): number {
-  const a = new Date(fromISO.slice(0, 10) + 'T00:00:00Z').getTime()
-  const b = new Date(toISO.slice(0, 10) + 'T00:00:00Z').getTime()
-  return Math.round((b - a) / 86_400_000)
-}
+/* Datas e derivações do contrato vêm de @nxt/contracts-core — implementação única,
+   compartilhada com o front. Aqui ficam só formatação e regra de notificação. */
 const fmtBR = (iso: string) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '')
 const fmtMesAno = (iso: string) => (iso ? iso.slice(0, 7).split('-').reverse().join('/') : '') // mm/aaaa (data base de reajuste)
 const label = (c: any) => c.titulo || `Contrato ${c.numero}`
@@ -131,43 +123,39 @@ export class ContractSchedulerService implements OnModuleInit {
     for (const c of contracts) {
       /* 1) AÇÃO no término */
       if (c.situacao === 'VIGENTE' && !c.prazoIndeterminado) {
-        let termino = this.terminoVigente(c)
+        const termino = terminoVigente(c)
         if (termino && termino < today) {
           if (c.acaoTermino === 'RENOVAR' && params.renovacaoAutomatica) {
             const anos = Number(c.renovacaoAnos) || 0, meses = Number(c.renovacaoMeses) || 0, dias = Number(c.renovacaoDias) || 0
             if (anos || meses || dias) {
               const renos = [...((c.renovacoes as any[]) ?? [])]
-              /* se o contrato tem cronograma, cada período renovado GERA suas parcelas (a vencer) na
-                 parcela vigente + valorPeriodo que soma ao total. Sem cronograma, só estende a vigência. */
-              const campo = c.natureza === 'RECEITA' ? 'recebimentos' : 'pagamentos'
+              /* cada período renovado estende a vigência pelo PRAZO de renovação e, se o contrato
+                 tem cronograma, GERA suas parcelas na parcela vigente (+ valorPeriodo, que soma ao
+                 total). `renovarPeriodo` é a mesma função do botão "Gerar próximo período". */
+              const campo = campoRenovacao(c.natureza)
               const lancs = [...((c[campo] as any[]) ?? [])]
-              const temCrono = lancs.length > 0
-              const qtd = Number(c.qtdParcelas) || 0
-              const parcelaVig = this.parcelaVigenteBackend(c)
-              let ultimoVenc = lancs.map(l => String(l.vencimento || l.data || '')).filter(Boolean).sort().pop() || ''
               let geradas = false
               let guard = 0
-              while (termino && termino < today && guard++ < 120) {
-                const novo = addToDate(termino, anos, meses, dias)
-                if (novo <= termino) break // prazo inválido → evita loop infinito
-                let valorPeriodo = 0
-                if (temCrono && qtd > 0 && parcelaVig > 0 && ultimoVenc) {
-                  for (let i = 1; i <= qtd; i++) {
-                    const venc = addToDate(ultimoVenc.slice(0, 10), 0, i, 0)
-                    lancs.push({ id: `l_${Date.now()}_${guard}_${i}`, status: 'previsto', vencimento: venc, data: '', valor: parcelaVig, forma: '', documento: '', observacao: '' })
-                  }
-                  ultimoVenc = addToDate(ultimoVenc.slice(0, 10), 0, qtd, 0)
-                  valorPeriodo = qtd * parcelaVig
-                  geradas = true
-                }
-                renos.push({ id: `${Date.now()}_${guard}`, data: today, terminoAnterior: termino, novoTermino: novo, automatica: true, valorPeriodo })
-                termino = novo; renovados++
+              let cur: any = c
+              while (guard++ < 120) {
+                const t = terminoVigente(cur)
+                if (!t || t >= today) break
+                const r = renovarPeriodo(cur, {
+                  campo, anos, meses, dias, data: today, automatica: true,
+                  id: `${Date.now()}_${guard}`,
+                  makeId: i => `l_${Date.now()}_${guard}_${i + 1}`,
+                })
+                if (!r) break  // prazo inválido → evita laço infinito
+                renos.push(r.renovacao)
+                if (r.lancamentos.length) { lancs.push(...r.lancamentos); geradas = true }
+                cur = { ...cur, renovacoes: renos, [campo]: lancs }
+                renovados++
               }
               const upd: any = { renovacoes: renos }
               if (geradas) upd[campo] = lancs
               await this.prisma.contract.update({ where: { id: c.id }, data: upd as never })
               c.renovacoes = renos; if (geradas) c[campo] = lancs
-              await this.audit(c.id, 'RENOVADO', [{ field: 'renovacao', label: 'Renovação automática', before: '—', after: `vigência estendida até ${fmtBR(termino)}${geradas ? ' + parcelas do período geradas' : ''}` }])
+              await this.audit(c.id, 'RENOVADO', [{ field: 'renovacao', label: 'Renovação automática', before: '—', after: `vigência estendida até ${fmtBR(terminoVigente(c))}${geradas ? ' + parcelas do período geradas' : ''}` }])
             }
           } else if (c.acaoTermino === 'ENCERRAR') {
             await this.prisma.contract.update({ where: { id: c.id }, data: { situacao: 'ENCERRADO' } })
@@ -179,7 +167,7 @@ export class ContractSchedulerService implements OnModuleInit {
       }
 
       /* 2) AVISOS */
-      const termino = this.terminoVigente(c)
+      const termino = terminoVigente(c)
 
       // Vigência
       if (params.vigencia.enabled && c.situacao === 'VIGENTE' && !c.prazoIndeterminado && termino) {
@@ -196,13 +184,10 @@ export class ContractSchedulerService implements OnModuleInit {
 
       // Reajuste (só contrato vigente; a próxima data é DERIVADA, ancorada no último reajuste aplicado)
       if (params.reajuste.enabled && c.situacao === 'VIGENTE') {
-        const realizados = (c.reajustesRealizados as any[]) ?? []
         for (const r of ((c.reajustes as any[]) ?? [])) {
-          if (!r.data || !r.indice) continue
-          /* âncora = última competência já aplicada desta linha; sem nenhuma, a data base do cadastro */
-          const comps = realizados.filter(x => x.reajusteId === r.id).map(x => String(x.competencia || '').slice(0, 7)).filter(Boolean).sort()
-          const anchor = (comps.length ? comps[comps.length - 1] : String(r.data).slice(0, 7)) + '-01'
-          const nextDue = addToDate(anchor, 0, this.stepMeses(r.periodicidade), 0)  // uma periodicidade após a âncora
+          if (!r.indice) continue                     // linha incompleta: não há o que notificar
+          const nextDue = proximaDataReajuste(c, r)   // uma periodicidade após a última competência aplicada
+          if (!nextDue) continue
           const key = `reajuste:${c.id}:${r.id}`
           if (nextDue <= today) {
             /* Fase 2: a data já passou e não há reajuste aplicado para ela → pendente (crítico) */
@@ -222,9 +207,9 @@ export class ContractSchedulerService implements OnModuleInit {
 
       // Consumo
       if (params.consumo.enabled) {
-        const valor = this.valorVigente(c)
+        const valor = valorVigente(c)
         if (valor > 0) {
-          const pct = Math.round((this.consumo(c) / valor) * 100)
+          const pct = Math.round((consumo(c) / valor) * 100)
           const limites = [...params.consumo.percentuais].sort((a, b) => a - b)
           const crossed = limites.filter(l => pct >= l)
           if (crossed.length) {
@@ -252,39 +237,6 @@ export class ContractSchedulerService implements OnModuleInit {
     return { renovados, encerrados, notificacoes: activeKeys.length, resolvidas: resolved.count }
   }
 
-  /* ── helpers de derivação (espelham contract-options do front) ── */
-  private terminoVigente(c: any): string {
-    let t = c.terminoVigencia ?? ''
-    for (const a of ((c.aditivos as any[]) ?? [])) if (a.situacao !== 'RASCUNHO' && a.alteraTermino && a.novoTermino) t = a.novoTermino
-    for (const r of ((c.renovacoes as any[]) ?? [])) if (r.novoTermino && r.novoTermino > t) t = r.novoTermino
-    return t
-  }
-  private valorVigente(c: any): number {
-    let v = Number(c.valorTotal) || 0
-    for (const a of ((c.aditivos as any[]) ?? [])) if (a.situacao !== 'RASCUNHO' && a.alteraValor && a.novoValor != null) v += Number(a.novoValor) || 0
-    for (const r of ((c.reajustesRealizados as any[]) ?? [])) v += (Number(r.valorNovo) || 0) - (Number(r.valorAnterior) || 0)
-    for (const r of ((c.renovacoes as any[]) ?? [])) v += Number(r.valorPeriodo) || 0
-    return v
-  }
-  /* parcela vigente = última definida por aditivo ATIVO (novaParcela) ou reajuste (parcelaNova), por data */
-  private parcelaVigenteBackend(c: any): number {
-    let p = Number(c.valorParcela) || 0
-    const eventos = [
-      ...((c.aditivos as any[]) ?? []).filter(a => a.situacao !== 'RASCUNHO' && a.alteraValor && a.novaParcela != null).map(a => ({ data: String(a.data ?? ''), val: Number(a.novaParcela) })),
-      ...((c.reajustesRealizados as any[]) ?? []).filter(r => Number(r.parcelaNova)).map(r => ({ data: String(r.competencia ?? ''), val: Number(r.parcelaNova) })),
-    ].sort((x, y) => (x.data < y.data ? -1 : x.data > y.data ? 1 : 0))
-    for (const e of eventos) if (e.val) p = e.val
-    return p
-  }
-  private consumo(c: any): number {
-    const arr = (c.natureza === 'RECEITA' ? c.recebimentos : c.pagamentos) as any[]
-    // consumo = só o que foi efetivamente pago/recebido (status 'pago'; legado sem status = pago)
-    return (arr ?? []).reduce((s, l) => s + ((l.status ?? 'pago') === 'pago' ? Number(l.valor) || 0 : 0), 0)
-  }
-  private stepMeses(periodicidade: string): number {
-    const meses: Record<string, number> = { MENSAL: 1, BIMESTRAL: 2, TRIMESTRAL: 3, QUADRIMESTRAL: 4, SEMESTRAL: 6, ANUAL: 12 }
-    return meses[String(periodicidade || '').toUpperCase()] ?? 12
-  }
   private async audit(contractId: string, event: string, changes: any[]) {
     await this.prisma.contractAuditLog.create({ data: { contractId, user: 'Sistema', event, changes: changes as never } })
   }

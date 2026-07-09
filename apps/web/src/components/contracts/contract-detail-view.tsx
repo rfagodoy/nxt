@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { FileText, Users, Calendar, Banknote, TrendingUp, TrendingDown, RefreshCw, Paperclip, FilePlus2, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
+import { CONTRACTS_CHANGED_EVENT } from '@/lib/contract-events'
 import { useContractForm, IdentificacaoFields, VigenciaFields, ValoresFields, ReajustesFields, PartesFields, DocumentosFields, LancamentosFields, AditivosFields } from '@/components/contracts/contract-fields'
 import { emptyContractForm, contractFromApi, contractToPayload, effectiveSituacao, normalizeSituacao, temPagamentos, temRecebimentos, terminoVigente, validateContract, validateLancamentos, TIPOS_KEY, INIT_TIPOS, type CAditivo } from '@/lib/contract-options'
 import { useLookupTable } from '@/hooks/use-lookup-table'
@@ -93,23 +94,35 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
   const [motivo,       setMotivo]       = useState('')
   const [saving,       setSaving]       = useState(false)
   const [saveError,    setSaveError]    = useState<string | null>(null)
+  const [staleAviso,   setStaleAviso]   = useState(false)  // motor alterou o contrato e há edição não salva
   const cleanRef = useRef('')  // snapshot "limpo" para detectar edição não salva
 
   /* carrega o registro completo (a Row da listagem é só um resumo) */
-  useEffect(() => {
-    let cancel = false
-    void (async () => {
-      try {
-        const res = await apiFetch(`/api/contracts/${row.id}`)
-        if (!res.ok || cancel) return
-        const c = await res.json() as Record<string, unknown>
-        const full = contractFromApi(c)
-        form.setValues(full)
-        cleanRef.current = JSON.stringify(full)
-      } catch { /* mantém o fallback vindo da Row */ }
-    })()
-    return () => { cancel = true }
+  const recarregar = useCallback(async () => {
+    try {
+      const res = await apiFetch(`/api/contracts/${row.id}`)
+      if (!res.ok) return
+      const c = await res.json() as Record<string, unknown>
+      const full = contractFromApi(c)
+      form.setValues(full)
+      cleanRef.current = JSON.stringify(full)
+      setStaleAviso(false)
+    } catch { /* mantém o fallback vindo da Row */ }
   }, [row.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { void recarregar() }, [recarregar])
+
+  /* o motor de datas roda no servidor e pode renovar/encerrar este contrato.
+     Sem edição pendente, recarrega em silêncio; com edição, avisa — nunca descarta. */
+  useEffect(() => {
+    const handler = () => {
+      const sujo = cleanRef.current !== '' && JSON.stringify(form.values) !== cleanRef.current
+      if (sujo) setStaleAviso(true)
+      else void recarregar()
+    }
+    window.addEventListener(CONTRACTS_CHANGED_EVENT, handler)
+    return () => window.removeEventListener(CONTRACTS_CHANGED_EVENT, handler)
+  }) // sem deps: o handler precisa enxergar o form.values do render atual
 
   /* reporta "não salvo" comparando o estado atual com o snapshot limpo */
   useEffect(() => {
@@ -268,6 +281,15 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
           )}
         </div>
       </div>
+
+      {staleAviso && (
+        <div className="flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400">
+          <span>O motor de datas alterou este contrato no servidor. Suas alterações não salvas ainda estão aqui — salve-as, ou recarregue para ver o estado atual.</span>
+          <button type="button" onClick={() => void recarregar()} className="shrink-0 rounded border border-amber-300 px-2 py-1 font-medium hover:bg-amber-100 dark:border-amber-700 dark:hover:bg-amber-900/40">
+            Descartar e recarregar
+          </button>
+        </div>
+      )}
 
       {saveError && (
         <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">

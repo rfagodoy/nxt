@@ -2,6 +2,11 @@
 
 import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react'
 import { Plus, Trash2, Search, Upload, Download, Loader2, X, Eye, ChevronDown, FileText, RefreshCw, ListPlus } from 'lucide-react'
+import {
+  aplicarReajuste, acumuladoPeriodo, parcelasAlvo, proximaDataReajuste, proximaDataReajusteContrato,
+  stepMeses, temCronograma, gerarParcelas, parcelaProvisoria, totaisAVencer, renovarPeriodo,
+  comp, currentComp, todayISO, type CoreLancamento,
+} from '@nxt/contracts-core'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { useLookupTable } from '@/hooks/use-lookup-table'
@@ -12,10 +17,10 @@ import {
   INIT_TIPOS, INIT_OBJETOS, INIT_MOEDAS, INIT_CONDICOES, INIT_INDICES, INIT_TIPOS_ADITIVO, INIT_FORMAS_PGTO,
   SITUACOES, PERIODICIDADES, TIPOS_DOCUMENTO, effectiveSituacao,
   NATUREZAS, ACOES_TERMINO, temPagamentos, temRecebimentos, somaLancamentos, somaLancamentosPagos, lancPago,
-  valorVigente, parcelaVigente, condicaoVigente, complementoVigente, terminoVigente, objetoVigente, partesVigentes, terminoVigenteAntes, objetoVigenteAntes, proximoDiaISO,
+  valorVigente, parcelaVigente, parcelaVigenteInput, condicaoVigente, complementoVigente, terminoVigente, objetoVigente, partesVigentes, terminoVigenteAntes, objetoVigenteAntes, proximoDiaISO,
   tituloVigente, descricaoVigente, tituloVigenteInfo, descricaoVigenteInfo,
   periodosVigencia, historicoRenegociacao, historicoObjeto, historicoCessoes,
-  newCParte, newCReajuste, newCReajusteRealizado, newCDocumento, newCLancamento, newCAditivo, newCCessao,
+  newCParte, newCReajuste, newCReajusteRealizado, newCDocumento, newCLancamento, newCAditivo, newCCessao, uid,
   type ContractFormValues, type CParte, type CReajuste, type CReajusteRealizado, type CDocumento, type CLancamento, type CAditivo, type CCessao,
 } from '@/lib/contract-options'
 
@@ -374,7 +379,7 @@ export function ValoresFields({ form, ro }: { form: ContractForm; ro?: boolean }
       {ro ? (
         <>
           <Field label="Valor total do contrato" required><MoneyField value={String(valorTotalNum)} moedaCode={v.moeda} onChange={x => form.set('valorTotal', x)} ro /></Field>
-          <Field label="Valor da parcela"><MoneyField value={parcelaVigente(v)} moedaCode={v.moeda} onChange={x => form.set('valorParcela', x)} ro /></Field>
+          <Field label="Valor da parcela"><MoneyField value={parcelaVigenteInput(v)} moedaCode={v.moeda} onChange={x => form.set('valorParcela', x)} ro /></Field>
         </>
       ) : (
         <>
@@ -448,12 +453,14 @@ export function ValoresFields({ form, ro }: { form: ContractForm; ro?: boolean }
 
 /** Lançamentos (pagamentos OU recebimentos): tabela densa editável na própria linha.
  *  Editável mesmo com o contrato travado — registra-se pagamentos ao longo da vigência. */
-/** Tile de resumo (padrão bento) — rótulo pequeno + valor grande, opcionalmente com barra de progresso. */
-function StatTile({ label, value, bar, danger }: { label: string; value: string; bar?: number; danger?: boolean }) {
+/** Tile de resumo (padrão bento) — rótulo pequeno + valor grande, opcionalmente com barra de progresso.
+ *  `hint` traz um complemento discreto abaixo do valor (ex.: parte provisória do "A vencer"). */
+function StatTile({ label, value, bar, danger, hint }: { label: string; value: string; bar?: number; danger?: boolean; hint?: string }) {
   return (
     <div className="rounded-lg border bg-card px-3 py-2 shadow-sm">
       <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground truncate">{label}</p>
       <p className={cn('mt-0.5 text-sm font-semibold tabular-nums', danger && 'text-red-600 dark:text-red-400')}>{value}</p>
+      {hint && <p className="text-[10px] text-muted-foreground tabular-nums truncate" title={hint}>{hint}</p>}
       {bar != null && <div className="mt-1.5 h-1 rounded-full bg-muted overflow-hidden"><div className={cn('h-full rounded-full', bar >= 100 ? 'bg-red-500' : 'bg-primary')} style={{ width: `${Math.min(100, bar)}%` }} /></div>}
     </div>
   )
@@ -477,10 +484,12 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
   const money = (n: number) => `${moedaCode ? moedaCode + ' ' : ''}${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
   /* status por parcela: pago / a vencer / vencido (vencido é derivado: previsto + vencimento < hoje) */
-  const hoje = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` })()
+  const hoje = todayISO()
   const refDate = (l: CLancamento) => l.vencimento || l.data   // referência = vencimento (ou pagamento p/ legado)
-  const aVencer = lista.reduce((s, l) => s + (!lancPago(l) && refDate(l) >= hoje ? parseFloat(l.valor) || 0 : 0), 0)
-  const vencido = lista.reduce((s, l) => s + (!lancPago(l) && refDate(l) && refDate(l) < hoje ? parseFloat(l.valor) || 0 : 0), 0)
+  /* "A vencer" separa o que é FIRME do que é PROVISÓRIO: parcela alcançada pelo próximo
+     reajuste ainda vai mudar de valor. Contrato sem reajuste → nada é provisório. */
+  const { firme: aVencer, provisorio, vencido } = totaisAVencer(v, lista, hoje)
+  const provisoria = (l: CLancamento) => parcelaProvisoria(v, l)
   const statusInfo = (l: CLancamento) => {
     if (lancPago(l)) return { label: field === 'pagamentos' ? 'Pago' : 'Recebido', cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' }
     if (refDate(l) && refDate(l) < hoje) return { label: 'Vencido', cls: 'bg-red-500/10 text-red-600 dark:text-red-500' }
@@ -532,61 +541,45 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
   const [gForma, setGForma] = useState('')
   const [gErr, setGErr]     = useState<string | null>(null)
   const abrirGerar = () => {
-    setGData(v.inicioVigencia || ''); setGQtd(v.qtdParcelas || ''); setGValor(parcelaVigente(v) || v.valorParcela || ''); setGForma(''); setGErr(null)
+    setGData(v.inicioVigencia || ''); setGQtd(v.qtdParcelas || ''); setGValor(parcelaVigenteInput(v) || v.valorParcela || ''); setGForma(''); setGErr(null)
     setGerarOpen(o => !o)
   }
-  const addMesesISO = (iso: string, n: number) => {
-    const [y, m, d] = iso.split('-').map(Number)
-    const dt = new Date(Date.UTC(y, m - 1 + n, d))
-    return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`
-  }
-  /* parcela vigente numa competência (yyyy-mm): último reajuste de parcela aplicado até o mês, ou a base */
-  const parcelaNaComp = (mesISO: string) => {
-    const reajs = (v.reajustesRealizados ?? [])
-      .filter(r => r.parcelaNova && String(r.competencia).slice(0, 7) <= mesISO)
-      .sort((a, b) => (a.competencia < b.competencia ? -1 : 1))
-    return reajs.length ? reajs[reajs.length - 1].parcelaNova : ''
-  }
+  /* o core devolve o lançamento com `valor` numérico; o formulário guarda string */
+  const toLanc = (l: CoreLancamento): CLancamento => ({ ...newCLancamento('previsto'), ...l, valor: String(l.valor) })
+
   const gerar = () => {
     const n = parseInt(gQtd, 10)
     if (!gData)        { setGErr('Informe a data inicial.'); return }
     if (!(n > 0))      { setGErr('Informe a quantidade de parcelas.'); return }
     if (n > 240)       { setGErr('Máximo de 240 parcelas por vez.'); return }
-    const novos = Array.from({ length: n }, (_, i) => {
-      const l = newCLancamento('previsto')
-      l.vencimento = addMesesISO(gData, i)
-      /* item "b": aplica o reajuste conhecido daquele mês (senão usa o valor base informado) */
-      const reaj = parcelaNaComp(l.vencimento.slice(0, 7))
-      l.valor = String(parseFloat(reaj || gValor) || 0)
-      l.forma = gForma
-      return l
-    })
+    /* cada parcela nasce com o reajuste já conhecido do seu mês (senão, o valor base informado) */
+    const novos = gerarParcelas(v, { inicio: gData, qtd: n, valorBase: parseFloat(gValor) || 0, forma: gForma, makeId: () => uid() }).map(toLanc)
     form.setValues(p => ({ ...p, [field]: [...p[field], ...novos] }))
     setOpenYears(s => new Set([...s, ...novos.map(l => l.vencimento.slice(0, 4))]))  // expande os anos gerados
     setGerarOpen(false)
   }
 
-  /* Gerar próximo período (renovação): qtd parcelas a partir do mês seguinte ao último vencimento,
-     na parcela vigente (já reajustada), como "a vencer"; registra a renovação (estende vigência +
-     valorPeriodo que soma ao total). É a versão manual do que o motor faz na renovação automática. */
+  /* Gerar próximo período = renovação MANUAL. Usa `renovarPeriodo`, a MESMA função do motor
+     de datas: estende a vigência pelo PRAZO DE RENOVAÇÃO do contrato e, se já existe cronograma,
+     projeta as parcelas do período na parcela vigente. Sem cronograma, só estende a vigência. */
   const gerarProximoPeriodo = () => {
     setGErr(null)
-    const qtd = parseInt(v.qtdParcelas, 10) || 0
-    const parcelaVig = parseFloat(parcelaVigente(v)) || 0
-    if (!(qtd > 0))       { setGErr('Defina a quantidade de parcelas no contrato (aba Valor e Pagamento).'); setGerarOpen(true); return }
-    if (!(parcelaVig > 0)) { setGErr('Defina o valor da parcela no contrato.'); setGerarOpen(true); return }
-    const ultimoVenc = lista.map(l => l.vencimento || l.data).filter(Boolean).sort().pop()
-    const base = ultimoVenc || v.inicioVigencia
-    if (!base) { setGErr('Sem vencimento de referência — gere o cronograma inicial primeiro.'); setGerarOpen(true); return }
-    const novos = Array.from({ length: qtd }, (_, i) => {
-      const l = newCLancamento('previsto')
-      l.vencimento = addMesesISO(base, i + 1)
-      l.valor = String(parcelaVig)
-      return l
+    const anos  = parseInt(v.renovacaoAnos, 10)  || 0
+    const meses = parseInt(v.renovacaoMeses, 10) || 0
+    const dias  = parseInt(v.renovacaoDias, 10)  || 0
+    if (!(anos || meses || dias)) { setGErr('Defina o prazo de renovação do contrato (aba Vigência: "Renovar por").'); setGerarOpen(true); return }
+    if (!terminoVigente(v))       { setGErr('Defina o término da vigência antes de renovar.'); setGerarOpen(true); return }
+
+    const res = renovarPeriodo(v, {
+      campo: field, anos, meses, dias, data: hoje, automatica: false,
+      id: `reno_${Date.now()}`, makeId: () => uid(),
     })
-    const reno = { id: `reno_${Date.now()}`, data: hoje, terminoAnterior: terminoVigente(v), novoTermino: novos[novos.length - 1].vencimento, automatica: false, valorPeriodo: String(qtd * parcelaVig) }
+    if (!res) { setGErr('Prazo de renovação inválido — a nova vigência não avança a data de término.'); setGerarOpen(true); return }
+
+    const novos = res.lancamentos.map(toLanc)
+    const reno = { ...res.renovacao, id: String(res.renovacao.id), data: String(res.renovacao.data), terminoAnterior: String(res.renovacao.terminoAnterior), novoTermino: String(res.renovacao.novoTermino), automatica: false, valorPeriodo: String(res.renovacao.valorPeriodo) }
     form.setValues(p => ({ ...p, [field]: [...p[field], ...novos], renovacoes: [...(p.renovacoes ?? []), reno] }))
-    setOpenYears(s => new Set([...s, ...novos.map(l => l.vencimento.slice(0, 4))]))
+    if (novos.length) setOpenYears(s => new Set([...s, ...novos.map(l => l.vencimento.slice(0, 4))]))
   }
 
   const COLS = 'grid grid-cols-[7rem_8rem_7rem_6rem_7rem_5.5rem_1fr_1.25rem] items-center gap-2'
@@ -598,7 +591,7 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
       {lista.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <StatTile label={`Total ${rotulo}`} value={money(totalPago)} bar={valorContrato > 0 ? pct : undefined} />
-          <StatTile label="A vencer" value={money(aVencer)} />
+          <StatTile label="A vencer" value={money(aVencer)} hint={provisorio > 0 ? `+ ${money(provisorio)} provisório` : undefined} />
           <StatTile label="Vencido" value={money(vencido)} danger={vencido > 0} />
           {valorContrato > 0 && <StatTile label={saldoLbl} value={money(saldo)} danger={saldo < 0} />}
         </div>
@@ -681,7 +674,14 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
                       {itens.map(l => (
                         <div key={l.id} className={cn(COLS, 'group px-3 py-1 hover:bg-muted/30')}>
                           <input type="date" value={l.vencimento} onChange={e => form.updLanc(field, l.id, 'vencimento', e.target.value)} onBlur={e => reordenar(e.target.value ? e.target.value.slice(0, 4) : undefined)} className={cell} />
-                          <MoneyField value={l.valor} moedaCode={moedaCode} bare onChange={x => form.updLanc(field, l.id, 'valor', x)} />
+                          {/* "≈" = valor provisório: o próximo reajuste ainda vai reprecificar esta parcela */}
+                          <div className="relative">
+                            <MoneyField value={l.valor} moedaCode={moedaCode} bare onChange={x => form.updLanc(field, l.id, 'valor', x)} />
+                            {provisoria(l) && (
+                              <span title={`Valor provisório: será atualizado no reajuste de ${fmtMesAnoBR(comp(proximaDataReajusteContrato(v)))}`}
+                                    className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 select-none text-[11px] font-semibold text-amber-600 dark:text-amber-500">≈</span>
+                            )}
+                          </div>
                           <select value={l.forma} onChange={e => form.updLanc(field, l.id, 'forma', e.target.value)} className={cell}>
                             <option value="">Forma...</option>
                             {l.forma && !formas.active.some(f => f.id === l.forma) && <option value={l.forma}>{labelOf(formas.entries, l.forma)}</option>}
@@ -753,8 +753,7 @@ function ReajusteCard({ r, idx, form, indices, ro, open, onToggle }: {
   const indiceLabel = labelOf(indices.entries, r.indice)
   const realizados = (v.reajustesRealizados ?? []).filter(x => x.reajusteId === r.id).sort((a, b) => (a.competencia < b.competencia ? 1 : -1))
   const ultimo = realizados[0]
-  const anchor = realizados.length ? realizados[0].competencia.slice(0, 7) : r.data.slice(0, 7)
-  const proxima = (r.data && r.periodicidade) ? addMesesComp(anchor, stepMesesReaj(r.periodicidade)) : ''
+  const proxima = r.periodicidade ? comp(proximaDataReajuste(v, r)) : ''
 
   return (
     <div className="rounded-md border bg-card overflow-hidden">
@@ -816,16 +815,6 @@ function ReajusteCard({ r, idx, form, indices, ro, open, onToggle }: {
   )
 }
 
-const REAJ_STEP_MESES: Record<string, number> = { MENSAL: 1, BIMESTRAL: 2, TRIMESTRAL: 3, QUADRIMESTRAL: 4, SEMESTRAL: 6, ANUAL: 12 }
-const stepMesesReaj = (p: string) => REAJ_STEP_MESES[String(p || '').toUpperCase()] ?? 12
-/** competência yyyy-mm + N meses → yyyy-mm */
-const addMesesComp = (yyyymm: string, meses: number) => {
-  const [y, m] = yyyymm.split('-').map(Number)
-  if (!y || !m) return ''
-  const dt = new Date(Date.UTC(y, m - 1 + meses, 1))
-  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}`
-}
-
 const REAJ_BASES = [
   { v: 'total',   l: 'Valor total' },
   { v: 'parcela', l: 'Parcela'     },
@@ -853,143 +842,119 @@ function ReajusteRealizados({ form, indices, linha }: { form: ContractForm; indi
 
   const moedaFmt = (s: string | number) => `${v.moeda ? v.moeda + ' ' : ''}${(Number(s) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   const realizados = (v.reajustesRealizados ?? []).filter(x => x.reajusteId === linha.id).sort((a, b) => (a.competencia < b.competencia ? 1 : -1))
-  /* campos de lançamento da natureza + se HÁ cronograma (algum lançamento) → decide o modo do reajuste:
-     com cronograma = reprecifica as parcelas reais; sem cronograma = usa a quantidade de parcelas. */
-  const camposLanc = ([temPagamentos(v.natureza) ? 'pagamentos' : null, temRecebimentos(v.natureza) ? 'recebimentos' : null].filter(Boolean)) as ('pagamentos' | 'recebimentos')[]
-  const temCronograma = camposLanc.some(campo => v[campo].length > 0)
-  /* parcelas do cronograma a REPRECIFICAR: a vencer (não pagas) com vencimento >= competência. */
-  const parcelasAlvo = (comp: string): CLancamento[] => {
-    if (!comp) return []
-    const alvo: CLancamento[] = []
-    for (const campo of camposLanc) for (const l of v[campo]) {
-      const ref = l.vencimento || l.data
-      if (!lancPago(l) && ref && ref.slice(0, 7) >= comp) alvo.push(l)
-    }
-    return alvo
-  }
+  const temCrono = temCronograma(v)
   /* competência não pode ser futura: reajuste realizado é um fato (já ocorreu) */
-  const mesAtual = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` })()
+  const mesAtual = currentComp()
 
   /* default inteligente: contrato com parcela → 'parcela'; senão 'total' */
-  const baseInteligente = () => ((parseFloat(parcelaVigente(v)) || 0) > 0 ? 'parcela' : 'total')
+  const baseInteligente = () => (parcelaVigente(v) > 0 ? 'parcela' : 'total')
 
-  /* sugere a competência = uma periodicidade após a última aplicada (ou a data base) deste índice;
-     opção (a): se a próxima ocorrência for futura, não sugere nada (não há reajuste a aplicar ainda) */
+  /* sugere a competência = a próxima do core; se for futura, não sugere nada
+     (não há reajuste a aplicar ainda) */
   const sugereCompetencia = () => {
-    const comps = realizados.map(x => x.competencia.slice(0, 7)).filter(Boolean).sort()
-    const anchor = comps.length ? comps[comps.length - 1] : linha.data.slice(0, 7)
-    const prox = anchor ? addMesesComp(anchor, stepMesesReaj(linha.periodicidade)) : ''
+    const prox = comp(proximaDataReajuste(v, linha))
     return prox && prox <= mesAtual ? prox : ''
   }
-  /* % ACUMULADO do índice na janela da periodicidade (12/6/3… meses) terminando na competência,
-     por composição: fator = ∏(1 + varₘ/100). Usa a série mensal já guardada na tabela de valores. */
-  const acumuladoPeriodo = (comp: string): number | null => {
-    if (!comp) return null
-    const n = stepMesesReaj(linha.periodicidade)
-    let fator = 1, achou = false
-    for (let k = 0; k < n; k++) {
-      const varM = indiceVals.get(linha.indice, addMesesComp(comp, -k))
-      if (varM != null) { fator *= 1 + varM / 100; achou = true }
-    }
-    return achou ? (fator - 1) * 100 : null
-  }
-  const sugerido = acumuladoPeriodo(competencia)
+  /* % ACUMULADO do índice na janela da periodicidade, pela série mensal guardada. */
+  const acumulado = (cmp: string) => acumuladoPeriodo(indiceVals.serieDe(linha.indice), linha.periodicidade, cmp)
+  const sugerido = acumulado(competencia)?.percentual ?? null
 
-  /* recalcula novo valor total. base=parcela: com cronograma reprecifica as parcelas a vencer (delta real);
-     sem cronograma usa a quantidade informada: delta = (nova − anterior) × qtd. */
-  const recalc = (pctStr: string, b: string, vAnt: string, pAnt: string, comp: string, parcReaj: string) => {
-    const pct = parseFloat(String(pctStr).replace(',', '.')) || 0
+  /* Preview = o MESMO cálculo do registro (core.aplicarReajuste), só que descartado.
+     Garante que o número que o usuário vê na caixa é exatamente o que será gravado. */
+  const f2 = (n: unknown) => (Number(n) || 0).toFixed(2)
+  const previa = (pctStr: string, b: string, vAnt: string, pAnt: string, cmp: string, parcReaj: string) => {
+    if (!cmp) return
+    const p  = parseFloat(String(pctStr).replace(',', '.')) || 0
+    const pa = parseFloat(pAnt) || 0
+    const va = parseFloat(vAnt) || 0
+    /* sem percentual, a nova parcela é a que o usuário digitou (o campo é livre) */
+    const novaManual = pa && p ? undefined : (parseFloat(parcelaNova) || 0) || undefined
+    const res = aplicarReajuste(v, {
+      id: '', reajusteId: linha.id, competencia: cmp, percentual: p, base: b as 'total' | 'parcela',
+      valorAnterior:   b === 'total'   ? va : undefined,
+      parcelaAnterior: b === 'parcela' ? pa : undefined,
+      parcelaNova:     b === 'parcela' ? novaManual : undefined,
+      qtdParcelas:     b === 'parcela' && !temCrono ? parseInt(parcReaj, 10) || 0 : undefined,
+    })
     if (b === 'total') {
-      const va = parseFloat(vAnt) || 0
-      if (va && pct) setValorNovo((va * (1 + pct / 100)).toFixed(2))
+      if (va && p) setValorNovo(f2(res.reajuste.valorNovo))
       return
     }
-    const pa = parseFloat(pAnt) || 0
-    const novaP = (pa && pct) ? pa * (1 + pct / 100) : (parseFloat(parcelaNova) || 0)
-    if (pa && pct) setParcNova(novaP.toFixed(2))
-    const totalVig = valorVigente(v)
-    setValorAnt(totalVig ? totalVig.toFixed(2) : '0')
-    if (novaP) {
-      const delta = temCronograma
-        ? parcelasAlvo(comp).reduce((s, l) => s + (novaP - (parseFloat(l.valor) || 0)), 0)
-        : (novaP - pa) * (parseInt(parcReaj, 10) || 0)
-      setValorNovo((totalVig + delta).toFixed(2))
-    }
+    if (pa && p) setParcNova(f2(res.reajuste.parcelaNova))
+    setValorAnt(f2(res.reajuste.valorAnterior))
+    if (Number(res.reajuste.parcelaNova)) setValorNovo(f2(res.reajuste.valorNovo))
   }
   /* usa o % acumulado da periodicidade p/ pré-preencher e recalcular */
-  const aplicarSugestao = (comp: string, b: string, vAnt: string, pAnt: string, parcReaj: string) => {
-    const sug = acumuladoPeriodo(comp)
-    if (sug != null) { const s = sug.toFixed(2); setPercentual(s.replace('.', ',')); recalc(s, b, vAnt, pAnt, comp, parcReaj) }
+  const aplicarSugestao = (cmp: string, b: string, vAnt: string, pAnt: string, parcReaj: string) => {
+    const sug = acumulado(cmp)?.percentual
+    if (sug != null) { const s = sug.toFixed(2); setPercentual(s.replace('.', ',')); previa(s, b, vAnt, pAnt, cmp, parcReaj) }
   }
 
   const abrir = () => {
     const b    = baseInteligente()
-    const comp = sugereCompetencia()
-    const vAnt = b === 'total' ? (valorVigente(v) ? valorVigente(v).toFixed(2) : '') : ''
-    const pAnt = b === 'parcela' ? (parcelaVigente(v) || '') : ''
-    const pReaj = (b === 'parcela' && !temCronograma) ? (v.qtdParcelas || '') : ''
-    setCompetencia(comp); setBase(b)
+    const cmp  = sugereCompetencia()
+    const vAnt = b === 'total' ? (valorVigente(v) ? f2(valorVigente(v)) : '') : ''
+    const pAnt = b === 'parcela' ? parcelaVigenteInput(v) : ''
+    const pReaj = (b === 'parcela' && !temCrono) ? (v.qtdParcelas || '') : ''
+    setCompetencia(cmp); setBase(b)
     setPercentual(''); setValorAnt(vAnt); setValorNovo(''); setParcAnt(pAnt); setParcNova(''); setParcelasReaj(pReaj); setObservacao(''); setErro(null)
     setAberto(true)
-    if (comp) aplicarSugestao(comp, b, vAnt, pAnt, pReaj)
+    if (cmp) aplicarSugestao(cmp, b, vAnt, pAnt, pReaj)
   }
   const onBase = (b: string) => {
-    const vAnt  = b === 'total'   ? (valorAnterior   || (valorVigente(v) ? valorVigente(v).toFixed(2) : '')) : valorAnterior
-    const pAnt  = b === 'parcela' ? (parcelaAnterior || parcelaVigente(v) || '') : parcelaAnterior
-    const pReaj = (b === 'parcela' && !temCronograma) ? (parcelasReaj || v.qtdParcelas || '') : parcelasReaj
-    setBase(b); setValorAnt(vAnt); setParcAnt(pAnt); setParcelasReaj(pReaj); recalc(percentual, b, vAnt, pAnt, competencia, pReaj)
+    const vAnt  = b === 'total'   ? (valorAnterior   || (valorVigente(v) ? f2(valorVigente(v)) : '')) : valorAnterior
+    const pAnt  = b === 'parcela' ? (parcelaAnterior || parcelaVigenteInput(v)) : parcelaAnterior
+    const pReaj = (b === 'parcela' && !temCrono) ? (parcelasReaj || v.qtdParcelas || '') : parcelasReaj
+    setBase(b); setValorAnt(vAnt); setParcAnt(pAnt); setParcelasReaj(pReaj); previa(percentual, b, vAnt, pAnt, competencia, pReaj)
   }
-  const onCompetencia = (comp: string) => { setCompetencia(comp); aplicarSugestao(comp, base, valorAnterior, parcelaAnterior, parcelasReaj) }
-  const onPercentual = (p: string) => { setPercentual(p); recalc(p, base, valorAnterior, parcelaAnterior, competencia, parcelasReaj) }
-  const onValorAnterior   = (val: string) => { setValorAnt(val); recalc(percentual, base, val, parcelaAnterior, competencia, parcelasReaj) }
-  const onParcelaAnterior = (val: string) => { setParcAnt(val); recalc(percentual, base, valorAnterior, val, competencia, parcelasReaj) }
-  const onParcelasReaj    = (val: string) => { setParcelasReaj(val); recalc(percentual, base, valorAnterior, parcelaAnterior, competencia, val) }
+  const onCompetencia = (cmp: string) => { setCompetencia(cmp); aplicarSugestao(cmp, base, valorAnterior, parcelaAnterior, parcelasReaj) }
+  const onPercentual = (p: string) => { setPercentual(p); previa(p, base, valorAnterior, parcelaAnterior, competencia, parcelasReaj) }
+  const onValorAnterior   = (val: string) => { setValorAnt(val); previa(percentual, base, val, parcelaAnterior, competencia, parcelasReaj) }
+  const onParcelaAnterior = (val: string) => { setParcAnt(val); previa(percentual, base, valorAnterior, val, competencia, parcelasReaj) }
+  const onParcelasReaj    = (val: string) => { setParcelasReaj(val); previa(percentual, base, valorAnterior, parcelaAnterior, competencia, val) }
 
+  /* Registrar = core.aplicarReajuste + persistir. Toda a regra (delta, reprecificação,
+     quais parcelas entram) vive no core — a MESMA função que o backend usará. */
   const registrar = () => {
     if (!linha.indice) { setErro('Defina o índice deste reajuste acima primeiro.'); return }
     if (!competencia)  { setErro('Informe a competência (mês/ano).'); return }
     if (competencia > mesAtual) { setErro(`A competência não pode ser futura — o reajuste ainda não ocorreu (mês atual: ${fmtMesAnoBR(mesAtual)}).`); return }
     if (base === 'total'   && !(parseFloat(valorNovo) > 0))   { setErro('Informe o novo valor total.'); return }
     if (base === 'parcela' && !(parseFloat(parcelaNova) > 0)) { setErro('Informe a nova parcela.'); return }
-    const rec = newCReajusteRealizado(linha.id)
-    rec.competencia    = `${competencia}-01`
-    rec.indiceSnapshot = labelOf(indices.entries, linha.indice) || ''
-    rec.base           = base
-    rec.percentual     = percentual ? String(parseFloat(String(percentual).replace(',', '.')) || 0) : ''
-    rec.observacao     = observacao.trim()
-    rec.dataAplicacao  = new Date().toISOString().slice(0, 10)
-    rec.createdAt      = new Date().toISOString()
-    if (base === 'total') {
-      rec.valorAnterior = String(parseFloat(valorAnterior) || 0); rec.valorNovo = String(parseFloat(valorNovo) || 0)
-      form.addReajRealizado(rec)
-    } else {
-      const novaP    = parseFloat(parcelaNova) || 0
-      const totalVig = valorVigente(v)
-      rec.parcelaAnterior = String(parseFloat(parcelaAnterior) || 0)
-      rec.parcelaNova     = String(novaP)
-      if (temCronograma) {
-        /* reprecifica as parcelas a vencer (>= competência); total cresce só pelo delta real */
-        const alvo    = parcelasAlvo(competencia)
-        const alvoIds = new Set(alvo.map(l => l.id))
-        const delta   = alvo.reduce((s, l) => s + (novaP - (parseFloat(l.valor) || 0)), 0)
-        rec.parcelasReajustadas = String(alvo.length)
-        rec.valorAnterior = String(totalVig); rec.valorNovo = String(totalVig + delta)
-        form.setValues(p => {
-          const upd = { ...p, reajustesRealizados: [...(p.reajustesRealizados ?? []), rec] }
-          for (const campo of ['pagamentos', 'recebimentos'] as const) {
-            upd[campo] = p[campo].map(l => (alvoIds.has(l.id) ? { ...l, valor: String(novaP) } : l))
-          }
-          return upd
-        })
-      } else {
-        /* sem cronograma: usa a quantidade informada → total cresce por (nova − anterior) × qtd */
-        const count = parseInt(parcelasReaj, 10) || 0
-        const delta = (novaP - (parseFloat(parcelaAnterior) || 0)) * count
-        rec.parcelasReajustadas = String(count)
-        rec.valorAnterior = String(totalVig); rec.valorNovo = String(totalVig + delta)
-        form.addReajRealizado(rec)
-      }
+
+    const { reajuste, pagamentos, recebimentos } = aplicarReajuste(v, {
+      id: uid(), reajusteId: linha.id, competencia, base: base as 'total' | 'parcela',
+      percentual: parseFloat(String(percentual).replace(',', '.')) || 0,
+      indiceSnapshot: labelOf(indices.entries, linha.indice) || '',
+      observacao: observacao.trim(),
+      dataAplicacao: new Date().toISOString().slice(0, 10),
+      createdAt: new Date().toISOString(),
+      /* os campos do formulário são livres — o que o usuário digitou manda sobre o % */
+      valorAnterior:   base === 'total'   ? parseFloat(valorAnterior)   || 0 : undefined,
+      valorNovo:       base === 'total'   ? parseFloat(valorNovo)       || 0 : undefined,
+      parcelaAnterior: base === 'parcela' ? parseFloat(parcelaAnterior) || 0 : undefined,
+      parcelaNova:     base === 'parcela' ? parseFloat(parcelaNova)     || 0 : undefined,
+      qtdParcelas:     base === 'parcela' && !temCrono ? parseInt(parcelasReaj, 10) || 0 : undefined,
+    })
+
+    /* o core devolve números; o formulário guarda strings */
+    const rec: CReajusteRealizado = {
+      ...newCReajusteRealizado(linha.id),
+      id: reajuste.id, competencia: reajuste.competencia,
+      indiceSnapshot: reajuste.indiceSnapshot ?? '', base: reajuste.base ?? base,
+      percentual: percentual ? String(reajuste.percentual) : '',
+      valorAnterior: String(reajuste.valorAnterior), valorNovo: String(reajuste.valorNovo),
+      parcelaAnterior: String(reajuste.parcelaAnterior), parcelaNova: String(reajuste.parcelaNova),
+      parcelasReajustadas: String(reajuste.parcelasReajustadas),
+      dataAplicacao: reajuste.dataAplicacao ?? '', observacao: reajuste.observacao ?? '',
+      createdAt: reajuste.createdAt ?? '',
     }
+    const toStr = (arr: CoreLancamento[]): CLancamento[] => arr.map(l => ({ ...l, valor: String(l.valor) }) as CLancamento)
+    form.setValues(p => ({
+      ...p,
+      reajustesRealizados: [...(p.reajustesRealizados ?? []), rec],
+      pagamentos: toStr(pagamentos), recebimentos: toStr(recebimentos),
+    }))
     setAberto(false)
   }
 
@@ -999,7 +964,7 @@ function ReajusteRealizados({ form, indices, linha }: { form: ContractForm; indi
     : `${moedaFmt(r.valorAnterior)} → ${moedaFmt(r.valorNovo)}`
   const selCls  = cn(inputCls, 'h-7')
   const readCls2 = cn(selCls, 'bg-muted/40 text-muted-foreground')
-  const alvoCount = parcelasAlvo(competencia).length  // parcelas do cronograma que serão reprecificadas
+  const alvoCount = parcelasAlvo(v, competencia).length  // parcelas do cronograma que serão reprecificadas
 
   return (
     <div className="space-y-2 pt-3 border-t border-border/60">
@@ -1049,7 +1014,7 @@ function ReajusteRealizados({ form, indices, linha }: { form: ContractForm; indi
             <label className="space-y-1 col-span-2">
               <span className="text-[10px] font-medium text-muted-foreground">
                 Percentual aplicado (%)
-                {sugerido != null && <span className="ml-1 text-emerald-600 dark:text-emerald-400 font-normal">· acumulado {stepMesesReaj(linha.periodicidade)}m: {sugerido.toFixed(2).replace('.', ',')}%</span>}
+                {sugerido != null && <span className="ml-1 text-emerald-600 dark:text-emerald-400 font-normal">· acumulado {stepMeses(linha.periodicidade)}m: {sugerido.toFixed(2).replace('.', ',')}%</span>}
               </span>
               <input value={percentual} onChange={e => onPercentual(e.target.value)} placeholder="0,00" className={selCls} />
             </label>
@@ -1074,7 +1039,7 @@ function ReajusteRealizados({ form, indices, linha }: { form: ContractForm; indi
                   <span className="text-[10px] font-medium text-muted-foreground">Nova parcela</span>
                   <input value={parcelaNova} onChange={e => setParcNova(e.target.value)} placeholder="0,00" className={selCls} />
                 </label>
-                {temCronograma ? (
+                {temCrono ? (
                   <div className="col-span-2 rounded-md bg-muted/30 px-2.5 py-1.5 text-[10px] text-muted-foreground">
                     {alvoCount > 0
                       ? <>Serão atualizadas <span className="font-semibold text-foreground">{alvoCount}</span> parcela(s) a vencer do cronograma (a partir de {fmtMesAnoBR(competencia)}) para <span className="font-semibold text-foreground tabular-nums">{moedaFmt(parcelaNova)}</span>. Parcelas já pagas ficam intactas.</>
@@ -1086,7 +1051,7 @@ function ReajusteRealizados({ form, indices, linha }: { form: ContractForm; indi
                     <input type="number" min="0" step="1" value={parcelasReaj} onChange={e => onParcelasReaj(e.target.value)} placeholder={v.qtdParcelas || 'Ex: 12'} className={selCls} />
                   </label>
                 )}
-                <label className={cn('space-y-1', temCronograma ? 'col-span-2' : '')}>
+                <label className={cn('space-y-1', temCrono ? 'col-span-2' : '')}>
                   <span className="text-[10px] font-medium text-muted-foreground">Novo valor total do contrato (calculado)</span>
                   <input value={valorNovo} readOnly title="Total vigente + efeito do reajuste de parcela" className={readCls2} />
                 </label>
