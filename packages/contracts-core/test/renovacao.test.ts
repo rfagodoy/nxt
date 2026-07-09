@@ -114,3 +114,33 @@ describe('laço do motor: períodos represados renovam até passar de hoje', () 
     expect(terminoVigente(cur)).toBe('2027-04-26')
   })
 })
+
+describe('o prazo pode vir de fora do cadastro do contrato', () => {
+  /* Contrato com ação "Definir manualmente" não tem prazo de renovação gravado.
+     A renovação manual informa o prazo na hora — `renovarPeriodo` não lê o contrato
+     para isso, recebe anos/meses/dias por parâmetro. */
+  const semPrazoCadastrado: any = { ...despesaSimples, terminoVigencia: '2026-12-31', renovacaoAnos: null, renovacaoMeses: null, renovacaoDias: null }
+
+  it('renova 18 meses mesmo sem prazo no contrato', () => {
+    const r = renovar(semPrazoCadastrado, { meses: 18 })!
+    expect(r.renovacao.terminoAnterior).toBe('2026-12-31')
+    /* 31/12 + 18 meses cai em "31 de junho", que não existe: a data transborda para 01/07.
+       É o comportamento do Date do JS, e o do addToDate desde sempre. Documentado, não
+       corrigido — mudá-lo alteraria o término de renovações já gravadas. */
+    expect(r.renovacao.novoTermino).toBe('2028-07-01')
+  })
+
+  it('dia que existe no mês de destino não transborda', () => {
+    const c = { ...semPrazoCadastrado, terminoVigencia: '2026-12-30' }
+    expect(renovar(c, { meses: 18 })!.renovacao.novoTermino).toBe('2028-06-30')
+  })
+
+  it('aceita prazo em anos e dias', () => {
+    expect(renovar(semPrazoCadastrado, { anos: 1, meses: 0, dias: 0 })!.renovacao.novoTermino).toBe('2027-12-31')
+    expect(renovar(semPrazoCadastrado, { anos: 0, meses: 0, dias: 30 })!.renovacao.novoTermino).toBe('2027-01-30')
+  })
+
+  it('sem prazo nenhum, recusa', () => {
+    expect(renovar(semPrazoCadastrado, { anos: 0, meses: 0, dias: 0 })).toBeNull()
+  })
+})

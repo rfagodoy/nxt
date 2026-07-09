@@ -296,22 +296,44 @@ export function VigenciaFields({ form, ro }: { form: ContractForm; ro?: boolean 
   /* ── Renovar período (renovação MANUAL) ───────────────────────────────────
      Mora aqui, e não na aba de pagamentos, porque o que ele faz de mais importante
      é estender a VIGÊNCIA e somar o período ao valor do contrato — gerar as parcelas
-     é consequência. É a mesma `renovarPeriodo` que o motor de datas usa. */
+     é consequência. É a mesma `renovarPeriodo` que o motor de datas usa.
+
+     Aparece sempre que renovar faça sentido: prazo determinado, com término, e a ação
+     no término não é "Encerrar". Note que NÃO basta a ação ser "Renovar automaticamente":
+     o motor só age DEPOIS do término (aqui você antecipa) e a renovação automática pode
+     estar desligada nos parâmetros globais — nesses casos este botão é a única saída.
+     Com ação "Definir manualmente" não há prazo cadastrado, então ele é pedido abaixo. */
   const [renovOpen, setRenovOpen] = useState(false)
   const [renovErr, setRenovErr]   = useState<string | null>(null)
-  const anos  = parseInt(v.renovacaoAnos, 10)  || 0
-  const meses = parseInt(v.renovacaoMeses, 10) || 0
-  const dias  = parseInt(v.renovacaoDias, 10)  || 0
-  const podeRenovar = !v.prazoIndeterminado && v.acaoTermino === 'RENOVAR' && (anos || meses || dias) > 0
+  const prazoCadastrado = v.acaoTermino === 'RENOVAR'
+  /* prazo informado na hora, quando o contrato não tem um cadastrado */
+  const [rAnos, setRAnos]   = useState('')
+  const [rMeses, setRMeses] = useState('')
+  const [rDias, setRDias]   = useState('')
+
+  const anos  = parseInt(prazoCadastrado ? v.renovacaoAnos  : rAnos, 10)  || 0
+  const meses = parseInt(prazoCadastrado ? v.renovacaoMeses : rMeses, 10) || 0
+  const dias  = parseInt(prazoCadastrado ? v.renovacaoDias  : rDias, 10)  || 0
+  const temPrazo = (anos || meses || dias) > 0
+
+  const podeRenovar = !v.prazoIndeterminado && !!terminoVigente(v) && v.acaoTermino !== 'ENCERRAR'
 
   const campoRenov: LancField = campoRenovacao(v.natureza)
   /* prévia = a MESMA função que será executada, só que descartada: o que você lê é o que acontece */
-  const previa = podeRenovar
+  const previa = podeRenovar && temPrazo
     ? renovarPeriodo(v, { campo: campoRenov, anos, meses, dias, data: todayISO(), automatica: false, id: 'previa', makeId: i => `previa_${i}` })
     : null
 
+  const abrirRenovacao = () => {
+    setRenovErr(null)
+    /* sem prazo cadastrado, começa pelo prazo do contrato (se houver) como sugestão */
+    if (!prazoCadastrado) { setRAnos(v.renovacaoAnos || ''); setRMeses(v.renovacaoMeses || ''); setRDias(v.renovacaoDias || '') }
+    setRenovOpen(true)
+  }
+
   const confirmarRenovacao = () => {
     setRenovErr(null)
+    if (!temPrazo) { setRenovErr('Informe por quanto tempo renovar (anos, meses ou dias).'); return }
     const res = renovarPeriodo(v, {
       campo: campoRenov, anos, meses, dias, data: todayISO(), automatica: false,
       id: `reno_${Date.now()}`, makeId: () => uid(),
@@ -377,9 +399,14 @@ export function VigenciaFields({ form, ro }: { form: ContractForm; ro?: boolean 
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-xs font-medium">Renovar período</p>
-                <p className="text-[11px] text-muted-foreground">Estende a vigência pelo prazo de renovação e projeta as parcelas do novo período.</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Estende a vigência e projeta as parcelas do novo período, somando-as ao valor do contrato.
+                  {prazoCadastrado
+                    ? ' O motor de datas faz isto sozinho após o término — use aqui para antecipar.'
+                    : ' Este contrato não renova sozinho: o prazo é informado na confirmação.'}
+                </p>
               </div>
-              <button type="button" onClick={() => { setRenovErr(null); setRenovOpen(true) }}
+              <button type="button" onClick={abrirRenovacao}
                 className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-3 text-xs font-medium transition-colors hover:bg-muted">
                 <RefreshCw className="h-3.5 w-3.5" />Renovar período
               </button>
@@ -387,6 +414,19 @@ export function VigenciaFields({ form, ro }: { form: ContractForm; ro?: boolean 
           ) : (
             <div className="space-y-2">
               <p className="text-xs font-medium">Confirmar renovação</p>
+
+              {/* sem prazo cadastrado ("Definir manualmente"), o prazo é informado agora */}
+              {!prazoCadastrado && (
+                <div>
+                  <p className="mb-1 text-[10px] font-medium text-muted-foreground">Renovar por</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <NumBox caption="Anos"  value={rAnos}  onChange={setRAnos} />
+                    <NumBox caption="Meses" value={rMeses} onChange={setRMeses} />
+                    <NumBox caption="Dias"  value={rDias}  onChange={setRDias} />
+                  </div>
+                </div>
+              )}
+
               {previa ? (
                 <div className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] leading-relaxed text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400">
                   A vigência passa de <strong className="tabular-nums">{fmtDataBR(String(previa.renovacao.terminoAnterior))}</strong> para{' '}
@@ -399,7 +439,9 @@ export function VigenciaFields({ form, ro }: { form: ContractForm; ro?: boolean 
                   )}
                 </div>
               ) : (
-                <p className="text-[11px] text-muted-foreground">Defina o término da vigência antes de renovar.</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {temPrazo ? 'Defina o término da vigência antes de renovar.' : 'Informe por quanto tempo renovar.'}
+                </p>
               )}
               {renovErr && <p className="text-[11px] font-medium text-red-600 dark:text-red-400">{renovErr}</p>}
               <div className="flex items-center justify-end gap-2">
