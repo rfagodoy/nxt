@@ -16,6 +16,7 @@ const JSON_FIELDS: Record<string, string[]> = {
   Contract: ['objeto', 'partes', 'reajustes', 'documentos', 'pagamentos', 'recebimentos', 'aditivos', 'renovacoes', 'reajustesRealizados'],
   ContractAuditLog: ['changes'],
   OrgUnit: ['usuarios'],
+  GroupCompany: ['contatos', 'enderecos', 'bancos', 'socios'],
   AppSetting: ['value'],
 }
 

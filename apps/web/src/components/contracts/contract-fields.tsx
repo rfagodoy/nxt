@@ -559,6 +559,29 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
     setGerarOpen(false)
   }
 
+  /* Gerar próximo período (renovação): qtd parcelas a partir do mês seguinte ao último vencimento,
+     na parcela vigente (já reajustada), como "a vencer"; registra a renovação (estende vigência +
+     valorPeriodo que soma ao total). É a versão manual do que o motor faz na renovação automática. */
+  const gerarProximoPeriodo = () => {
+    setGErr(null)
+    const qtd = parseInt(v.qtdParcelas, 10) || 0
+    const parcelaVig = parseFloat(parcelaVigente(v)) || 0
+    if (!(qtd > 0))       { setGErr('Defina a quantidade de parcelas no contrato (aba Valor e Pagamento).'); setGerarOpen(true); return }
+    if (!(parcelaVig > 0)) { setGErr('Defina o valor da parcela no contrato.'); setGerarOpen(true); return }
+    const ultimoVenc = lista.map(l => l.vencimento || l.data).filter(Boolean).sort().pop()
+    const base = ultimoVenc || v.inicioVigencia
+    if (!base) { setGErr('Sem vencimento de referência — gere o cronograma inicial primeiro.'); setGerarOpen(true); return }
+    const novos = Array.from({ length: qtd }, (_, i) => {
+      const l = newCLancamento('previsto')
+      l.vencimento = addMesesISO(base, i + 1)
+      l.valor = String(parcelaVig)
+      return l
+    })
+    const reno = { id: `reno_${Date.now()}`, data: hoje, terminoAnterior: terminoVigente(v), novoTermino: novos[novos.length - 1].vencimento, automatica: false, valorPeriodo: String(qtd * parcelaVig) }
+    form.setValues(p => ({ ...p, [field]: [...p[field], ...novos], renovacoes: [...(p.renovacoes ?? []), reno] }))
+    setOpenYears(s => new Set([...s, ...novos.map(l => l.vencimento.slice(0, 4))]))
+  }
+
   const COLS = 'grid grid-cols-[7rem_8rem_7rem_6rem_7rem_5.5rem_1fr_1.25rem] items-center gap-2'
   const cell = cn(inputCls, 'h-7')
 
@@ -579,6 +602,7 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
         <div className="flex items-center gap-4">
           <button type="button" onClick={() => form.addLanc(field)} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar {singular}</button>
           <button type="button" onClick={abrirGerar} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-medium transition-colors"><ListPlus className="h-3.5 w-3.5" />Gerar cronograma</button>
+          <button type="button" onClick={gerarProximoPeriodo} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-medium transition-colors"><RefreshCw className="h-3.5 w-3.5" />Gerar próximo período</button>
         </div>
         {lista.length > 0 && <span className="text-[11px] text-muted-foreground">{lista.length} lançamento{lista.length > 1 ? 's' : ''} · <span className="font-semibold tabular-nums text-foreground">{money(total)}</span></span>}
       </div>
@@ -816,13 +840,26 @@ function ReajusteRealizados({ form, indices, linha }: { form: ContractForm; indi
   const [valorNovo, setValorNovo]       = useState('')
   const [parcelaAnterior, setParcAnt]   = useState('')
   const [parcelaNova, setParcNova]      = useState('')
-  const [parcelasReaj, setParcelasReaj] = useState('')
+  const [parcelasReaj, setParcelasReaj] = useState('')   // fallback: nº de parcelas quando NÃO há cronograma
   const [observacao, setObservacao]     = useState('')
   const [erro, setErro]                 = useState<string | null>(null)
 
   const moedaFmt = (s: string | number) => `${v.moeda ? v.moeda + ' ' : ''}${(Number(s) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   const realizados = (v.reajustesRealizados ?? []).filter(x => x.reajusteId === linha.id).sort((a, b) => (a.competencia < b.competencia ? 1 : -1))
-  const derivaTotal = !v.prazoIndeterminado  // parcela reajusta o total só em prazo determinado (tem nº de parcelas)
+  /* campos de lançamento da natureza + se HÁ cronograma (algum lançamento) → decide o modo do reajuste:
+     com cronograma = reprecifica as parcelas reais; sem cronograma = usa a quantidade de parcelas. */
+  const camposLanc = ([temPagamentos(v.natureza) ? 'pagamentos' : null, temRecebimentos(v.natureza) ? 'recebimentos' : null].filter(Boolean)) as ('pagamentos' | 'recebimentos')[]
+  const temCronograma = camposLanc.some(campo => v[campo].length > 0)
+  /* parcelas do cronograma a REPRECIFICAR: a vencer (não pagas) com vencimento >= competência. */
+  const parcelasAlvo = (comp: string): CLancamento[] => {
+    if (!comp) return []
+    const alvo: CLancamento[] = []
+    for (const campo of camposLanc) for (const l of v[campo]) {
+      const ref = l.vencimento || l.data
+      if (!lancPago(l) && ref && ref.slice(0, 7) >= comp) alvo.push(l)
+    }
+    return alvo
+  }
   /* competência não pode ser futura: reajuste realizado é um fato (já ocorreu) */
   const mesAtual = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` })()
 
@@ -837,32 +874,45 @@ function ReajusteRealizados({ form, indices, linha }: { form: ContractForm; indi
     const prox = anchor ? addMesesComp(anchor, stepMesesReaj(linha.periodicidade)) : ''
     return prox && prox <= mesAtual ? prox : ''
   }
-  const sugerido = indiceVals.get(linha.indice, competencia)
+  /* % ACUMULADO do índice na janela da periodicidade (12/6/3… meses) terminando na competência,
+     por composição: fator = ∏(1 + varₘ/100). Usa a série mensal já guardada na tabela de valores. */
+  const acumuladoPeriodo = (comp: string): number | null => {
+    if (!comp) return null
+    const n = stepMesesReaj(linha.periodicidade)
+    let fator = 1, achou = false
+    for (let k = 0; k < n; k++) {
+      const varM = indiceVals.get(linha.indice, addMesesComp(comp, -k))
+      if (varM != null) { fator *= 1 + varM / 100; achou = true }
+    }
+    return achou ? (fator - 1) * 100 : null
+  }
+  const sugerido = acumuladoPeriodo(competencia)
 
-  /* recalcula novo valor total (base total) OU nova parcela + total derivado (base parcela) */
-  const recalc = (pctStr: string, b: string, vAnt: string, pAnt: string, parcReaj: string) => {
+  /* recalcula novo valor total. base=parcela: com cronograma reprecifica as parcelas a vencer (delta real);
+     sem cronograma usa a quantidade informada: delta = (nova − anterior) × qtd. */
+  const recalc = (pctStr: string, b: string, vAnt: string, pAnt: string, comp: string, parcReaj: string) => {
     const pct = parseFloat(String(pctStr).replace(',', '.')) || 0
     if (b === 'total') {
       const va = parseFloat(vAnt) || 0
       if (va && pct) setValorNovo((va * (1 + pct / 100)).toFixed(2))
       return
     }
-    // base = parcela
     const pa = parseFloat(pAnt) || 0
     const novaP = (pa && pct) ? pa * (1 + pct / 100) : (parseFloat(parcelaNova) || 0)
     if (pa && pct) setParcNova(novaP.toFixed(2))
-    if (derivaTotal) {
-      // acréscimo ao total = novo stream de parcelas inteiro (nova parcela × parcelas a reajustar)
-      const totalVig = valorVigente(v)
-      const qtd = parseFloat(parcReaj) || 0
-      setValorAnt(totalVig ? totalVig.toFixed(2) : '0')
-      if (novaP) setValorNovo((totalVig + novaP * qtd).toFixed(2))
+    const totalVig = valorVigente(v)
+    setValorAnt(totalVig ? totalVig.toFixed(2) : '0')
+    if (novaP) {
+      const delta = temCronograma
+        ? parcelasAlvo(comp).reduce((s, l) => s + (novaP - (parseFloat(l.valor) || 0)), 0)
+        : (novaP - pa) * (parseInt(parcReaj, 10) || 0)
+      setValorNovo((totalVig + delta).toFixed(2))
     }
   }
-  /* se houver valor na tabela de índices p/ este índice + competência, pré-preenche o % e recalcula */
+  /* usa o % acumulado da periodicidade p/ pré-preencher e recalcular */
   const aplicarSugestao = (comp: string, b: string, vAnt: string, pAnt: string, parcReaj: string) => {
-    const sug = indiceVals.get(linha.indice, comp)
-    if (sug != null) { setPercentual(String(sug).replace('.', ',')); recalc(String(sug), b, vAnt, pAnt, parcReaj) }
+    const sug = acumuladoPeriodo(comp)
+    if (sug != null) { const s = sug.toFixed(2); setPercentual(s.replace('.', ',')); recalc(s, b, vAnt, pAnt, comp, parcReaj) }
   }
 
   const abrir = () => {
@@ -870,7 +920,7 @@ function ReajusteRealizados({ form, indices, linha }: { form: ContractForm; indi
     const comp = sugereCompetencia()
     const vAnt = b === 'total' ? (valorVigente(v) ? valorVigente(v).toFixed(2) : '') : ''
     const pAnt = b === 'parcela' ? (parcelaVigente(v) || '') : ''
-    const pReaj = (b === 'parcela' && derivaTotal) ? (v.qtdParcelas || '') : ''
+    const pReaj = (b === 'parcela' && !temCronograma) ? (v.qtdParcelas || '') : ''
     setCompetencia(comp); setBase(b)
     setPercentual(''); setValorAnt(vAnt); setValorNovo(''); setParcAnt(pAnt); setParcNova(''); setParcelasReaj(pReaj); setObservacao(''); setErro(null)
     setAberto(true)
@@ -879,14 +929,14 @@ function ReajusteRealizados({ form, indices, linha }: { form: ContractForm; indi
   const onBase = (b: string) => {
     const vAnt  = b === 'total'   ? (valorAnterior   || (valorVigente(v) ? valorVigente(v).toFixed(2) : '')) : valorAnterior
     const pAnt  = b === 'parcela' ? (parcelaAnterior || parcelaVigente(v) || '') : parcelaAnterior
-    const pReaj = (b === 'parcela' && derivaTotal) ? (parcelasReaj || v.qtdParcelas || '') : parcelasReaj
-    setBase(b); setValorAnt(vAnt); setParcAnt(pAnt); setParcelasReaj(pReaj); recalc(percentual, b, vAnt, pAnt, pReaj)
+    const pReaj = (b === 'parcela' && !temCronograma) ? (parcelasReaj || v.qtdParcelas || '') : parcelasReaj
+    setBase(b); setValorAnt(vAnt); setParcAnt(pAnt); setParcelasReaj(pReaj); recalc(percentual, b, vAnt, pAnt, competencia, pReaj)
   }
   const onCompetencia = (comp: string) => { setCompetencia(comp); aplicarSugestao(comp, base, valorAnterior, parcelaAnterior, parcelasReaj) }
-  const onPercentual = (p: string) => { setPercentual(p); recalc(p, base, valorAnterior, parcelaAnterior, parcelasReaj) }
-  const onValorAnterior   = (val: string) => { setValorAnt(val); recalc(percentual, base, val, parcelaAnterior, parcelasReaj) }
-  const onParcelaAnterior = (val: string) => { setParcAnt(val); recalc(percentual, base, valorAnterior, val, parcelasReaj) }
-  const onParcelasReaj    = (val: string) => { setParcelasReaj(val); recalc(percentual, base, valorAnterior, parcelaAnterior, val) }
+  const onPercentual = (p: string) => { setPercentual(p); recalc(p, base, valorAnterior, parcelaAnterior, competencia, parcelasReaj) }
+  const onValorAnterior   = (val: string) => { setValorAnt(val); recalc(percentual, base, val, parcelaAnterior, competencia, parcelasReaj) }
+  const onParcelaAnterior = (val: string) => { setParcAnt(val); recalc(percentual, base, valorAnterior, val, competencia, parcelasReaj) }
+  const onParcelasReaj    = (val: string) => { setParcelasReaj(val); recalc(percentual, base, valorAnterior, parcelaAnterior, competencia, val) }
 
   const registrar = () => {
     if (!linha.indice) { setErro('Defina o índice deste reajuste acima primeiro.'); return }
@@ -899,19 +949,40 @@ function ReajusteRealizados({ form, indices, linha }: { form: ContractForm; indi
     rec.indiceSnapshot = labelOf(indices.entries, linha.indice) || ''
     rec.base           = base
     rec.percentual     = percentual ? String(parseFloat(String(percentual).replace(',', '.')) || 0) : ''
-    if (base === 'total') {
-      rec.valorAnterior = String(parseFloat(valorAnterior) || 0); rec.valorNovo = String(parseFloat(valorNovo) || 0)
-    } else {
-      rec.parcelaAnterior = String(parseFloat(parcelaAnterior) || 0); rec.parcelaNova = String(parseFloat(parcelaNova) || 0)
-      if (derivaTotal) {  // parcela também move o total, via nº de parcelas a reajustar
-        rec.parcelasReajustadas = String(parseInt(parcelasReaj, 10) || 0)
-        rec.valorAnterior = String(parseFloat(valorAnterior) || 0); rec.valorNovo = String(parseFloat(valorNovo) || 0)
-      }
-    }
     rec.observacao     = observacao.trim()
     rec.dataAplicacao  = new Date().toISOString().slice(0, 10)
     rec.createdAt      = new Date().toISOString()
-    form.addReajRealizado(rec)
+    if (base === 'total') {
+      rec.valorAnterior = String(parseFloat(valorAnterior) || 0); rec.valorNovo = String(parseFloat(valorNovo) || 0)
+      form.addReajRealizado(rec)
+    } else {
+      const novaP    = parseFloat(parcelaNova) || 0
+      const totalVig = valorVigente(v)
+      rec.parcelaAnterior = String(parseFloat(parcelaAnterior) || 0)
+      rec.parcelaNova     = String(novaP)
+      if (temCronograma) {
+        /* reprecifica as parcelas a vencer (>= competência); total cresce só pelo delta real */
+        const alvo    = parcelasAlvo(competencia)
+        const alvoIds = new Set(alvo.map(l => l.id))
+        const delta   = alvo.reduce((s, l) => s + (novaP - (parseFloat(l.valor) || 0)), 0)
+        rec.parcelasReajustadas = String(alvo.length)
+        rec.valorAnterior = String(totalVig); rec.valorNovo = String(totalVig + delta)
+        form.setValues(p => {
+          const upd = { ...p, reajustesRealizados: [...(p.reajustesRealizados ?? []), rec] }
+          for (const campo of ['pagamentos', 'recebimentos'] as const) {
+            upd[campo] = p[campo].map(l => (alvoIds.has(l.id) ? { ...l, valor: String(novaP) } : l))
+          }
+          return upd
+        })
+      } else {
+        /* sem cronograma: usa a quantidade informada → total cresce por (nova − anterior) × qtd */
+        const count = parseInt(parcelasReaj, 10) || 0
+        const delta = (novaP - (parseFloat(parcelaAnterior) || 0)) * count
+        rec.parcelasReajustadas = String(count)
+        rec.valorAnterior = String(totalVig); rec.valorNovo = String(totalVig + delta)
+        form.addReajRealizado(rec)
+      }
+    }
     setAberto(false)
   }
 
@@ -921,8 +992,7 @@ function ReajusteRealizados({ form, indices, linha }: { form: ContractForm; indi
     : `${moedaFmt(r.valorAnterior)} → ${moedaFmt(r.valorNovo)}`
   const selCls  = cn(inputCls, 'h-7')
   const readCls2 = cn(selCls, 'bg-muted/40 text-muted-foreground')
-  /* valor das parcelas reajustadas = nova parcela × parcelas a reajustar */
-  const novoValorParcelas = (parseFloat(parcelaNova) || 0) * (parseInt(parcelasReaj, 10) || 0)
+  const alvoCount = parcelasAlvo(competencia).length  // parcelas do cronograma que serão reprecificadas
 
   return (
     <div className="space-y-2 pt-3 border-t border-border/60">
@@ -972,7 +1042,7 @@ function ReajusteRealizados({ form, indices, linha }: { form: ContractForm; indi
             <label className="space-y-1 col-span-2">
               <span className="text-[10px] font-medium text-muted-foreground">
                 Percentual aplicado (%)
-                {sugerido != null && <span className="ml-1 text-emerald-600 dark:text-emerald-400 font-normal">· índice: {String(sugerido).replace('.', ',')}%</span>}
+                {sugerido != null && <span className="ml-1 text-emerald-600 dark:text-emerald-400 font-normal">· acumulado {stepMesesReaj(linha.periodicidade)}m: {sugerido.toFixed(2).replace('.', ',')}%</span>}
               </span>
               <input value={percentual} onChange={e => onPercentual(e.target.value)} placeholder="0,00" className={selCls} />
             </label>
@@ -997,22 +1067,22 @@ function ReajusteRealizados({ form, indices, linha }: { form: ContractForm; indi
                   <span className="text-[10px] font-medium text-muted-foreground">Nova parcela</span>
                   <input value={parcelaNova} onChange={e => setParcNova(e.target.value)} placeholder="0,00" className={selCls} />
                 </label>
-                {derivaTotal && (
-                  <>
-                    <label className="space-y-1">
-                      <span className="text-[10px] font-medium text-muted-foreground">Parcelas a reajustar</span>
-                      <input type="number" min="0" step="1" value={parcelasReaj} onChange={e => onParcelasReaj(e.target.value)} placeholder={v.qtdParcelas || 'Ex: 12'} className={selCls} />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-[10px] font-medium text-muted-foreground">Novo valor das parcelas</span>
-                      <input value={novoValorParcelas ? novoValorParcelas.toFixed(2) : ''} readOnly title="Nova parcela × parcelas a reajustar" className={readCls2} />
-                    </label>
-                    <label className="space-y-1 col-span-2">
-                      <span className="text-[10px] font-medium text-muted-foreground">Novo valor total do contrato (calculado)</span>
-                      <input value={valorNovo} readOnly title="Total vigente + (nova parcela × parcelas a reajustar)" className={readCls2} />
-                    </label>
-                  </>
+                {temCronograma ? (
+                  <div className="col-span-2 rounded-md bg-muted/30 px-2.5 py-1.5 text-[10px] text-muted-foreground">
+                    {alvoCount > 0
+                      ? <>Serão atualizadas <span className="font-semibold text-foreground">{alvoCount}</span> parcela(s) a vencer do cronograma (a partir de {fmtMesAnoBR(competencia)}) para <span className="font-semibold text-foreground tabular-nums">{moedaFmt(parcelaNova)}</span>. Parcelas já pagas ficam intactas.</>
+                      : <>Nenhuma parcela a vencer no cronograma a partir de {competencia ? fmtMesAnoBR(competencia) : '—'}. As próximas parcelas geradas já usarão o novo valor.</>}
+                  </div>
+                ) : (
+                  <label className="space-y-1">
+                    <span className="text-[10px] font-medium text-muted-foreground">Parcelas a reajustar</span>
+                    <input type="number" min="0" step="1" value={parcelasReaj} onChange={e => onParcelasReaj(e.target.value)} placeholder={v.qtdParcelas || 'Ex: 12'} className={selCls} />
+                  </label>
                 )}
+                <label className={cn('space-y-1', temCronograma ? 'col-span-2' : '')}>
+                  <span className="text-[10px] font-medium text-muted-foreground">Novo valor total do contrato (calculado)</span>
+                  <input value={valorNovo} readOnly title="Total vigente + efeito do reajuste de parcela" className={readCls2} />
+                </label>
               </>
             )}
             <label className="space-y-1 col-span-2">

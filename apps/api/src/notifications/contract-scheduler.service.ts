@@ -128,16 +128,37 @@ export class ContractSchedulerService implements OnModuleInit {
             const anos = Number(c.renovacaoAnos) || 0, meses = Number(c.renovacaoMeses) || 0, dias = Number(c.renovacaoDias) || 0
             if (anos || meses || dias) {
               const renos = [...((c.renovacoes as any[]) ?? [])]
+              /* se o contrato tem cronograma, cada período renovado GERA suas parcelas (a vencer) na
+                 parcela vigente + valorPeriodo que soma ao total. Sem cronograma, só estende a vigência. */
+              const campo = c.natureza === 'RECEITA' ? 'recebimentos' : 'pagamentos'
+              const lancs = [...((c[campo] as any[]) ?? [])]
+              const temCrono = lancs.length > 0
+              const qtd = Number(c.qtdParcelas) || 0
+              const parcelaVig = this.parcelaVigenteBackend(c)
+              let ultimoVenc = lancs.map(l => String(l.vencimento || l.data || '')).filter(Boolean).sort().pop() || ''
+              let geradas = false
               let guard = 0
               while (termino && termino < today && guard++ < 120) {
                 const novo = addToDate(termino, anos, meses, dias)
                 if (novo <= termino) break // prazo inválido → evita loop infinito
-                renos.push({ id: `${Date.now()}_${guard}`, data: today, terminoAnterior: termino, novoTermino: novo, automatica: true })
+                let valorPeriodo = 0
+                if (temCrono && qtd > 0 && parcelaVig > 0 && ultimoVenc) {
+                  for (let i = 1; i <= qtd; i++) {
+                    const venc = addToDate(ultimoVenc.slice(0, 10), 0, i, 0)
+                    lancs.push({ id: `l_${Date.now()}_${guard}_${i}`, status: 'previsto', vencimento: venc, data: '', valor: parcelaVig, forma: '', documento: '', observacao: '' })
+                  }
+                  ultimoVenc = addToDate(ultimoVenc.slice(0, 10), 0, qtd, 0)
+                  valorPeriodo = qtd * parcelaVig
+                  geradas = true
+                }
+                renos.push({ id: `${Date.now()}_${guard}`, data: today, terminoAnterior: termino, novoTermino: novo, automatica: true, valorPeriodo })
                 termino = novo; renovados++
               }
-              await this.prisma.contract.update({ where: { id: c.id }, data: { renovacoes: renos as never } })
-              c.renovacoes = renos
-              await this.audit(c.id, 'RENOVADO', [{ field: 'renovacao', label: 'Renovação automática', before: '—', after: `vigência estendida até ${fmtBR(termino)}` }])
+              const upd: any = { renovacoes: renos }
+              if (geradas) upd[campo] = lancs
+              await this.prisma.contract.update({ where: { id: c.id }, data: upd as never })
+              c.renovacoes = renos; if (geradas) c[campo] = lancs
+              await this.audit(c.id, 'RENOVADO', [{ field: 'renovacao', label: 'Renovação automática', before: '—', after: `vigência estendida até ${fmtBR(termino)}${geradas ? ' + parcelas do período geradas' : ''}` }])
             }
           } else if (c.acaoTermino === 'ENCERRAR') {
             await this.prisma.contract.update({ where: { id: c.id }, data: { situacao: 'ENCERRADO' } })
@@ -233,7 +254,18 @@ export class ContractSchedulerService implements OnModuleInit {
     let v = Number(c.valorTotal) || 0
     for (const a of ((c.aditivos as any[]) ?? [])) if (a.situacao !== 'RASCUNHO' && a.alteraValor && a.novoValor != null) v += Number(a.novoValor) || 0
     for (const r of ((c.reajustesRealizados as any[]) ?? [])) v += (Number(r.valorNovo) || 0) - (Number(r.valorAnterior) || 0)
+    for (const r of ((c.renovacoes as any[]) ?? [])) v += Number(r.valorPeriodo) || 0
     return v
+  }
+  /* parcela vigente = última definida por aditivo ATIVO (novaParcela) ou reajuste (parcelaNova), por data */
+  private parcelaVigenteBackend(c: any): number {
+    let p = Number(c.valorParcela) || 0
+    const eventos = [
+      ...((c.aditivos as any[]) ?? []).filter(a => a.situacao !== 'RASCUNHO' && a.alteraValor && a.novaParcela != null).map(a => ({ data: String(a.data ?? ''), val: Number(a.novaParcela) })),
+      ...((c.reajustesRealizados as any[]) ?? []).filter(r => Number(r.parcelaNova)).map(r => ({ data: String(r.competencia ?? ''), val: Number(r.parcelaNova) })),
+    ].sort((x, y) => (x.data < y.data ? -1 : x.data > y.data ? 1 : 0))
+    for (const e of eventos) if (e.val) p = e.val
+    return p
   }
   private consumo(c: any): number {
     const arr = (c.natureza === 'RECEITA' ? c.recebimentos : c.pagamentos) as any[]

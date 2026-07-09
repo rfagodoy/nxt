@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
-import { ModuleSchema } from '@nxt/types'
+import { ModuleColumn, ModuleSchema } from '@nxt/types'
 
 @Injectable()
 export class ModulesService {
@@ -44,6 +44,31 @@ export class ModulesService {
     }
 
     const where = { moduleId: module.id }
+
+    // Padrão: ordem alfabética pela coluna de "nome" do registro. Como o dado é JSON e o
+    // conector SQL Server do Prisma não ordena por JSON, ordenamos por JSON_VALUE em SQL cru
+    // (só p/ obter os IDs da página) e hidratamos via Prisma (mantém includes e (de)serialização).
+    const orderCol = this.primarySortColumn(module.schema)
+    if (orderCol) {
+      const offset = (page - 1) * pageSize
+      const idsSql =
+        `SELECT id FROM module_records WHERE moduleId = @P1 ` +
+        `ORDER BY JSON_VALUE(data, '$.${orderCol}') ASC, createdAt DESC ` +
+        `OFFSET @P2 ROWS FETCH NEXT @P3 ROWS ONLY`
+      const [idRows, total] = await Promise.all([
+        this.prisma.$queryRawUnsafe<Array<{ id: string }>>(idsSql, module.id, offset, pageSize),
+        this.prisma.moduleRecord.count({ where }),
+      ])
+      const ids = idRows.map((r) => r.id)
+      const found = ids.length
+        ? await this.prisma.moduleRecord.findMany({ where: { id: { in: ids } }, include })
+        : []
+      const byId = new Map(found.map((r) => [r.id, r]))
+      const data = ids.map((id) => byId.get(id)).filter(Boolean)
+      return { data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
+    }
+
+    // Sem coluna de nome segura no schema → ordena por data de criação (mais recentes primeiro).
     const [records, total] = await Promise.all([
       this.prisma.moduleRecord.findMany({
         where,
@@ -56,6 +81,21 @@ export class ModulesService {
     ])
 
     return { data: records, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
+  }
+
+  /**
+   * Coluna que representa o "nome" do registro para a ordenação alfabética padrão:
+   * a 1ª coluna exibida na lista com nome seguro (defesa contra injeção no path do JSON_VALUE);
+   * na falta dela, a 1ª coluna com nome seguro. Retorna null se nenhuma servir.
+   */
+  private primarySortColumn(moduleSchema: unknown): string | null {
+    const schema = moduleSchema as unknown as ModuleSchema
+    const safe = (c: ModuleColumn) => /^[A-Za-z0-9_]+$/.test(c.name)
+    const cols = schema?.columns ?? []
+    const inList = cols.find((c) => c.showInList && safe(c))
+    if (inList) return inList.name
+    const any = cols.find(safe)
+    return any ? any.name : null
   }
 
   /**

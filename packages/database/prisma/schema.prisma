@@ -348,7 +348,14 @@ model GroupCompany {
   razaoSocial    String
   nomeFantasia   String?
   cnpj           String?
+  ie             String?  // inscrição estadual
+  im             String?  // inscrição municipal
   status         String   @default("ATIVA") // ATIVA | INATIVA
+  // Campos PJ reaproveitados do cadastro de Parceiros (JSON serializado via middleware).
+  contatos       String   @default("[]") @db.NVarChar(Max) // [JSON]
+  enderecos      String   @default("[]") @db.NVarChar(Max) // [JSON]
+  bancos         String   @default("[]") @db.NVarChar(Max) // [JSON]
+  socios         String   @default("[]") @db.NVarChar(Max) // [JSON]
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

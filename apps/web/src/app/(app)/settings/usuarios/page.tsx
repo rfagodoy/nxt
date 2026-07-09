@@ -41,7 +41,12 @@ export default function UsuariosPage() {
     setLoading(true)
     const res = await apiFetch('/api/users')
     if (res.status === 403) { setForbidden(true); setLoading(false); return }
-    if (res.ok) setUsers((await res.json()) as UserRow[])
+    if (res.ok) {
+      const rows = (await res.json()) as UserRow[]
+      // Padrão: ordem alfabética por nome.
+      rows.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }))
+      setUsers(rows)
+    }
     setLoading(false)
   }, [])
 

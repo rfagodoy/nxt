@@ -28,6 +28,10 @@ interface LookupTablePageProps {
   withCode?: boolean
   codeLabel?: string
   codePlaceholder?: string
+  /** Limite de caracteres do Código (ex.: 15). Sem limite quando ausente. */
+  codeMaxLength?: number
+  /** Restringe o Código a caracteres alfanuméricos (A-Z, a-z, 0-9). */
+  codeAlnum?: boolean
   /** Coluna de seleção opcional gravada em `entry.origem` (ex.: origem do papel). */
   selectField?: SelectFieldConfig
 }
@@ -39,8 +43,16 @@ type StatusFilter = 'all' | 'active' | 'inactive'
 export function LookupTablePage({
   title, description, icon: Icon, storageKey, initialData,
   withCode = false, codeLabel = 'Código', codePlaceholder = 'Ex: BRL',
+  codeMaxLength, codeAlnum = false,
   selectField,
 }: LookupTablePageProps) {
+  /** Normaliza o Código conforme as regras da tabela (alfanumérico e/ou limite de tamanho). */
+  const sanitizeCode = (v: string) => {
+    let s = v
+    if (codeAlnum) s = s.replace(/[^A-Za-z0-9]/g, '')
+    if (codeMaxLength) s = s.slice(0, codeMaxLength)
+    return s
+  }
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
 
@@ -63,8 +75,9 @@ export function LookupTablePage({
   const [editErr,   setEditErr]   = useState('')
 
   // toolbar: busca, ordenação, filtro de status
+  // Padrão: ordem alfabética por Nome (asc). O usuário ainda pode reordenar/limpar clicando nos cabeçalhos.
   const [search, setSearch] = useState('')
-  const [sort,   setSort]   = useState<SortState | null>(null)
+  const [sort,   setSort]   = useState<SortState | null>({ col: 'label', dir: 'asc' })
   const [status, setStatus] = useState<StatusFilter>('all')
 
   const origemLabel = (v?: string) => selectField?.options.find(o => o.value === v)?.label ?? '—'
@@ -249,7 +262,7 @@ export function LookupTablePage({
                   <td className="px-4 py-1 text-muted-foreground">—</td>
                   {withCode && (
                     <td className="px-3 py-1">
-                      <input value={newCode} onChange={e => setNewCode(e.target.value)}
+                      <input value={newCode} onChange={e => setNewCode(sanitizeCode(e.target.value))} maxLength={codeMaxLength}
                         onKeyDown={e => { if (e.key === 'Enter') handleAdd(); if (e.key === 'Escape') cancelAdd() }}
                         placeholder={codePlaceholder} className={inputCls} autoFocus={withCode} />
                     </td>
@@ -289,7 +302,7 @@ export function LookupTablePage({
                     <td className="px-4 py-1 text-muted-foreground">{idx + 1}</td>
                     {withCode && (
                       <td className="px-3 py-1">
-                        <input value={editCode} onChange={e => setEditCode(e.target.value)}
+                        <input value={editCode} onChange={e => setEditCode(sanitizeCode(e.target.value))} maxLength={codeMaxLength}
                           onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditingId(null) }}
                           placeholder={codePlaceholder} className={inputCls} autoFocus={withCode} />
                       </td>

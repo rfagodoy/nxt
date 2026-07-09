@@ -3,13 +3,19 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Building2, Plus, Pencil, Trash2, X, ChevronRight, ChevronDown,
-  Network, Search,
+  Network, Search, Phone, MapPin, CreditCard, Users,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { useLookupTable, type LookupEntry } from '@/hooks/use-lookup-table'
 import { TIPOS_UNIDADE_KEY, INIT_TIPOS_UNIDADE, CLASS_COLOR } from '@/lib/unit-types'
 import { useWorkspace } from '@/contexts/workspace-context'
+import {
+  usePartnerForm, emptyPartnerForm, Field, maskCNPJ,
+  ContatoFields, EnderecoFields, BancarioFields, SociosFields,
+  validateSociosParticipacao,
+  type PCon, type PEnd, type PBan, type PSoc,
+} from '@/components/partners/partner-fields'
 
 /** Aparência (cor + rótulos) de uma unidade a partir do seu tipo configurável. */
 function unitTypeView(typeMap: Record<string, LookupEntry>, natureza: string) {
@@ -32,6 +38,17 @@ interface Company {
   id: string; codigo?: string | null; razaoSocial: string; nomeFantasia?: string | null
   cnpj?: string | null; status: string; unidades?: number
 }
+/** Registro completo da empresa (GET /:id) — inclui os blocos PJ reaproveitados de Parceiros. */
+interface CompanyFull extends Company {
+  ie?: string | null; im?: string | null
+  contatos?: PCon[]; enderecos?: PEnd[]; bancos?: PBan[]; socios?: PSoc[]
+}
+/** Payload de gravação (POST/PATCH). */
+interface CompanyPayload {
+  codigo?: string; razaoSocial: string; nomeFantasia?: string; cnpj?: string
+  ie?: string; im?: string; status: string
+  contatos: PCon[]; enderecos: PEnd[]; bancos: PBan[]; socios: PSoc[]
+}
 interface Unit {
   id: string; groupCompanyId: string; parentId?: string | null
   natureza: string; codigo?: string | null; nome: string
@@ -52,65 +69,170 @@ async function api<T>(path: string, init?: RequestInit): Promise<T | null> {
 /* ─── estilos comuns ─────────────────────────────────────── */
 
 const inputCls  = 'flex h-7 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
-const labelCls  = 'block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1'
 const ROW_GRID  = 'grid grid-cols-[6.5rem_1fr_6rem_8.5rem] items-center gap-2'
 
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+function Modal({ title, onClose, wide, children }: { title: string; onClose: () => void; wide?: boolean; children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-card rounded-xl border shadow-xl w-full max-w-md mx-4 overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className={cn('bg-card rounded-xl border shadow-xl w-full overflow-hidden flex flex-col max-h-[90vh]', wide ? 'max-w-3xl' : 'max-w-md')}>
+        <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
           <h2 className="text-sm font-semibold">{title}</h2>
           <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors"><X className="h-4 w-4" /></button>
         </div>
-        <div className="p-4 space-y-3">{children}</div>
+        <div className="p-4 space-y-3 overflow-y-auto">{children}</div>
       </div>
+    </div>
+  )
+}
+
+/* ─── seção accordion (mesmo chrome do cadastro de Parceiros) ─── */
+function Section({ icon: Icon, title, isOpen, onToggle, hasError, children }: {
+  icon: React.ElementType; title: string; isOpen: boolean; onToggle: () => void
+  hasError?: boolean; children: React.ReactNode
+}) {
+  return (
+    <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+      <button type="button" onClick={onToggle}
+        className={cn('w-full px-4 py-2 flex items-center gap-2 transition-colors hover:bg-muted/40 bg-muted/30', isOpen && 'border-b')}>
+        <Icon className={cn('h-3.5 w-3.5 shrink-0', hasError ? 'text-red-500' : 'text-muted-foreground')} />
+        <h3 className={cn('text-xs font-semibold flex-1 text-left', hasError && 'text-red-500')}>{title}</h3>
+        <ChevronDown className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform duration-200', isOpen && 'rotate-180')} />
+      </button>
+      {isOpen && <div className="p-4 space-y-3">{children}</div>}
     </div>
   )
 }
 
 /* ─── modal de empresa ───────────────────────────────────── */
 
-function CompanyModal({ initial, onSave, onClose }: { initial?: Company; onSave: (d: Partial<Company>) => void; onClose: () => void }) {
-  const [codigo,       setCodigo]  = useState(initial?.codigo ?? '')
-  const [razaoSocial,  setRazao]   = useState(initial?.razaoSocial ?? '')
-  const [nomeFantasia, setFantasia] = useState(initial?.nomeFantasia ?? '')
-  const [cnpj,         setCnpj]    = useState(initial?.cnpj ?? '')
-  const [status,       setStatus]  = useState(initial?.status ?? 'ATIVA')
+function CompanyModal({ editId, initial, onSave, onClose }: {
+  editId?: string                       // id quando editando (dispara fetch do registro completo)
+  initial?: Company                     // projeção da lista (defaults imediatos de código/status)
+  onSave: (d: CompanyPayload) => Promise<boolean>
+  onClose: () => void
+}) {
+  const form = usePartnerForm(emptyPartnerForm('PJ_BR'))
+  const v    = form.values
+
+  const [codigo, setCodigo] = useState(initial?.codigo ?? '')
+  const [status, setStatus] = useState(initial?.status ?? 'ATIVA')
+  const [open,   setOpen]   = useState<Set<string>>(new Set(['identificacao']))
+  const [err,    setErr]    = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [loading, setLoading] = useState(!!editId)
+
+  const toggle = (k: string) => setOpen(p => { const n = new Set(p); n.has(k) ? n.delete(k) : n.add(k); return n })
+
+  /* edição: hidrata o formulário com o registro completo (blocos PJ inclusos) */
+  useEffect(() => {
+    if (!editId) return
+    let cancel = false
+    void api<CompanyFull>(`/api/group-companies/${editId}`).then(c => {
+      if (cancel || !c) { setLoading(false); return }
+      const base = emptyPartnerForm('PJ_BR')
+      setCodigo(c.codigo ?? '')
+      setStatus(c.status ?? 'ATIVA')
+      form.setValues({
+        ...base,
+        documento:    c.cnpj ?? '',
+        razaoSocial:  c.razaoSocial ?? '',
+        nomeFantasia: c.nomeFantasia ?? '',
+        ie:           c.ie ?? '',
+        im:           c.im ?? '',
+        contatos:  c.contatos?.length  ? c.contatos  : base.contatos,
+        enderecos: c.enderecos?.length ? c.enderecos : base.enderecos,
+        bancos:    c.bancos?.length    ? c.bancos    : base.bancos,
+        socios:    c.socios ?? [],
+      })
+      setLoading(false)
+    })
+    return () => { cancel = true }
+  }, [editId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const save = async () => {
+    const razao = v.razaoSocial.trim()
+    if (!razao) { setErr('Informe a razão social.'); setOpen(p => new Set(p).add('identificacao')); return }
+    const socErr = validateSociosParticipacao(v.socios)
+    if (socErr) { setErr(socErr); setOpen(p => new Set(p).add('socios')); return }
+    const opt = (s: string) => s.trim() || undefined
+    setSaving(true); setErr(null)
+    const ok = await onSave({
+      codigo: codigo.trim() || undefined,
+      razaoSocial: razao,
+      nomeFantasia: opt(v.nomeFantasia),
+      cnpj: opt(v.documento),
+      ie: opt(v.ie),
+      im: opt(v.im),
+      status,
+      contatos: v.contatos, enderecos: v.enderecos, bancos: v.bancos, socios: v.socios,
+    })
+    if (!ok) { setSaving(false); setErr('Não foi possível salvar a empresa. Tente novamente.') }
+    // sucesso: o componente pai fecha o modal
+  }
 
   return (
-    <Modal title={initial ? 'Editar empresa do grupo' : 'Nova empresa do grupo'} onClose={onClose}>
-      <div>
-        <label className={labelCls}>Código</label>
-        <input value={codigo ?? ''} onChange={e => setCodigo(alnum15(e.target.value))} maxLength={15}
-          placeholder="Até 15 caracteres alfanuméricos" className={cn(inputCls, 'font-mono uppercase')} />
-      </div>
-      <div>
-        <label className={labelCls}>Razão social <span className="text-red-500">*</span></label>
-        <input value={razaoSocial} onChange={e => setRazao(e.target.value)} className={inputCls} autoFocus />
-      </div>
-      <div>
-        <label className={labelCls}>Nome fantasia</label>
-        <input value={nomeFantasia ?? ''} onChange={e => setFantasia(e.target.value)} className={inputCls} />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={labelCls}>CNPJ</label>
-          <input value={cnpj ?? ''} onChange={e => setCnpj(e.target.value)} placeholder="00.000.000/0000-00" className={inputCls} />
-        </div>
-        <div>
-          <label className={labelCls}>Status</label>
-          <select value={status} onChange={e => setStatus(e.target.value)} className={inputCls}>
-            {STATUS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-          </select>
-        </div>
-      </div>
-      <div className="flex justify-end gap-2 pt-1">
-        <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Cancelar</button>
-        <button type="button" disabled={!razaoSocial.trim()}
-          onClick={() => onSave({ codigo: codigo.trim() || undefined, razaoSocial: razaoSocial.trim(), nomeFantasia: nomeFantasia?.trim() || undefined, cnpj: cnpj?.trim() || undefined, status })}
-          className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors">Salvar</button>
-      </div>
+    <Modal wide title={editId ? 'Editar empresa do grupo' : 'Nova empresa do grupo'} onClose={onClose}>
+      {loading ? (
+        <p className="text-xs text-muted-foreground py-10 text-center">Carregando dados da empresa...</p>
+      ) : (
+        <>
+          <div className="space-y-2">
+            <Section icon={Building2} title="Identificação" isOpen={open.has('identificacao')} onToggle={() => toggle('identificacao')} hasError={!!err && !v.razaoSocial.trim()}>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                <Field label="Código">
+                  <input value={codigo} onChange={e => setCodigo(alnum15(e.target.value))} maxLength={15}
+                    placeholder="Até 15 (alfanumérico)" className={cn(inputCls, 'h-8 font-mono uppercase')} />
+                </Field>
+                <Field label="Status">
+                  <select value={status} onChange={e => setStatus(e.target.value)} className={cn(inputCls, 'h-8')}>
+                    {STATUS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                  </select>
+                </Field>
+                <Field label="Razão social" required span2>
+                  <input value={v.razaoSocial} onChange={e => form.set('razaoSocial', e.target.value)} className={cn(inputCls, 'h-8')} autoFocus placeholder="Razão social da empresa" />
+                </Field>
+                <Field label="Nome fantasia" span2>
+                  <input value={v.nomeFantasia} onChange={e => form.set('nomeFantasia', e.target.value)} className={cn(inputCls, 'h-8')} placeholder="Nome fantasia (se houver)" />
+                </Field>
+                <Field label="CNPJ">
+                  <input value={v.documento} onChange={e => form.set('documento', maskCNPJ(e.target.value))} maxLength={18} placeholder="00.000.000/0000-00" className={cn(inputCls, 'h-8')} />
+                </Field>
+                <div />
+                <Field label="Inscrição Estadual">
+                  <input value={v.ie} onChange={e => form.set('ie', e.target.value)} placeholder="Inscrição estadual" className={cn(inputCls, 'h-8')} />
+                </Field>
+                <Field label="Inscrição Municipal">
+                  <input value={v.im} onChange={e => form.set('im', e.target.value)} placeholder="Inscrição municipal" className={cn(inputCls, 'h-8')} />
+                </Field>
+              </div>
+            </Section>
+            <Section icon={Phone} title="Contato" isOpen={open.has('contato')} onToggle={() => toggle('contato')}>
+              <ContatoFields form={form} />
+            </Section>
+            <Section icon={MapPin} title="Endereço" isOpen={open.has('endereco')} onToggle={() => toggle('endereco')}>
+              <EnderecoFields form={form} />
+            </Section>
+            <Section icon={CreditCard} title="Dados Bancários" isOpen={open.has('bancario')} onToggle={() => toggle('bancario')}>
+              <BancarioFields form={form} />
+            </Section>
+            <Section icon={Users} title="Quadro de Sócios" isOpen={open.has('socios')} onToggle={() => toggle('socios')} hasError={!!err && !!validateSociosParticipacao(v.socios)}>
+              <SociosFields form={form} />
+            </Section>
+          </div>
+
+          {err && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">{err}</div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Cancelar</button>
+            <button type="button" disabled={saving || !v.razaoSocial.trim()} onClick={() => { void save() }}
+              className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors">
+              {saving ? 'Salvando...' : 'Salvar'}
+            </button>
+          </div>
+        </>
+      )}
     </Modal>
   )
 }
@@ -337,15 +459,16 @@ export default function EmpresasPage() {
       (c.cnpj ?? '').toLowerCase().includes(q))
   }, [companies, companySearch])
 
-  const saveCompany = async (data: Partial<Company>) => {
+  const saveCompany = async (data: CompanyPayload): Promise<boolean> => {
     const editing = companyModal?.initial
     const result = editing
       ? await api<Company>(`/api/group-companies/${editing.id}`, { method: 'PATCH', body: JSON.stringify(data) })
-      : await api<Company>(`/api/group-companies`, { method: 'POST', body: JSON.stringify({ ...data }) })
-    if (!result) { alert('Não foi possível salvar a empresa. Tente novamente.'); return } // mantém o modal aberto
+      : await api<Company>(`/api/group-companies`, { method: 'POST', body: JSON.stringify(data) })
+    if (!result) return false // o modal mostra o erro e permanece aberto
     if (!editing && result.id) setSelectedId(result.id)
     setCompanyModal(null)
     await loadCompanies()
+    return true
   }
   const removeCompany = async (c: Company) => {
     if (!confirm(`Remover a empresa "${c.razaoSocial}" e todas as suas unidades?`)) return
@@ -414,7 +537,7 @@ export default function EmpresasPage() {
         )}
       </div>
 
-      {companyModal && <CompanyModal initial={companyModal.initial} onSave={saveCompany} onClose={() => setCompanyModal(null)} />}
+      {companyModal && <CompanyModal editId={companyModal.initial?.id} initial={companyModal.initial} onSave={saveCompany} onClose={() => setCompanyModal(null)} />}
     </div>
   )
 }

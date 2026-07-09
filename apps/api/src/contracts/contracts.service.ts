@@ -260,10 +260,12 @@ export class ContractsService {
             p.id === ce.parteId ? { ...p, ref_tipo: ce.ref_tipo, ref_id: ce.ref_id, nome: ce.nome, documento: ce.documento } : p)
       }
     }
-    /* renovações automáticas (cláusula, não aditivo) estendem a vigência; a mais tardia vence */
+    /* renovações automáticas (cláusula, não aditivo) estendem a vigência (mais tardia vence) e
+       somam o valor do período gerado ao total do contrato */
     for (const r of ((c.renovacoes as Array<Record<string, unknown>>) ?? [])) {
       const nt = r.novoTermino as string | undefined
       if (nt && (!c.terminoVigencia || nt > (c.terminoVigencia as string))) c.terminoVigencia = nt
+      c.valorTotal = (Number(c.valorTotal) || 0) + (Number(r.valorPeriodo) || 0)
     }
     /* reajustes efetivamente aplicados: delta somado ao valor total (parcela tratada abaixo) */
     const reajustes = (c.reajustesRealizados as Array<Record<string, unknown>>) ?? []
