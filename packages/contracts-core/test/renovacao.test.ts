@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest'
 import { addMesesISO } from '../src/dates'
 import { gerarParcelas } from '../src/parcelas'
-import { parcelaVigente, terminoVigente } from '../src/derive'
+import { parcelaVigente, terminoVigente, lancPago, lancPrevisto } from '../src/derive'
 import { campoRenovacao, renovarPeriodo } from '../src/renovacao'
 import { cct20260001, despesaSimples, receita } from './fixtures'
 import { renovacaoLegacy } from './legacy'
@@ -29,7 +29,12 @@ describe('renovarPeriodo: projeção de parcelas idêntica ao laço antigo', () 
     it(nome, () => {
       const legado = renovacaoLegacy(ultimoVenc, qtd, parcelaVig, STAMP, GUARD)
       const core = gerarParcelas(cct20260001, { inicio: addMesesISO(ultimoVenc, 1), qtd, valorBase: parcelaVig, ignorarReajustes: true, makeId })
-      expect(core).toEqual(legado.lancs)
+      /* a FORMA do lançamento mudou (valor+status → valorPrevisto), o SIGNIFICADO não:
+         mesmos ids, mesmos vencimentos, mesmo valor previsto, e nenhuma nasce paga. */
+      expect(core.map(l => l.id)).toEqual(legado.lancs.map(l => l.id))
+      expect(core.map(l => l.vencimento)).toEqual(legado.lancs.map(l => l.vencimento))
+      expect(core.map(l => lancPrevisto(l))).toEqual(legado.lancs.map(l => l.valor))
+      expect(core.every(l => !lancPago(l))).toBe(true)
       expect(addMesesISO(ultimoVenc, qtd)).toBe(legado.ultimoVenc)
     })
   }

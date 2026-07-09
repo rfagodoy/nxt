@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { num } from '../src/num'
+import { lancPago, lancPrevisto } from '../src/derive'
 import { gerarParcelas, parcelaNaComp, parcelaProvisoria, totaisAVencer } from '../src/parcelas'
 import { aplicarReajuste } from '../src/reajuste'
 import { cct20260001, despesaComReajuste, despesaSimples, reajusteParcelaAplicado } from './fixtures'
@@ -10,13 +11,15 @@ describe('gerarParcelas', () => {
   it('projeta N parcelas mensais a partir do início', () => {
     const p = gerarParcelas(despesaSimples, { inicio: '2027-01-15', qtd: 3, valorBase: 1000, makeId })
     expect(p.map(l => l.vencimento)).toEqual(['2027-01-15', '2027-02-15', '2027-03-15'])
-    expect(p.every(l => l.status === 'previsto')).toBe(true)
-    expect(p.every(l => num(l.valor) === 1000)).toBe(true)
+    /* parcela projetada nasce PREVISTA e sem valorPago — "pago" é derivado, não um campo */
+    expect(p.every(l => lancPrevisto(l) === 1000)).toBe(true)
+    expect(p.every(l => lancPago(l) === false)).toBe(true)
+    expect(p.every(l => l.valorPago === undefined)).toBe(true)
   })
 
   it('usa o reajuste já conhecido do mês da parcela, quando existe', () => {
     const p = gerarParcelas(reajusteParcelaAplicado, { inicio: '2026-06-10', qtd: 2, valorBase: 1000, makeId })
-    expect(num(p[0].valor)).toBe(1100) // reajuste de 2026-01 já vale
+    expect(lancPrevisto(p[0])).toBe(1100) // reajuste de 2026-01 já vale
   })
 
   it('parcelaNaComp devolve 0 quando não há reajuste até o mês', () => {
@@ -55,7 +58,7 @@ describe('parcelaProvisoria — derivada, nunca gravada', () => {
     const c = { ...despesaComReajuste, pagamentos: [...despesaComReajuste.pagamentos, { id: 'p13', status: 'previsto', vencimento: '2027-03-10', valor: 1000 }] }
     const provisorias = c.pagamentos.filter((l: any) => parcelaProvisoria(c, l)).map((l: any) => l.id)
     const r = aplicarReajuste(c, { id: 'x', reajusteId: 'r1', competencia: '2027-01', percentual: 10, base: 'parcela' })
-    const reprecificadas = r.pagamentos.filter(l => num(l.valor) !== 1000).map(l => l.id)
+    const reprecificadas = r.pagamentos.filter(l => lancPrevisto(l) !== 1000).map(l => l.id)
     expect(provisorias).toEqual(reprecificadas)
   })
 
@@ -69,7 +72,7 @@ describe('parcelaProvisoria — derivada, nunca gravada', () => {
     const r = aplicarReajuste(c1, { id: 'x', reajusteId: 'r1', competencia: '2027-01', percentual: 10, base: 'parcela' })
     const c2 = { ...c1, pagamentos: r.pagamentos, reajustesRealizados: [r.reajuste] }
     const aindaDistante = c2.pagamentos.find(l => l.id === 'far')!
-    expect(num(aindaDistante.valor)).toBe(1100)
+    expect(lancPrevisto(aindaDistante)).toBe(1100)
     expect(parcelaProvisoria(c2, aindaDistante)).toBe(true)
   })
 

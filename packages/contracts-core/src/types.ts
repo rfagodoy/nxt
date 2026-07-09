@@ -7,20 +7,30 @@ import type { Numeric } from './num'
 
 export type LancField = 'pagamentos' | 'recebimentos'
 
-/** Lançamento = parcela do cronograma. status 'previsto' | 'pago' (legado sem status = 'pago');
- *  vencimento = data de vencimento; data = data de pagamento. "Vencido" é derivado. */
+/** Lançamento = parcela do cronograma.
+ *  `vencimento` = data prevista; `data` = data em que foi pago.
+ *  "Vencido" e "pago" são DERIVADOS — ver lancPago/lancPrevisto/lancRealizado em derive.ts. */
 export interface CoreLancamento {
   id: string
-  status?: string
   vencimento?: string
   data?: string
-  valor: Numeric
+  /** valor contratado da parcela (o que se espera pagar/receber) */
+  valorPrevisto?: Numeric
+  /** valor efetivamente pago/recebido. Ausente = a parcela ainda não foi baixada. */
+  valorPago?: Numeric
   forma?: string
   documento?: string
   observacao?: string
   /** false = o reajuste NÃO alcança esta parcela (ex.: equipamento entregue, taxa fixa).
    *  Ausente = reajustável — é o caso da esmagadora maioria e de todo dado legado. */
   reajustavel?: boolean
+
+  /* ── modelo antigo, só para LEITURA de dados gravados antes da separação ──
+     Um único `valor` e um `status` textual. Nenhum caminho de escrita produz isto hoje. */
+  /** @deprecated use valorPrevisto / valorPago */
+  valor?: Numeric
+  /** @deprecated o estado é derivado de valorPago */
+  status?: string
 }
 
 /** Termo aditivo: altera término/valor/objeto/partes em vigor. RASCUNHO não aplica efeito. */

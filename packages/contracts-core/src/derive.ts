@@ -1,4 +1,4 @@
-import { num } from './num'
+import { num, round2 } from './num'
 import type { CoreAditivo, CoreContract, CoreLancamento, LancField } from './types'
 
 /* ─── derivação do estado VIGENTE ────────────────────────────────────────────
@@ -20,9 +20,47 @@ export function camposDaNatureza(natureza?: string | null): LancField[] {
   return ['pagamentos']
 }
 
-/** status efetivo do lançamento (legado sem status = 'pago'). */
-export const lancStatus = (l: CoreLancamento) => l.status || 'pago'
-export const lancPago = (l: CoreLancamento) => lancStatus(l) === 'pago'
+/* ─── PREVISTO × REALIZADO ────────────────────────────────────────────────────
+   A parcela tem dois valores: o `valorPrevisto` (contratado) e o `valorPago`
+   (efetivamente baixado). "Pago" é DERIVADO da presença do valorPago — não é um
+   campo que alguém possa deixar inconsistente com o dinheiro.
+
+   LEGADO: antes desta separação havia um único `valor` e um `status` textual, e a
+   leitura tratava "sem status" como PAGO — na origem a seção se chamava "Pagamentos
+   realizados" e todo lançamento era um realizado. Ler esse dado como "previsto"
+   zeraria o consumo de contratos antigos. Por isso o fallback abaixo consulta o
+   status legado antes de decidir. Nenhum caminho de escrita produz mais esse formato. */
+
+const presente = (x: unknown) => x !== undefined && x !== null && x !== ''
+/** modelo antigo: só tem `valor`, sem os dois campos novos */
+const ehLegado = (l: CoreLancamento) => !presente(l.valorPrevisto) && !presente(l.valorPago) && presente(l.valor)
+const legadoPago = (l: CoreLancamento) => (l.status || 'pago') === 'pago'
+
+/** A parcela foi baixada? Presença do valorPago — não `> 0`: uma baixa de R$ 0,00 é rara,
+ *  mas é uma baixa. */
+export const lancPago = (l: CoreLancamento): boolean =>
+  presente(l.valorPago) ? true : ehLegado(l) ? legadoPago(l) : false
+
+/** Valor contratado da parcela. */
+export const lancPrevisto = (l: CoreLancamento): number =>
+  num(presente(l.valorPrevisto) ? l.valorPrevisto : l.valor)
+
+/** Valor efetivamente pago/recebido. 0 quando a parcela ainda não foi baixada. */
+export const lancRealizado = (l: CoreLancamento): number =>
+  presente(l.valorPago) ? num(l.valorPago) : ehLegado(l) && legadoPago(l) ? num(l.valor) : 0
+
+/** Quanto o realizado se afastou do previsto: + juros/multa, − desconto/glosa.
+ *  Zero enquanto a parcela não é paga (não há desvio contra o que ainda não aconteceu). */
+export const lancDesvio = (l: CoreLancamento): number =>
+  lancPago(l) ? round2(lancRealizado(l) - lancPrevisto(l)) : 0
+
+/** Devolve a parcela com um novo valor PREVISTO, descartando o `valor` legado para
+ *  não deixar dois números discordando no mesmo registro. */
+export function comPrevisto(l: CoreLancamento, valorPrevisto: number): CoreLancamento {
+  const { valor: _legado, ...resto } = l
+  return { ...resto, valorPrevisto }
+}
+
 /** data de referência da parcela: vencimento (ou pagamento, p/ legado). */
 export const lancRef = (l: CoreLancamento) => l.vencimento || l.data || ''
 /** O reajuste alcança esta parcela? Só `false` explícito exclui — dado legado reajusta. */
@@ -71,7 +109,7 @@ export function parcelaVigente(c: CoreContract): number {
  *  para que a extração não mude nenhum número. Ver nota em docs. */
 export function consumo(c: CoreContract): number {
   const arr = (c.natureza === 'RECEITA' ? c.recebimentos : c.pagamentos) ?? []
-  return arr.reduce((s, l) => s + (lancPago(l) ? num(l.valor) : 0), 0)
+  return round2(arr.reduce((s, l) => s + lancRealizado(l), 0))
 }
 
 /* ─── situação ───────────────────────────────────────────────────────────────
@@ -96,7 +134,9 @@ export function effectiveSituacao(situacao: string, termino: string | null | und
   return s
 }
 
-/** Soma de todos os lançamentos de uma lista. */
-export const somaLancamentos = (arr: CoreLancamento[]) => arr.reduce((s, l) => s + num(l.valor), 0)
-/** Soma só dos lançamentos PAGOS. */
-export const somaLancamentosPagos = (arr: CoreLancamento[]) => arr.reduce((s, l) => s + (lancPago(l) ? num(l.valor) : 0), 0)
+/** Soma do que está CONTRATADO (previsto) numa lista de parcelas. */
+export const somaLancamentos = (arr: CoreLancamento[]) => round2(arr.reduce((s, l) => s + lancPrevisto(l), 0))
+/** Soma do que foi efetivamente PAGO (realizado). */
+export const somaLancamentosPagos = (arr: CoreLancamento[]) => round2(arr.reduce((s, l) => s + lancRealizado(l), 0))
+/** Soma dos desvios (realizado − previsto) das parcelas já pagas. */
+export const somaDesvios = (arr: CoreLancamento[]) => round2(arr.reduce((s, l) => s + lancDesvio(l), 0))

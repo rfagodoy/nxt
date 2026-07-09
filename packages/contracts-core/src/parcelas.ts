@@ -1,6 +1,6 @@
 import { addMesesISO, comp } from './dates'
-import { num } from './num'
-import { lancPago, lancRef, lancReajustavel } from './derive'
+import { num, round2 } from './num'
+import { lancPago, lancPrevisto, lancRef, lancReajustavel } from './derive'
 import { proximaDataReajusteContrato } from './reajuste'
 import type { CoreContract, CoreLancamento } from './types'
 
@@ -38,12 +38,12 @@ export function gerarParcelas(c: CoreContract, input: GerarParcelasInput): CoreL
   return Array.from({ length: input.qtd }, (_, i) => {
     const vencimento = addMesesISO(input.inicio, i)
     const reaj = input.ignorarReajustes ? 0 : parcelaNaComp(c, vencimento)
+    /* parcela projetada nasce sem `valorPago`: é previsão, ninguém pagou ainda */
     return {
       id: input.makeId(i),
-      status: input.status ?? 'previsto',
       vencimento,
       data: '',
-      valor: reaj || input.valorBase,
+      valorPrevisto: reaj || input.valorBase,
       forma: input.forma ?? '',
       documento: '',
       observacao: '',
@@ -70,7 +70,8 @@ export function parcelaProvisoria(c: CoreContract, l: CoreLancamento): boolean {
   return !!ref && comp(ref) >= comp(prox)
 }
 
-/** Soma dos lançamentos a vencer, separando o que é firme do que é projeção. */
+/** Soma do que ainda se espera pagar (o PREVISTO das parcelas não baixadas),
+ *  separando o que é firme do que é projeção sujeita a reajuste. */
 export function totaisAVencer(c: CoreContract, lista: CoreLancamento[], today: string): { firme: number; provisorio: number; vencido: number } {
   let firme = 0
   let provisorio = 0
@@ -78,10 +79,10 @@ export function totaisAVencer(c: CoreContract, lista: CoreLancamento[], today: s
   for (const l of lista) {
     if (lancPago(l)) continue
     const ref = lancRef(l)
-    const v = num(l.valor)
+    const v = lancPrevisto(l)
     if (ref && ref < today) vencido += v
     else if (parcelaProvisoria(c, l)) provisorio += v
     else firme += v
   }
-  return { firme, provisorio, vencido }
+  return { firme: round2(firme), provisorio: round2(provisorio), vencido: round2(vencido) }
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { num } from '../src/num'
-import { valorVigente, parcelaVigente, camposDaNatureza } from '../src/derive'
+import { valorVigente, parcelaVigente, camposDaNatureza, lancPrevisto, lancPago, lancRealizado, lancDesvio } from '../src/derive'
 import { acumuladoPeriodo, aplicarReajuste, pagasAlcancadas, parcelasAlvo, planejarReajuste, proximaDataReajuste, proximaDataReajusteContrato, stepMeses } from '../src/reajuste'
 import { ambos, despesaComReajuste, despesaSimples, receita, reajusteParcelaAplicado, semCronograma } from './fixtures'
 
@@ -111,7 +111,7 @@ describe('aplicarReajuste — base parcela COM cronograma', () => {
     expect(r.reajuste.parcelaNova).toBe(1100)
     expect(r.reajuste.parcelasReajustadas).toBe(7) // jun..dez
 
-    const porId = new Map(r.pagamentos.map(l => [l.id, num(l.valor)]))
+    const porId = new Map(r.pagamentos.map(l => [l.id, lancPrevisto(l)]))
     expect(porId.get('p1')).toBe(1000) // paga: intacta
     expect(porId.get('p5')).toBe(1000) // anterior à competência: intacta
     expect(porId.get('p6')).toBe(1100) // reajustada
@@ -120,8 +120,8 @@ describe('aplicarReajuste — base parcela COM cronograma', () => {
 
   it('o delta do total fecha EXATAMENTE com a soma das parcelas reprecificadas', () => {
     const r = aplicarReajuste(despesaComReajuste, input)
-    const antes = despesaComReajuste.pagamentos.reduce((s: number, l: any) => s + num(l.valor), 0)
-    const depois = r.pagamentos.reduce((s, l) => s + num(l.valor), 0)
+    const antes = despesaComReajuste.pagamentos.reduce((s: number, l: any) => s + lancPrevisto(l), 0)
+    const depois = r.pagamentos.reduce((s, l) => s + lancPrevisto(l), 0)
     const deltaCronograma = depois - antes
     const deltaContrato = num(r.reajuste.valorNovo) - num(r.reajuste.valorAnterior)
     expect(deltaContrato).toBeCloseTo(deltaCronograma, 2)
@@ -148,8 +148,8 @@ describe('aplicarReajuste — base parcela COM cronograma', () => {
     /* pagamentos de 1000 e recebimentos de 2000 sobem 10% cada — não são igualados. */
     const r = aplicarReajuste(ambos, { ...input, competencia: '2026-01' })
     expect(r.reajuste.parcelasReajustadas).toBe(12)
-    expect(num(r.pagamentos[0].valor)).toBe(1100)
-    expect(num(r.recebimentos[0].valor)).toBe(2200)
+    expect(lancPrevisto(r.pagamentos[0])).toBe(1100)
+    expect(lancPrevisto(r.recebimentos[0])).toBe(2200)
   })
 
   it('o percentual PRESERVA a estrutura do cronograma; o valor digitado à mão IGUALA', () => {
@@ -164,12 +164,12 @@ describe('aplicarReajuste — base parcela COM cronograma', () => {
       ],
     }
     const porPct = aplicarReajuste(misto, { id: 'x', reajusteId: 'r1', competencia: '2026-07', percentual: 10, base: 'parcela' })
-    expect(num(porPct.pagamentos[0].valor)).toBe(165000)
-    expect(num(porPct.pagamentos[1].valor)).toBe(5500)
+    expect(lancPrevisto(porPct.pagamentos[0])).toBe(165000)
+    expect(lancPrevisto(porPct.pagamentos[1])).toBe(5500)
 
     const porValor = aplicarReajuste(misto, { id: 'x', reajusteId: 'r1', competencia: '2026-07', percentual: 10, base: 'parcela', parcelaNova: 5500 })
-    expect(num(porValor.pagamentos[0].valor)).toBe(5500) // igualadas: renegociação de valor único
-    expect(num(porValor.pagamentos[1].valor)).toBe(5500)
+    expect(lancPrevisto(porValor.pagamentos[0])).toBe(5500) // igualadas: renegociação de valor único
+    expect(lancPrevisto(porValor.pagamentos[1])).toBe(5500)
   })
 
   it('RECEITA não toca em pagamentos', () => {
@@ -201,7 +201,7 @@ describe('aplicarReajuste — overrides do formulário', () => {
       id: 'x', reajusteId: 'r1', competencia: '2026-06', percentual: 10, base: 'parcela', parcelaNova: 1234.56,
     })
     expect(r.reajuste.parcelaNova).toBe(1234.56)
-    expect(num(r.pagamentos[11].valor)).toBe(1234.56)
+    expect(lancPrevisto(r.pagamentos[11])).toBe(1234.56)
     /* o total continua fechando com o cronograma */
     const delta = num(r.reajuste.valorNovo) - num(r.reajuste.valorAnterior)
     expect(delta).toBeCloseTo(7 * (1234.56 - 1000), 2)
@@ -240,8 +240,8 @@ describe('arredondamento', () => {
     const r = aplicarReajuste(c, { id: 'x', reajusteId: 'r1', competencia: '2026-06', percentual: 4.62, base: 'parcela' })
     expect(r.reajuste.parcelaNova).toBe(348.73) // 333,33 × 1,0462 = 348,7278…
 
-    const antes = c.pagamentos.reduce((s: number, l: any) => s + num(l.valor), 0)
-    const depois = r.pagamentos.reduce((s, l) => s + num(l.valor), 0)
+    const antes = c.pagamentos.reduce((s: number, l: any) => s + lancPrevisto(l), 0)
+    const depois = r.pagamentos.reduce((s, l) => s + lancPrevisto(l), 0)
     expect(num(r.reajuste.valorNovo) - num(r.reajuste.valorAnterior)).toBeCloseTo(depois - antes, 2)
   })
 })
@@ -386,7 +386,7 @@ describe('REGRESSÃO: contrato misto (equipamento à vista + manutenção mensal
 
   it('o equipamento NÃO é achatado para o valor da parcela', () => {
     const r = aplicarReajuste(misto, { id: 'x', reajusteId: 'r1', competencia: '2020-05', percentual: 5, base: 'parcela' })
-    const v = new Map(r.pagamentos.map(l => [l.id, num(l.valor)]))
+    const v = new Map(r.pagamentos.map(l => [l.id, lancPrevisto(l)]))
     expect(v.get('equip')).toBe(157500) // 150.000 + 5%, não 5.250
     expect(v.get('m0')).toBe(5250)
   })
@@ -394,7 +394,7 @@ describe('REGRESSÃO: contrato misto (equipamento à vista + manutenção mensal
   it('parcela paga fica intacta — o equipamento entregue não reajusta', () => {
     const pago = { ...misto, pagamentos: misto.pagamentos.map((l: any) => (l.id === 'equip' ? { ...l, status: 'pago', data: '2020-05-10' } : l)) }
     const r = aplicarReajuste(pago, { id: 'x', reajusteId: 'r1', competencia: '2020-05', percentual: 5, base: 'parcela' })
-    const v = new Map(r.pagamentos.map(l => [l.id, num(l.valor)]))
+    const v = new Map(r.pagamentos.map(l => [l.id, lancPrevisto(l)]))
     expect(v.get('equip')).toBe(150000)  // intacto
     expect(v.get('m0')).toBe(5250)       // só a manutenção sobe
     expect(r.reajuste.parcelasReajustadas).toBe(3)
@@ -402,8 +402,8 @@ describe('REGRESSÃO: contrato misto (equipamento à vista + manutenção mensal
 
   it('o total cresce exatamente pelo que as parcelas cresceram', () => {
     const r = aplicarReajuste(misto, { id: 'x', reajusteId: 'r1', competencia: '2020-05', percentual: 5, base: 'parcela' })
-    const antes = misto.pagamentos.reduce((s: number, l: any) => s + num(l.valor), 0)
-    const depois = r.pagamentos.reduce((s, l) => s + num(l.valor), 0)
+    const antes = misto.pagamentos.reduce((s: number, l: any) => s + lancPrevisto(l), 0)
+    const depois = r.pagamentos.reduce((s, l) => s + lancPrevisto(l), 0)
     expect(num(r.reajuste.valorNovo) - num(r.reajuste.valorAnterior)).toBeCloseTo(depois - antes, 2)
   })
 })
@@ -429,7 +429,7 @@ describe('parcela marcada como NÃO reajustável', () => {
 
   it('não é reprecificada — nem pelo percentual', () => {
     const r = aplicarReajuste(c, { id: 'x', reajusteId: 'r1', competencia: '2026-07', percentual: 10, base: 'parcela' })
-    const v = new Map(r.pagamentos.map(l => [l.id, num(l.valor)]))
+    const v = new Map(r.pagamentos.map(l => [l.id, lancPrevisto(l)]))
     expect(v.get('equip')).toBe(150000)   // intacta
     expect(v.get('m1')).toBe(5500)
     expect(v.get('m2')).toBe(5500)
@@ -438,7 +438,7 @@ describe('parcela marcada como NÃO reajustável', () => {
 
   it('nem quando o usuário digita a nova parcela à mão', () => {
     const r = aplicarReajuste(c, { id: 'x', reajusteId: 'r1', competencia: '2026-07', percentual: 10, base: 'parcela', parcelaNova: 5500 })
-    expect(num(r.pagamentos[0].valor)).toBe(150000)
+    expect(lancPrevisto(r.pagamentos[0])).toBe(150000)
   })
 
   it('o total cresce só pelo que as parcelas reajustáveis cresceram', () => {

@@ -1,6 +1,6 @@
 import { addMesesComp, comp } from './dates'
 import { num, int, round2 } from './num'
-import { camposDaNatureza, lancPago, lancRef, lancReajustavel, parcelaVigente, valorVigente } from './derive'
+import { camposDaNatureza, comPrevisto, lancPago, lancPrevisto, lancRef, lancReajustavel, parcelaVigente, valorVigente } from './derive'
 import type { AplicacaoReajuste, CoreContract, CoreLancamento, CoreReajuste, CoreReajusteRealizado, LancField } from './types'
 
 /* ─── reajuste: agenda, acumulação do índice e aplicação ─────────────────────
@@ -171,10 +171,12 @@ export function pagasAlcancadas(c: CoreContract, competencia: string, percentual
   for (const campo of camposDaNatureza(c.natureza)) {
     for (const l of c[campo] ?? []) {
       const ref = lancRef(l)
-      /* parcela não reajustável não gera diferença: ela não subiria nem se estivesse a vencer */
+      /* parcela não reajustável não gera diferença: ela não subiria nem se estivesse a vencer.
+         A conta é sobre o PREVISTO — é quanto o devido teria subido, não quanto se pagou. */
       if (lancPago(l) && lancReajustavel(l) && ref && comp(ref) >= cmp) {
         quantidade++
-        diferenca += round2(num(l.valor) * fator) - num(l.valor)
+        const previsto = lancPrevisto(l)
+        diferenca += round2(previsto * fator) - previsto
       }
     }
   }
@@ -273,16 +275,17 @@ export function aplicarReajuste(c: CoreContract, input: AplicarReajusteInput): A
        é uma renegociação de valor único. Igualar sempre destruiria cronogramas com
        parcelas de valores distintos. */
     const igualar = input.parcelaNova != null
-    const novoValorDe = (l: CoreLancamento) => (igualar ? parcelaNova : round2(num(l.valor) * fator))
+    const novoValorDe = (l: CoreLancamento) => (igualar ? parcelaNova : round2(lancPrevisto(l) * fator))
 
     const novos = new Map(alvo.map(x => [x.lanc.id, novoValorDe(x.lanc)]))
     /* delta sobre os valores JÁ ARREDONDADOS — é o que de fato vai para as parcelas,
-       então o total fecha exatamente com a soma do cronograma. */
-    const delta = alvo.reduce((s, x) => s + (novos.get(x.lanc.id)! - num(x.lanc.valor)), 0)
+       então o total fecha exatamente com a soma do cronograma.
+       Só o PREVISTO muda: `valorPago` é fato consumado e o reajuste não o toca. */
+    const delta = alvo.reduce((s, x) => s + (novos.get(x.lanc.id)! - lancPrevisto(x.lanc)), 0)
     rec.parcelasReajustadas = alvo.length
     rec.valorAnterior = round2(totalVig)
     rec.valorNovo = round2(totalVig + delta)
-    const reprice = (arr: CoreLancamento[]) => arr.map(l => (novos.has(l.id) ? { ...l, valor: novos.get(l.id)! } : l))
+    const reprice = (arr: CoreLancamento[]) => arr.map(l => (novos.has(l.id) ? comPrevisto(l, novos.get(l.id)!) : l))
     return { reajuste: rec, pagamentos: reprice(pagamentos), recebimentos: reprice(recebimentos) }
   }
 

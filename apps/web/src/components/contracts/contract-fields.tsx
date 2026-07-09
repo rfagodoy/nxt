@@ -16,7 +16,8 @@ import {
   TIPOS_KEY, OBJETOS_KEY, MOEDAS_KEY, CONDICOES_KEY, INDICES_KEY, TIPOS_ADITIVO_KEY, FORMAS_PGTO_KEY,
   INIT_TIPOS, INIT_OBJETOS, INIT_MOEDAS, INIT_CONDICOES, INIT_INDICES, INIT_TIPOS_ADITIVO, INIT_FORMAS_PGTO,
   SITUACOES, PERIODICIDADES, TIPOS_DOCUMENTO, effectiveSituacao, APLICACOES_REAJUSTE,
-  NATUREZAS, ACOES_TERMINO, temPagamentos, temRecebimentos, somaLancamentos, somaLancamentosPagos, lancPago,
+  NATUREZAS, ACOES_TERMINO, temPagamentos, temRecebimentos, somaLancamentos, somaLancamentosPagos, somaDesvios,
+  lancPago, lancPrevisto, lancDesvio,
   valorVigente, parcelaVigente, parcelaVigenteInput, condicaoVigente, complementoVigente, terminoVigente, objetoVigente, partesVigentes, terminoVigenteAntes, objetoVigenteAntes, proximoDiaISO,
   tituloVigente, descricaoVigente, tituloVigenteInfo, descricaoVigenteInfo,
   periodosVigencia, historicoRenegociacao, historicoObjeto, historicoCessoes,
@@ -287,8 +288,14 @@ function NumBox({ caption, value, onChange }: { caption: string; value: string; 
 }
 
 /** Vigência: Prazo indeterminado, Início, Término, Data de assinatura + ação no término (grade 2×2). */
-/** O core devolve o lançamento com `valor` numérico; o formulário guarda string. */
-const toCLancamento = (l: CoreLancamento): CLancamento => ({ ...newCLancamento('previsto'), ...l, valor: String(l.valor) })
+/** O core devolve valores numéricos; o formulário guarda strings. Parcela projetada
+ *  nasce sem baixa: `valorPago` vazio. */
+const toCLancamento = (l: CoreLancamento): CLancamento => ({
+  ...newCLancamento(),
+  ...l,
+  valorPrevisto: String(lancPrevisto(l)),
+  valorPago: l.valorPago == null || l.valorPago === '' ? '' : String(l.valorPago),
+})
 
 export function VigenciaFields({ form, ro }: { form: ContractForm; ro?: boolean }) {
   const v = form.values
@@ -602,8 +609,9 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
   const singular = field === 'pagamentos' ? 'pagamento' : 'recebimento'
   const rotulo   = field === 'pagamentos' ? 'pago' : 'recebido'
   const saldoLbl = field === 'pagamentos' ? 'Saldo a pagar' : 'Saldo a receber'
-  const total     = somaLancamentos(lista)         // total geral (todas as parcelas)
-  const totalPago = somaLancamentosPagos(lista)     // realizado (só pagos) — base do consumo/saldo
+  const total       = somaLancamentos(lista)      // PREVISTO: o que está contratado
+  const totalPago   = somaLancamentosPagos(lista)  // REALIZADO: o que foi efetivamente pago
+  const desvioTotal = somaDesvios(lista)           // realizado − previsto, só das pagas
   const formas    = useLookupTable(FORMAS_PGTO_KEY, INIT_FORMAS_PGTO)
   const valorContrato = valorVigente(v)
   const pct   = valorContrato > 0 ? Math.round((totalPago / valorContrato) * 100) : 0
@@ -622,8 +630,10 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
     if (refDate(l) && refDate(l) < hoje) return { label: 'Vencido', cls: 'bg-red-500/10 text-red-600 dark:text-red-500' }
     return { label: 'A vencer', cls: 'bg-muted text-muted-foreground' }
   }
-  const marcarPago = (l: CLancamento) => form.patchLanc(field, l.id, { status: 'pago', data: l.data || l.vencimento || hoje })
-  const reabrir    = (l: CLancamento) => form.patchLanc(field, l.id, { status: 'previsto', data: '' })
+  /* Baixar = registrar o valor pago. O caso comum é "pagou o previsto", então um clique
+     basta; se pagou diferente, edite a coluna Pago e o desvio aparece sozinho. */
+  const marcarPago = (l: CLancamento) => form.patchLanc(field, l.id, { valorPago: l.valorPrevisto, data: l.data || l.vencimento || hoje })
+  const reabrir    = (l: CLancamento) => form.patchLanc(field, l.id, { valorPago: '', data: '' })
 
   /* Agrupa por ano — a ORDEM só recalcula ao ADICIONAR/REMOVER/GERAR ou ao SAIR do campo de data
      (onBlur). Assim o lançamento não "pula" enquanto a data é digitada; o valor exibido é ao vivo. */
@@ -686,19 +696,24 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
   /* A renovação manual ("Renovar período") mora na aba Vigência: ela estende a vigência e
      soma o período ao valor do contrato — gerar as parcelas é consequência, não o ato. */
 
-  /* colunas: vencimento · valor · reajusta · forma · nº doc · pagamento · status · observação · (remover)
+  /* colunas: vencimento · previsto · pago · reajusta · forma · nº doc · pagamento · status · observação · (remover)
      As duas colunas de DATA precisam caber "dd/mm/aaaa" + o ícone do date picker do navegador:
      abaixo de ~9rem o Chrome corta o ícone. A soma das larguras fixas é mantida sob o
      `min-w` da tabela, que rola na horizontal em telas estreitas em vez de cortar. */
-  const COLS = 'grid grid-cols-[9rem_7.5rem_2.75rem_7.5rem_5.5rem_9rem_5.5rem_minmax(8rem,1fr)_1.25rem] items-center gap-2'
+  const COLS = 'grid grid-cols-[9rem_7.5rem_7.5rem_2.75rem_7.5rem_5.5rem_9rem_5.5rem_minmax(8rem,1fr)_1.25rem] items-center gap-2'
   const cell = cn(inputCls, 'h-7')
+  const desvioDe = (l: CLancamento) => lancDesvio(l)
 
   return (
     <div className="space-y-3">
       {/* faixa de resumo (rola) */}
       {lista.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <StatTile label={`Total ${rotulo}`} value={money(totalPago)} bar={valorContrato > 0 ? pct : undefined} />
+          <StatTile
+            label={field === 'pagamentos' ? 'Realizado' : 'Recebido'}
+            value={money(totalPago)}
+            hint={`de ${money(total)} previsto${desvioTotal !== 0 ? ` · desvio ${desvioTotal > 0 ? '+' : '−'}${money(Math.abs(desvioTotal))}` : ''}`}
+            bar={valorContrato > 0 ? pct : undefined} />
           <StatTile label="A vencer" value={money(aVencer)} hint={provisorio > 0 ? `+ ${money(provisorio)} provisório` : undefined} />
           <StatTile label="Vencido" value={money(vencido)} danger={vencido > 0} />
           {valorContrato > 0 && <StatTile label={saldoLbl} value={money(saldo)} danger={saldo < 0} />}
@@ -753,7 +768,7 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
       ) : (
         /* rola na horizontal quando a viewport é estreita, em vez de cortar as colunas */
         <div className="rounded-md border overflow-x-auto">
-          <div className="min-w-[62rem]">
+          <div className="min-w-[70rem]">
             {grupos.map(([ano, ids]) => {
               const itens = ids.map(id => byId.get(id)).filter(Boolean) as typeof lista
               if (itens.length === 0) return null
@@ -777,7 +792,9 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
                     <div className="divide-y divide-border/50">
                       {/* labels de coluna (por ano expandido) */}
                       <div className={cn(COLS, 'px-3 py-1 bg-muted/10 text-[9px] font-medium uppercase tracking-wide text-muted-foreground/70')}>
-                        <span>Vencimento</span><span className="text-right pr-2">Valor</span>
+                        <span>Vencimento</span>
+                        <span className="text-right pr-2" title="Valor contratado da parcela">Previsto</span>
+                        <span className="text-right pr-2" title="Valor efetivamente pago. Preencher baixa a parcela.">Pago</span>
                         <span className="text-center" title="Se marcada, o reajuste alcança esta parcela">Reaj.</span>
                         <span>Forma</span><span>Nº doc.</span><span>Pagamento</span><span>Status</span><span>Observação</span><span />
                       </div>
@@ -786,10 +803,21 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
                           <input type="date" value={l.vencimento} onChange={e => form.updLanc(field, l.id, 'vencimento', e.target.value)} onBlur={e => reordenar(e.target.value ? e.target.value.slice(0, 4) : undefined)} className={cell} />
                           {/* "≈" = valor provisório: o próximo reajuste ainda vai reprecificar esta parcela */}
                           <div className="relative">
-                            <MoneyField value={l.valor} moedaCode={moedaCode} bare onChange={x => form.updLanc(field, l.id, 'valor', x)} />
+                            <MoneyField value={l.valorPrevisto} moedaCode={moedaCode} bare onChange={x => form.updLanc(field, l.id, 'valorPrevisto', x)} />
                             {provisoria(l) && (
                               <span title={`Valor provisório: será atualizado no reajuste de ${fmtMesAnoBR(comp(proximaDataReajusteContrato(v)))}`}
                                     className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 select-none text-[11px] font-semibold text-amber-600 dark:text-amber-500">≈</span>
+                            )}
+                          </div>
+                          {/* valor pago: preencher BAIXA a parcela; o desvio contra o previsto vira selo */}
+                          <div className="relative">
+                            <MoneyField value={l.valorPago} moedaCode={moedaCode} bare onChange={x => form.updLanc(field, l.id, 'valorPago', x)} />
+                            {desvioDe(l) !== 0 && (
+                              <span title={`${desvioDe(l) > 0 ? 'Pago a mais' : 'Pago a menos'} que o previsto`}
+                                    className={cn('pointer-events-none absolute -bottom-0.5 left-1 select-none text-[9px] font-semibold tabular-nums',
+                                      desvioDe(l) > 0 ? 'text-amber-600 dark:text-amber-500' : 'text-emerald-600 dark:text-emerald-400')}>
+                                {desvioDe(l) > 0 ? '+' : '−'}{money(Math.abs(desvioDe(l)))}
+                              </span>
                             )}
                           </div>
                           {/* fora do alcance do reajuste: equipamento entregue, taxa fixa, etc. */}
@@ -805,7 +833,10 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
                             {formas.active.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
                           </select>
                           <input value={l.documento} onChange={e => form.updLanc(field, l.id, 'documento', e.target.value)} placeholder="NF 1234" className={cell} />
-                          <input type="date" value={l.data} title="Data de pagamento (preencher marca como paga)" onChange={e => form.patchLanc(field, l.id, { data: e.target.value, ...(e.target.value ? { status: 'pago' } : {}) })} className={cn(cell, !lancPago(l) && 'opacity-50')} />
+                          {/* informar a data também baixa a parcela: o pago assume o previsto */}
+                          <input type="date" value={l.data} title="Data de pagamento (preencher baixa a parcela pelo valor previsto)"
+                                 onChange={e => form.patchLanc(field, l.id, { data: e.target.value, ...(e.target.value && !lancPago(l) ? { valorPago: l.valorPrevisto } : {}) })}
+                                 className={cn(cell, !lancPago(l) && 'opacity-50')} />
                           <button type="button" onClick={() => (lancPago(l) ? reabrir(l) : marcarPago(l))} title={lancPago(l) ? 'Reabrir (voltar a A vencer)' : 'Marcar como paga'} className={cn('inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-80', statusInfo(l).cls)}>{statusInfo(l).label}</button>
                           <input value={l.observacao} onChange={e => form.updLanc(field, l.id, 'observacao', e.target.value)} placeholder="—" className={cn(cell, 'text-muted-foreground')} />
                           <button type="button" onClick={() => form.remLanc(field, l.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>
@@ -818,10 +849,15 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
             })}
           </div>
           {/* rodapé: total geral (todas as parcelas) + realizado — acompanha o min-w da tabela */}
-          <div className={cn(COLS, 'min-w-[62rem] px-3 py-1.5 bg-muted/30 border-t')}>
+          <div className={cn(COLS, 'min-w-[70rem] px-3 py-1.5 bg-muted/30 border-t')}>
             <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Total</span>
             <span className="text-xs font-semibold tabular-nums text-right pr-2">{money(total)}</span>
-            <span /><span /><span /><span className="text-[10px] text-muted-foreground truncate">{rotulo}: {money(totalPago)}</span><span /><span /><span />
+            <span className="text-xs font-semibold tabular-nums text-right pr-2">{money(totalPago)}</span>
+            <span /><span /><span /><span />
+            <span className={cn('text-[10px] tabular-nums truncate', desvioTotal === 0 ? 'text-muted-foreground' : desvioTotal > 0 ? 'text-amber-600 dark:text-amber-500' : 'text-emerald-600 dark:text-emerald-400')}>
+              {desvioTotal === 0 ? 'sem desvio' : `desvio ${desvioTotal > 0 ? '+' : '−'}${money(Math.abs(desvioTotal))}`}
+            </span>
+            <span /><span />
           </div>
         </div>
       )}

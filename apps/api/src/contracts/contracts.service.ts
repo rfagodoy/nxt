@@ -1,5 +1,9 @@
 import { Injectable, NotFoundException, BadRequestException, ServiceUnavailableException } from '@nestjs/common'
-import { aditivoAtivo, parcelaVigente, terminoVigente, valorVigente, type CoreAditivo, type CoreContract } from '@nxt/contracts-core'
+import {
+  aditivoAtivo, parcelaVigente, terminoVigente, valorVigente,
+  lancPago, lancPrevisto, lancRealizado, lancDesvio,
+  type CoreAditivo, type CoreContract,
+} from '@nxt/contracts-core'
 import { PrismaService } from '../prisma.service'
 import { CreateContractDto } from './dto/create-contract.dto'
 import { UpdateContractDto } from './dto/update-contract.dto'
@@ -134,7 +138,17 @@ function diffContract(o: CRec, n: CRec, maps: Maps): AuditChange[] {
   for (const [field, label] of [['pagamentos', 'Pagamento'], ['recebimentos', 'Recebimento']] as const) {
     const oL = aArr(o[field]), nL = aArr(n[field])
     const oIds = new Set(oL.map(l => aVal(l.id))), nIds = new Set(nL.map(l => aVal(l.id)))
-    const descL = (l: CRec) => [aMoney(l.valor), aLbl(maps.forma, aVal(l.forma)), aDate(l.data)].filter(Boolean).join(' · ')
+    /* previsto sempre; pago (com o desvio) só quando a parcela foi baixada */
+    const descL = (l: CRec) => {
+      const previsto = lancPrevisto(l as never)
+      const partes = [aMoney(previsto)]
+      if (lancPago(l as never)) {
+        const desvio = lancDesvio(l as never)
+        partes.push(`pago ${aMoney(lancRealizado(l as never))}${desvio ? ` (${desvio > 0 ? '+' : '−'}${aMoney(Math.abs(desvio))})` : ''}`)
+      }
+      partes.push(aLbl(maps.forma, aVal(l.forma)), aDate(l.data))
+      return partes.filter(Boolean).join(' · ')
+    }
     for (const l of nL) if (!oIds.has(aVal(l.id))) ch.push({ field: `${field}.${aVal(l.id)}`, label: `${label} registrado`, before: '—', after: descL(l) })
     for (const l of oL) if (!nIds.has(aVal(l.id))) ch.push({ field: `${field}.${aVal(l.id)}`, label: `${label} removido`, before: descL(l), after: '—' })
   }

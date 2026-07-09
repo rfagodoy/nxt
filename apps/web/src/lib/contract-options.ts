@@ -1,7 +1,7 @@
 import {
-  aditivoAtivo, parcelaVigente, proximoDiaISO, somaLancamentos, somaLancamentosPagos,
-  terminoVigente, valorVigente, lancPago, lancStatus, normalizeSituacao, todayISO,
-  effectiveSituacao as coreEffectiveSituacao,
+  aditivoAtivo, parcelaVigente, proximoDiaISO, somaLancamentos, somaLancamentosPagos, somaDesvios,
+  terminoVigente, valorVigente, lancPago, lancPrevisto, lancRealizado, lancDesvio,
+  normalizeSituacao, todayISO, effectiveSituacao as coreEffectiveSituacao,
 } from '@nxt/contracts-core'
 import type { LookupEntry } from '@/hooks/use-lookup-table'
 
@@ -10,8 +10,8 @@ import type { LookupEntry } from '@/hooks/use-lookup-table'
    que é de UI: sementes das lookups, rótulos, fábricas de linha (newC*) e (de)serialização.
    Antes desta extração havia duas implementações das derivações, e elas divergiam. */
 export {
-  aditivoAtivo, parcelaVigente, proximoDiaISO, somaLancamentos, somaLancamentosPagos,
-  terminoVigente, valorVigente, lancPago, lancStatus, normalizeSituacao,
+  aditivoAtivo, parcelaVigente, proximoDiaISO, somaLancamentos, somaLancamentosPagos, somaDesvios,
+  terminoVigente, valorVigente, lancPago, lancPrevisto, lancRealizado, lancDesvio, normalizeSituacao,
 }
 
 /** Parcela vigente formatada para um input de texto: '' quando não há parcela.
@@ -280,10 +280,11 @@ export interface CReajusteRealizado {
 export interface CRenovacao  { id: string; data: string; terminoAnterior: string; novoTermino: string; automatica: boolean; valorPeriodo: string }
 export interface CDocumento  { id: string; nome: string; tipo: string; data: string; arquivo_nome: string; arquivo_key: string; status_assinatura: string; observacao: string }
 /** Lançamento de pagamento (Despesa) ou recebimento (Receita). Mesma forma. */
-/** Lançamento = parcela do cronograma. status 'previsto' | 'pago'; vencimento = data de vencimento;
- *  data = data de pagamento (preenchida quando pago). "Vencido" é derivado (previsto + vencimento < hoje).
+/** Lançamento = parcela do cronograma.
+ *  `valorPrevisto` = contratado; `valorPago` = baixado ('' enquanto não se paga).
+ *  "Pago" e "Vencido" são DERIVADOS (lancPago / vencimento < hoje), nunca campos.
  *  `reajustavel: false` tira a parcela do alcance do reajuste (ex.: equipamento entregue). */
-export interface CLancamento { id: string; status: string; vencimento: string; data: string; valor: string; forma: string; documento: string; observacao: string; reajustavel: boolean }
+export interface CLancamento { id: string; vencimento: string; data: string; valorPrevisto: string; valorPago: string; forma: string; documento: string; observacao: string; reajustavel: boolean }
 /** Cessão de parte num aditivo: a parte `parteId` passa a ser a entidade indicada (mantém o papel). */
 export interface CCessao { id: string; parteId: string; ref_tipo: string; ref_id: string; nome: string; documento: string }
 /** Termo aditivo: altera, em vigor, término/valor/objeto/partes do contrato; original é preservado. */
@@ -313,7 +314,7 @@ export const newCParte      = (papel = ''): CParte      => ({ id: uid(), papel, 
 export const newCReajuste   = ():           CReajuste   => ({ id: uid(), indice: '', data: '', periodicidade: '', aplicacao: 'MANUAL' })
 export const newCReajusteRealizado = (reajusteId = ''): CReajusteRealizado => ({ id: uid(), reajusteId, competencia: '', indiceSnapshot: '', base: 'total', percentual: '', valorAnterior: '', valorNovo: '', parcelaAnterior: '', parcelaNova: '', parcelasReajustadas: '', dataAplicacao: '', observacao: '', user: '', createdAt: '' })
 export const newCDocumento  = ():           CDocumento  => ({ id: uid(), nome: '', tipo: '', data: '', arquivo_nome: '', arquivo_key: '', status_assinatura: 'nenhum', observacao: '' })
-export const newCLancamento = (status = 'previsto'): CLancamento => ({ id: uid(), status, vencimento: '', data: '', valor: '', forma: '', documento: '', observacao: '', reajustavel: true })
+export const newCLancamento = (): CLancamento => ({ id: uid(), vencimento: '', data: '', valorPrevisto: '', valorPago: '', forma: '', documento: '', observacao: '', reajustavel: true })
 export const newCCessao      = (parteId = ''):CCessao    => ({ id: uid(), parteId, ref_tipo: '', ref_id: '', nome: '', documento: '' })
 export const newCAditivo     = (numero = ''): CAditivo   => ({
   id: uid(), numero, situacao: 'RASCUNHO', tipos: [], data: '', vigenciaInicio: '', descricao: '', arquivo_nome: '', arquivo_key: '',
@@ -345,8 +346,8 @@ export function validateLancamentos(v: ContractFormValues): { field: 'pagamentos
   ]
   for (const s of secoes) {
     if (!s.ativo) continue
-    if (v[s.field].some(l => !(l.vencimento || l.data) || !(parseFloat(l.valor) > 0))) {
-      return { field: s.field, msg: `Em ${s.label}, informe Vencimento e Valor de cada parcela.` }
+    if (v[s.field].some(l => !(l.vencimento || l.data) || !(parseFloat(l.valorPrevisto) > 0))) {
+      return { field: s.field, msg: `Em ${s.label}, informe Vencimento e Valor previsto de cada parcela.` }
     }
     if (v[s.field].some(l => lancPago(l) && !l.forma)) {
       return { field: s.field, msg: `Em ${s.label}, informe a Forma de pagamento das parcelas já pagas.` }
@@ -534,8 +535,21 @@ export function emptyContractForm(): ContractFormValues {
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export function contractFromApi(c: Record<string, any>): ContractFormValues {
   const arr = (x: unknown) => (Array.isArray(x) ? x : [])
-  /* `reajustavel` ausente (dado legado) = true: só o `false` explícito exclui do reajuste */
-  const lanc = (x: unknown) => arr(x).map((l: any) => ({ id: l.id ?? uid(), status: l.status ?? 'pago', vencimento: l.vencimento ?? '', data: l.data ?? '', valor: l.valor != null ? String(l.valor) : '', forma: l.forma ?? '', documento: l.documento ?? '', observacao: l.observacao ?? '', reajustavel: l.reajustavel !== false }))
+  /* Normaliza o lançamento para o modelo previsto/realizado. É o único lugar que traduz o
+     LEGADO (um `valor` só + `status` textual; sem status = pago, herança de quando a seção
+     se chamava "Pagamentos realizados"). `reajustavel` ausente = true. */
+  const lanc = (x: unknown) => arr(x).map((l: any): CLancamento => {
+    const legado = l.valorPrevisto == null && l.valorPago == null && l.valor != null
+    const previsto = legado ? l.valor : l.valorPrevisto
+    const pago = legado ? ((l.status ?? 'pago') === 'pago' ? l.valor : null) : l.valorPago
+    return {
+      id: l.id ?? uid(), vencimento: l.vencimento ?? '', data: l.data ?? '',
+      valorPrevisto: previsto != null ? String(previsto) : '',
+      valorPago:     pago     != null ? String(pago)     : '',
+      forma: l.forma ?? '', documento: l.documento ?? '', observacao: l.observacao ?? '',
+      reajustavel: l.reajustavel !== false,
+    }
+  })
   const numStr = (x: unknown) => (x != null ? String(x) : '')
   return {
     numero: c.numero ?? '', titulo: c.titulo ?? '', descricao: c.descricao ?? '',
@@ -594,8 +608,20 @@ export function contractToPayload(v: ContractFormValues, extra: Record<string, u
     qtdParcelas: v.prazoIndeterminado ? undefined : intOrNull(v.qtdParcelas),
     condicaoPagamento: v.condicaoPagamento || undefined, complementoValor: v.complementoValor || undefined,
     reajustes: v.reajustes, documentos: v.documentos,
-    pagamentos:   pagamentos.map(l => ({ id: l.id, status: l.status || 'pago', vencimento: l.vencimento, data: l.data, valor: parseFloat(l.valor) || 0, forma: l.forma, documento: l.documento, observacao: l.observacao, reajustavel: l.reajustavel !== false })),
-    recebimentos: recebimentos.map(l => ({ id: l.id, status: l.status || 'pago', vencimento: l.vencimento, data: l.data, valor: parseFloat(l.valor) || 0, forma: l.forma, documento: l.documento, observacao: l.observacao, reajustavel: l.reajustavel !== false })),
+    pagamentos:   pagamentos.map(l => ({
+      id: l.id, vencimento: l.vencimento, data: l.data,
+      valorPrevisto: parseFloat(l.valorPrevisto) || 0,
+      /* `null` (e não 0) quando não há baixa: a AUSÊNCIA é o que significa "não pago" */
+      valorPago: l.valorPago === '' || l.valorPago == null ? null : parseFloat(l.valorPago) || 0,
+      forma: l.forma, documento: l.documento, observacao: l.observacao, reajustavel: l.reajustavel !== false,
+    })),
+    recebimentos: recebimentos.map(l => ({
+      id: l.id, vencimento: l.vencimento, data: l.data,
+      valorPrevisto: parseFloat(l.valorPrevisto) || 0,
+      /* `null` (e não 0) quando não há baixa: a AUSÊNCIA é o que significa "não pago" */
+      valorPago: l.valorPago === '' || l.valorPago == null ? null : parseFloat(l.valorPago) || 0,
+      forma: l.forma, documento: l.documento, observacao: l.observacao, reajustavel: l.reajustavel !== false,
+    })),
     aditivos: v.aditivos.map(a => ({
       id: a.id, numero: a.numero, situacao: a.situacao || 'RASCUNHO', tipos: a.tipos, data: a.data, vigenciaInicio: a.vigenciaInicio, descricao: a.descricao,
       arquivo_nome: a.arquivo_nome, arquivo_key: a.arquivo_key,

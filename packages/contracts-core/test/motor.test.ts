@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { num, round2 } from '../src/num'
-import { parcelaVigente, terminoVigente, somaLancamentos } from '../src/derive'
+import { parcelaVigente, terminoVigente, somaLancamentos, lancPrevisto } from '../src/derive'
 import { aplicarReajuste, planejarReajuste } from '../src/reajuste'
 import { renovarPeriodo } from '../src/renovacao'
 import { valorVigente } from '../src/derive'
@@ -83,7 +83,7 @@ describe('motor: reajuste e renovação intercalados', () => {
     const esperado = [5000]
     for (let i = 0; i < 7; i++) esperado.push(round2(esperado[i] * 1.1268))
 
-    const valorEm = (mes: string) => num(c.pagamentos.find((l: any) => l.vencimento.startsWith(mes))!.valor)
+    const valorEm = (mes: string) => lancPrevisto(c.pagamentos.find((l: any) => l.vencimento.startsWith(mes))!)
     expect(valorEm('2019-05')).toBe(esperado[0]) // antes do 1º reajuste
     expect(valorEm('2020-03')).toBe(esperado[0])
     expect(valorEm('2020-04')).toBe(esperado[1]) // reajuste de abr/2020
@@ -97,7 +97,7 @@ describe('motor: reajuste e renovação intercalados', () => {
     const c = contratoBase()
     avancar(c)
     expect(c.pagamentos).toHaveLength(96) // 12 + 7 × 12
-    expect(new Set(c.pagamentos.map((l: any) => num(l.valor))).size).toBe(8)
+    expect(new Set(c.pagamentos.map((l: any) => lancPrevisto(l))).size).toBe(8)
   })
 
   it('o valor vigente do contrato fecha com a soma do cronograma', () => {
