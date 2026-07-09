@@ -110,6 +110,15 @@ export class ContractSchedulerService implements OnModuleInit {
     } catch (e) { this.logger.warn(`importIndices org ${organizationId} falhou: ${String(e)}`); return { atualizados: 0 } }
   }
 
+  /** Execução sob demanda (endpoint /run, admin): espelha a rotina diária para UMA org —
+   *  importa os índices do BCB (se habilitado) e roda o motor de datas/notificações.
+   *  Retorna o resumo combinado. */
+  async runNow(organizationId: string) {
+    const indices = await this.importIndices(organizationId)
+    const engine = await this.runForOrg(organizationId)
+    return { indices: indices.ignorado ? 0 : indices.atualizados, ...engine }
+  }
+
   /** Executa o motor para UMA organização. Retorna um resumo (usado pelo endpoint /run). */
   async runForOrg(organizationId: string) {
     const params = await this.loadParams(organizationId)

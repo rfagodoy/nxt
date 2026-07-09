@@ -37,8 +37,8 @@ export class NotificationsController {
   @Post('run')
   @Roles('admin')
   @UseGuards(RolesGuard)
-  @ApiOperation({ summary: 'Executa o motor de datas/notificações na hora (admin)' })
+  @ApiOperation({ summary: 'Executa o motor de datas/notificações e o import de índices na hora (admin)' })
   run(@CurrentOrg() org: string) {
-    return this.scheduler.runForOrg(org)
+    return this.scheduler.runNow(org)
   }
 }

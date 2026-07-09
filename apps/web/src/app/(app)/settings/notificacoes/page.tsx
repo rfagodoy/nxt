@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { CalendarClock, RefreshCw, Gauge, RotateCw, Save, ShieldAlert, Check, CloudDownload } from 'lucide-react'
+import { CalendarClock, RefreshCw, Gauge, RotateCw, Save, ShieldAlert, Check, CloudDownload, Play, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/lib/session-context'
 import { cacheRead, pullSetting, pushSetting } from '@/lib/settings-store'
+import { apiFetch } from '@/lib/http'
 
 const KEY = 'nxt:settings:notificacoes'
 
@@ -22,6 +23,9 @@ const DEFAULT: Params = {
   renovacaoAutomatica: true,
   indicesAutoImport: true,
 }
+
+/** Resumo retornado por POST /api/notifications/run */
+interface RunResult { indices: number; renovados: number; encerrados: number; notificacoes: number; resolvidas: number }
 
 /* parse "60, 30, 7" → [60,30,7] (positivos, únicos, ordenados desc) */
 const parseList = (s: string) => [...new Set(s.split(/[,\s]+/).map(Number).filter(n => Number.isFinite(n) && n > 0))].sort((a, b) => b - a)
@@ -66,12 +70,31 @@ export default function NotificacoesParams() {
   const [saved, setSaved] = useState(false)
   const [mounted, setMounted] = useState(false)
 
+  /* execução manual do motor de datas (admin) */
+  const [running,   setRunning]   = useState(false)
+  const [runResult, setRunResult] = useState<RunResult | null>(null)
+  const [runError,  setRunError]  = useState<string | null>(null)
+
   useEffect(() => {
     setMounted(true)
     void (async () => { const r = await pullSetting<Params>(KEY); if (r) setP({ ...DEFAULT, ...r, vigencia: { ...DEFAULT.vigencia, ...r.vigencia }, reajuste: { ...DEFAULT.reajuste, ...r.reajuste }, consumo: { ...DEFAULT.consumo, ...r.consumo } }) })()
   }, [])
 
   const save = () => { pushSetting(KEY, p); setSaved(true); setTimeout(() => setSaved(false), 2000) }
+
+  const runNow = async () => {
+    setRunning(true); setRunError(null); setRunResult(null)
+    try {
+      const res = await apiFetch('/api/notifications/run', { method: 'POST' })
+      if (res.ok) setRunResult(await res.json() as RunResult)
+      else if (res.status === 403) setRunError('Apenas administradores podem executar o motor.')
+      else setRunError(`Falha ao executar (${res.status}).`)
+    } catch {
+      setRunError('Não foi possível conectar ao servidor.')
+    } finally {
+      setRunning(false)
+    }
+  }
 
   if (!mounted) return null
   if (!isAdmin) return (
@@ -92,6 +115,36 @@ export default function NotificacoesParams() {
         <button onClick={save} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90">
           {saved ? <><Check className="h-3.5 w-3.5" />Salvo</> : <><Save className="h-3.5 w-3.5" />Salvar</>}
         </button>
+      </div>
+
+      {/* Execução manual do motor de datas */}
+      <div className="rounded-xl border bg-card p-4 shadow-sm">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"><Play className="h-4.5 w-4.5" /></div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold">Executar motor de datas agora</p>
+              <button onClick={() => void runNow()} disabled={running}
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-3 text-xs font-medium transition-colors hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed">
+                {running ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Executando...</> : <><Play className="h-3.5 w-3.5" />Executar agora</>}
+              </button>
+            </div>
+            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+              Roda imediatamente a rotina que normalmente executa de madrugada: import dos índices (BCB), renovação/encerramento automático no término e geração/atualização das notificações. Útil para aplicar mudanças sem esperar o ciclo diário.
+            </p>
+            {runResult && (
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
+                <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 font-medium text-emerald-600 dark:text-emerald-400"><Check className="h-3 w-3" />Concluído</span>
+                <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">{runResult.renovados} renovado(s)</span>
+                <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">{runResult.encerrados} encerrado(s)</span>
+                <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">{runResult.notificacoes} notificação(ões) ativa(s)</span>
+                <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">{runResult.resolvidas} resolvida(s)</span>
+                <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">{runResult.indices} índice(s) atualizado(s)</span>
+              </div>
+            )}
+            {runError && <p className="mt-3 text-[11px] font-medium text-red-600 dark:text-red-400">{runError}</p>}
+          </div>
+        </div>
       </div>
 
       <Card icon={RotateCw} color="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
