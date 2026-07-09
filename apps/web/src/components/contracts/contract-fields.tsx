@@ -686,8 +686,11 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
   /* A renovação manual ("Renovar período") mora na aba Vigência: ela estende a vigência e
      soma o período ao valor do contrato — gerar as parcelas é consequência, não o ato. */
 
-  /* colunas: vencimento · valor · reajusta · forma · nº doc · pagamento · status · observação · (remover) */
-  const COLS = 'grid grid-cols-[7rem_8rem_3.5rem_7rem_6rem_7rem_5.5rem_1fr_1.25rem] items-center gap-2'
+  /* colunas: vencimento · valor · reajusta · forma · nº doc · pagamento · status · observação · (remover)
+     As duas colunas de DATA precisam caber "dd/mm/aaaa" + o ícone do date picker do navegador:
+     abaixo de ~9rem o Chrome corta o ícone. A soma das larguras fixas é mantida sob o
+     `min-w` da tabela, que rola na horizontal em telas estreitas em vez de cortar. */
+  const COLS = 'grid grid-cols-[9rem_7.5rem_2.75rem_7.5rem_5.5rem_9rem_5.5rem_minmax(8rem,1fr)_1.25rem] items-center gap-2'
   const cell = cn(inputCls, 'h-7')
 
   return (
@@ -748,8 +751,9 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
       {lista.length === 0 ? (
         <p className="text-xs text-muted-foreground">Nenhuma parcela. Use &ldquo;Adicionar&rdquo; para uma a uma, ou &ldquo;Gerar cronograma&rdquo; para projetar a série mensal (a vencer).</p>
       ) : (
-        <div className="rounded-md border overflow-hidden">
-          <div>
+        /* rola na horizontal quando a viewport é estreita, em vez de cortar as colunas */
+        <div className="rounded-md border overflow-x-auto">
+          <div className="min-w-[62rem]">
             {grupos.map(([ano, ids]) => {
               const itens = ids.map(id => byId.get(id)).filter(Boolean) as typeof lista
               if (itens.length === 0) return null
@@ -813,8 +817,8 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
               )
             })}
           </div>
-          {/* rodapé: total geral (todas as parcelas) + realizado */}
-          <div className={cn(COLS, 'px-3 py-1.5 bg-muted/30 border-t')}>
+          {/* rodapé: total geral (todas as parcelas) + realizado — acompanha o min-w da tabela */}
+          <div className={cn(COLS, 'min-w-[62rem] px-3 py-1.5 bg-muted/30 border-t')}>
             <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Total</span>
             <span className="text-xs font-semibold tabular-nums text-right pr-2">{money(total)}</span>
             <span /><span /><span /><span className="text-[10px] text-muted-foreground truncate">{rotulo}: {money(totalPago)}</span><span /><span /><span />
