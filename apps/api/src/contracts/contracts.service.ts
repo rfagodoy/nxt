@@ -3,6 +3,24 @@ import { PrismaService } from '../prisma.service'
 import { CreateContractDto } from './dto/create-contract.dto'
 import { UpdateContractDto } from './dto/update-contract.dto'
 
+/* ─── Numeração automática de contratos (Parâmetros gerais) ───────────────────
+   Config em AppSetting (org-level, userId=''). Formatação ESPELHADA no front
+   (apps/web/src/lib/contract-numbering.ts). */
+const CONTRACT_NUMBERING_KEY = 'nxt:settings:parametros:contrato-numeracao'
+interface NumberingCfg {
+  modo: string; prefixo: string; separador: string; incluirAno: boolean
+  digitos: number; sufixo: string; inicio: number; proximo?: number; ano?: number
+}
+function formatNumero(cfg: NumberingCfg, seq: number, year: number): string {
+  const pad = String(Math.max(0, seq)).padStart(Math.max(0, cfg.digitos || 0), '0')
+  const parts: string[] = []
+  if (cfg.prefixo) parts.push(cfg.prefixo)
+  if (cfg.incluirAno) parts.push(String(year))
+  parts.push(pad)
+  if (cfg.sufixo) parts.push(cfg.sufixo)
+  return parts.join(cfg.separador ?? '')
+}
+
 type ContractRecord = {
   id: string; numero: string; titulo: string; tipo: string
   situacao: string; inicioVigencia: string | null; terminoVigencia: string | null
@@ -208,7 +226,8 @@ export class ContractsService {
 
   async create(dto: CreateContractDto, organizationId: string) {
     const { user, ...data } = dto
-    const created = await this.prisma.contract.create({ data: { ...data, organizationId } as never })
+    const numero = await this.resolveNumero(organizationId, (data as { numero?: string }).numero)
+    const created = await this.prisma.contract.create({ data: { ...data, numero, organizationId } as never })
     await this.prisma.contractAuditLog.create({
       data: {
         contractId: created.id,
@@ -218,6 +237,26 @@ export class ContractsService {
       },
     })
     return created
+  }
+
+  /** Resolve o número do contrato: no modo AUTO gera pela config e incrementa o contador;
+   *  no modo MANUAL (ou sem config) usa o número informado pelo cliente.
+   *  Read-modify-write do contador (concorrência baixa neste ERP interno). */
+  private async resolveNumero(organizationId: string, provided?: string): Promise<string> {
+    const where = { organizationId_userId_key: { organizationId, userId: '', key: CONTRACT_NUMBERING_KEY } }
+    const row = await this.prisma.appSetting.findUnique({ where })
+    const cfg = (row?.value ?? null) as NumberingCfg | null
+    if (!cfg || cfg.modo !== 'AUTO') return (provided ?? '').trim()
+
+    const year = new Date().getFullYear()
+    let seq: number
+    let ano = cfg.ano ?? year
+    if (cfg.incluirAno && cfg.ano !== year) { seq = cfg.inicio ?? 1; ano = year } // reinício anual
+    else seq = cfg.proximo ?? cfg.inicio ?? 1
+
+    const numero = formatNumero(cfg, seq, year)
+    await this.prisma.appSetting.update({ where, data: { value: { ...cfg, proximo: seq + 1, ano } as never } })
+    return numero
   }
 
   /* mapas id -> rótulo das tabelas auxiliares, para a auditoria mostrar nomes (não ids) */

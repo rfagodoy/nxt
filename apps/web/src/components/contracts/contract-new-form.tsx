@@ -15,6 +15,8 @@ import {
 import { emptyContractForm, contractToPayload, newCParte, temPagamentos, temRecebimentos, validateContract, validateLancamentos } from '@/lib/contract-options'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { PAPEIS_KEY, INIT_PAPEIS, validatePartes } from '@/lib/contract-roles'
+import { cacheRead, pullSetting } from '@/lib/settings-store'
+import { CONTRACT_NUMBERING_KEY, previewNumero, type NumberingCfg } from '@/lib/contract-numbering'
 
 /* ─── seção colapsável ───────────────────────────────────── */
 function Section({ icon: Icon, title, isOpen, onToggle, hasError, children }: {
@@ -49,6 +51,7 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
   const papeis = useLookupTable(PAPEIS_KEY, INIT_PAPEIS)
 
   const [empresas,    setEmpresas]    = useState<{ id: string; nome: string; documento: string }[]>([])
+  const [numbering,   setNumbering]   = useState<NumberingCfg | null>(null)
   const [searchModal, setSearchModal] = useState<{ parteId: string; origem: string; excludeIds: string[] } | null>(null)
   const [open,        setOpen]        = useState<Set<string>>(new Set(['dados_gerais']))
   const [errors,      setErrors]      = useState<Set<string>>(new Set())
@@ -67,12 +70,21 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
     })()
   }, [])
 
+  /* parâmetros de numeração (Configurações › Tabelas › Parâmetros gerais) */
+  useEffect(() => {
+    setNumbering(cacheRead<NumberingCfg | null>(CONTRACT_NUMBERING_KEY, null))
+    void pullSetting<NumberingCfg>(CONTRACT_NUMBERING_KEY).then(c => { if (c) setNumbering(c) })
+  }, [])
+  const autoNumero = numbering?.modo === 'AUTO'
+  const numeroPreview = autoNumero ? previewNumero(numbering as NumberingCfg, new Date().getFullYear()) : ''
+
   const toggleSection = (k: string) => setOpen(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
 
   /* salva o contrato. 'EM_CADASTRO' = rascunho (validação leve); 'VIGENTE' = ativar (validação completa) */
   const submit = async (status: 'EM_CADASTRO' | 'VIGENTE') => {
     const err = new Set<string>()
-    if (!v.numero.trim() || !v.titulo.trim()) err.add('dados_gerais')
+    /* no modo automático o número é gerado no backend ao salvar (não exigir aqui) */
+    if ((!autoNumero && !v.numero.trim()) || !v.titulo.trim()) err.add('dados_gerais')
     if (status === 'VIGENTE') {
       if (!v.tipo) err.add('dados_gerais')
       if (!v.inicioVigencia) err.add('vigencia')
@@ -130,7 +142,7 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
 
       <form className="space-y-2" onSubmit={e => e.preventDefault()}>
         <Section icon={FileText} title="Dados Gerais" isOpen={open.has('dados_gerais')} onToggle={() => toggleSection('dados_gerais')} hasError={errors.has('dados_gerais')}>
-          <IdentificacaoFields form={form} />
+          <IdentificacaoFields form={form} autoNumero={autoNumero} numeroPreview={numeroPreview} />
         </Section>
 
         <Section icon={Users} title="Partes Envolvidas" isOpen={open.has('partes')} onToggle={() => toggleSection('partes')} hasError={errors.has('partes')}>

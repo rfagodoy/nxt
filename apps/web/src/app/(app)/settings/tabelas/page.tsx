@@ -1,7 +1,14 @@
 import Link from 'next/link'
-import { Globe, Tag, FileSearch, Coins, CreditCard, TrendingUp, UserCheck, Paperclip, Network } from 'lucide-react'
+import { Globe, Tag, FileSearch, Coins, CreditCard, TrendingUp, UserCheck, Paperclip, Network, SlidersHorizontal } from 'lucide-react'
 
 const TABLES = [
+  {
+    href:        '/settings/tabelas/parametros',
+    icon:        SlidersHorizontal,
+    label:       'Parâmetros gerais',
+    description: 'Comportamentos do sistema, como a numeração automática ou manual dos contratos.',
+    color:       'bg-primary/10 text-primary',
+  },
   {
     href:        '/settings/tabelas/paises',
     icon:        Globe,

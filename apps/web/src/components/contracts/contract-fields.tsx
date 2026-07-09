@@ -186,7 +186,7 @@ function HistBlock({ title, count, children }: { title: string; count: number; c
 
 /** Dados Gerais: Número, Situação, Título, Descrição, Objeto, Tipo. Número segue editável mesmo em leitura;
  *  Situação é sempre só-leitura e preenchida automaticamente pelo ciclo de vida (ver effectiveSituacao). */
-export function IdentificacaoFields({ form, ro }: { form: ContractForm; ro?: boolean }) {
+export function IdentificacaoFields({ form, ro, autoNumero = false, numeroPreview }: { form: ContractForm; ro?: boolean; autoNumero?: boolean; numeroPreview?: string }) {
   const tipos   = useLookupTable(TIPOS_KEY, INIT_TIPOS)
   const objetos = useLookupTable(OBJETOS_KEY, INIT_OBJETOS)
   const v = form.values
@@ -200,7 +200,14 @@ export function IdentificacaoFields({ form, ro }: { form: ContractForm; ro?: boo
     <div className="grid grid-cols-2 gap-3">
       {/* Natureza vem primeiro: é o "modo" que define o que o resto do formulário exibe */}
       <Field label="Natureza do contrato" span2><Segmented value={v.natureza} onChange={x => form.set('natureza', x)} ro={ro} options={NATUREZAS} /></Field>
-      <Field label="Número" required><Txt value={v.numero} onChange={x => form.set('numero', x)} ro={ro} placeholder="CTR-2026-001" /></Field>
+      {autoNumero ? (
+        <Field label="Número">
+          <span className={readCls}>{numeroPreview || 'Gerado ao salvar'}</span>
+          <p className="mt-0.5 text-[10px] text-muted-foreground normal-case">Gerado automaticamente ao salvar (Parâmetros gerais)</p>
+        </Field>
+      ) : (
+        <Field label="Número" required><Txt value={v.numero} onChange={x => form.set('numero', x)} ro={ro} placeholder="CTR-2026-001" /></Field>
+      )}
       {/* situação usa o término VIGENTE (com aditivos) — prorrogou, não fica "Vencido" */}
       <Field label="Situação"><span className={readCls}>{SITUACOES.find(s => s.value === effectiveSituacao(v.situacao, v.prazoIndeterminado ? '' : terminoVigente(v)))?.label ?? '—'}</span></Field>
       <Field label="Título" required span2>
