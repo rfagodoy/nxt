@@ -193,14 +193,26 @@ export class ContractSchedulerService implements OnModuleInit {
       if (!dryRun && (evolucao.reajustes.length || evolucao.renovados || evolucao.encerrados)) {
         await this.persistirEvolucao(c, evolucao)
       }
-      /* diferença que ficou de fora por já estar paga: o motor NÃO cobra, mas conta */
-      for (const a of evolucao.reajustes) {
-        if (!a.pagasAlcancadas) continue
-        const key = `reajuste-diferenca:${c.id}:${a.reajusteId}:${a.competencia.slice(0, 7)}`
+      /* DIFERENÇA NÃO COBRADA — DERIVADA do estado, não emitida como efeito colateral.
+         Antes, o alerta só nascia na execução que APLICAVA o reajuste: na varredura da
+         madrugada seguinte nada o recriava, e o `deleteMany` das obsoletas o apagava. Um
+         alerta que só existe se você estava olhando na hora não é um alerta.
+         Agora percorremos os reajustes JÁ APLICADOS e recalculamos: a parcela paga não é
+         reprecificada, então seu previsto não muda e a conta é estável — o alerta persiste
+         enquanto a diferença existir, e some se alguém estornar a parcela. */
+      for (const rr of ((c.reajustesRealizados as any[]) ?? [])) {
+        /* base 'total' não reprecifica parcela: não há diferença por parcela a cobrar */
+        if (rr.base !== 'parcela') continue
+        const pct = Number(rr.percentual) || 0
+        const competencia = String(rr.competencia ?? '')
+        if (!pct || !competencia) continue
+        const pagas = pagasAlcancadas(c, competencia, pct)
+        if (!pagas.quantidade) continue
+        const key = `reajuste-diferenca:${c.id}:${rr.reajusteId}:${competencia.slice(0, 7)}`
         activeKeys.push(key)
         upserts.push({ dedupKey: key, contractId: c.id, tipo: 'REAJUSTE', severidade: 'ALERTA',
           titulo: 'Diferença de reajuste não cobrada',
-          mensagem: `${label(c)}: o reajuste de ${fmtMesAno(a.competencia)} alcançou ${a.pagasAlcancadas} parcela(s) já paga(s). Diferença não cobrada: ${aMoney(a.diferencaNaoCobrada)}.` })
+          mensagem: `${label(c)}: o reajuste de ${fmtMesAno(competencia)} alcançou ${pagas.quantidade} parcela(s) já paga(s). Diferença não cobrada: ${aMoney(pagas.diferenca)}.` })
       }
 
       /* acaoTermino MANUAL não age aqui — entra na notificação de vigência abaixo */

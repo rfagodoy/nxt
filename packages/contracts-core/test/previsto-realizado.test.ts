@@ -192,6 +192,43 @@ describe('a baixa NÃO pode desmarcar `reajustavel`', () => {
   })
 })
 
+describe('a diferença não cobrada é DERIVÁVEL — pode ser recalculada a qualquer momento', () => {
+  /* O alerta de diferença não cobrada era emitido como efeito colateral da aplicação do
+     reajuste e sumia na varredura seguinte. A correção o deriva do estado, e isso só é
+     válido se `pagasAlcancadas` for ESTÁVEL: a parcela paga não é reprecificada, logo seu
+     previsto não muda, logo a conta dá o mesmo número hoje, amanhã e daqui a um ano. */
+  const contrato = (): any => ({
+    natureza: 'DESPESA', valorTotal: 3000, valorParcela: 1000, qtdParcelas: 3,
+    aditivos: [], renovacoes: [], reajustesRealizados: [], recebimentos: [],
+    reajustes: [{ id: 'r1', indice: '1', data: '2026-01-01', periodicidade: 'Anual' }],
+    pagamentos: [
+      paga('p1', '2026-02-10', 1000, 1000),   // paga e reajustável: entra na diferença
+      prevista('p2', '2026-03-10', 1000),
+      prevista('p3', '2026-04-10', 1000),
+    ],
+  })
+
+  it('o número é o mesmo antes e depois de aplicar o reajuste', () => {
+    const c = contrato()
+    const antes = pagasAlcancadas(c, '2026-02', 10)
+    expect(antes).toEqual({ quantidade: 1, diferenca: 100 })
+
+    const r = aplicarReajuste(c, { id: 'x', reajusteId: 'r1', competencia: '2026-02', percentual: 10, base: 'parcela' })
+    const depois = { ...c, pagamentos: r.pagamentos, reajustesRealizados: [r.reajuste] }
+
+    /* recalcular sobre o contrato JÁ reajustado devolve o mesmo — é isto que permite ao
+       motor reemitir o alerta em toda varredura em vez de emiti-lo uma vez e perdê-lo */
+    expect(pagasAlcancadas(depois, '2026-02', 10)).toEqual(antes)
+    expect(pagasAlcancadas(depois, '2026-02', 10)).toEqual(pagasAlcancadas(depois, '2026-02', 10))
+  })
+
+  it('estornar a parcela zera a diferença: o alerta some sozinho', () => {
+    const c = contrato()
+    const estornada = { ...c, pagamentos: [prevista('p1', '2026-02-10', 1000), ...c.pagamentos.slice(1)] }
+    expect(pagasAlcancadas(estornada, '2026-02', 10)).toEqual({ quantidade: 0, diferenca: 0 })
+  })
+})
+
 describe('o comprovante é metadado: nenhuma regra o lê, nenhuma regra o perde', () => {
   /* `comPrevisto` reconstrói o lançamento ao reprecificar (tira o `valor` legado). Se ele
      enumerasse campos em vez de espalhar o resto, o anexo sumiria no primeiro reajuste —
