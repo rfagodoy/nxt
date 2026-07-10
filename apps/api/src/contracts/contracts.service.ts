@@ -1,10 +1,11 @@
-import { Injectable, NotFoundException, BadRequestException, ServiceUnavailableException } from '@nestjs/common'
+import { Injectable, Logger, NotFoundException, BadRequestException, ServiceUnavailableException } from '@nestjs/common'
 import {
   aditivoAtivo, parcelaVigente, terminoVigente, valorVigente,
   lancPago, lancPrevisto, lancRealizado, lancDesvio,
   type CoreAditivo, type CoreContract,
 } from '@nxt/contracts-core'
 import { PrismaService } from '../prisma.service'
+import { StorageService } from '../files/storage.service'
 import { CreateContractDto } from './dto/create-contract.dto'
 import { UpdateContractDto } from './dto/update-contract.dto'
 
@@ -242,7 +243,8 @@ const isTransitionEvent = (ev: string) => ['ATIVADO', 'EM_REVISAO', 'ENCERRADO',
 
 @Injectable()
 export class ContractsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger('ContractsService')
+  constructor(private readonly prisma: PrismaService, private readonly storage: StorageService) {}
 
   /* Resolve nome/documento das partes "ao vivo" a partir da entidade referenciada
      (parceiro/empresa/unidade) pelo ref_id — assim o contrato sempre reflete os
@@ -429,9 +431,36 @@ export class ContractsService {
     return this.prisma.contractAuditLog.findMany({ where: { contractId }, orderBy: { createdAt: 'desc' } })
   }
 
+  /** Chaves de TODO anexo do contrato: documentos, arquivos de aditivo e comprovantes de
+   *  parcela. Um lugar só — quem acrescentar um anexo novo ao contrato acrescenta aqui,
+   *  e a exclusão continua completa. */
+  private anexosDo(c: Record<string, unknown>): string[] {
+    const arr = (x: unknown) => (Array.isArray(x) ? (x as Record<string, unknown>[]) : [])
+    const keys = new Set<string>()
+    const add = (k: unknown) => { if (typeof k === 'string' && k) keys.add(k) }
+    for (const d of arr(c.documentos)) add(d.arquivo_key)
+    for (const a of arr(c.aditivos))   add(a.arquivo_key)
+    for (const l of arr(c.pagamentos))   add(l.comprovante_key)
+    for (const l of arr(c.recebimentos)) add(l.comprovante_key)
+    return [...keys]
+  }
+
+  /** Exclui o contrato E os seus anexos. O storage não tem integridade referencial: se o
+   *  registro some sem que os arquivos sumam, ninguém mais sabe que eles existiram nem a
+   *  quem pertenciam. Os arquivos vão primeiro só na intenção — a falha ao apagar um deles
+   *  não impede a exclusão do contrato (o arquivo vira órfão, o inverso seria um contrato
+   *  imortal por causa de um PDF travado). */
   async remove(id: string, organizationId: string) {
-    await this.findOne(id, organizationId)
-    return this.prisma.contract.delete({ where: { id } })
+    const contrato = await this.findOne(id, organizationId) as unknown as Record<string, unknown>
+    const keys = this.anexosDo(contrato)
+
+    const deletado = await this.prisma.contract.delete({ where: { id } })
+
+    for (const key of keys) {
+      try { await this.storage.delete(key) }
+      catch (e) { this.logger.warn(`anexo ${key} do contrato ${id} não pôde ser removido: ${String(e)}`) }
+    }
+    return deletado
   }
 
   /* Consulta a série mensal de um índice na API pública do Banco Central (SGS) e devolve
