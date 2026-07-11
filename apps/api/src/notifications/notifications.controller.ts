@@ -41,4 +41,13 @@ export class NotificationsController {
   run(@CurrentOrg() org: string, @Query('dryRun') dryRun?: string) {
     return this.scheduler.runNow(org, dryRun === '1' || dryRun === 'true')
   }
+
+  @Post('sweep-orfaos')
+  @Roles('admin')
+  @UseGuards(RolesGuard)
+  @ApiOperation({ summary: 'Varredura de anexos órfãos do storage (admin). graceHours=0 ignora a janela de graça (não recomendado com usuários ativos).' })
+  sweepOrfaos(@Query('graceHours') graceHours?: string) {
+    const g = graceHours != null && graceHours !== '' ? Math.max(0, Number(graceHours) || 0) : undefined
+    return this.scheduler.sweepOrphans(g)
+  }
 }

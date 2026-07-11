@@ -11,11 +11,21 @@ export interface StoredFileMeta {
   uploadedAt: string
 }
 
+/** Um objeto existente no storage. `lastModified` (quando o driver sabe) alimenta a janela
+ *  de graça da varredura de órfãos: um blob recém-enviado cujo contrato ainda não foi salvo
+ *  não pode ser reapado, senão a limpeza vira perda de arquivo. */
+export interface StoredObject {
+  key: string
+  lastModified?: Date
+}
+
 /** Contrato comum a todos os backends de armazenamento de anexos. */
 export interface StorageDriver {
   save(key: string, buffer: Buffer, meta: StoredFileMeta): Promise<void>
   read(key: string): Promise<{ buffer: Buffer; meta: StoredFileMeta }>
   delete(key: string): Promise<void>
+  /** Lista TODAS as keys do storage — base da varredura de órfãos. */
+  list(): Promise<StoredObject[]>
 }
 
 /**
@@ -49,6 +59,20 @@ export class LocalDiskDriver implements StorageDriver {
       fs.rm(this.metaPath(key), { force: true }),
     ])
   }
+
+  async list(): Promise<StoredObject[]> {
+    let names: string[]
+    try { names = await fs.readdir(this.dir) }
+    catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return []; throw e }
+    const out: StoredObject[] = []
+    for (const name of names) {
+      if (name.endsWith('.meta.json')) continue // sidecar de metadado, não é um blob próprio
+      let lastModified: Date | undefined
+      try { lastModified = (await fs.stat(path.join(this.dir, name))).mtime } catch { /* idade desconhecida */ }
+      out.push({ key: name, lastModified })
+    }
+    return out
+  }
 }
 
 /**
@@ -72,4 +96,5 @@ export class StorageService implements StorageDriver {
   save(key: string, buffer: Buffer, meta: StoredFileMeta) { return this.driver.save(key, buffer, meta) }
   read(key: string) { return this.driver.read(key) }
   delete(key: string) { return this.driver.delete(key) }
+  list() { return this.driver.list() }
 }

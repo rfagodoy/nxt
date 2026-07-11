@@ -1,5 +1,5 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
-import type { StorageDriver, StoredFileMeta } from './storage.service'
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3'
+import type { StorageDriver, StoredFileMeta, StoredObject } from './storage.service'
 
 function required(name: string): string {
   const v = process.env[name]
@@ -61,5 +61,16 @@ export class R2Driver implements StorageDriver {
 
   async delete(key: string): Promise<void> {
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }))
+  }
+
+  async list(): Promise<StoredObject[]> {
+    const out: StoredObject[] = []
+    let token: string | undefined
+    do {
+      const res = await this.client.send(new ListObjectsV2Command({ Bucket: this.bucket, ContinuationToken: token }))
+      for (const o of res.Contents ?? []) if (o.Key) out.push({ key: o.Key, lastModified: o.LastModified })
+      token = res.IsTruncated ? res.NextContinuationToken : undefined
+    } while (token)
+    return out
   }
 }

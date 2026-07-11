@@ -9,6 +9,8 @@ import type { MotivoNaoAplicar } from '@nxt/contracts-core'
 import { PrismaService } from '../prisma.service'
 import { SettingsService } from '../settings/settings.service'
 import { ContractsService } from '../contracts/contracts.service'
+import { StorageService } from '../files/storage.service'
+import { collectAttachmentKeys } from '../files/attachment-keys'
 
 const INDICES_KEY = 'nxt:settings:contratos:indices'
 const INDICE_VALORES_KEY = 'nxt:settings:contratos:indice-valores'
@@ -100,7 +102,7 @@ export interface ReajusteAplicado {
 @Injectable()
 export class ContractSchedulerService implements OnModuleInit {
   private readonly logger = new Logger('ContractScheduler')
-  constructor(private readonly prisma: PrismaService, private readonly settings: SettingsService, private readonly contracts: ContractsService) {}
+  constructor(private readonly prisma: PrismaService, private readonly settings: SettingsService, private readonly contracts: ContractsService, private readonly storage: StorageService) {}
 
   onModuleInit() {
     /* agendador in-process: dispara ~3h da manhã, todo dia (sem @nestjs/schedule) */
@@ -123,7 +125,49 @@ export class ContractSchedulerService implements OnModuleInit {
         await this.importIndices(organizationId)  // atualiza valores de índice (BCB) antes das notificações
         await this.runForOrg(organizationId)
       }
+      await this.sweepOrphans()  // storage é global (a key carrega o prefixo da org) → varre uma vez só
     } catch (e) { this.logger.error(`runAll falhou: ${String(e)}`) }
+  }
+
+  /* FRENTE 2 — varredura de órfãos agendada. A Frente 1 (apagar no salvar) cobre remover/
+     substituir; sobra o lixo que nasce de "subiu o arquivo e nunca salvou o contrato" e de
+     um delete que falhou na exclusão. Esta rotina os recolhe todo dia, sem ninguém rodar nada.
+
+     TRÊS GUARDAS contra apagar arquivo vivo (o custo de um órfão é zero; o de perder um
+     anexo, não):
+      1. Reconhecimento por SHAPE (collectAttachmentKeys): impossível uma lista desatualizada
+         tratar um anexo real como órfão.
+      2. Trava anti-scan-quebrado: há contratos mas nenhuma referência reconhecida → não apaga
+         nada (formato de key mudou? base ilegível?). Na dúvida, não apaga.
+      3. Janela de graça: só reapa blob comprovadamente mais velho que `graceHours`. Um upload
+         recém-feito cujo contrato ainda não foi salvo fica protegido até o dono desistir. */
+  async sweepOrphans(graceHours = 48): Promise<{ blobs: number; referenciados: number; orfaos: number; apagados: number; protegidos: number }> {
+    const vazio = { blobs: 0, referenciados: 0, orfaos: 0, apagados: 0, protegidos: 0 }
+    try {
+      const objetos = await this.storage.list()
+      const contratos = await this.prisma.contract.findMany()
+      const referenciadas = new Set<string>()
+      for (const c of contratos) collectAttachmentKeys(c, referenciadas)
+
+      if (contratos.length > 0 && referenciadas.size === 0) {
+        this.logger.warn('varredura de órfãos ABORTADA: há contratos mas nenhuma referência reconhecida (scan quebrado?). Nada apagado.')
+        return { ...vazio, blobs: objetos.length }
+      }
+
+      const limite = Date.now() - graceHours * 3_600_000
+      let orfaos = 0, apagados = 0, protegidos = 0
+      for (const o of objetos) {
+        if (referenciadas.has(o.key)) continue
+        orfaos++
+        /* só apaga o que SABIDAMENTE já passou da janela de graça; idade desconhecida = protege */
+        const velho = o.lastModified instanceof Date && o.lastModified.getTime() <= limite
+        if (!velho) { protegidos++; continue }
+        try { await this.storage.delete(o.key); apagados++ }
+        catch (e) { this.logger.warn(`varredura: falha ao apagar órfão ${o.key}: ${String(e)}`) }
+      }
+      if (orfaos) this.logger.log(`varredura de órfãos: ${objetos.length} blob(s), ${orfaos} órfão(s), ${apagados} apagado(s), ${protegidos} na janela de graça`)
+      return { blobs: objetos.length, referenciados: referenciadas.size, orfaos, apagados, protegidos }
+    } catch (e) { this.logger.warn(`varredura de órfãos falhou: ${String(e)}`); return vazio }
   }
 
   /* Import diário dos valores de índice do BCB (Fase 3). Lê o catálogo de índices da org
