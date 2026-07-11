@@ -517,20 +517,20 @@ export function ValoresFields({ form, ro }: { form: ContractForm; ro?: boolean }
   const valorTotalNum = valorVigente(v)            // valor VIGENTE (original + aditivos) — usado no topo e no saldo
   return (
     <div className="grid grid-cols-2 gap-3">
-      {/* Ordem coerente: (1) a base — moeda + valor total; (2) COMO se paga — condição e forma,
-          as duas descrições de pagamento lado a lado; (3) a parcela — valor + quantidade.
-          Valores exibem o VIGENTE na leitura (o original e as alterações moram no Histórico abaixo). */}
+      {/* Ordem: (1) moeda + condição — descritores de topo; (2) os dois VALORES colados
+          (vigentes na leitura); (3) forma + quantidade — como paga e em quantas. A quantidade
+          é condicional e fica por último, então nunca separa os dois valores. */}
       <Field label="Moeda"><Sel value={v.moeda} onChange={x => form.set('moeda', x)} ro={ro} options={moedaOpts} placeholder="Selecione..." /></Field>
+      <Field label="Condição de pagamento"><Sel value={ro ? condicaoVigente(v) : v.condicaoPagamento} onChange={x => form.set('condicaoPagamento', x)} ro={ro} options={lookupOpts(condicoes.active)} placeholder="Selecione..." /></Field>
+
       <Field label="Valor total do contrato" required>
         <MoneyField value={ro ? String(valorTotalNum) : v.valorTotal} moedaCode={v.moeda} onChange={x => form.set('valorTotal', x)} ro={ro} />
       </Field>
-
-      <Field label="Condição de pagamento"><Sel value={ro ? condicaoVigente(v) : v.condicaoPagamento} onChange={x => form.set('condicaoPagamento', x)} ro={ro} options={lookupOpts(condicoes.active)} placeholder="Selecione..." /></Field>
-      <Field label="Forma de pagamento"><Sel value={v.formaPagamento} onChange={x => form.set('formaPagamento', x)} ro={ro} options={lookupOpts(formas.active)} placeholder="Selecione..." /></Field>
-
       <Field label="Valor da parcela">
         <MoneyField value={ro ? parcelaVigenteInput(v) : v.valorParcela} moedaCode={v.moeda} onChange={x => form.set('valorParcela', x)} ro={ro} />
       </Field>
+
+      <Field label="Forma de pagamento"><Sel value={v.formaPagamento} onChange={x => form.set('formaPagamento', x)} ro={ro} options={lookupOpts(formas.active)} placeholder="Selecione..." /></Field>
       {/* Quantidade de parcelas — só faz sentido em prazo determinado; base do reajuste de parcela */}
       {!v.prazoIndeterminado && (
         <Field label="Quantidade de parcelas">
