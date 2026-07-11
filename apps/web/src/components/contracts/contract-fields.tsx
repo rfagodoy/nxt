@@ -58,7 +58,11 @@ export function useContractForm(initial: ContractFormValues) {
     setValues(p => ({ ...p, documentos: p.documentos.map(x => x.id !== id ? x : { ...x, ...patch }) })), [])
 
   /* lançamentos: 'pagamentos' (Despesa) e 'recebimentos' (Receita) — mesma forma */
-  const addLanc = useCallback((field: 'pagamentos' | 'recebimentos') => setValues(p => ({ ...p, [field]: [...p[field], newCLancamento()] })), [])
+  const addLanc = useCallback((field: 'pagamentos' | 'recebimentos') => {
+    const novo = newCLancamento()
+    setValues(p => ({ ...p, [field]: [...p[field], novo] }))
+    return novo.id  // devolve o id para a tela focar/destacar a linha recém-criada
+  }, [])
   const remLanc = useCallback((field: 'pagamentos' | 'recebimentos', id: string) => setValues(p => ({ ...p, [field]: p[field].filter(x => x.id !== id) })), [])
   const updLanc = useCallback((field: 'pagamentos' | 'recebimentos', id: string, k: keyof Omit<CLancamento, 'id'>, v: string) =>
     setValues(p => ({ ...p, [field]: p[field].map(x => x.id !== id ? x : { ...x, [k]: v }) })), [])
@@ -609,7 +613,7 @@ function StatTile({ label, value, bar, danger, hint }: { label: string; value: s
 /** Pagamentos/Recebimentos como "extrato operacional": resumo (total, nº, % do contrato, saldo),
  *  toolbar fixa (adicionar / gerar em massa) e lista agrupada por ano — cada ano recolhível.
  *  Editável mesmo com o contrato travado. */
-export function LancamentosFields({ form, field, moedaCode }: { form: ContractForm; field: 'pagamentos' | 'recebimentos'; moedaCode: string }) {
+export function LancamentosFields({ form, field, moedaCode, travado }: { form: ContractForm; field: 'pagamentos' | 'recebimentos'; moedaCode: string; travado?: boolean }) {
   const v = form.values
   const lista = v[field]
   const singular = field === 'pagamentos' ? 'pagamento' : 'recebimento'
@@ -760,7 +764,10 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
       if (!byYear.has(ano)) byYear.set(ano, [])
       byYear.get(ano)!.push(l.id)
     }
-    return [...byYear.entries()]
+    /* "Sem data" PRIMEIRO: um lançamento recém-adicionado nasce sem data e, no fim da lista,
+       ficava fora da tela — parecia que o clique não fez nada. No topo, aparece logo abaixo
+       da toolbar; ao ganhar data e sair do campo, desce para o seu mês (reordenar). */
+    return [...byYear.entries()].sort((a, b) => (a[0] === '—' ? -1 : b[0] === '—' ? 1 : 0))
   }
   const [grupos, setGrupos] = useState<[string, string[]][]>(buildGrupos)
   const prevLen = useRef(lista.length)
@@ -777,6 +784,24 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
   const toggleYear = (ano: string) => setOpenYears(s => { const n = new Set(s); n.has(ano) ? n.delete(ano) : n.add(ano); return n })
   /* onBlur da data: re-agrupa e mantém visível o ano para onde a linha foi (evita "sumir") */
   const reordenar = (anoAbrir?: string) => { setGrupos(buildGrupos()); if (anoAbrir) setOpenYears(s => new Set(s).add(anoAbrir)) }
+
+  /* Adicionar UM lançamento: nasce sem data (grupo "Sem data", agora no topo). Focamos o
+     campo de data e destacamos a linha por um instante — sem isso a linha aparece sem aviso e
+     o clique parece não ter surtido efeito. */
+  const [novoId, setNovoId] = useState<string | null>(null)
+  const adicionar = () => setNovoId(form.addLanc(field))
+  const focarNovo = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return
+    requestAnimationFrame(() => {
+      el.scrollIntoView({ block: 'nearest' })
+      ;(el.querySelector('input[type="date"]') as HTMLInputElement | null)?.focus()
+    })
+  }, [])
+  useEffect(() => {
+    if (!novoId) return
+    const t = setTimeout(() => setNovoId(null), 1200)  // destaque some depois da transição
+    return () => clearTimeout(t)
+  }, [novoId])
 
   /* ── gerar em massa (valor fixo) ─────────────────────────── */
   const [gerarOpen, setGerarOpen] = useState(false)
@@ -850,7 +875,7 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
       {/* toolbar fixa (não some ao rolar a lista) */}
       <div className="sticky top-0 z-20 flex items-center justify-between gap-3 bg-background py-1.5 border-b border-border/60">
         <div className="flex items-center gap-4">
-          <button type="button" onClick={() => form.addLanc(field)} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar {singular}</button>
+          <button type="button" onClick={adicionar} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar {singular}</button>
           <button type="button" onClick={abrirGerar} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-medium transition-colors"><ListPlus className="h-3.5 w-3.5" />Gerar cronograma</button>
           <button type="button" onClick={() => void exportar()} disabled={!lista.length}
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
@@ -950,7 +975,8 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
                   {aberto && (
                     <div className="divide-y divide-border/50">
                       {itens.map(l => (
-                        <div key={l.id} className={cn(COLS, 'group px-3 py-1 hover:bg-muted/30')}>
+                        <div key={l.id} ref={l.id === novoId ? focarNovo : undefined}
+                             className={cn(COLS, 'group px-3 py-1 transition-colors duration-700 hover:bg-muted/30', l.id === novoId && 'bg-primary/10')}>
                           <input type="date" value={l.vencimento} onChange={e => form.updLanc(field, l.id, 'vencimento', e.target.value)} onBlur={e => reordenar(e.target.value ? e.target.value.slice(0, 4) : undefined)} className={cell} />
                           {/* "≈" = valor provisório: o próximo reajuste ainda vai reprecificar esta parcela */}
                           <div className="relative">
@@ -1037,7 +1063,8 @@ export function LancamentosFields({ form, field, moedaCode }: { form: ContractFo
                           <input value={l.documento} onChange={e => form.updLanc(field, l.id, 'documento', e.target.value)} placeholder="NF 1234" className={cell} />
                           <button type="button" onClick={() => (lancPago(l) ? reabrir(l) : marcarPago(l))} title={lancPago(l) ? 'Reabrir (voltar a A vencer)' : `Marcar como ${rotulo}`} className={cn('inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-80', statusInfo(l).cls)}>{statusInfo(l).label}</button>
                           <input value={l.observacao} onChange={e => form.updLanc(field, l.id, 'observacao', e.target.value)} placeholder="—" className={cn(cell, 'text-muted-foreground')} />
-                          <button type="button" onClick={() => form.remLanc(field, l.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>
+                          {/* travado: registra baixa/comprovante, mas EXCLUIR exige abrir para revisão */}
+                          {travado ? <span /> : <button type="button" onClick={() => form.remLanc(field, l.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>}
                         </div>
                       ))}
                     </div>
@@ -1285,7 +1312,7 @@ function ReajusteCard({ r, idx, form, indices, ro, open, onToggle }: {
           )}
 
           {/* histórico de reajustes aplicados deste índice */}
-          <ReajusteRealizados form={form} indices={indices} linha={r} />
+          <ReajusteRealizados form={form} indices={indices} linha={r} ro={ro} />
         </div>
       )}
     </div>
@@ -1302,7 +1329,7 @@ const baseCurta = (b: string) => (b === 'parcela' ? 'Parcela' : 'Total')
  *  do reajuste (a próxima data segue derivada). Operável mesmo com o cadastro travado (como
  *  lançamentos), persistido pelo botão "Salvar". Base Valor total | Parcela com default inteligente;
  *  ao reajustar a PARCELA em prazo determinado, o novo total ACRESCENTA o stream: total + nova parcela × parcelas. */
-function ReajusteRealizados({ form, indices, linha }: { form: ContractForm; indices: ReturnType<typeof useLookupTable>; linha: CReajuste }) {
+function ReajusteRealizados({ form, indices, linha, ro }: { form: ContractForm; indices: ReturnType<typeof useLookupTable>; linha: CReajuste; ro?: boolean }) {
   const v = form.values
   const indiceVals = useIndiceValores()
   const [aberto, setAberto]             = useState(false)
@@ -1468,7 +1495,8 @@ function ReajusteRealizados({ form, indices, linha }: { form: ContractForm; indi
                 <span className="text-xs tabular-nums">{r.percentual ? `${r.percentual.replace('.', ',')}%` : '—'}</span>
                 <span className="text-[10px]"><span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 font-medium text-foreground/70">{baseCurta(r.base)}</span></span>
                 <span className="text-xs tabular-nums truncate" title={r.base === 'parcela' && Number(r.parcelasReajustadas) ? `${r.parcelasReajustadas} parcela(s)` : undefined}>{transicao(r)}</span>
-                <button type="button" onClick={() => form.remReajRealizado(r.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>
+                {/* travado: registra reajuste realizado, mas EXCLUIR exige abrir para revisão */}
+                {ro ? <span /> : <button type="button" onClick={() => form.remReajRealizado(r.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>}
               </div>
             ))}
           </div>
@@ -1721,8 +1749,9 @@ function DocumentoCard({ doc, idx, ro, form, open, onToggle, onCollapse }: { doc
             </button>
           </div>
         )}
-        {/* excluir sempre disponível — erros de cadastro acontecem, mesmo com o contrato já travado */}
-        <button type="button" onClick={() => form.remDoc(doc.id)} title="Excluir documento" className="shrink-0 text-muted-foreground hover:text-destructive transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
+        {/* excluir só com o contrato ABERTO para edição — travado exige "abrir para revisão"
+            (excluir um documento é correção destrutiva, não operação do contrato ativo) */}
+        {!ro && <button type="button" onClick={() => form.remDoc(doc.id)} title="Excluir documento" className="shrink-0 text-muted-foreground hover:text-destructive transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>}
       </div>
 
       {err && !open && <p className="px-3 pb-2 text-[11px] text-red-500">{err}</p>}
