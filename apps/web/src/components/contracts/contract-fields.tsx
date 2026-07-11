@@ -1691,11 +1691,12 @@ function DocumentoCard({ doc, idx, ro, form, open, onToggle, onCollapse }: { doc
     } finally { setBusy(null) }
   }
 
-  const handleRemoveFile = () => {
-    const key = doc.arquivo_key
-    form.patchDoc(doc.id, { arquivo_key: '', arquivo_nome: '' })
-    if (key) void apiFetch(`/api/files/${encodeURIComponent(key)}`, { method: 'DELETE' }) // limpeza best-effort
-  }
+  /* Remover LIMPA A REFERÊNCIA, não apaga o arquivo — mesma regra do comprovante de parcela
+     e do anexo de aditivo. O DELETE imediato criava um ponteiro para o vazio: quem removesse
+     e fechasse a tela sem salvar deixava a key no banco e o storage sem o arquivo (a única
+     forma conhecida de perder um anexo em silêncio). Referência perdida sem salvar é
+     reversível (basta não salvar); arquivo apagado, não. O órfão é tratado por varredura. */
+  const handleRemoveFile = () => form.patchDoc(doc.id, { arquivo_key: '', arquivo_nome: '' })
 
   return (
     <div className="rounded-xl border bg-card overflow-hidden shadow-sm">
