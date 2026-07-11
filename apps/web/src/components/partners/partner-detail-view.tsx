@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { usePartnerFields, useFieldVisibility } from '@/hooks/use-partner-fields'
 import { getLogUser } from '@/hooks/use-partner-logs'
+import { SaveStatus } from '@/components/save-status'
 import {
   usePartnerForm, newPCon, newPEnd, newPBan, CategoryTabs,
   IdentificacaoFields, ContatoFields, EnderecoFields, BancarioFields, SociosFields,
@@ -149,12 +150,22 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
   const v        = partnerForm.values
   const category = v.category
 
-  /* indicador de "não salvo": compara o estado atual com o baseline (capturado na montagem) */
+  /* indicador de "não salvo": compara o estado atual com o baseline (capturado na montagem) —
+     para a aba (workspace) e para o selo de estado no cabeçalho */
   const cleanRef = useRef<string | null>(null)
+  const [dirty,     setDirtyLocal] = useState(false)
+  const [justSaved, setJustSaved]  = useState(false)  // "Salvo" verde por instantes após salvar
   useEffect(() => {
     if (cleanRef.current === null) cleanRef.current = JSON.stringify(v)
-    onDirtyChange?.(cleanRef.current !== null && JSON.stringify(v) !== cleanRef.current)
+    const d = cleanRef.current !== null && JSON.stringify(v) !== cleanRef.current
+    setDirtyLocal(d)
+    onDirtyChange?.(d)
   }, [v, onDirtyChange])
+  useEffect(() => {
+    if (!justSaved) return
+    const t = setTimeout(() => setJustSaved(false), 2000)
+    return () => clearTimeout(t)
+  }, [justSaved])
 
   /* edição respeita a visibilidade de campo e renderiza campos personalizados (paridade com o cadastro) */
   const { isVisibleInForm }  = useFieldVisibility()
@@ -266,7 +277,7 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
       })
       if (!res.ok) throw new Error()
       if (statusOverride) setSituacao(statusOverride)
-      cleanRef.current = JSON.stringify(v); onDirtyChange?.(false)
+      cleanRef.current = JSON.stringify(v); setDirtyLocal(false); setJustSaved(true); onDirtyChange?.(false)
       void fetchAudit()
       onSaved()
     } catch {
@@ -318,6 +329,7 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {!showMotivo && <SaveStatus dirty={dirty} saving={saving} justSaved={justSaved} className="mr-1" />}
           <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Fechar</button>
           {situacao === 'EM_CADASTRAMENTO' && (
             <>

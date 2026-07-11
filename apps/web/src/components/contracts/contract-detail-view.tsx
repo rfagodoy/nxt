@@ -13,6 +13,7 @@ import { PAPEIS_KEY, INIT_PAPEIS, validatePartes } from '@/lib/contract-roles'
 import { EntitySearchModal } from '@/components/contracts/entity-search-modal'
 import { ContractHistory } from '@/components/contracts/contract-history'
 import { getLogUser } from '@/hooks/use-partner-logs'
+import { SaveStatus } from '@/components/save-status'
 
 /* ─── linha da listagem (espelha o toRow() do backend) — compartilhada com a página ─── */
 export interface Row {
@@ -95,6 +96,9 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
   const [saving,       setSaving]       = useState(false)
   const [saveError,    setSaveError]    = useState<string | null>(null)
   const [staleAviso,   setStaleAviso]   = useState(false)  // motor alterou o contrato e há edição não salva
+  const [dirty,        setDirtyLocal]   = useState(false)  // há edição não salva (para o selo de estado)
+  const [justSaved,    setJustSaved]    = useState(false)  // "Salvo" verde por instantes após salvar
+  const [auditVersion, setAuditVersion] = useState(0)      // muda a cada save → recarrega a aba Histórico
   const cleanRef = useRef('')  // snapshot "limpo" para detectar edição não salva
 
   /* carrega o registro completo (a Row da listagem é só um resumo) */
@@ -124,10 +128,18 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
     return () => window.removeEventListener(CONTRACTS_CHANGED_EVENT, handler)
   }) // sem deps: o handler precisa enxergar o form.values do render atual
 
-  /* reporta "não salvo" comparando o estado atual com o snapshot limpo */
+  /* reporta "não salvo" comparando o estado atual com o snapshot limpo — para a aba (workspace)
+     e para o selo de estado no cabeçalho */
   useEffect(() => {
-    onDirtyChange?.(cleanRef.current !== '' && JSON.stringify(v) !== cleanRef.current)
+    const d = cleanRef.current !== '' && JSON.stringify(v) !== cleanRef.current
+    setDirtyLocal(d)
+    onDirtyChange?.(d)
   }, [v, onDirtyChange])
+  useEffect(() => {
+    if (!justSaved) return
+    const t = setTimeout(() => setJustSaved(false), 2000)
+    return () => clearTimeout(t)
+  }, [justSaved])
 
   /* estado persistido (EM_CADASTRO | VIGENTE | ENCERRADO | RESCINDIDO) e situação exibida (resolve VENCIDO) */
   const stored = normalizeSituacao(v.situacao)
@@ -183,7 +195,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
         method: 'PATCH',
         body:   JSON.stringify(contractToPayload(vals, { user: getLogUser(), motivo: motivoTexto })),
       })
-      if (res.ok) { if (statusOverride) form.set('situacao', statusOverride); cleanRef.current = JSON.stringify(vals); onDirtyChange?.(false); onSaved?.() }
+      if (res.ok) { if (statusOverride) form.set('situacao', statusOverride); cleanRef.current = JSON.stringify(vals); setDirtyLocal(false); setJustSaved(true); setAuditVersion(x => x + 1); onDirtyChange?.(false); onSaved?.() }
       else setSaveError(`Erro ao salvar contrato (${res.status}).`)
     } catch {
       setSaveError('Não foi possível conectar ao servidor.')
@@ -239,6 +251,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+          {!showMotivo && <SaveStatus dirty={dirty} saving={saving} justSaved={justSaved} className="mr-1" />}
           <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Fechar</button>
 
           {/* Salvar sempre disponível: permite registrar pagamentos/recebimentos mesmo com o contrato travado */}
@@ -333,12 +346,12 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
         </DSection>
         <DSection active={tab === 'vigencia'}><VigenciaFields form={form} ro={locked} /></DSection>
         <DSection active={tab === 'valor'}><ValoresFields form={form} ro={locked} /></DSection>
-        {temPagamentos(v.natureza)   && <DSection active={tab === 'pagamentos'}><LancamentosFields form={form} field="pagamentos" moedaCode={v.moeda} /></DSection>}
-        {temRecebimentos(v.natureza) && <DSection active={tab === 'recebimentos'}><LancamentosFields form={form} field="recebimentos" moedaCode={v.moeda} /></DSection>}
+        {temPagamentos(v.natureza)   && <DSection active={tab === 'pagamentos'}><LancamentosFields form={form} field="pagamentos" moedaCode={v.moeda} travado={locked} /></DSection>}
+        {temRecebimentos(v.natureza) && <DSection active={tab === 'recebimentos'}><LancamentosFields form={form} field="recebimentos" moedaCode={v.moeda} travado={locked} /></DSection>}
         <DSection active={tab === 'reajuste'}><ReajustesFields form={form} ro={locked} /></DSection>
         <DSection active={tab === 'aditivos'}><AditivosFields form={form} onOpenCessaoSearch={(aditivoId, cessaoId, origem) => setCessaoSearch({ aditivoId, cessaoId, origem })} onActivate={activateAditivo} onRevise={reviseAditivo} /></DSection>
         <DSection active={tab === 'documentos'}><DocumentosFields form={form} ro={locked} /></DSection>
-        <DSection active={tab === 'historico'}><ContractHistory contractId={row.id} /></DSection>
+        <DSection active={tab === 'historico'}><ContractHistory contractId={row.id} reloadKey={auditVersion} /></DSection>
       </form>
 
       {searchModal && (

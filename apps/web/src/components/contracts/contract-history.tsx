@@ -72,7 +72,7 @@ const fmtTs = (ts: string) => new Date(ts).toLocaleString('pt-BR', { day: '2-dig
 const selCls = 'h-7 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
 
 /** Histórico de auditoria do contrato — tabela filtrável (padrão Parceiros) com ícone de evento por linha. */
-export function ContractHistory({ contractId }: { contractId: string }) {
+export function ContractHistory({ contractId, reloadKey }: { contractId: string; reloadKey?: number }) {
   const [entries, setEntries] = useState<AuditEntry[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -83,7 +83,7 @@ export function ContractHistory({ contractId }: { contractId: string }) {
       if (res.ok) setEntries(await res.json() as AuditEntry[])
     } catch { /* ignore */ } finally { setLoading(false) }
   }, [contractId])
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load() }, [load, reloadKey])  // recarrega ao salvar (reloadKey muda)
 
   /* cada alteração vira uma linha (evento/data/usuário repetidos, como em Parceiros) */
   const rows = entries.flatMap(e => {
