@@ -6,6 +6,7 @@ import {
 } from '@nxt/contracts-core'
 import { PrismaService } from '../prisma.service'
 import { StorageService } from '../files/storage.service'
+import { collectAttachmentKeys } from '../files/attachment-keys'
 import { CreateContractDto } from './dto/create-contract.dto'
 import { UpdateContractDto } from './dto/update-contract.dto'
 
@@ -422,6 +423,20 @@ export class ContractsService {
         })
       }
     }
+
+    /* FRENTE 1 — apagar no salvar: as keys que estavam no contrato e sumiram nesta atualização
+       (anexo removido ou substituído na UI) viram lixo no storage no instante do salvar. Apaga
+       na hora, best-effort — a falha não impede o salvar (a varredura agendada recolhe o que
+       escapar). Uma key só é referenciada pelo contrato que a subiu, então cair da linha
+       significa que ninguém mais a usa: é seguro apagar. */
+    const antes = this.anexosDo(old as Record<string, unknown>)
+    const depois = new Set(this.anexosDo(updated as Record<string, unknown>))
+    for (const key of antes) {
+      if (depois.has(key)) continue
+      try { await this.storage.delete(key) }
+      catch (e) { this.logger.warn(`anexo ${key} (removido do contrato ${id}) não pôde ser apagado: ${String(e)}`) }
+    }
+
     return updated
   }
 
@@ -431,18 +446,13 @@ export class ContractsService {
     return this.prisma.contractAuditLog.findMany({ where: { contractId }, orderBy: { createdAt: 'desc' } })
   }
 
-  /** Chaves de TODO anexo do contrato: documentos, arquivos de aditivo e comprovantes de
-   *  parcela. Um lugar só — quem acrescentar um anexo novo ao contrato acrescenta aqui,
-   *  e a exclusão continua completa. */
+  /** Chaves de TODO anexo do contrato (documentos, arquivos de aditivo, comprovantes de
+   *  parcela). Reconhece por SHAPE da key, não por lista de campos: qualquer anexo novo é
+   *  coberto sozinho, sem ninguém lembrar de cadastrá-lo aqui — a exclusão continua completa.
+   *  Como as keys carregam o prefixo da organização, só as do PRÓPRIO contrato aparecem na
+   *  sua linha. Ver [[collectAttachmentKeys]] em files/attachment-keys.ts. */
   private anexosDo(c: Record<string, unknown>): string[] {
-    const arr = (x: unknown) => (Array.isArray(x) ? (x as Record<string, unknown>[]) : [])
-    const keys = new Set<string>()
-    const add = (k: unknown) => { if (typeof k === 'string' && k) keys.add(k) }
-    for (const d of arr(c.documentos)) add(d.arquivo_key)
-    for (const a of arr(c.aditivos))   add(a.arquivo_key)
-    for (const l of arr(c.pagamentos))   add(l.comprovante_key)
-    for (const l of arr(c.recebimentos)) add(l.comprovante_key)
-    return [...keys]
+    return [...collectAttachmentKeys(c)]
   }
 
   /** Exclui o contrato E os seus anexos. O storage não tem integridade referencial: se o
