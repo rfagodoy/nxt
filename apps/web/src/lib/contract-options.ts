@@ -305,7 +305,7 @@ export interface ContractFormValues {
   inicioVigencia: string; prazoIndeterminado: boolean; terminoVigencia: string; dataAssinatura: string
   acaoTermino: string; renovacaoAnos: string; renovacaoMeses: string; renovacaoDias: string
   situacao: string; moeda: string; valorParcela: string; valorTotal: string; qtdParcelas: string
-  condicaoPagamento: string; complementoValor: string
+  condicaoPagamento: string; formaPagamento: string; complementoValor: string
   reajustes: CReajuste[]; partes: CParte[]; documentos: CDocumento[]
   pagamentos: CLancamento[]; recebimentos: CLancamento[]; aditivos: CAditivo[]; renovacoes: CRenovacao[]
   reajustesRealizados: CReajusteRealizado[]
@@ -529,7 +529,7 @@ export function emptyContractForm(): ContractFormValues {
     inicioVigencia: '', prazoIndeterminado: false, terminoVigencia: '', dataAssinatura: '',
     acaoTermino: 'MANUAL', renovacaoAnos: '', renovacaoMeses: '', renovacaoDias: '',
     situacao: 'EM_CADASTRO', moeda: '', valorParcela: '', valorTotal: '', qtdParcelas: '',
-    condicaoPagamento: '', complementoValor: '', reajustes: [], partes: [], documentos: [],
+    condicaoPagamento: '', formaPagamento: '', complementoValor: '', reajustes: [], partes: [], documentos: [],
     pagamentos: [], recebimentos: [], aditivos: [], renovacoes: [], reajustesRealizados: [],
   }
 }
@@ -562,7 +562,7 @@ export function contractFromApi(c: Record<string, any>): ContractFormValues {
     acaoTermino: c.acaoTermino || 'MANUAL', renovacaoAnos: numStr(c.renovacaoAnos), renovacaoMeses: numStr(c.renovacaoMeses), renovacaoDias: numStr(c.renovacaoDias),
     situacao: normalizeSituacao(c.situacao ?? 'EM_CADASTRO'), moeda: c.moeda ?? '',
     valorParcela: numStr(c.valorParcela), valorTotal: numStr(c.valorTotal), qtdParcelas: numStr(c.qtdParcelas),
-    condicaoPagamento: c.condicaoPagamento ?? '', complementoValor: c.complementoValor ?? '',
+    condicaoPagamento: c.condicaoPagamento ?? '', formaPagamento: c.formaPagamento ?? '', complementoValor: c.complementoValor ?? '',
     /* linha sem `aplicacao` é anterior à política: nasce MANUAL, nunca reajusta sozinha */
     /* só 'AUTOMATICA' liga o motor; o resto (inclusive o extinto 'SUSPENSA') vira MANUAL */
     reajustes: arr(c.reajustes).map((r: any) => ({ id: r.id ?? uid(), indice: r.indice ?? '', data: r.data ?? '', periodicidade: r.periodicidade ?? '', aplicacao: r.aplicacao === 'AUTOMATICA' ? 'AUTOMATICA' : 'MANUAL' })),
@@ -609,7 +609,7 @@ export function contractToPayload(v: ContractFormValues, extra: Record<string, u
     dataAssinatura: v.dataAssinatura || undefined, moeda: v.moeda,
     valorTotal: parseFloat(v.valorTotal) || 0, valorParcela: parseFloat(v.valorParcela) || 0,
     qtdParcelas: v.prazoIndeterminado ? undefined : intOrNull(v.qtdParcelas),
-    condicaoPagamento: v.condicaoPagamento || undefined, complementoValor: v.complementoValor || undefined,
+    condicaoPagamento: v.condicaoPagamento || undefined, formaPagamento: v.formaPagamento || undefined, complementoValor: v.complementoValor || undefined,
     reajustes: v.reajustes, documentos: v.documentos,
     pagamentos:   pagamentos.map(l => ({
       id: l.id, vencimento: l.vencimento, data: l.data,

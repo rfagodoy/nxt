@@ -99,6 +99,11 @@ export class CreateContractDto {
   @IsString()
   condicaoPagamento?: string
 
+  @ApiPropertyOptional({ description: 'Forma de pagamento padrão (id da lookup) — dirige a geração de cronograma/renovação' })
+  @IsOptional()
+  @IsString()
+  formaPagamento?: string
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

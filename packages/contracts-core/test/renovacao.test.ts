@@ -83,6 +83,27 @@ describe('novo término = término vigente + PRAZO de renovação', () => {
   })
 })
 
+describe('renovação usa a forma de pagamento do CAMPO do contrato', () => {
+  const base = { ...despesaSimples, terminoVigencia: '2026-12-10' }
+  const comFormaNasParcelas = (f: string) => ({ ...base, pagamentos: base.pagamentos.map((l: any) => ({ ...l, forma: f })) })
+
+  it('campo preenchido → novo período nessa forma', () => {
+    const r = renovar({ ...base, formaPagamento: 'boleto' })!
+    expect(r.lancamentos).toHaveLength(12)
+    expect(r.lancamentos.every(l => l.forma === 'boleto')).toBe(true)
+  })
+
+  it('o campo manda: ignora a forma das parcelas existentes', () => {
+    const r = renovar({ ...comFormaNasParcelas('pix'), formaPagamento: 'ted' })!
+    expect(r.lancamentos.every(l => l.forma === 'ted')).toBe(true)
+  })
+
+  it('sem o campo → novo período SEM forma (não infere da parcela — decisão do PO)', () => {
+    const r = renovar(comFormaNasParcelas('pix'))! // formaPagamento ausente
+    expect(r.lancamentos.every(l => l.forma === '')).toBe(true)
+  })
+})
+
 describe('campoRenovacao: a renovação alimenta o lado da natureza', () => {
   it('DESPESA e AMBOS → pagamentos; RECEITA → recebimentos', () => {
     expect(campoRenovacao('DESPESA')).toBe('pagamentos')

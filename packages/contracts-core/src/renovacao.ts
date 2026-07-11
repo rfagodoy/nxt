@@ -58,6 +58,9 @@ export function renovarPeriodo(c: CoreContract, input: RenovarPeriodoInput): Ren
       inicio: addMesesISO(ultimoVenc.slice(0, 10), 1),
       qtd,
       valorBase: parcelaVig,
+      /* forma vem do CAMPO do contrato (fonte única, padronizada). Contrato sem o campo
+         gera sem forma — decisão do PO: nada de inferir da última parcela. */
+      forma: c.formaPagamento ?? '',
       ignorarReajustes: true, // a parcela vigente já considera aditivos e reajustes
       makeId: input.makeId,
     })

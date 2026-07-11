@@ -102,6 +102,11 @@ export class UpdateContractDto {
   @IsString()
   condicaoPagamento?: string
 
+  @ApiPropertyOptional({ description: 'Forma de pagamento padrão (id da lookup)' })
+  @IsOptional()
+  @IsString()
+  formaPagamento?: string
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

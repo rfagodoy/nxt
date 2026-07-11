@@ -509,6 +509,7 @@ function MoneyRead({ label, value, moedaCode, strong }: { label: string; value: 
 export function ValoresFields({ form, ro }: { form: ContractForm; ro?: boolean }) {
   const moedas    = useLookupTable(MOEDAS_KEY, INIT_MOEDAS)
   const condicoes = useLookupTable(CONDICOES_KEY, INIT_CONDICOES)
+  const formas    = useLookupTable(FORMAS_PGTO_KEY, INIT_FORMAS_PGTO)
   const v = form.values
   const moedaOpts = moedas.active.map(m => ({ value: m.code ?? m.label, label: m.code ? `${m.code} — ${m.label}` : m.label }))
   const totalPago     = somaLancamentosPagos(v.pagamentos)    // consumo/saldo = só o realizado (pago)
@@ -516,22 +517,20 @@ export function ValoresFields({ form, ro }: { form: ContractForm; ro?: boolean }
   const valorTotalNum = valorVigente(v)            // valor VIGENTE (original + aditivos) — usado no topo e no saldo
   return (
     <div className="grid grid-cols-2 gap-3">
+      {/* Ordem coerente: (1) a base — moeda + valor total; (2) COMO se paga — condição e forma,
+          as duas descrições de pagamento lado a lado; (3) a parcela — valor + quantidade.
+          Valores exibem o VIGENTE na leitura (o original e as alterações moram no Histórico abaixo). */}
       <Field label="Moeda"><Sel value={v.moeda} onChange={x => form.set('moeda', x)} ro={ro} options={moedaOpts} placeholder="Selecione..." /></Field>
+      <Field label="Valor total do contrato" required>
+        <MoneyField value={ro ? String(valorTotalNum) : v.valorTotal} moedaCode={v.moeda} onChange={x => form.set('valorTotal', x)} ro={ro} />
+      </Field>
+
       <Field label="Condição de pagamento"><Sel value={ro ? condicaoVigente(v) : v.condicaoPagamento} onChange={x => form.set('condicaoPagamento', x)} ro={ro} options={lookupOpts(condicoes.active)} placeholder="Selecione..." /></Field>
+      <Field label="Forma de pagamento"><Sel value={v.formaPagamento} onChange={x => form.set('formaPagamento', x)} ro={ro} options={lookupOpts(formas.active)} placeholder="Selecione..." /></Field>
 
-      {/* Topo: só os valores VIGENTES (o original e as alterações moram no Histórico de valor abaixo) */}
-      {ro ? (
-        <>
-          <Field label="Valor total do contrato" required><MoneyField value={String(valorTotalNum)} moedaCode={v.moeda} onChange={x => form.set('valorTotal', x)} ro /></Field>
-          <Field label="Valor da parcela"><MoneyField value={parcelaVigenteInput(v)} moedaCode={v.moeda} onChange={x => form.set('valorParcela', x)} ro /></Field>
-        </>
-      ) : (
-        <>
-          <Field label="Valor total do contrato" required><MoneyField value={v.valorTotal} moedaCode={v.moeda} onChange={x => form.set('valorTotal', x)} /></Field>
-          <Field label="Valor da parcela"><MoneyField value={v.valorParcela} moedaCode={v.moeda} onChange={x => form.set('valorParcela', x)} /></Field>
-        </>
-      )}
-
+      <Field label="Valor da parcela">
+        <MoneyField value={ro ? parcelaVigenteInput(v) : v.valorParcela} moedaCode={v.moeda} onChange={x => form.set('valorParcela', x)} ro={ro} />
+      </Field>
       {/* Quantidade de parcelas — só faz sentido em prazo determinado; base do reajuste de parcela */}
       {!v.prazoIndeterminado && (
         <Field label="Quantidade de parcelas">
@@ -811,7 +810,7 @@ export function LancamentosFields({ form, field, moedaCode, travado }: { form: C
   const [gForma, setGForma] = useState('')
   const [gErr, setGErr]     = useState<string | null>(null)
   const abrirGerar = () => {
-    setGData(v.inicioVigencia || ''); setGQtd(v.qtdParcelas || ''); setGValor(parcelaVigenteInput(v) || v.valorParcela || ''); setGForma(''); setGErr(null)
+    setGData(v.inicioVigencia || ''); setGQtd(v.qtdParcelas || ''); setGValor(parcelaVigenteInput(v) || v.valorParcela || ''); setGForma(v.formaPagamento || ''); setGErr(null)
     setGerarOpen(o => !o)
   }
   const gerar = () => {

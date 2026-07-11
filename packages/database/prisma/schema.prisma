@@ -235,6 +235,7 @@ model Contract {
   valorParcela        Float?
   qtdParcelas         Int?     // nº de parcelas (parcelados de prazo determinado); base p/ reajuste de parcela
   condicaoPagamento   String?
+  formaPagamento      String?  // forma de pagamento padrao (id da lookup); dirige geracao de cronograma/renovacao
   complementoValor    String?  @db.NVarChar(Max) // texto livre longo
   renovacaoAutomatica Boolean  @default(false)
   observacoes         String?  @db.NVarChar(Max) // texto livre longo

@@ -109,6 +109,8 @@ export interface CoreContract {
   valorTotal?: Numeric
   valorParcela?: Numeric
   qtdParcelas?: Numeric
+  /** forma de pagamento padrão do contrato (id da lookup); dirige a geração de cronograma/renovação */
+  formaPagamento?: string | null
   aditivos?: CoreAditivo[]
   renovacoes?: CoreRenovacao[]
   reajustes?: CoreReajuste[]

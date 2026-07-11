@@ -117,6 +117,7 @@ function diffContract(o: CRec, n: CRec, maps: Maps): AuditChange[] {
   push('valorParcela', 'Valor da parcela', aMoney(o.valorParcela), aMoney(n.valorParcela))
   push('qtdParcelas', 'Quantidade de parcelas', aVal(o.qtdParcelas), aVal(n.qtdParcelas))
   push('condicaoPagamento', 'Condição de pagamento', aLbl(maps.condicao, aVal(o.condicaoPagamento)), aLbl(maps.condicao, aVal(n.condicaoPagamento)))
+  push('formaPagamento', 'Forma de pagamento', aLbl(maps.forma, aVal(o.formaPagamento)), aLbl(maps.forma, aVal(n.formaPagamento)))
   push('complementoValor', 'Complemento do valor', aVal(o.complementoValor), aVal(n.complementoValor))
   push('observacoes', 'Observações', aVal(o.observacoes), aVal(n.observacoes))
   const objL = (arr: unknown) => (Array.isArray(arr) ? (arr as string[]) : []).map(id => aLbl(maps.objeto, aVal(id))).join(', ')
