@@ -2,9 +2,10 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import {
   daysBetween, todayISO,
   terminoVigente, valorVigente, consumo,
-  proximaDataReajuste, planejarReajuste, aplicarReajuste, pagasAlcancadas, acumuladoPeriodo,
-  renovarPeriodo, campoRenovacao,
+  proximaDataReajuste, planejarReajuste, pagasAlcancadas, acumuladoPeriodo,
+  campoRenovacao, avancarContrato as avancarContratoCore,
 } from '@nxt/contracts-core'
+import type { CoreReajusteRealizado } from '@nxt/contracts-core'
 import type { MotivoNaoAplicar } from '@nxt/contracts-core'
 import { PrismaService } from '../prisma.service'
 import { SettingsService } from '../settings/settings.service'
@@ -356,42 +357,27 @@ export class ContractSchedulerService implements OnModuleInit {
     if (c.situacao !== 'VIGENTE') return ev
 
     const anos = Number(c.renovacaoAnos) || 0, meses = Number(c.renovacaoMeses) || 0, dias = Number(c.renovacaoDias) || 0
-    const podeRenovarSempre = !c.prazoIndeterminado && c.acaoTermino === 'RENOVAR' && params.renovacaoAutomatica && (anos || meses || dias)
+    const podeRenovarSempre = !c.prazoIndeterminado && c.acaoTermino === 'RENOVAR' && params.renovacaoAutomatica && !!(anos || meses || dias)
 
-    let guard = 0
-    while (guard++ < 200) {
-      const termino = terminoVigente(c)
-      const venceu = !c.prazoIndeterminado && !!termino && termino < today
-
-      /* reajuste pendente mais antigo (só linhas AUTOMATICA com índice publicado).
-         Quem autoriza é a linha do contrato; o freio global só é consultado para PARAR. */
-      let alvo: { r: any; plano: ReturnType<typeof planejarReajuste> } | null = null
-      if (!params.reajustePausado) {
-        for (const r of ((c.reajustes as any[]) ?? [])) {
-          const plano = planejarReajuste(c, r, series[r.indice], today)
-          if (plano.aplicar && (!alvo || plano.competencia < alvo.plano.competencia)) alvo = { r, plano }
-        }
-      }
-
-      const renovar = podeRenovarSempre && venceu
-      /* o reajuste vem primeiro quando sua competência ainda cabe na vigência corrente */
-      if (alvo && (!renovar || alvo.plano.competencia <= termino)) {
-        ev.reajustes.push(this.aplicarUm(c, alvo.r, alvo.plano, rotulo, today, guard))
-        continue
-      }
-      if (renovar) {
-        const r = renovarPeriodo(c, {
-          campo: ev.campoLanc, anos, meses, dias, data: today, automatica: true,
-          id: `${Date.now()}_${guard}`, makeId: i => `l_${Date.now()}_${guard}_${i + 1}`,
-        })
-        if (!r) break // prazo inválido → evita laço infinito
-        c.renovacoes = [...((c.renovacoes as any[]) ?? []), r.renovacao]
-        if (r.lancamentos.length) { c[ev.campoLanc] = [...((c[ev.campoLanc] as any[]) ?? []), ...r.lancamentos]; ev.gerouParcelas = true }
-        ev.renovados++
-        continue
-      }
-      break
-    }
+    /* Intercalação (reajuste ↔ renovação) = implementação ÚNICA no core, a mesma que o
+       botão "Renovar período" do front usa. Aqui ficam só as decisões desta camada:
+       o freio global de reajuste, a política de renovação, a auditoria e o diagnóstico
+       de pendências. O core MUTA `c` em memória; persistimos depois. */
+    const seq = Date.now()
+    const evo = avancarContratoCore(c, {
+      serie: (indice: string) => series[indice], today,
+      reajustePausado: params.reajustePausado,
+      campo: ev.campoLanc, prazo: { anos, meses, dias }, permitirRenovar: podeRenovarSempre,
+      indiceSnapshot: (indice: string) => rotulo.get(indice) ?? indice,
+      user: 'Sistema', observacao: 'Aplicado automaticamente pelo motor de datas.',
+      dataRegistro: today, createdAt: new Date().toISOString(),
+      makeReajusteId: n => `rr_${seq}_${n}`,
+      makeRenovacaoId: n => `${seq}_${n}`,
+      makeParcelaId: (n, i) => `l_${seq}_${n}_${i + 1}`,
+    })
+    ev.reajustes = evo.reajustes.map(rr => this.detalharReajuste(c, rr))
+    ev.renovados = evo.renovacoes.length
+    ev.gerouParcelas = evo.gerouParcelas
 
     /* 1b) O QUE FICOU PARA TRÁS. O laço acima parou; para cada linha de reajuste, o estado
        final diz por quê. Um `plano.aplicar` verdadeiro AQUI significa que o core aplicaria
@@ -425,30 +411,21 @@ export class ContractSchedulerService implements OnModuleInit {
     return ev
   }
 
-  /** Aplica UM reajuste no registro em memória e devolve o registro do que foi feito. */
-  private aplicarUm(c: any, r: any, plano: ReturnType<typeof planejarReajuste>, rotulo: Map<string, string>, today: string, seq: number): ReajusteAplicado {
-    const indice = rotulo.get(r.indice) ?? r.indice
-    const res = aplicarReajuste(c, {
-      id: `rr_${Date.now()}_${seq}_${r.id}`,
-      reajusteId: r.id, competencia: plano.competencia, percentual: plano.percentual, base: plano.base,
-      indiceSnapshot: indice,
-      observacao: 'Aplicado automaticamente pelo motor de datas.',
-      user: 'Sistema', dataAplicacao: today, createdAt: new Date().toISOString(),
-    })
-    /* o percentual (não a parcela nova) é o que mede a diferença: cada parcela paga
-       teria subido o seu próprio valor × % */
-    const pagas = pagasAlcancadas(c, plano.competencia, plano.percentual)
-
-    c.reajustesRealizados = [...((c.reajustesRealizados as any[]) ?? []), res.reajuste]
-    c.pagamentos = res.pagamentos
-    c.recebimentos = res.recebimentos
-
+  /** Monta o detalhe de UM reajuste que o core já aplicou. `pagasAlcancadas` é recalculado
+   *  do estado final — o conjunto de parcelas PAGAS é invariante na evolução (o reajuste só
+   *  toca as a vencer, a renovação só adiciona a vencer), então o número é o mesmo de quando
+   *  o reajuste foi aplicado. O percentual (não a parcela nova) mede a diferença: cada parcela
+   *  paga teria subido o seu próprio valor × %. */
+  private detalharReajuste(c: any, rr: CoreReajusteRealizado): ReajusteAplicado {
+    const percentual = Number(rr.percentual) || 0
+    const base = (rr.base === 'total' ? 'total' : 'parcela') as 'total' | 'parcela'
+    const pagas = pagasAlcancadas(c, String(rr.competencia), percentual)
     return {
-      contratoId: c.id, numero: c.numero, reajusteId: r.id, indice,
-      competencia: plano.competencia, percentual: plano.percentual, base: plano.base,
-      valorAnterior: Number(res.reajuste.valorAnterior) || 0, valorNovo: Number(res.reajuste.valorNovo) || 0,
-      parcelaAnterior: Number(res.reajuste.parcelaAnterior) || 0, parcelaNova: Number(res.reajuste.parcelaNova) || 0,
-      parcelasReajustadas: Number(res.reajuste.parcelasReajustadas) || 0,
+      contratoId: c.id, numero: c.numero, reajusteId: rr.reajusteId, indice: rr.indiceSnapshot ?? '',
+      competencia: String(rr.competencia), percentual, base,
+      valorAnterior: Number(rr.valorAnterior) || 0, valorNovo: Number(rr.valorNovo) || 0,
+      parcelaAnterior: Number(rr.parcelaAnterior) || 0, parcelaNova: Number(rr.parcelaNova) || 0,
+      parcelasReajustadas: Number(rr.parcelasReajustadas) || 0,
       pagasAlcancadas: pagas.quantidade, diferencaNaoCobrada: pagas.diferenca,
     }
   }

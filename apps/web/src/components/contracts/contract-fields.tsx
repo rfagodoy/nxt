@@ -4,8 +4,9 @@ import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react'
 import { Plus, Trash2, Search, Upload, Download, Loader2, X, Eye, ChevronDown, FileText, RefreshCw, ListPlus, Paperclip, FileDown } from 'lucide-react'
 import {
   aplicarReajuste, acumuladoPeriodo, parcelasAlvo, proximaDataReajuste, proximaDataReajusteContrato,
-  planejarReajuste, stepMeses, temCronograma, gerarParcelas, parcelaProvisoria, totaisAVencer, renovarPeriodo, campoRenovacao,
-  comp, currentComp, todayISO, type CoreLancamento, type LancField,
+  planejarReajuste, stepMeses, temCronograma, gerarParcelas, parcelaProvisoria, totaisAVencer, campoRenovacao,
+  renovarUmPeriodoComReajuste,
+  comp, currentComp, todayISO, type CoreLancamento, type CoreReajusteRealizado, type LancField,
 } from '@nxt/contracts-core'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
@@ -307,13 +308,35 @@ const toCLancamento = (l: CoreLancamento): CLancamento => ({
   valorPago: l.valorPago == null || l.valorPago === '' ? '' : String(l.valorPago),
 })
 
+/** Reajuste aplicado pelo core (números) → registro do formulário (strings). Mesmo
+ *  mapeamento do "Registrar reajuste" manual, para que renovação e registro gravem igual. */
+const toCReajusteRealizado = (r: CoreReajusteRealizado): CReajusteRealizado => ({
+  ...newCReajusteRealizado(r.reajusteId),
+  id: r.id, competencia: String(r.competencia),
+  indiceSnapshot: r.indiceSnapshot ?? '', base: r.base ?? 'parcela',
+  percentual: r.percentual == null || r.percentual === '' ? '' : String(r.percentual),
+  valorAnterior: String(r.valorAnterior ?? ''), valorNovo: String(r.valorNovo ?? ''),
+  parcelaAnterior: String(r.parcelaAnterior ?? ''), parcelaNova: String(r.parcelaNova ?? ''),
+  parcelasReajustadas: String(r.parcelasReajustadas ?? ''),
+  dataAplicacao: r.dataAplicacao ?? '', observacao: r.observacao ?? '', createdAt: r.createdAt ?? '',
+})
+
 export function VigenciaFields({ form, ro }: { form: ContractForm; ro?: boolean }) {
   const v = form.values
+  /* série de índices e catálogo: alimentam o reajuste que a renovação aplica antes de gerar o período */
+  const indiceVals = useIndiceValores()
+  const indices    = useLookupTable(INDICES_KEY, INIT_INDICES)
 
   /* ── Renovar período (renovação MANUAL) ───────────────────────────────────
      Mora aqui, e não na aba de pagamentos, porque o que ele faz de mais importante
      é estender a VIGÊNCIA e somar o período ao valor do contrato — gerar as parcelas
-     é consequência. É a mesma `renovarPeriodo` que o motor de datas usa.
+     é consequência.
+
+     Antecipar a renovação = fazer o que o motor de datas faria ao renovar este período:
+     por isso aplica ANTES os reajustes automáticos vencidos que pertencem à vigência atual
+     (via `renovarUmPeriodoComReajuste`, a MESMA função do scheduler), e só então gera as
+     parcelas — que nascem no preço já reajustado. Um contrato sem reajuste vencido renova
+     como sempre. Linha de reajuste MANUAL não é aplicada aqui: quem a aplica é a pessoa.
 
      Aparece sempre que renovar faça sentido: prazo determinado, com término, e a ação
      no término não é "Encerrar". Note que NÃO basta a ação ser "Renovar automaticamente":
@@ -336,9 +359,26 @@ export function VigenciaFields({ form, ro }: { form: ContractForm; ro?: boolean 
   const podeRenovar = !v.prazoIndeterminado && !!terminoVigente(v) && v.acaoTermino !== 'ENCERRAR'
 
   const campoRenov: LancField = campoRenovacao(v.natureza)
-  /* prévia = a MESMA função que será executada, só que descartada: o que você lê é o que acontece */
+
+  /* opções do motor único: a série vem do índice de cada linha; o rótulo do índice vira o
+     snapshot do reajuste. Os geradores de id são injetados (prévia usa ids estáveis, o
+     registro usa uid()). */
+  const renovarOpts = (ids: { r: (n: number) => string; reno: (n: number) => string; parc: (n: number, i: number) => string }) => ({
+    serie: (id: string) => indiceVals.serieDe(id),
+    today: todayISO(),
+    campo: campoRenov,
+    prazo: { anos, meses, dias },
+    indiceSnapshot: (id: string) => labelOf(indices.entries, id),
+    observacao: 'Reajuste aplicado ao renovar o período.',
+    dataRegistro: todayISO(),
+    createdAt: new Date().toISOString(),
+    makeReajusteId: ids.r, makeRenovacaoId: ids.reno, makeParcelaId: ids.parc,
+  })
+
+  /* prévia = a MESMA função que será executada, sobre um CLONE descartado: o que você lê é
+     o que acontece (inclusive os reajustes que serão aplicados). */
   const previa = podeRenovar && temPrazo
-    ? renovarPeriodo(v, { campo: campoRenov, anos, meses, dias, data: todayISO(), automatica: false, id: 'previa', makeId: i => `previa_${i}` })
+    ? renovarUmPeriodoComReajuste(structuredClone(v), renovarOpts({ r: n => `previa_r_${n}`, reno: () => 'previa', parc: (_n, i) => `previa_${i}` }))
     : null
 
   const abrirRenovacao = () => {
@@ -351,18 +391,24 @@ export function VigenciaFields({ form, ro }: { form: ContractForm; ro?: boolean 
   const confirmarRenovacao = () => {
     setRenovErr(null)
     if (!temPrazo) { setRenovErr('Informe por quanto tempo renovar (anos, meses ou dias).'); return }
-    const res = renovarPeriodo(v, {
-      campo: campoRenov, anos, meses, dias, data: todayISO(), automatica: false,
-      id: `reno_${Date.now()}`, makeId: () => uid(),
-    })
+    /* o core MUTA o contrato: trabalhamos num clone e escrevemos o resultado no formulário */
+    const work = structuredClone(v)
+    const res = renovarUmPeriodoComReajuste(work, renovarOpts({ r: () => uid(), reno: () => `reno_${Date.now()}`, parc: () => uid() }))
     if (!res) { setRenovErr('Não foi possível renovar: verifique o término da vigência e o prazo de renovação.'); return }
     const reno = {
       id: String(res.renovacao.id), data: String(res.renovacao.data),
       terminoAnterior: String(res.renovacao.terminoAnterior), novoTermino: String(res.renovacao.novoTermino),
       automatica: false, valorPeriodo: String(res.renovacao.valorPeriodo),
     }
-    const novos = res.lancamentos.map(toCLancamento)
-    form.setValues(p => ({ ...p, [campoRenov]: [...p[campoRenov], ...novos], renovacoes: [...(p.renovacoes ?? []), reno] }))
+    /* pagamentos/recebimentos do clone já trazem as parcelas reprecificadas + as do novo
+       período; reajustesRealizados só ganha os reajustes que esta renovação aplicou. */
+    form.setValues(p => ({
+      ...p,
+      pagamentos:   (work.pagamentos   ?? []).map(toCLancamento),
+      recebimentos: (work.recebimentos ?? []).map(toCLancamento),
+      reajustesRealizados: [...(p.reajustesRealizados ?? []), ...res.reajustes.map(toCReajusteRealizado)],
+      renovacoes: [...(p.renovacoes ?? []), reno],
+    }))
     setRenovOpen(false)
   }
 
@@ -446,6 +492,11 @@ export function VigenciaFields({ form, ro }: { form: ContractForm; ro?: boolean 
 
               {previa ? (
                 <div className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] leading-relaxed text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400">
+                  {previa.reajustes.length > 0 && (
+                    <> Antes de renovar, {previa.reajustes.length === 1 ? 'é aplicado' : 'são aplicados'}{' '}
+                      <strong>{previa.reajustes.length}</strong> reajuste(s) vencido(s); a parcela passa a{' '}
+                      <strong className="tabular-nums">{money(previa.reajustes[previa.reajustes.length - 1].parcelaNova ?? 0)}</strong>.{' '}</>
+                  )}
                   A vigência passa de <strong className="tabular-nums">{fmtDataBR(String(previa.renovacao.terminoAnterior))}</strong> para{' '}
                   <strong className="tabular-nums">{fmtDataBR(String(previa.renovacao.novoTermino))}</strong>.
                   {previa.lancamentos.length > 0 ? (

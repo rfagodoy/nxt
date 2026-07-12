@@ -5,11 +5,16 @@
    e exige que cada período fique com o preço do SEU ano. */
 
 import { describe, it, expect } from 'vitest'
-import { num, round2 } from '../src/num'
+import { round2 } from '../src/num'
 import { parcelaVigente, terminoVigente, somaLancamentos, lancPrevisto } from '../src/derive'
-import { aplicarReajuste, planejarReajuste } from '../src/reajuste'
-import { renovarPeriodo } from '../src/renovacao'
 import { valorVigente } from '../src/derive'
+import { avancarContrato, renovarUmPeriodoComReajuste } from '../src/motor'
+
+/** Opções mínimas do motor para os testes: série constante, ids estáveis, prazo 12 meses. */
+const opts = (today: string) => ({
+  serie: () => serie, today, campo: 'pagamentos' as const, prazo: { anos: 0, meses: 12, dias: 0 },
+  makeReajusteId: (n: number) => `rr${n}`, makeRenovacaoId: (n: number) => `n${n}`, makeParcelaId: (n: number, i: number) => `l${n}_${i}`,
+})
 
 const HOJE = '2026-07-09'
 /* 1% ao mês, todo mês, de 2018 a 2027 → acumulado anual = 12,68% */
@@ -28,43 +33,11 @@ const contratoBase = () => ({
   }),
 } as any)
 
-/** Reproduz `avancarContrato` do scheduler. */
+/** Avança o contrato pelo motor único do core. Devolve a contagem no formato antigo
+ *  do helper (aplicados/renovados) para manter as asserções legíveis. */
 function avancar(c: any, today = HOJE) {
-  const aplicados: any[] = []
-  let renovados = 0
-  let guard = 0
-  while (guard++ < 200) {
-    const termino = terminoVigente(c)
-    const venceu = !!termino && termino < today
-
-    let alvo: any = null
-    for (const r of c.reajustes) {
-      const plano = planejarReajuste(c, r, serie, today)
-      if (plano.aplicar && (!alvo || plano.competencia < alvo.plano.competencia)) alvo = { r, plano }
-    }
-
-    if (alvo && (!venceu || alvo.plano.competencia <= termino)) {
-      const res = aplicarReajuste(c, {
-        id: `rr${guard}`, reajusteId: alvo.r.id, competencia: alvo.plano.competencia,
-        percentual: alvo.plano.percentual, base: alvo.plano.base,
-      })
-      c.reajustesRealizados = [...c.reajustesRealizados, res.reajuste]
-      c.pagamentos = res.pagamentos
-      c.recebimentos = res.recebimentos
-      aplicados.push(res.reajuste)
-      continue
-    }
-    if (venceu) {
-      const r = renovarPeriodo(c, { campo: 'pagamentos', anos: 0, meses: 12, dias: 0, data: today, automatica: true, id: `n${guard}`, makeId: i => `l${guard}_${i}` })
-      if (!r) break
-      c.renovacoes = [...c.renovacoes, r.renovacao]
-      c.pagamentos = [...c.pagamentos, ...r.lancamentos]
-      renovados++
-      continue
-    }
-    break
-  }
-  return { aplicados, renovados }
+  const { reajustes, renovacoes } = avancarContrato(c, opts(today))
+  return { aplicados: reajustes, renovados: renovacoes.length }
 }
 
 describe('motor: reajuste e renovação intercalados', () => {
@@ -123,5 +96,59 @@ describe('motor: reajuste e renovação intercalados', () => {
     expect(aplicados).toHaveLength(0)
     expect(renovados).toBe(7)
     expect(parcelaVigente(c)).toBe(5000) // todas as parcelas no preço original
+  })
+})
+
+/* O botão "Renovar período" do front chama `renovarUmPeriodoComReajuste`: renova UM
+   período aplicando ANTES os reajustes vencidos da vigência atual. É o bug que o PO achou —
+   antes a renovação manual gerava o período no preço velho porque não aplicava o reajuste. */
+describe('renovação manual: aplica o reajuste vencido antes de gerar o período', () => {
+  it('contrato vencido com reajuste devido → 1 reajuste aplicado e o período nasce reajustado', () => {
+    const c = contratoBase()
+    /* hoje já passou do término (2020-04-26) e da 1ª competência (2020-04): o reajuste vence */
+    const res = renovarUmPeriodoComReajuste(c, opts('2020-05-01'))!
+    expect(res).not.toBeNull()
+
+    const esperada = round2(5000 * 1.1268) // 12,68% ao ano sobre a parcela vigente
+    expect(res.reajustes).toHaveLength(1)
+    expect(Number(res.reajustes[0].parcelaNova)).toBe(esperada)
+
+    /* as 12 parcelas do novo período nascem no preço JÁ reajustado */
+    expect(res.lancamentos).toHaveLength(12)
+    expect(res.lancamentos.every(l => lancPrevisto(l) === esperada)).toBe(true)
+
+    expect(parcelaVigente(c)).toBe(esperada)
+    expect(terminoVigente(c)).toBe('2021-04-26')
+  })
+
+  it('sem reajuste vencido (hoje antes do término) → só renova, no preço vigente', () => {
+    const c = contratoBase()
+    const res = renovarUmPeriodoComReajuste(c, opts('2019-06-01'))! // antes de qualquer competência
+    expect(res.reajustes).toHaveLength(0)
+    expect(res.lancamentos).toHaveLength(12)
+    expect(res.lancamentos.every(l => lancPrevisto(l) === 5000)).toBe(true)
+    expect(parcelaVigente(c)).toBe(5000)
+  })
+
+  it('dois cliques seguidos reajustam cada período no seu ano — não os dois no mesmo preço', () => {
+    const c = contratoBase()
+    renovarUmPeriodoComReajuste(c, opts('2020-05-01'))          // aplica 2020-04, renova → 2021-04-26
+    const p1 = round2(5000 * 1.1268)
+    const res2 = renovarUmPeriodoComReajuste(c, opts('2021-05-01'))! // aplica 2021-04, renova → 2022-04-26
+    const p2 = round2(p1 * 1.1268)
+    expect(res2.reajustes).toHaveLength(1)
+    expect(Number(res2.reajustes[0].parcelaNova)).toBe(p2)
+    expect(res2.lancamentos.every(l => lancPrevisto(l) === p2)).toBe(true)
+    expect(terminoVigente(c)).toBe('2022-04-26')
+    /* o valor vigente fecha com a soma do cronograma: 12×5000 + 12×p1 + 12×p2 */
+    expect(valorVigente(c)).toBeCloseTo(somaLancamentos(c.pagamentos), 2)
+  })
+
+  it('linha de reajuste MANUAL não é aplicada pela renovação manual — quem aplica é a pessoa', () => {
+    const c = contratoBase()
+    c.reajustes[0].aplicacao = 'MANUAL'
+    const res = renovarUmPeriodoComReajuste(c, opts('2020-05-01'))!
+    expect(res.reajustes).toHaveLength(0)
+    expect(res.lancamentos.every(l => lancPrevisto(l) === 5000)).toBe(true)
   })
 })
