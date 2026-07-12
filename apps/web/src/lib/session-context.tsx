@@ -29,9 +29,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       if (json.user) {
         setData({ user: json.user })
         setStatus('authenticated')
+        /* espelha o nome no localStorage para exibição e para os logs client-side
+           (getLogUser). A AUTORIA da auditoria vem do token no backend — isto é só UX. */
+        try { localStorage.setItem('nxt:user:name', json.user.name || json.user.email || '') } catch { /* SSR/quota */ }
       } else {
         setData(null)
         setStatus('unauthenticated')
+        try { localStorage.removeItem('nxt:user:name') } catch { /* SSR/quota */ }
       }
     } catch {
       setData(null)

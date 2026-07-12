@@ -5,6 +5,7 @@ import { CreatePartnerDto } from './dto/create-partner.dto'
 import { UpdatePartnerDto } from './dto/update-partner.dto'
 import { QueryPartnersDto } from './dto/query-partners.dto'
 import { CurrentOrg } from '../auth/current-org.decorator'
+import { CurrentUser, CurrentUserData } from '../auth/current-user.decorator'
 
 @ApiTags('partners')
 @ApiBearerAuth()
@@ -14,8 +15,8 @@ export class PartnersController {
 
   @Post()
   @ApiOperation({ summary: 'Cria um novo parceiro' })
-  create(@Body() dto: CreatePartnerDto, @CurrentOrg() organizationId: string) {
-    return this.partnersService.create(dto, organizationId)
+  create(@Body() dto: CreatePartnerDto, @CurrentOrg() organizationId: string, @CurrentUser() actor: CurrentUserData) {
+    return this.partnersService.create(dto, organizationId, actor.name)
   }
 
   @Post('query')
@@ -44,8 +45,8 @@ export class PartnersController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Atualiza parceiro' })
-  update(@Param('id') id: string, @Body() dto: UpdatePartnerDto, @CurrentOrg() organizationId: string) {
-    return this.partnersService.update(id, dto, organizationId)
+  update(@Param('id') id: string, @Body() dto: UpdatePartnerDto, @CurrentOrg() organizationId: string, @CurrentUser() actor: CurrentUserData) {
+    return this.partnersService.update(id, dto, organizationId, actor.name)
   }
 
   @Delete(':id')

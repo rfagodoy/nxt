@@ -4,6 +4,7 @@ import { ContractsService } from './contracts.service'
 import { CreateContractDto } from './dto/create-contract.dto'
 import { UpdateContractDto } from './dto/update-contract.dto'
 import { CurrentOrg } from '../auth/current-org.decorator'
+import { CurrentUser, CurrentUserData } from '../auth/current-user.decorator'
 
 @ApiTags('contracts')
 @ApiBearerAuth()
@@ -13,8 +14,8 @@ export class ContractsController {
 
   @Post()
   @ApiOperation({ summary: 'Cria um novo contrato' })
-  create(@Body() dto: CreateContractDto, @CurrentOrg() organizationId: string) {
-    return this.contractsService.create(dto, organizationId)
+  create(@Body() dto: CreateContractDto, @CurrentOrg() organizationId: string, @CurrentUser() actor: CurrentUserData) {
+    return this.contractsService.create(dto, organizationId, actor.name)
   }
 
   @Get()
@@ -45,8 +46,8 @@ export class ContractsController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Atualiza contrato' })
-  update(@Param('id') id: string, @Body() dto: UpdateContractDto, @CurrentOrg() organizationId: string) {
-    return this.contractsService.update(id, dto, organizationId)
+  update(@Param('id') id: string, @Body() dto: UpdateContractDto, @CurrentOrg() organizationId: string, @CurrentUser() actor: CurrentUserData) {
+    return this.contractsService.update(id, dto, organizationId, actor.name)
   }
 
   @Delete(':id')

@@ -278,14 +278,16 @@ export class ContractsService {
     }
   }
 
-  async create(dto: CreateContractDto, organizationId: string) {
-    const { user, ...data } = dto
+  async create(dto: CreateContractDto, organizationId: string, actor?: string) {
+    /* `user` do payload é DESCARTADO (só serve para não vazar como coluna): o autor da
+       auditoria vem do token autenticado (`actor`), que o cliente não consegue forjar. */
+    const { user: _clientUser, ...data } = dto
     const numero = await this.resolveNumero(organizationId, (data as { numero?: string }).numero)
     const created = await this.prisma.contract.create({ data: { ...data, numero, organizationId } as never })
     await this.prisma.contractAuditLog.create({
       data: {
         contractId: created.id,
-        user:       user ?? 'Usuário do sistema',
+        user:       actor ?? 'Usuário do sistema',
         event:      'CRIADO',
         changes:    [{ field: 'situacao', label: 'Situação', before: '—', after: SIT_LABEL[created.situacao] ?? created.situacao }] as never,
       },
@@ -392,11 +394,12 @@ export class ContractsService {
     return contract
   }
 
-  async update(id: string, dto: UpdateContractDto, organizationId: string) {
+  async update(id: string, dto: UpdateContractDto, organizationId: string, actor?: string) {
     /* busca o BRUTO (sem resolvePartesLive) para o diff comparar estado gravado vs novo */
     const old = await this.prisma.contract.findFirst({ where: { id, organizationId } })
     if (!old) throw new NotFoundException('Contrato não encontrado')
-    const { user, motivo, ...data } = dto
+    /* `user` do payload é descartado — o autor vem do token (`actor`), não do cliente */
+    const { user: _clientUser, motivo, ...data } = dto
     const updated = await this.prisma.contract.update({ where: { id }, data: data as never })
 
     const changes = diffContract(old as CRec, updated as CRec, await this.loadMaps(organizationId))
@@ -416,7 +419,7 @@ export class ContractsService {
         await this.prisma.contractAuditLog.create({
           data: {
             contractId: id,
-            user:       user ?? 'Usuário do sistema',
+            user:       actor ?? 'Usuário do sistema',
             event:      ev,
             motivo:     isTransitionEvent(ev) && motivo?.trim() ? motivo.trim() : null,
             changes:    byEvent.get(ev) as never,

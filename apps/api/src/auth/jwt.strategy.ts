@@ -13,6 +13,7 @@ export interface JwtPayload {
   sub: string
   email?: string
   preferred_username?: string
+  name?: string
   org_id?: string
   role?: string
   realm_access?: { roles: string[] }

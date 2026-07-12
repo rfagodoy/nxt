@@ -268,15 +268,16 @@ function buildOrder(sort?: { col: string; dir: 'asc' | 'desc' }) {
 export class PartnersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(dto: CreatePartnerDto, organizationId: string) {
-    const { user, ...data } = dto
+  async create(dto: CreatePartnerDto, organizationId: string, actor?: string) {
+    /* `user` do payload é descartado — o autor vem do token (`actor`), não do cliente */
+    const { user: _clientUser, ...data } = dto
     const created = await this.prisma.partner.create({
       data: { ...data, organizationId } as never,
     })
     await this.prisma.partnerAuditLog.create({
       data: {
         partnerId: created.id,
-        user:      user ?? 'Usuário do sistema',
+        user:      actor ?? 'Usuário do sistema',
         event:     created.status === 'ATIVO' ? 'ATIVADO' : 'EM_CADASTRAMENTO',
         changes:   [{ field: 'status', label: 'Situação', before: '—', after: STATUS_LABEL[created.status] ?? created.status }] as never,
       },
@@ -297,9 +298,10 @@ export class PartnersService {
     return partner
   }
 
-  async update(id: string, dto: UpdatePartnerDto, organizationId: string) {
+  async update(id: string, dto: UpdatePartnerDto, organizationId: string, actor?: string) {
     const old = await this.findOne(id, organizationId)
-    const { user, motivo, ...data } = dto
+    /* `user` do payload é descartado — o autor vem do token (`actor`), não do cliente */
+    const { user: _clientUser, motivo, ...data } = dto
     const updated = await this.prisma.partner.update({ where: { id }, data: data as never })
 
     const changes = diffPartner(old as PartnerLike, updated as PartnerLike)
@@ -320,7 +322,7 @@ export class PartnersService {
         await this.prisma.partnerAuditLog.create({
           data: {
             partnerId: id,
-            user:      user ?? 'Usuário do sistema',
+            user:      actor ?? 'Usuário do sistema',
             event:     ev,
             motivo:    isTransition(ev) && motivo?.trim() ? motivo.trim() : null,
             changes:   byEvent.get(ev) as never,
