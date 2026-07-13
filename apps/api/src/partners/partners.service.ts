@@ -141,11 +141,16 @@ type PartnerSelectRow = {
   documento: string | null; nomeFantasia: string | null
   ie: string | null; im: string | null
   rg: string | null; orgaoExpedidor: string | null; dataNascimento: string | null
+  dataAbertura: string | null; naturezaJuridica: string | null
+  cnaePrincipal: string | null; cnaesSecundarios: unknown
   paisOrigem: string | null
   contatos: unknown; enderecos: unknown; bancos: unknown; socios: unknown
 }
 
-function toRow(p: PartnerSelectRow) {
+/** Resolvedores de código → rótulo para as colunas de catálogo (natureza/CNAE). */
+type RowResolvers = { nat: (code: string) => string; cnae: (code: string) => string }
+
+function toRow(p: PartnerSelectRow, res?: RowResolvers) {
   const c0 = ((p.contatos  as Array<Record<string,string>>) ?? [])[0] ?? {}
   const e0 = ((p.enderecos as Array<Record<string,string>>) ?? [])[0] ?? {}
   const b0 = ((p.bancos    as Array<Record<string,string>>) ?? [])[0] ?? {}
@@ -166,6 +171,10 @@ function toRow(p: PartnerSelectRow) {
     rg:             p.rg             ?? '',
     orgaoExpedidor: p.orgaoExpedidor ?? '',
     dataNascimento: p.dataNascimento ?? '',
+    dataAbertura:     p.dataAbertura ?? '',
+    naturezaJuridica: p.naturezaJuridica ? (res?.nat(p.naturezaJuridica) ?? p.naturezaJuridica) : '',
+    cnaePrincipal:    p.cnaePrincipal    ? (res?.cnae(p.cnaePrincipal)   ?? p.cnaePrincipal)   : '',
+    cnaesSecundarios: (() => { const n = ((p.cnaesSecundarios as string[]) ?? []).length; return n ? String(n) : '' })(),
     paisOrigem:     p.paisOrigem     ?? '',
     email:         c0.email       ?? '',
     telefone:      c0.telefone    ?? '',
@@ -422,6 +431,7 @@ export class PartnersService {
           id: true, razaoSocial: true, categoria: true, status: true,
           documento: true, nomeFantasia: true, ie: true, im: true,
           rg: true, orgaoExpedidor: true, dataNascimento: true, paisOrigem: true,
+          dataAbertura: true, naturezaJuridica: true, cnaePrincipal: true, cnaesSecundarios: true,
           contatos: true, enderecos: true, bancos: true, socios: true,
         },
       }),
@@ -438,6 +448,20 @@ export class PartnersService {
       emCadastramento: nEmCad,
     }
 
-    return { rows: data.map(toRow), total, stats }
+    /* resolve os códigos de Natureza Jurídica e CNAE principal da página → descrição */
+    const natCodes = [...new Set(data.map((d) => d.naturezaJuridica).filter((c): c is string => !!c))]
+    const cnaeCodes = [...new Set(data.map((d) => d.cnaePrincipal).filter((c): c is string => !!c))]
+    const [nats, cnaes] = await Promise.all([
+      natCodes.length ? this.prisma.naturezaJuridica.findMany({ where: { code: { in: natCodes } } }) : Promise.resolve([]),
+      cnaeCodes.length ? this.prisma.cnae.findMany({ where: { code: { in: cnaeCodes } } }) : Promise.resolve([]),
+    ])
+    const natMap = new Map(nats.map((n) => [n.code, n.descricao]))
+    const cnaeMap = new Map(cnaes.map((c) => [c.code, c.descricao]))
+    const res: RowResolvers = {
+      nat:  (c) => { const d = natMap.get(c);  return d ? `${c} — ${d}` : c },
+      cnae: (c) => { const d = cnaeMap.get(c); return d ? `${c} — ${d}` : c },
+    }
+
+    return { rows: data.map((p) => toRow(p as PartnerSelectRow, res)), total, stats }
   }
 }

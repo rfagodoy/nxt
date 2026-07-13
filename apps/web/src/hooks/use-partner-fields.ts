@@ -50,6 +50,9 @@ export const NATIVE_FIELDS: NativeField[] = [
   { key: 'orgao_expedidor', section: 'identificacao', label: 'Órgão Expedidor',     hint: 'PF Brasileira'    },
   { key: 'data_nascimento', section: 'identificacao', label: 'Data de Nascimento',  hint: 'Pessoa Física'    },
   { key: 'pais_origem',     section: 'identificacao', label: 'País de Origem',      hint: 'Estrangeiras'     },
+  // CNAE
+  { key: 'cnae_principal',    section: 'cnae', label: 'CNAE Principal',     hint: 'Somente PJ'  },
+  { key: 'cnaes_secundarios', section: 'cnae', label: 'CNAEs Secundários',  hint: 'Somente PJ · quantidade'  },
   // Contato
   { key: 'con_email',       section: 'contato',       label: 'E-mail'                                        },
   { key: 'con_nome',        section: 'contato',       label: 'Nome do Contato'                               },

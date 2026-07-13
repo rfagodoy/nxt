@@ -67,6 +67,7 @@ interface Row {
   /* campos nativos extras — retornados pela API */
   nomeFantasia: string; ie: string; im: string; paisOrigem: string
   rg: string; orgaoExpedidor: string; dataNascimento: string
+  dataAbertura: string; naturezaJuridica: string; cnaePrincipal: string; cnaesSecundarios: string
   email: string; telefone: string; celular: string; cargo: string; website: string
   cep: string; logradouro: string; numero: string; complemento: string; bairro: string
   address1: string; address2: string; endPais: string
@@ -112,6 +113,8 @@ export default function ParceirosPage() {
   const NATIVE_COL_MAP: Record<string, string> = {
     nome_fantasia:   'nomeFantasia', ie:             'ie',        im:          'im',
     rg:              'rg',           orgao_expedidor:'orgaoExpedidor', data_nascimento: 'dataNascimento',
+    data_abertura:   'dataAbertura', natureza_juridica: 'naturezaJuridica',
+    cnae_principal:  'cnaePrincipal', cnaes_secundarios: 'cnaesSecundarios',
     pais_origem:     'paisOrigem',   con_email:      'email',     con_telefone:'telefone',
     con_celular:     'celular',      con_cargo:      'cargo',     con_website: 'website',
     end_cep:         'cep',          end_logradouro: 'logradouro',end_numero:  'numero',

@@ -725,9 +725,13 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
 
   /* rótulos de seção (nativas + personalizadas) para agrupar a lista */
   const allSectionLabels: Record<string, string> = {
-    ...(Object.fromEntries(Object.entries(SECTION_LABELS))),
-    socios:    'Quadro de Sócios',
-    historico: 'Histórico',
+    identificacao: SECTION_LABELS.identificacao,
+    cnae:          'CNAE — Atividades Econômicas', // logo após Identificação, como no formulário
+    contato:       SECTION_LABELS.contato,
+    endereco:      SECTION_LABELS.endereco,
+    bancario:      SECTION_LABELS.bancario,
+    socios:        'Quadro de Sócios',
+    historico:     'Histórico',
     ...Object.fromEntries(sections.map(s => [s.id, s.label])),
   }
   const sectionFieldGroups = Object.entries(allSectionLabels).map(([id, label]) => ({
