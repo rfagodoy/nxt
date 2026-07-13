@@ -9,8 +9,9 @@ export class OrganizationsService {
     return this.prisma.organization.findUnique({ where: { externalId } })
   }
 
-  async findBySlug(slug: string) {
-    const org = await this.prisma.organization.findUnique({ where: { slug } })
+  async findBySlug(slug: string, organizationId: string) {
+    // Escopado ao tenant: só retorna se o slug for da própria org do token.
+    const org = await this.prisma.organization.findFirst({ where: { slug, id: organizationId } })
     if (!org) throw new NotFoundException('Organização não encontrada')
     return org
   }

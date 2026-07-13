@@ -59,11 +59,31 @@ export function useSession() {
   return useContext(SessionContext)
 }
 
+/**
+ * Limpa todo o estado client-side do namespace `nxt:*` (localStorage + sessionStorage).
+ * Remove PII de terceiros (ex.: logs de parceiro `nxt:logs:parceiros:*`) e rascunhos
+ * ao sair — importante em máquina compartilhada. As preferências de UI re-hidratam do
+ * backend no próximo login.
+ */
+function clearClientState() {
+  for (const store of [localStorage, sessionStorage]) {
+    try {
+      const keys: string[] = []
+      for (let i = 0; i < store.length; i++) {
+        const k = store.key(i)
+        if (k && k.startsWith('nxt:')) keys.push(k)
+      }
+      keys.forEach((k) => store.removeItem(k))
+    } catch { /* SSR/quota */ }
+  }
+}
+
 /** Encerra a sessão e leva ao login. */
 export async function logout() {
   try {
     await fetch('/api/auth/logout', { method: 'POST' })
   } finally {
+    clearClientState()
     window.location.href = '/sign-in'
   }
 }

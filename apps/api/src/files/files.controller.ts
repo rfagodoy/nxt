@@ -13,6 +13,21 @@ interface UploadedFileLike { originalname: string; buffer: Buffer; size: number;
 
 const MAX_BYTES = 25 * 1024 * 1024 // 25 MB
 
+// Tipos que o navegador renderiza inline com segurança (preview de anexo). QUALQUER
+// outro — em especial text/html, image/svg+xml, *xml — é servido como octet-stream,
+// para um arquivo enviado por um usuário nunca executar script na origem do app
+// (o mimeType é escolhido pelo cliente no upload; sem isto seria XSS armazenado).
+const SAFE_INLINE_TYPES = new Set([
+  'application/pdf',
+  'image/png', 'image/jpeg', 'image/gif', 'image/webp',
+  'text/plain',
+])
+function safeContentType(mime: string): string {
+  return SAFE_INLINE_TYPES.has((mime || '').toLowerCase().split(';')[0].trim())
+    ? mime
+    : 'application/octet-stream'
+}
+
 @ApiTags('files')
 @ApiBearerAuth()
 @Controller('files')
@@ -49,7 +64,7 @@ export class FilesController {
       throw new NotFoundException('Arquivo não encontrado')
     }
     return new StreamableFile(read.buffer, {
-      type: read.meta.mimeType,
+      type: safeContentType(read.meta.mimeType),
       disposition: `attachment; filename="${encodeURIComponent(read.meta.name)}"`,
       length: read.meta.size,
     })
