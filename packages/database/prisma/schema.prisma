@@ -181,6 +181,8 @@ model Partner {
   rg             String?
   orgaoExpedidor String?
   dataNascimento String?
+  dataAbertura   String?  // PJ: data de abertura da empresa (yyyy-mm-dd)
+  naturezaJuridica String? // PJ: code do catálogo NaturezaJuridica (QSA)
   paisOrigem     String?
   contatos       String   @default("[]") @db.NVarChar(Max) // [JSON]
   enderecos      String   @default("[]") @db.NVarChar(Max) // [JSON]

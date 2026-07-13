@@ -27,6 +27,8 @@ export interface PartnerAPI {
   rg: string | null
   orgaoExpedidor: string | null
   dataNascimento: string | null
+  dataAbertura: string | null
+  naturezaJuridica: string | null
   paisOrigem: string | null
   contatos: DCon[]
   enderecos: DEnd[]
@@ -141,6 +143,8 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
     rg:             partner.rg ?? '',
     orgaoExpedidor: partner.orgaoExpedidor ?? '',
     dataNascimento: partner.dataNascimento ?? '',
+    dataAbertura:   partner.dataAbertura ?? '',
+    naturezaJuridica: partner.naturezaJuridica ?? '',
     paisOrigem:     partner.paisOrigem ?? (partner.categoria === 'PF_BR' ? 'Brasil' : ''),
     contatos:  partner.contatos?.length  ? partner.contatos  : [newPCon()],
     enderecos: partner.enderecos?.length ? partner.enderecos : [newPEnd()],
@@ -265,6 +269,8 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
           rg:             v.rg.trim(),
           orgaoExpedidor: v.orgaoExpedidor.trim(),
           dataNascimento: v.dataNascimento.trim() || undefined,
+          dataAbertura:   v.dataAbertura.trim() || undefined,
+          naturezaJuridica: v.naturezaJuridica.trim() || undefined,
           paisOrigem:     v.paisOrigem.trim() || undefined,
           status:       statusOverride ?? situacao,
           contatos:  v.contatos,

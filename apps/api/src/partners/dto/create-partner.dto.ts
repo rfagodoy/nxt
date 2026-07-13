@@ -53,6 +53,16 @@ export class CreatePartnerDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  dataAbertura?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  naturezaJuridica?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
   paisOrigem?: string
 
   @ApiProperty({ type: [Object] })

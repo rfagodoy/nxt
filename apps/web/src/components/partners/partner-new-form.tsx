@@ -125,6 +125,8 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
       rg:             opt(v.rg),
       orgaoExpedidor: opt(v.orgaoExpedidor),
       dataNascimento: opt(v.dataNascimento),
+      dataAbertura:   opt(v.dataAbertura),
+      naturezaJuridica: opt(v.naturezaJuridica),
       paisOrigem:     opt(v.paisOrigem),
       contatos:  v.contatos,
       enderecos: v.enderecos,

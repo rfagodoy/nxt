@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react'
 import { Plus, Trash2, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useLookupTable } from '@/hooks/use-lookup-table'
+import { useNaturezaJuridica } from '@/hooks/use-catalogs'
 import { PAISES, PAISES_SEED, PAISES_STORAGE_KEY } from '@/lib/paises'
 import type { CustomField } from '@/hooks/use-partner-fields'
 
@@ -26,6 +27,8 @@ export interface PartnerFormValues {
   rg:             string
   orgaoExpedidor: string
   dataNascimento: string
+  dataAbertura:   string
+  naturezaJuridica: string
   paisOrigem:     string
   contatos:       PCon[]
   enderecos:      PEnd[]
@@ -70,7 +73,8 @@ export function validateSociosParticipacao(socios: PSoc[]): string | null {
 export function emptyPartnerForm(category: PartnerCategory = 'PJ_BR'): PartnerFormValues {
   return {
     category, documento: '', razaoSocial: '', nomeFantasia: '', ie: '', im: '', rg: '',
-    orgaoExpedidor: '', dataNascimento: '', paisOrigem: category === 'PF_BR' ? 'Brasil' : '',
+    orgaoExpedidor: '', dataNascimento: '', dataAbertura: '', naturezaJuridica: '',
+    paisOrigem: category === 'PF_BR' ? 'Brasil' : '',
     contatos: [newPCon()], enderecos: [newPEnd()], bancos: [newPBan()], socios: [],
   }
 }
@@ -321,6 +325,9 @@ export function IdentificacaoFields({ form, ro, isVisible = always, customFields
   const { active: paisesAtivos } = useLookupTable(PAISES_STORAGE_KEY, PAISES_SEED)
   const paisesList = paisesAtivos.length ? paisesAtivos.map(e => e.label) : PAISES
   const paisOpts = paisesList.map(p => ({ value: p, label: p }))
+  // Natureza Jurídica (catálogo QSA da Receita) — só faz sentido para PJ.
+  const naturezas = useNaturezaJuridica()
+  const naturezaOpts = naturezas.map(n => ({ value: n.code, label: `${n.code} — ${n.descricao}` }))
 
   const docKey  = cat === 'PJ_BR' ? 'cnpj' : cat === 'PF_BR' ? 'cpf' : 'codigo'
   const docMask = cat === 'PJ_BR' ? maskCNPJ : cat === 'PF_BR' ? maskCPF : (x: string) => x
@@ -345,6 +352,16 @@ export function IdentificacaoFields({ form, ro, isVisible = always, customFields
         )}
         {isPJ && isVisible('nome_fantasia') && (
           <Field label="Nome Fantasia"><Txt value={v.nomeFantasia} onChange={x => form.set('nomeFantasia', x)} ro={ro} placeholder="Nome fantasia (se houver)" /></Field>
+        )}
+        {isPJ && (
+          <>
+            {isVisible('data_abertura') && <Field label="Data de Abertura"><Txt type="date" value={v.dataAbertura} onChange={x => form.set('dataAbertura', x)} ro={ro} /></Field>}
+            {isVisible('natureza_juridica') && (
+              <Field label="Natureza Jurídica" span2>
+                <Sel value={v.naturezaJuridica} onChange={x => form.set('naturezaJuridica', x)} ro={ro} options={naturezaOpts} placeholder="Selecione a natureza jurídica..." />
+              </Field>
+            )}
+          </>
         )}
         {cat === 'PJ_BR' && (
           <>
