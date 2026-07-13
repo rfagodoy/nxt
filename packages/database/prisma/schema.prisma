@@ -210,6 +210,25 @@ model PartnerAuditLog {
   @@map("partner_audit_logs")
 }
 
+// ─── Catálogos de referência (padrões nacionais; GLOBAIS, não por tenant) ────
+// Semeados da fonte oficial (CNAE = IBGE; Natureza Jurídica = Receita/QSA). São
+// os mesmos para todas as organizações e não são editados pelo usuário — a UI de
+// Tabelas é só consulta. Referenciados pelo `code` nos campos do Partner.
+
+model Cnae {
+  code      String @id            // subclasse formatada, ex. "4929-9/02"
+  descricao String @db.NVarChar(Max)
+
+  @@map("cnaes")
+}
+
+model NaturezaJuridica {
+  code      String @id            // ex. "206-2"
+  descricao String @db.NVarChar(Max)
+
+  @@map("naturezas_juridicas")
+}
+
 // ─── Contratos ────────────────────────────────────────────────────────────────
 
 model Contract {

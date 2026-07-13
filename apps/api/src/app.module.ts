@@ -17,6 +17,7 @@ import { FilesModule } from './files/files.module'
 import { DashboardModule } from './dashboard/dashboard.module'
 import { UsersModule } from './users/users.module'
 import { NotificationsModule } from './notifications/notifications.module'
+import { CatalogsModule } from './catalogs/catalogs.module'
 
 // Rede de segurança global contra abuso/força-bruta em toda a API. É intencionalmente
 // generoso: o login já tem throttle por IP + lockout de conta; aqui o objetivo é só
@@ -42,6 +43,7 @@ const throttleLimit = Number(process.env.THROTTLE_LIMIT ?? 300)
     DashboardModule,
     UsersModule,
     NotificationsModule,
+    CatalogsModule,
   ],
   controllers: [HealthController],
   providers: [

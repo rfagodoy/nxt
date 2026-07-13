@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Globe, Tag, FileSearch, Coins, CreditCard, TrendingUp, UserCheck, Paperclip, Network, SlidersHorizontal } from 'lucide-react'
+import { Globe, Tag, FileSearch, Coins, CreditCard, TrendingUp, UserCheck, Paperclip, Network, SlidersHorizontal, Scale, Briefcase } from 'lucide-react'
 
 const TABLES = [
   {
@@ -22,6 +22,20 @@ const TABLES = [
     label:       'Tipos de unidade',
     description: 'Tipos das unidades do organograma, classificados como Custo, Lucro ou Neutro.',
     color:       'bg-teal-500/10 text-teal-600 dark:text-teal-400',
+  },
+  {
+    href:        '/settings/tabelas/natureza-juridica',
+    icon:        Scale,
+    label:       'Natureza Jurídica das Entidades',
+    description: 'Naturezas jurídicas obrigadas ao QSA (Receita Federal). Usada no cadastro de parceiros PJ.',
+    color:       'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400',
+  },
+  {
+    href:        '/settings/tabelas/cnae',
+    icon:        Briefcase,
+    label:       'CNAE',
+    description: 'Classificação Nacional de Atividades Econômicas (IBGE). Catálogo consultável, associado a parceiros PJ.',
+    color:       'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400',
   },
   {
     href:        '/settings/contratos/tipos',
