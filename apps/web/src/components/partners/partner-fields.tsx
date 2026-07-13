@@ -588,20 +588,22 @@ function CnaeCombo({ onPick, exclude, placeholder }: { onPick: (code: string) =>
     if (rect) setUp(window.innerHeight - rect.bottom < 260)
   }
 
+  // Ao abrir, já traz uma lista (primeiros CNAEs); ao digitar, busca no servidor.
+  // Assim o campo funciona como um combobox navegável, não só "digite para buscar".
   useEffect(() => {
+    if (!open) return
     const term = q.trim()
-    if (!term) { setResults([]); return }
     setLoading(true)
     const t = setTimeout(() => {
-      void apiJson<CatalogEntry[]>(`/api/cnae?search=${encodeURIComponent(term)}&limit=30`).then(data => {
+      void apiJson<CatalogEntry[]>(`/api/cnae?limit=50${term ? `&search=${encodeURIComponent(term)}` : ''}`).then(data => {
         const list = data ?? []
         list.forEach(e => cnaeLabelCache.set(e.code, e.descricao))
         setResults(list.filter(e => !exclude.includes(e.code) && !inactive.has(e.code)))
         setLoading(false)
       })
-    }, 250)
+    }, term ? 250 : 0)
     return () => clearTimeout(t)
-  }, [q, exclude, inactive])
+  }, [q, open, exclude, inactive])
 
   return (
     <div className="relative">
@@ -611,12 +613,12 @@ function CnaeCombo({ onPick, exclude, placeholder }: { onPick: (code: string) =>
         onChange={e => { setQ(e.target.value); reveal() }}
         onFocus={reveal}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
-        placeholder={placeholder ?? 'Buscar por código ou descrição...'}
+        placeholder={placeholder ?? 'Clique para ver a lista ou digite para buscar...'}
         className={inputCls}
       />
-      {open && q.trim() && (
+      {open && (
         <div className={cn('absolute z-30 max-h-60 w-full overflow-auto rounded-md border bg-popover text-popover-foreground shadow-lg', up ? 'bottom-full mb-1' : 'mt-1')}>
-          {loading && <div className="px-3 py-2 text-xs text-muted-foreground">Buscando…</div>}
+          {loading && <div className="px-3 py-2 text-xs text-muted-foreground">Carregando…</div>}
           {!loading && results.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground">Nenhum CNAE encontrado.</div>}
           {results.map(e => (
             <button
@@ -629,6 +631,9 @@ function CnaeCombo({ onPick, exclude, placeholder }: { onPick: (code: string) =>
               <span className="mr-2 font-mono tabular-nums text-primary">{e.code}</span>{e.descricao}
             </button>
           ))}
+          {!loading && !q.trim() && results.length >= 50 && (
+            <div className="px-3 py-1.5 text-[11px] text-muted-foreground border-t bg-muted/30">Digite para buscar em todo o catálogo…</div>
+          )}
         </div>
       )}
     </div>
