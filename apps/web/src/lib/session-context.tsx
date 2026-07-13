@@ -59,11 +59,17 @@ export function useSession() {
   return useContext(SessionContext)
 }
 
+// Namespaces limpos no logout: os atuais (`nxt:`) + restos dos sistemas anteriores
+// (`primeapps:`/`conexos:` e as chaves do Clerk), que podem carregar PII/rascunhos.
+const CLEAR_PREFIXES = ['nxt:', 'primeapps:', 'conexos:', '__clerk', 'clerk_']
+// Cookies JS-legíveis do auth antigo (Clerk) — não são nossos (nosso token é httpOnly).
+const LEGACY_COOKIE_PREFIXES = ['__session', '__clerk', '__client_uat']
+
 /**
- * Limpa todo o estado client-side do namespace `nxt:*` (localStorage + sessionStorage).
- * Remove PII de terceiros (ex.: logs de parceiro `nxt:logs:parceiros:*`) e rascunhos
- * ao sair — importante em máquina compartilhada. As preferências de UI re-hidratam do
- * backend no próximo login.
+ * Limpa o estado client-side ao sair — importante em máquina compartilhada. Remove
+ * PII de terceiros (ex.: logs de parceiro `nxt:logs:parceiros:*`), rascunhos e o cruft
+ * legado (Clerk/primeapps/conexos). As preferências de UI re-hidratam do backend no
+ * próximo login. Não toca no nosso token (httpOnly; some via /api/auth/logout).
  */
 function clearClientState() {
   for (const store of [localStorage, sessionStorage]) {
@@ -71,11 +77,20 @@ function clearClientState() {
       const keys: string[] = []
       for (let i = 0; i < store.length; i++) {
         const k = store.key(i)
-        if (k && k.startsWith('nxt:')) keys.push(k)
+        if (k && CLEAR_PREFIXES.some((p) => k.startsWith(p))) keys.push(k)
       }
       keys.forEach((k) => store.removeItem(k))
     } catch { /* SSR/quota */ }
   }
+  // Expira cookies legados JS-legíveis (best-effort; os nossos são httpOnly).
+  try {
+    for (const pair of document.cookie.split(';')) {
+      const name = pair.split('=')[0].trim()
+      if (name && LEGACY_COOKIE_PREFIXES.some((p) => name.startsWith(p))) {
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`
+      }
+    }
+  } catch { /* SSR */ }
 }
 
 /** Encerra a sessão e leva ao login. */

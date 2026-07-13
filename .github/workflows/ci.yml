@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  build-test-audit:
+    runs-on: ubuntu-latest
+    env:
+      # Valores só de CI (build/generate/testes não conectam no banco nem assinam
+      # tokens reais). NUNCA usar em produção.
+      DATABASE_URL: "sqlserver://localhost:1433;database=ci;user=sa;password=Ci_Dummy_Pw_1234;encrypt=true;trustServerCertificate=true"
+      AUTH_JWT_SECRET: "ci-only-secret-not-used-in-prod-0123456789abcdef0123456789"
+      NODE_ENV: "test"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Gerar Prisma Client
+        run: npm run db:generate --workspace @nxt/database
+
+      - name: Build (api + web + packages)
+        run: npm run build
+
+      - name: Testes
+        run: npm test
+
+      # Gate de segurança: falha o CI se surgir vuln HIGH/CRITICAL no RUNTIME
+      # (produção). Devdeps ficam de fora para não travar em CVE de ferramenta.
+      - name: Auditoria de dependências (runtime)
+        run: npm audit --omit=dev --audit-level=high
+
+      # Visibilidade (não falha): panorama completo, inclui devDependencies.
+      - name: Auditoria completa (informativa)
+        run: npm audit || true

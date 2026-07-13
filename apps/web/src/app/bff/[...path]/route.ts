@@ -14,8 +14,38 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? ''
 // Cabeçalhos de resposta que fazem sentido repassar ao browser (downloads etc.).
 const PASS_RESPONSE_HEADERS = ['content-type', 'content-disposition', 'content-length', 'cache-control']
 
+// Métodos com efeito colateral (mutações). Só estes exigem a checagem de origem.
+function isMutating(method: string): boolean {
+  return method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS'
+}
+
+/**
+ * Defesa CSRF: como o `/bff` autentica pelo COOKIE httpOnly, uma mutação precisa
+ * vir da PRÓPRIA origem — senão um site malicioso dispararia POST/PUT/PATCH/DELETE
+ * com o cookie do usuário embutido. O `sameSite=lax` já mitiga; esta é a barreira
+ * explícita (defesa em profundidade). Exige `Origin` cujo host bata com o `Host`.
+ */
+function sameOrigin(req: Request): boolean {
+  const origin = req.headers.get('origin')
+  const host = req.headers.get('host')
+  if (!origin || !host) return false
+  try {
+    return new URL(origin).host === host
+  } catch {
+    return false
+  }
+}
+
 async function handle(req: Request, ctx: { params: Promise<{ path: string[] }> }): Promise<Response> {
   const { path } = await ctx.params
+
+  if (isMutating(req.method) && !sameOrigin(req)) {
+    return new Response(JSON.stringify({ error: 'Origem não permitida' }), {
+      status: 403,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+
   const search = new URL(req.url).search
   const target = `${API}/${path.join('/')}${search}`
   const store = await cookies()
