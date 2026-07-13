@@ -28,6 +28,7 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Tudo exceto as rotas /api (inclui nossos handlers de auth), assets e estáticos.
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|.*\\.).*)'],
+  // Tudo exceto /api (handlers de auth), /bff (proxy — deve devolver 401 JSON, não
+  // redirect HTML), assets e estáticos.
+  matcher: ['/((?!api|bff|_next/static|_next/image|favicon.ico|.*\\.).*)'],
 }

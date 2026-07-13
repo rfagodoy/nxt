@@ -2,25 +2,14 @@ import type { NextConfig } from 'next'
 
 const isProd = process.env.NODE_ENV === 'production'
 
-// Origem da API que o browser chama diretamente (apiFetch). Entra no connect-src
-// da CSP; sem ela, o navegador bloquearia todas as chamadas ao backend.
-const apiOrigin = (() => {
-  const raw = process.env.NEXT_PUBLIC_API_URL
-  if (!raw) return ''
-  try {
-    return new URL(raw).origin
-  } catch {
-    return raw
-  }
-})()
-
 // Content-Security-Policy. Bloqueia as classes que mais doem (clickjacking via
 // frame-ancestors, injeção de <base>, plugins/objetos, form-action externa),
 // mas permite o que o Next e o app realmente usam:
 //  - script/style inline: o Next injeta o bootstrap de hidratação inline (sem nonce);
 //  - blob:/data: em img/frame/worker: preview de documento (PDF/imagem via objectURL)
 //    e exportação Excel geram objectURLs;
-//  - connect-src inclui a origem da API (chamadas do browser ao backend).
+//  - connect-src fica em 'self': com o BFF (app/bff), o browser só fala com a própria
+//    origem (o Next anexa o Bearer no servidor) — a API não é mais chamada direto.
 const csp = [
   "default-src 'self'",
   "base-uri 'self'",
@@ -33,7 +22,7 @@ const csp = [
   // fonts.googleapis: folha de estilo da fonte do preview (style-src já tem unsafe-inline).
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "script-src 'self' 'unsafe-inline'",
-  `connect-src 'self'${apiOrigin ? ` ${apiOrigin}` : ''}`,
+  "connect-src 'self'",
   "frame-src 'self' blob: data:",
   "worker-src 'self' blob:",
 ]

@@ -14,8 +14,6 @@
 
 import { apiFetch } from './http'
 
-const apiUrl = () => process.env.NEXT_PUBLIC_API_URL ?? ''
-
 /* Migração única (cliente): chaves legadas 'primeapps:' → 'nxt:' no cache local.
    O backend é migrado por SQL; isto só evita o flash de "seed" na 1ª carga por navegador. */
 if (typeof window !== 'undefined') {
@@ -49,13 +47,12 @@ export function cacheWrite(key: string, value: unknown): void {
   try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* quota/SSR */ }
 }
 
-/** Grava no cache local e espelha no backend (fire-and-forget). */
+/** Grava no cache local e espelha no backend via BFF (fire-and-forget). */
 export function pushSetting(key: string, value: unknown): void {
   cacheWrite(key, value)
-  if (!apiUrl()) return
   void apiFetch(`/api/settings/${encodeURIComponent(key)}`, {
     method: 'PUT',
-    body:   JSON.stringify({ userId: currentUserId(), value }),
+    body:   JSON.stringify({ value }),
   }).catch(() => { /* offline: o cache já guardou */ })
 }
 
@@ -64,11 +61,8 @@ export function pushSetting(key: string, value: unknown): void {
  * se não existir (null) ou falhar, retorna null (mantém o cache atual).
  */
 export async function pullSetting<T = unknown>(key: string): Promise<T | null> {
-  if (!apiUrl()) return null
   try {
-    const res = await apiFetch(
-      `/api/settings/${encodeURIComponent(key)}?userId=${encodeURIComponent(currentUserId())}`,
-    )
+    const res = await apiFetch(`/api/settings/${encodeURIComponent(key)}`)
     if (!res.ok) return null
     const data = await res.json() as { value: T | null }
     if (data.value !== null && data.value !== undefined) {
