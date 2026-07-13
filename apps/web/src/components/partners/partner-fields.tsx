@@ -210,8 +210,14 @@ export function Field({ label, required, span2, hint, children }: { label: strin
   )
 }
 
+/** ISO (aaaa-mm-dd) → dd/mm/aaaa na leitura; passa direto o que não for data. */
+const fmtDateBR = (v: string): string => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v ?? '')
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : (v ?? '')
+}
+
 function Txt({ value, onChange, ro, type = 'text', placeholder, maxLength }: { value: string; onChange: (v: string) => void; ro?: boolean; type?: string; placeholder?: string; maxLength?: number }) {
-  if (ro) return <span className={readCls}>{value || '—'}</span>
+  if (ro) return <span className={readCls}>{(type === 'date' ? fmtDateBR(value) : value) || '—'}</span>
   return <input type={type} value={value} maxLength={maxLength} onChange={e => onChange(e.target.value)} placeholder={placeholder} className={inputCls} />
 }
 
