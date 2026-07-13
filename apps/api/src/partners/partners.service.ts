@@ -59,9 +59,14 @@ const ARRAY_FIELDS: { key: string; label: string; sub: { k: string; l: string }[
     { k: 'cargo', l: 'Cargo' } ] },
 ]
 
+/* listas de CÓDIGOS (array de strings): audita cada inclusão/remoção separadamente */
+const CODE_LIST_FIELDS: { key: string; label: string }[] = [
+  { key: 'cnaesSecundarios', label: 'CNAE Secundário' },
+]
+
 type PartnerLike = Record<string, unknown>
 
-function diffPartner(oldP: PartnerLike, newP: PartnerLike): AuditChange[] {
+function diffPartner(oldP: PartnerLike, newP: PartnerLike, cnaeLabel: (code: string) => string = (c) => c): AuditChange[] {
   const changes: AuditChange[] = []
 
   /* situação (tratada como campo) */
@@ -73,14 +78,26 @@ function diffPartner(oldP: PartnerLike, newP: PartnerLike): AuditChange[] {
     })
   }
 
-  /* escalares */
+  /* escalares (cnaePrincipal resolve o código → descrição pelo catálogo) */
   for (const f of SCALAR_FIELDS) {
     const b = val(oldP[f.key]); const a = val(newP[f.key])
-    if (b !== a) changes.push({
-      field: f.key, label: f.label,
-      before: b ? (f.fmt ? f.fmt(b) : b) : '—',
-      after:  a ? (f.fmt ? f.fmt(a) : a) : '—',
-    })
+    if (b !== a) {
+      const fmt = f.key === 'cnaePrincipal' ? cnaeLabel : f.fmt
+      changes.push({
+        field: f.key, label: f.label,
+        before: b ? (fmt ? fmt(b) : b) : '—',
+        after:  a ? (fmt ? fmt(a) : a) : '—',
+      })
+    }
+  }
+
+  /* listas de códigos (ex.: CNAEs secundários) → um log por inclusão/remoção */
+  for (const cf of CODE_LIST_FIELDS) {
+    const oldArr = ((oldP[cf.key] as string[]) ?? []).map(String)
+    const newArr = ((newP[cf.key] as string[]) ?? []).map(String)
+    const oldSet = new Set(oldArr); const newSet = new Set(newArr)
+    for (const code of newArr) if (!oldSet.has(code)) changes.push({ field: `${cf.key}.add.${code}`, label: cf.label, before: '—', after: cnaeLabel(code) })
+    for (const code of oldArr) if (!newSet.has(code)) changes.push({ field: `${cf.key}.rem.${code}`, label: cf.label, before: cnaeLabel(code), after: '—' })
   }
 
   /* listas (por posição → cobre add/remove/alteração de cada subcampo) */
@@ -307,7 +324,20 @@ export class PartnersService {
     const { user: _clientUser, motivo, ...data } = dto
     const updated = await this.prisma.partner.update({ where: { id }, data: data as never })
 
-    const changes = diffPartner(old as PartnerLike, updated as PartnerLike)
+    /* resolvedor de CNAE (principal + secundários, antes e depois) → "código — descrição" no histórico */
+    const cnaeCodes = new Set<string>()
+    for (const p of [old, updated] as PartnerLike[]) {
+      if (p.cnaePrincipal) cnaeCodes.add(String(p.cnaePrincipal))
+      for (const c of (p.cnaesSecundarios as string[] | undefined) ?? []) cnaeCodes.add(String(c))
+    }
+    let cnaeMap = new Map<string, string>()
+    if (cnaeCodes.size) {
+      const rows = await this.prisma.cnae.findMany({ where: { code: { in: [...cnaeCodes] } } })
+      cnaeMap = new Map(rows.map((r) => [r.code, r.descricao]))
+    }
+    const cnaeLabel = (c: string) => { const d = cnaeMap.get(c); return d ? `${c} — ${d}` : c }
+
+    const changes = diffPartner(old as PartnerLike, updated as PartnerLike, cnaeLabel)
     if (changes.length) {
       /* cada mudança vai pro SEU evento: a transição de status vira Ativado/Inativado/...
          (só a mudança de situação) e os campos viram Atualização — logs separados. */
