@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft, Building2, Phone, MapPin, CreditCard, Users,
-  ChevronDown, Layers, FileText,
+  ChevronDown, Layers, FileText, Briefcase,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
@@ -14,7 +14,7 @@ import { usePartnerSections } from '@/hooks/use-partner-sections'
 import { getLogUser } from '@/hooks/use-partner-logs'
 import {
   usePartnerForm, emptyPartnerForm, newPSoc, CategoryTabs, CustomFieldsGrid,
-  IdentificacaoFields, ContatoFields, EnderecoFields, BancarioFields, SociosFields,
+  IdentificacaoFields, ContatoFields, EnderecoFields, BancarioFields, SociosFields, CnaeFields,
   validateSociosParticipacao,
   type PartnerCategory, type PartnerFormValues,
 } from './partner-fields'
@@ -80,7 +80,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
   useEffect(() => {
     if (!sectionsLoaded || openInit.current) return
     openInit.current = true
-    const ids = ['identificacao', 'contato', 'endereco', 'bancario', 'socios', ...customSections.map(s => s.id)]
+    const ids = ['identificacao', 'contato', 'endereco', 'bancario', 'socios', 'cnae', ...customSections.map(s => s.id)]
     const openSet = new Set<string>()
     for (const id of ids) {
       const defaultOpen = sectionDefaultOpen[id] ?? (id === 'identificacao')
@@ -97,7 +97,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isPJ])
 
-  const allSectionIds = ['identificacao', 'contato', 'endereco', 'bancario', 'socios', ...customSections.map(s => s.id)]
+  const allSectionIds = ['identificacao', 'contato', 'endereco', 'bancario', 'socios', 'cnae', ...customSections.map(s => s.id)]
   const resolvedOrder = [
     ...sectionOrder.filter(id => allSectionIds.includes(id)),
     ...allSectionIds.filter(id => !sectionOrder.includes(id)),
@@ -127,6 +127,8 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
       dataNascimento: opt(v.dataNascimento),
       dataAbertura:   opt(v.dataAbertura),
       naturezaJuridica: opt(v.naturezaJuridica),
+      cnaePrincipal:  opt(v.cnaePrincipal),
+      cnaesSecundarios: v.cnaesSecundarios,
       paisOrigem:     opt(v.paisOrigem),
       contatos:  v.contatos,
       enderecos: v.enderecos,
@@ -247,6 +249,14 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
       return (
         <Section key="socios" icon={Users} title="Quadro de Sócios" isOpen={open.has('socios')} onToggle={() => toggle('socios')} hasError={errors.has('socios')}>
           <SociosFields form={form} isVisible={isVisible} />
+        </Section>
+      )
+    }
+    if (key === 'cnae') {
+      if (!isPJ) return null
+      return (
+        <Section key="cnae" icon={Briefcase} title="CNAE — Atividades Econômicas" isOpen={open.has('cnae')} onToggle={() => toggle('cnae')}>
+          <CnaeFields form={form} />
         </Section>
       )
     }

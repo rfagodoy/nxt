@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Building2, Phone, MapPin, CreditCard, Users, Clock, Plus, X, SlidersHorizontal, CheckCircle2, RotateCcw, Pencil, Ban, type LucideIcon } from 'lucide-react'
+import { Building2, Phone, MapPin, CreditCard, Users, Briefcase, Clock, Plus, X, SlidersHorizontal, CheckCircle2, RotateCcw, Pencil, Ban, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { usePartnerFields, useFieldVisibility } from '@/hooks/use-partner-fields'
@@ -9,7 +9,7 @@ import { getLogUser } from '@/hooks/use-partner-logs'
 import { SaveStatus } from '@/components/save-status'
 import {
   usePartnerForm, newPCon, newPEnd, newPBan, CategoryTabs,
-  IdentificacaoFields, ContatoFields, EnderecoFields, BancarioFields, SociosFields,
+  IdentificacaoFields, ContatoFields, EnderecoFields, BancarioFields, SociosFields, CnaeFields,
   validateSociosParticipacao,
   CATEGORIES, maskCNPJ, maskCPF, type PartnerCategory,
 } from '@/components/partners/partner-fields'
@@ -34,6 +34,8 @@ export interface PartnerAPI {
   enderecos: DEnd[]
   bancos: DBan[]
   socios: DSoc[]
+  cnaePrincipal: string | null
+  cnaesSecundarios: string[] | null
   createdAt: string
   updatedAt: string
 }
@@ -150,6 +152,8 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
     enderecos: partner.enderecos?.length ? partner.enderecos : [newPEnd()],
     bancos:    partner.bancos?.length    ? partner.bancos    : [newPBan()],
     socios:    partner.socios ?? [],
+    cnaePrincipal:    partner.cnaePrincipal ?? '',
+    cnaesSecundarios: partner.cnaesSecundarios ?? [],
   })
   const v        = partnerForm.values
   const category = v.category
@@ -235,12 +239,13 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
     { id: 'endereco',      label: 'Endereço',         icon: MapPin },
     { id: 'bancario',      label: 'Dados Bancários',  icon: CreditCard },
     ...(isPJ ? [{ id: 'socios', label: 'Sócios', icon: Users }] : []),
+    ...(isPJ ? [{ id: 'cnae', label: 'CNAE', icon: Briefcase }] : []),
     { id: 'historico',     label: 'Histórico',        icon: Clock },
   ]
 
-  /* se a aba ativa deixar de existir (ex.: trocar PJ→PF na aba Sócios), volta para Identificação */
+  /* se a aba ativa deixar de existir (ex.: trocar PJ→PF nas abas Sócios/CNAE), volta para Identificação */
   useEffect(() => {
-    if (tab === 'socios' && !isPJ) setTab('identificacao')
+    if ((tab === 'socios' || tab === 'cnae') && !isPJ) setTab('identificacao')
   }, [isPJ, tab])
 
   const handleSave = async (statusOverride?: string, motivoTexto?: string) => {
@@ -277,6 +282,8 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
           enderecos: v.enderecos,
           bancos:    v.bancos,
           socios:    v.socios,
+          cnaePrincipal:    v.cnaePrincipal.trim() || undefined,
+          cnaesSecundarios: v.cnaesSecundarios,
           user:         getLogUser(),
           motivo:       motivoTexto,
         }),
@@ -434,6 +441,13 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
         {isPJ && (
           <DSection active={tab === 'socios'}>
             <SociosFields form={partnerForm} ro={locked} isVisible={isVisibleInForm} />
+          </DSection>
+        )}
+
+        {/* CNAE */}
+        {isPJ && (
+          <DSection active={tab === 'cnae'}>
+            <CnaeFields form={partnerForm} ro={locked} />
           </DSection>
         )}
 

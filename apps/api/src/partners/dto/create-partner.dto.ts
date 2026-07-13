@@ -65,6 +65,16 @@ export class CreatePartnerDto {
   @IsString()
   paisOrigem?: string
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  cnaePrincipal?: string
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  cnaesSecundarios?: string[]
+
   @ApiProperty({ type: [Object] })
   @IsArray()
   contatos: object[]

@@ -183,6 +183,8 @@ model Partner {
   dataNascimento String?
   dataAbertura   String?  // PJ: data de abertura da empresa (yyyy-mm-dd)
   naturezaJuridica String? // PJ: code do catálogo NaturezaJuridica (QSA)
+  cnaePrincipal  String?  // PJ: code do CNAE principal (catálogo Cnae)
+  cnaesSecundarios String @default("[]") @db.NVarChar(Max) // [JSON] codes de CNAE
   paisOrigem     String?
   contatos       String   @default("[]") @db.NVarChar(Max) // [JSON]
   enderecos      String   @default("[]") @db.NVarChar(Max) // [JSON]

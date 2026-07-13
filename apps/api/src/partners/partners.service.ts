@@ -37,6 +37,7 @@ const SCALAR_FIELDS: { key: string; label: string; fmt?: (v: string) => string }
   { key: 'dataNascimento', label: 'Data de Nascimento', fmt: fmtDate },
   { key: 'dataAbertura',   label: 'Data de Abertura', fmt: fmtDate },
   { key: 'naturezaJuridica', label: 'Natureza Jurídica' },
+  { key: 'cnaePrincipal',  label: 'CNAE Principal'   },
   { key: 'paisOrigem',     label: 'País de Origem'   },
 ]
 

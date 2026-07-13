@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useCallback } from 'react'
-import { Plus, Trash2, Loader2 } from 'lucide-react'
+import { useState, useCallback, useEffect, useRef } from 'react'
+import { Plus, Trash2, Loader2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { apiJson } from '@/lib/http'
 import { useLookupTable } from '@/hooks/use-lookup-table'
-import { useNaturezaJuridica } from '@/hooks/use-catalogs'
+import { useNaturezaJuridica, type CatalogEntry } from '@/hooks/use-catalogs'
 import { PAISES, PAISES_SEED, PAISES_STORAGE_KEY } from '@/lib/paises'
 import type { CustomField } from '@/hooks/use-partner-fields'
 
@@ -29,6 +30,8 @@ export interface PartnerFormValues {
   dataNascimento: string
   dataAbertura:   string
   naturezaJuridica: string
+  cnaePrincipal:  string
+  cnaesSecundarios: string[]
   paisOrigem:     string
   contatos:       PCon[]
   enderecos:      PEnd[]
@@ -74,6 +77,7 @@ export function emptyPartnerForm(category: PartnerCategory = 'PJ_BR'): PartnerFo
   return {
     category, documento: '', razaoSocial: '', nomeFantasia: '', ie: '', im: '', rg: '',
     orgaoExpedidor: '', dataNascimento: '', dataAbertura: '', naturezaJuridica: '',
+    cnaePrincipal: '', cnaesSecundarios: [],
     paisOrigem: category === 'PF_BR' ? 'Brasil' : '',
     contatos: [newPCon()], enderecos: [newPEnd()], bancos: [newPBan()], socios: [],
   }
@@ -560,5 +564,126 @@ export function SociosFields({ form, ro, isVisible = always }: GroupProps) {
       )}
       {!ro && <AddButton onClick={form.addSoc}>Adicionar sócio</AddButton>}
     </>
+  )
+}
+
+/* ── CNAE: catálogo grande (~1.332) — busca no servidor, não select nativo ── */
+const cnaeLabelCache = new Map<string, string>()
+
+/** Combobox de busca de CNAE (server-side, debounced). Chama onPick com o código. */
+function CnaeCombo({ onPick, exclude, placeholder }: { onPick: (code: string) => void; exclude: string[]; placeholder?: string }) {
+  const [q, setQ]             = useState('')
+  const [results, setResults] = useState<CatalogEntry[]>([])
+  const [open, setOpen]       = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [up, setUp]           = useState(false) // abre para cima quando não cabe embaixo
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Decide a direção do dropdown pela posição do campo (a seção CNAE é a última do
+  // formulário; sem isto, o dropdown fica escondido atrás do rodapé fixo).
+  const reveal = () => {
+    setOpen(true)
+    const rect = inputRef.current?.getBoundingClientRect()
+    if (rect) setUp(window.innerHeight - rect.bottom < 260)
+  }
+
+  useEffect(() => {
+    const term = q.trim()
+    if (!term) { setResults([]); return }
+    setLoading(true)
+    const t = setTimeout(() => {
+      void apiJson<CatalogEntry[]>(`/api/cnae?search=${encodeURIComponent(term)}&limit=30`).then(data => {
+        const list = data ?? []
+        list.forEach(e => cnaeLabelCache.set(e.code, e.descricao))
+        setResults(list.filter(e => !exclude.includes(e.code)))
+        setLoading(false)
+      })
+    }, 250)
+    return () => clearTimeout(t)
+  }, [q, exclude])
+
+  return (
+    <div className="relative">
+      <input
+        ref={inputRef}
+        value={q}
+        onChange={e => { setQ(e.target.value); reveal() }}
+        onFocus={reveal}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        placeholder={placeholder ?? 'Buscar por código ou descrição...'}
+        className={inputCls}
+      />
+      {open && q.trim() && (
+        <div className={cn('absolute z-30 max-h-60 w-full overflow-auto rounded-md border bg-popover text-popover-foreground shadow-lg', up ? 'bottom-full mb-1' : 'mt-1')}>
+          {loading && <div className="px-3 py-2 text-xs text-muted-foreground">Buscando…</div>}
+          {!loading && results.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground">Nenhum CNAE encontrado.</div>}
+          {results.map(e => (
+            <button
+              key={e.code}
+              type="button"
+              onMouseDown={ev => ev.preventDefault()}
+              onClick={() => { onPick(e.code); setQ(''); setResults([]); setOpen(false) }}
+              className="block w-full px-3 py-1.5 text-left text-xs hover:bg-muted"
+            >
+              <span className="mr-2 font-mono tabular-nums text-primary">{e.code}</span>{e.descricao}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Seção CNAE (só PJ): CNAE principal (1) + secundários (N), do catálogo IBGE. */
+export function CnaeFields({ form, ro }: { form: PartnerForm; ro?: boolean }) {
+  const v = form.values
+  const [, force] = useState(0)
+
+  // Resolve as descrições dos códigos já selecionados (edição) fora do cache.
+  useEffect(() => {
+    const codes = [v.cnaePrincipal, ...v.cnaesSecundarios].filter(c => c && !cnaeLabelCache.has(c))
+    if (!codes.length) return
+    void apiJson<CatalogEntry[]>(`/api/cnae/by-codes?codes=${encodeURIComponent(codes.join(','))}`).then(data => {
+      const list = data ?? []
+      list.forEach(e => cnaeLabelCache.set(e.code, e.descricao))
+      force(x => x + 1)
+    })
+  }, [v.cnaePrincipal, v.cnaesSecundarios])
+
+  const label  = (code: string) => cnaeLabelCache.get(code) ?? code
+  const usados = [v.cnaePrincipal, ...v.cnaesSecundarios].filter(Boolean)
+
+  const Chip = ({ code, onRemove }: { code: string; onRemove?: () => void }) => (
+    <div className="flex items-center gap-2 rounded-md border bg-muted/20 px-2.5 py-1.5 text-xs">
+      <span className="font-mono tabular-nums text-primary">{code}</span>
+      <span className="min-w-0 flex-1 truncate">{label(code)}</span>
+      {onRemove && <button type="button" onClick={onRemove} className="text-muted-foreground hover:text-destructive"><X className="h-3.5 w-3.5" /></button>}
+    </div>
+  )
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1.5">
+        <p className="text-[11px] font-medium text-muted-foreground">CNAE Principal</p>
+        {v.cnaePrincipal
+          ? <Chip code={v.cnaePrincipal} onRemove={ro ? undefined : () => form.set('cnaePrincipal', '')} />
+          : ro
+            ? <span className={readCls}>—</span>
+            : <CnaeCombo onPick={c => form.set('cnaePrincipal', c)} exclude={usados} placeholder="Buscar CNAE principal..." />}
+      </div>
+
+      <div className="space-y-1.5">
+        <p className="text-[11px] font-medium text-muted-foreground">CNAEs Secundários</p>
+        {v.cnaesSecundarios.length === 0 && ro && <span className={readCls}>—</span>}
+        {v.cnaesSecundarios.length > 0 && (
+          <div className="space-y-1.5">
+            {v.cnaesSecundarios.map(code => (
+              <Chip key={code} code={code} onRemove={ro ? undefined : () => form.set('cnaesSecundarios', v.cnaesSecundarios.filter(c => c !== code))} />
+            ))}
+          </div>
+        )}
+        {!ro && <CnaeCombo onPick={c => form.set('cnaesSecundarios', [...v.cnaesSecundarios, c])} exclude={usados} placeholder="Adicionar CNAE secundário..." />}
+      </div>
+    </div>
   )
 }

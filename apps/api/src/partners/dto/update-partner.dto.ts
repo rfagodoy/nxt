@@ -67,6 +67,16 @@ export class UpdatePartnerDto {
   @IsString()
   paisOrigem?: string
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  cnaePrincipal?: string
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  cnaesSecundarios?: string[]
+
   @ApiPropertyOptional({ type: [Object] })
   @IsOptional()
   @IsArray()

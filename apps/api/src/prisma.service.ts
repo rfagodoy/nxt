@@ -11,7 +11,7 @@ const JSON_FIELDS: Record<string, string[]> = {
   ProcessInstance: ['data'],
   Module: ['schema'],
   ModuleRecord: ['data'],
-  Partner: ['contatos', 'enderecos', 'bancos', 'socios'],
+  Partner: ['contatos', 'enderecos', 'bancos', 'socios', 'cnaesSecundarios'],
   PartnerAuditLog: ['changes'],
   Contract: ['objeto', 'partes', 'reajustes', 'documentos', 'pagamentos', 'recebimentos', 'aditivos', 'renovacoes', 'reajustesRealizados'],
   ContractAuditLog: ['changes'],
