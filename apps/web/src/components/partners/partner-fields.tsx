@@ -361,8 +361,8 @@ export function IdentificacaoFields({ form, ro, isVisible = always, customFields
           <>
             {isVisible('data_abertura') && <Field label="Data de Abertura"><Txt type="date" value={v.dataAbertura} onChange={x => form.set('dataAbertura', x)} ro={ro} /></Field>}
             {isVisible('natureza_juridica') && (
-              <Field label="Natureza Jurídica" span2>
-                <Sel value={v.naturezaJuridica} onChange={x => form.set('naturezaJuridica', x)} ro={ro} options={naturezaOpts} placeholder="Selecione a natureza jurídica..." />
+              <Field label="Natureza Jurídica">
+                <Sel value={v.naturezaJuridica} onChange={x => form.set('naturezaJuridica', x)} ro={ro} options={naturezaOpts} placeholder="Selecione..." />
               </Field>
             )}
           </>

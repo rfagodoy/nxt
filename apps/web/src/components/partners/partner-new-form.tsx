@@ -80,7 +80,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
   useEffect(() => {
     if (!sectionsLoaded || openInit.current) return
     openInit.current = true
-    const ids = ['identificacao', 'contato', 'endereco', 'bancario', 'socios', 'cnae', ...customSections.map(s => s.id)]
+    const ids = ['identificacao', 'cnae', 'contato', 'endereco', 'bancario', 'socios', ...customSections.map(s => s.id)]
     const openSet = new Set<string>()
     for (const id of ids) {
       const defaultOpen = sectionDefaultOpen[id] ?? (id === 'identificacao')
@@ -97,11 +97,14 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isPJ])
 
-  const allSectionIds = ['identificacao', 'contato', 'endereco', 'bancario', 'socios', 'cnae', ...customSections.map(s => s.id)]
-  const resolvedOrder = [
-    ...sectionOrder.filter(id => allSectionIds.includes(id)),
-    ...allSectionIds.filter(id => !sectionOrder.includes(id)),
-  ]
+  const allSectionIds = ['identificacao', 'cnae', 'contato', 'endereco', 'bancario', 'socios', ...customSections.map(s => s.id)]
+  // Ordem final = a ordem salva pelo usuário, com as seções que ele ainda não
+  // ordenou (ex.: uma seção NOVA como CNAE) inseridas na POSIÇÃO PADRÃO delas —
+  // não simplesmente jogadas no fim.
+  const resolvedOrder = sectionOrder.filter(id => allSectionIds.includes(id))
+  allSectionIds.forEach((id, i) => {
+    if (!resolvedOrder.includes(id)) resolvedOrder.splice(Math.min(i, resolvedOrder.length), 0, id)
+  })
 
   /* campos personalizados visíveis no formulário, por seção */
   const vfs = (section: string): CustomField[] => fieldsForSection(section).filter(f =>

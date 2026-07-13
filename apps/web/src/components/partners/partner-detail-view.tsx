@@ -235,11 +235,11 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
   const catLabel = CATEGORIES.find(c => c.value === category)?.label ?? category
   const sectionTabs = [
     { id: 'identificacao', label: 'Identificação',   icon: Building2 },
+    ...(isPJ ? [{ id: 'cnae', label: 'CNAE', icon: Briefcase }] : []),
     { id: 'contato',       label: 'Contato',          icon: Phone },
     { id: 'endereco',      label: 'Endereço',         icon: MapPin },
     { id: 'bancario',      label: 'Dados Bancários',  icon: CreditCard },
     ...(isPJ ? [{ id: 'socios', label: 'Sócios', icon: Users }] : []),
-    ...(isPJ ? [{ id: 'cnae', label: 'CNAE', icon: Briefcase }] : []),
     { id: 'historico',     label: 'Histórico',        icon: Clock },
   ]
 
