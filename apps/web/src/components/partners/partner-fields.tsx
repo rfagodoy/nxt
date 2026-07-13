@@ -5,7 +5,7 @@ import { Plus, Trash2, Loader2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiJson } from '@/lib/http'
 import { useLookupTable } from '@/hooks/use-lookup-table'
-import { useNaturezaJuridica, type CatalogEntry } from '@/hooks/use-catalogs'
+import { useNaturezaJuridica, useCatalogInactive, CNAE_INATIVOS_KEY, type CatalogEntry } from '@/hooks/use-catalogs'
 import { PAISES, PAISES_SEED, PAISES_STORAGE_KEY } from '@/lib/paises'
 import type { CustomField } from '@/hooks/use-partner-fields'
 
@@ -578,6 +578,7 @@ function CnaeCombo({ onPick, exclude, placeholder }: { onPick: (code: string) =>
   const [loading, setLoading] = useState(false)
   const [up, setUp]           = useState(false) // abre para cima quando não cabe embaixo
   const inputRef = useRef<HTMLInputElement>(null)
+  const { inactive } = useCatalogInactive(CNAE_INATIVOS_KEY) // CNAEs desativados não são ofertados
 
   // Decide a direção do dropdown pela posição do campo (a seção CNAE é a última do
   // formulário; sem isto, o dropdown fica escondido atrás do rodapé fixo).
@@ -595,12 +596,12 @@ function CnaeCombo({ onPick, exclude, placeholder }: { onPick: (code: string) =>
       void apiJson<CatalogEntry[]>(`/api/cnae?search=${encodeURIComponent(term)}&limit=30`).then(data => {
         const list = data ?? []
         list.forEach(e => cnaeLabelCache.set(e.code, e.descricao))
-        setResults(list.filter(e => !exclude.includes(e.code)))
+        setResults(list.filter(e => !exclude.includes(e.code) && !inactive.has(e.code)))
         setLoading(false)
       })
     }, 250)
     return () => clearTimeout(t)
-  }, [q, exclude])
+  }, [q, exclude, inactive])
 
   return (
     <div className="relative">

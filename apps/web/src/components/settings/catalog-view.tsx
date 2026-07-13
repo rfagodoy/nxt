@@ -1,16 +1,20 @@
 'use client'
 
-import { useState, useEffect, useMemo, type ElementType } from 'react'
+import { useState, useEffect, type ElementType } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { ChevronLeft, Search, FileDown } from 'lucide-react'
+import { ChevronLeft, Search, FileDown, ToggleLeft, ToggleRight } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { apiJson } from '@/lib/http'
 import { exportExcel } from '@/lib/export-excel'
+import { useCatalogInactive } from '@/hooks/use-catalogs'
 
 interface CatalogEntry {
   code: string
   descricao: string
 }
+
+type StatusFilter = 'all' | 'active' | 'inactive'
 
 interface Props {
   title: string
@@ -18,27 +22,33 @@ interface Props {
   icon: ElementType
   /** Endpoint da API (via BFF), ex.: '/api/cnae' ou '/api/natureza-juridica'. */
   endpoint: string
+  /** Chave do AppSetting com os codes desativados (por org). */
+  inativosKey: string
   /** true = busca no servidor (catálogos grandes, ex. CNAE); false = filtra localmente. */
   serverSearch?: boolean
   codeLabel?: string
 }
 
 /**
- * Página de CONSULTA (somente leitura) de um catálogo de referência nacional.
- * Segue o MESMO visual das Tabelas auxiliares (LookupTablePage), mas sem os
- * controles de edição — o dado é oficial (IBGE/Receita) e não se edita, só se
- * busca. Catálogos grandes (CNAE) buscam no servidor; pequenos filtram local.
+ * Página de consulta de um catálogo de referência nacional (CNAE/Natureza Jurídica).
+ * Segue o MESMO visual das Tabelas auxiliares (LookupTablePage): busca, filtro de
+ * status e toggle ATIVO/INATIVO. O catálogo (código+descrição) é global e oficial —
+ * não se edita; o que se gerencia por organização é a ATIVAÇÃO de cada registro
+ * (quais aparecem para seleção nos parceiros), guardada num AppSetting admin-only.
  */
-export function CatalogViewPage({ title, description, icon: Icon, endpoint, serverSearch, codeLabel = 'Código' }: Props) {
+export function CatalogViewPage({ title, description, icon: Icon, endpoint, inativosKey, serverSearch, codeLabel = 'Código' }: Props) {
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
 
   const pathname = usePathname()
   const backHref = pathname.split('/').slice(0, -1).join('/') || '/settings'
 
+  const { inactive, toggle } = useCatalogInactive(inativosKey)
+
   const [all, setAll]         = useState<CatalogEntry[]>([])
   const [rows, setRows]       = useState<CatalogEntry[]>([])
   const [search, setSearch]   = useState('')
+  const [status, setStatus]   = useState<StatusFilter>('all')
   const [loading, setLoading] = useState(true)
 
   // Carga inicial.
@@ -73,6 +83,8 @@ export function CatalogViewPage({ title, description, icon: Icon, endpoint, serv
     return () => clearTimeout(t)
   }, [search, serverSearch, all, endpoint])
 
+  const isActive = (code: string) => !inactive.has(code)
+  const shown = rows.filter(r => status === 'all' || (status === 'active' ? isActive(r.code) : !isActive(r.code)))
   const capped = serverSearch && rows.length >= 100
 
   const handleExport = async () => {
@@ -85,8 +97,9 @@ export function CatalogViewPage({ title, description, icon: Icon, endpoint, serv
         { header: '#', width: 6, align: 'center' },
         { header: codeLabel, width: 16 },
         { header: 'Descrição' },
+        { header: 'Ativo', width: 10, align: 'center' },
       ],
-      rows: rows.map((r, i) => [i + 1, r.code, r.descricao]),
+      rows: shown.map((r, i) => [i + 1, r.code, r.descricao, isActive(r.code) ? 'Sim' : 'Não']),
     })
   }
 
@@ -106,7 +119,7 @@ export function CatalogViewPage({ title, description, icon: Icon, endpoint, serv
         </div>
       </div>
 
-      {/* toolbar: buscar · exportar */}
+      {/* toolbar: buscar · filtro de status · exportar */}
       {mounted && (
         <div className="flex items-center gap-2">
           <div className="relative flex-1 max-w-xs">
@@ -115,7 +128,17 @@ export function CatalogViewPage({ title, description, icon: Icon, endpoint, serv
               placeholder={serverSearch ? 'Buscar por código ou descrição...' : 'Buscar...'}
               className="flex h-7 w-full rounded-md border border-input bg-background pl-7 pr-3 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors" />
           </div>
-          <button type="button" onClick={() => { void handleExport() }} disabled={rows.length === 0}
+
+          <div className="flex rounded-md border overflow-hidden">
+            {([['all', 'Todos'], ['active', 'Ativos'], ['inactive', 'Inativos']] as const).map(([v, l]) => (
+              <button key={v} type="button" onClick={() => setStatus(v)}
+                className={cn('px-2.5 h-7 text-xs font-medium transition-colors', status === v ? 'bg-primary text-primary-foreground' : 'hover:bg-muted text-muted-foreground')}>
+                {l}
+              </button>
+            ))}
+          </div>
+
+          <button type="button" onClick={() => { void handleExport() }} disabled={shown.length === 0}
             className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors ml-auto">
             <FileDown className="h-3.5 w-3.5" />Exportar
           </button>
@@ -140,18 +163,25 @@ export function CatalogViewPage({ title, description, icon: Icon, endpoint, serv
                   <th className="text-left px-4 py-1.5 font-medium text-muted-foreground w-8">#</th>
                   <th className="text-left px-3 py-1.5 font-medium text-muted-foreground w-32">{codeLabel}</th>
                   <th className="text-left px-3 py-1.5 font-medium text-muted-foreground">Descrição</th>
+                  <th className="text-center px-3 py-1.5 font-medium text-muted-foreground w-20">Ativo</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={3} className="px-4 py-8 text-center text-muted-foreground">Carregando…</td></tr>
-                ) : rows.length === 0 ? (
-                  <tr><td colSpan={3} className="px-4 py-8 text-center text-muted-foreground">Nenhum resultado para a busca.</td></tr>
-                ) : rows.map((r, idx) => (
-                  <tr key={r.code} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                  <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">Carregando…</td></tr>
+                ) : shown.length === 0 ? (
+                  <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">Nenhum resultado para a busca/filtro.</td></tr>
+                ) : shown.map((r, idx) => (
+                  <tr key={r.code} className={cn('border-b last:border-0 hover:bg-muted/30 transition-colors', !isActive(r.code) && 'opacity-50')}>
                     <td className="px-4 py-1 text-muted-foreground tabular-nums">{idx + 1}</td>
                     <td className="px-3 py-1 font-mono text-muted-foreground whitespace-nowrap">{r.code}</td>
                     <td className="px-3 py-1 font-medium">{r.descricao}</td>
+                    <td className="px-3 py-1 text-center">
+                      <button type="button" onClick={() => toggle(r.code)} title={isActive(r.code) ? 'Desativar' : 'Ativar'}
+                        className="inline-flex items-center justify-center transition-colors">
+                        {isActive(r.code) ? <ToggleRight className="h-5 w-5 text-primary" /> : <ToggleLeft className="h-5 w-5 text-muted-foreground" />}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -162,7 +192,9 @@ export function CatalogViewPage({ title, description, icon: Icon, endpoint, serv
 
       {mounted && (
         <p className="text-[11px] text-muted-foreground text-center">
-          {loading ? 'carregando…' : <>{rows.length}{capped ? '+' : ''} registro{rows.length !== 1 ? 's' : ''}{capped && ' — refine a busca para ver itens específicos'}</>}
+          {loading
+            ? 'carregando…'
+            : <>{shown.length}{capped && status !== 'inactive' ? '+' : ''} registro{shown.length !== 1 ? 's' : ''}{capped && ' — refine a busca para ver itens específicos'}</>}
         </p>
       )}
     </div>
