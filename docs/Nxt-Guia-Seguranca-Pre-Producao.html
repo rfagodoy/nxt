@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Nxt — Guia de Segurança Pré-Produção</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #16211d; font-size: 11pt; line-height: 1.5; margin: 0; }
+  h1 { font-size: 22pt; color: #0C1410; margin: 0 0 2px; letter-spacing: -.02em; }
+  .sub { color: #5b6b63; font-size: 10.5pt; margin: 0 0 18px; }
+  h2 { font-size: 14pt; color: #0f5132; border-bottom: 2px solid #d7e6df; padding-bottom: 4px; margin: 26px 0 12px; }
+  .logo { display:inline-flex; align-items:center; gap:8px; margin-bottom:14px; }
+  .logo .mk { width:26px; height:26px; border-radius:7px; background:#0C1410; display:inline-flex; align-items:center; justify-content:center; color:#18C07A; font-weight:800; }
+  .logo .nm { font-weight:800; font-size:14pt; letter-spacing:-.02em; }
+  .logo .nm .x { color:#18C07A; }
+  .intro { background:#f4f7f5; border:1px solid #e4eae7; border-radius:8px; padding:12px 14px; margin-bottom:8px; font-size:10.5pt; }
+  .item { border:1px solid #e4eae7; border-left:4px solid #18C07A; border-radius:6px; padding:10px 13px; margin:10px 0; page-break-inside: avoid; }
+  .item .t { font-weight:700; font-size:11.5pt; color:#0C1410; margin-bottom:3px; }
+  .item .tech { color:#5b6b63; font-size:9.5pt; margin-bottom:7px; font-style:italic; }
+  .item .lay { font-size:10.5pt; }
+  .item .lay b { color:#0f5132; }
+  .prio { display:inline-block; font-size:8pt; font-weight:700; padding:1px 7px; border-radius:10px; vertical-align:middle; margin-left:6px; }
+  .p-alta { background:#fde8e8; color:#a12020; }
+  .p-media { background:#fff3e0; color:#9a6a00; }
+  .p-cond { background:#e7f0ff; color:#2a5aa8; }
+  .done { background:#e3f6ee; border:1px solid #b7e4cd; border-radius:8px; padding:10px 14px; font-size:10pt; margin-bottom:6px; }
+  .foot { margin-top:24px; padding-top:10px; border-top:1px solid #e4eae7; color:#8090899; font-size:9pt; color:#7a8a82; }
+  code { background:#eef3f0; padding:1px 5px; border-radius:4px; font-size:9.5pt; }
+</style>
+</head>
+<body>
+
+  <div class="logo"><span class="mk">N</span><span class="nm">N<span class="x">x</span>t</span></div>
+  <h1>Guia de Segurança — Pré-Produção</h1>
+  <p class="sub">Checklist do que precisa ser feito antes de colocar o sistema no ar para um cliente real. Cada item traz a exigência técnica e uma explicação em linguagem simples.</p>
+
+  <div class="done">
+    <b>✓ O que já está pronto (no código):</b> autenticação própria com token de curta duração e renovação segura; senha protegida por hash; isolamento entre clientes (cada empresa só vê os próprios dados); proteção contra as principais formas de ataque (injeção de SQL, XSS, CSRF, acesso indevido a arquivos); o token de acesso fica fora do alcance de scripts (BFF); cabeçalhos de segurança; limite de requisições; e verificação automática de dependências no CI. <b>Este guia cobre só o que falta — e o que falta é de infraestrutura/operação, não de programação.</b>
+  </div>
+
+  <h2>1. Segredos</h2>
+  <div class="intro">"Segredos" são as senhas e chaves que o sistema usa por baixo dos panos (para assinar logins, acessar o banco, etc.). Se vazarem, alguém pode se passar pelo sistema.</div>
+
+  <div class="item">
+    <div class="t">Chave de assinatura de login (<code>AUTH_JWT_SECRET</code>) única por ambiente <span class="prio p-alta">ALTA</span></div>
+    <div class="tech">Aleatória de 64+ caracteres (<code>openssl rand -base64 48</code>); nunca reutilizar entre ambientes; nunca versionar.</div>
+    <div class="lay"><b>O que é:</b> uma senha-mestra que o sistema usa para "carimbar" os crachás de login (os tokens). <b>O que fazer:</b> gerar uma sequência aleatória longa e diferente para cada ambiente (teste, produção) e guardá-la nas configurações do servidor — nunca dentro do código. <b>Por quê:</b> quem tiver essa chave consegue fabricar crachás falsos e entrar como qualquer usuário. <i>(No ambiente local já geramos uma real.)</i></div>
+  </div>
+
+  <div class="item">
+    <div class="t">Usuário do banco de dados com permissão mínima <span class="prio p-alta">ALTA</span></div>
+    <div class="tech">Não usar <code>sa</code>; usuário com privilégio restrito, rotacionável.</div>
+    <div class="lay"><b>O que é:</b> a "conta" que o sistema usa para falar com o banco de dados. <b>O que fazer:</b> criar uma conta específica que só pode fazer o necessário (ler/gravar nas tabelas do app), em vez do administrador-geral (<code>sa</code>). <b>Por quê:</b> se essa conta vazar, o estrago fica limitado — o invasor não vira dono do banco inteiro.</div>
+  </div>
+
+  <div class="item">
+    <div class="t">Demais chaves (storage, etc.) em cofre de segredos <span class="prio p-media">MÉDIA</span></div>
+    <div class="tech">Chaves de R2/S3 e afins via cofre/variáveis do orquestrador — nunca no repositório nem na imagem.</div>
+    <div class="lay"><b>O que é:</b> chaves de acesso a outros serviços (por ex. onde os anexos ficam guardados). <b>O que fazer:</b> guardar todas num "cofre" de segredos do servidor (ou variáveis de ambiente), fora do código. <b>Por quê:</b> código costuma ser copiado/compartilhado; segredo dentro dele vaza fácil.</div>
+  </div>
+
+  <h2>2. Transporte (a conexão)</h2>
+  <div class="intro">"Transporte" é como os dados viajam entre o navegador do usuário e o servidor. O objetivo é que ninguém no caminho consiga ler ou adulterar.</div>
+
+  <div class="item">
+    <div class="t">HTTPS/TLS ligado, com redirecionamento de HTTP → HTTPS <span class="prio p-alta">ALTA</span></div>
+    <div class="tech">TLS terminado no reverse proxy; o <code>Strict-Transport-Security</code> só tem efeito sob HTTPS.</div>
+    <div class="lay"><b>O que é:</b> o "cadeado" do navegador — a criptografia da conexão. <b>O que fazer:</b> instalar um certificado (ex. Let's Encrypt) no servidor de entrada e forçar que todo acesso use <code>https://</code> (quem entrar por <code>http://</code> é redirecionado). <b>Por quê:</b> sem isso, senhas e dados trafegam em texto aberto e podem ser lidos numa rede Wi-Fi, por exemplo. Várias proteções que já programamos só "ligam" sob HTTPS.</div>
+  </div>
+
+  <div class="item">
+    <div class="t">Cookies marcados como <code>secure</code> em produção <span class="prio p-media">MÉDIA</span></div>
+    <div class="tech">Já ativado automaticamente quando <code>NODE_ENV=production</code>.</div>
+    <div class="lay"><b>O que é:</b> uma marca que impede o crachá de login de viajar por conexão sem cadeado. <b>O que fazer:</b> basicamente nada além de rodar em modo produção — <b>já está programado</b>. Só confirmar que o ambiente está em produção.</div>
+  </div>
+
+  <h2>3. Dados</h2>
+  <div class="intro">Proteção das informações guardadas (banco de dados e arquivos): contra perda e contra acesso indevido.</div>
+
+  <div class="item">
+    <div class="t">Backup automático + teste de restauração <span class="prio p-alta">ALTA</span></div>
+    <div class="tech">Backup do banco automatizado; testar a restauração.</div>
+    <div class="lay"><b>O que é:</b> cópias de segurança dos dados. <b>O que fazer:</b> agendar cópias automáticas do banco (diárias, por ex.) e — importante — <b>testar de verdade</b> se consegue restaurar a partir delas. <b>Por quê:</b> backup que nunca foi testado costuma falhar justo na hora da emergência (defeito de disco, ransomware, erro humano).</div>
+  </div>
+
+  <div class="item">
+    <div class="t">Criptografia dos dados em repouso <span class="prio p-media">MÉDIA</span></div>
+    <div class="tech">Encryption at rest do banco e do storage de anexos.</div>
+    <div class="lay"><b>O que é:</b> deixar os dados criptografados também quando estão "parados" no disco. <b>O que fazer:</b> ativar a criptografia de disco/volume do banco e do local dos anexos (a maioria dos servidores e nuvens oferece isso com um clique). <b>Por quê:</b> se alguém roubar o disco/HD ou uma cópia dele, não consegue ler nada.</div>
+  </div>
+
+  <div class="item">
+    <div class="t">Política de retenção/limpeza de dados pessoais (LGPD) <span class="prio p-media">MÉDIA</span></div>
+    <div class="tech">Retenção/limpeza de PII de parceiros e de logs de auditoria.</div>
+    <div class="lay"><b>O que é:</b> regras de por quanto tempo guardar dados pessoais e quando apagá-los. <b>O que fazer:</b> definir prazos (ex.: apagar/anonimizar dados de parceiros inativos após X anos) para cumprir a LGPD. <b>Por quê:</b> guardar dado pessoal sem necessidade é risco legal e de vazamento.</div>
+  </div>
+
+  <h2>4. Escala (só se houver mais de um servidor)</h2>
+  <div class="intro">Vale apenas se, no futuro, o sistema rodar em vários servidores ao mesmo tempo. Para um único servidor (caso on-premise típico), pode ignorar.</div>
+
+  <div class="item">
+    <div class="t">Limite de requisições em armazenamento compartilhado (Redis) <span class="prio p-cond">CONDICIONAL</span></div>
+    <div class="tech">O throttle atual é in-memory (ok para VM única); migrar para Redis em multi-nó.</div>
+    <div class="lay"><b>O que é:</b> a proteção que barra excesso de tentativas (ex.: ataque de força bruta no login) hoje "conta" na memória de um servidor só. <b>O que fazer:</b> só se houver vários servidores — usar um contador central (Redis) para todos compartilharem. <b>Por quê:</b> com vários servidores e contadores separados, um atacante teria o limite multiplicado. <i>Num servidor só, o que já existe basta.</i></div>
+  </div>
+
+  <h2>5. Operação (o dia a dia)</h2>
+  <div class="intro">Como acompanhar e reagir a problemas depois que o sistema está no ar.</div>
+
+  <div class="item">
+    <div class="t">Monitoramento e alertas de anomalias de login <span class="prio p-media">MÉDIA</span></div>
+    <div class="tech">Usar <code>LoginEvent</code> (falhas, bloqueios) e hits de throttle.</div>
+    <div class="lay"><b>O que é:</b> um "alarme" que avisa quando algo estranho acontece (muitas tentativas de login falhas, contas sendo bloqueadas). <b>O que fazer:</b> o sistema já <b>registra</b> esses eventos; falta ligar um painel/alerta que avise a equipe (e-mail, mensagem) quando os números fugirem do normal. <b>Por quê:</b> quanto antes você percebe um ataque, menor o estrago.</div>
+  </div>
+
+  <div class="item">
+    <div class="t">Rodar o scanner de dependências em todo push/PR <span class="prio p-media">MÉDIA</span></div>
+    <div class="tech">CI já criado (<code>.github/workflows/ci.yml</code>): build + testes + <code>npm audit</code>.</div>
+    <div class="lay"><b>O que é:</b> uma verificação automática que checa se alguma "peça" de terceiros usada pelo sistema tem falha de segurança conhecida. <b>O que fazer:</b> <b>já está pronto</b> — o robô roda a cada alteração e trava se aparecer falha grave. Só manter o hábito de revisar quando ele apontar algo.</div>
+  </div>
+
+  <div class="item">
+    <div class="t">Teste de invasão (pentest) formal antes do lançamento <span class="prio p-alta">ALTA</span></div>
+    <div class="tech">A auditoria interna cobriu as classes principais, mas não substitui teste independente.</div>
+    <div class="lay"><b>O que é:</b> contratar um especialista (externo) para tentar "invadir" o sistema de propósito e reportar as brechas. <b>O que fazer:</b> antes do lançamento oficial para clientes, contratar um pentest. <b>Por quê:</b> nós fizemos uma auditoria interna forte, mas um olhar independente sempre acha coisas que quem construiu não vê. É o padrão do mercado para software que lida com contratos e dados de empresas.</div>
+  </div>
+
+  <div class="foot">
+    Nxt · Guia de Segurança Pré-Produção · gerado a partir de <code>SECURITY.md</code> · uso interno.<br>
+    Prioridades: <span class="prio p-alta">ALTA</span> = obrigatório antes de qualquer cliente · <span class="prio p-media">MÉDIA</span> = fazer na implantação · <span class="prio p-cond">CONDICIONAL</span> = só em cenário específico.
+  </div>
+
+</body>
+</html>
