@@ -1,15 +1,14 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { useState, useMemo } from 'react'
 import {
   Plus, Pencil, Trash2, Check, X, ToggleLeft, ToggleRight,
-  ChevronLeft, Search, ArrowUp, ArrowDown, ChevronsUpDown, FileDown,
+  ArrowUp, ArrowDown, ChevronsUpDown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { exportExcel } from '@/lib/export-excel'
 import { useLookupTable, type LookupEntry } from '@/hooks/use-lookup-table'
+import { SettingsTableShell, type StatusFilter } from './settings-table-shell'
 
 const inputCls = 'flex h-7 w-full rounded-md border border-input bg-background px-2.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
 
@@ -39,7 +38,6 @@ interface LookupTablePageProps {
 
 type SortCol = 'code' | 'label' | 'origem'
 interface SortState { col: SortCol; dir: 'asc' | 'desc' }
-type StatusFilter = 'all' | 'active' | 'inactive'
 
 export function LookupTablePage({
   title, description, icon: Icon, storageKey, initialData,
@@ -54,12 +52,6 @@ export function LookupTablePage({
     if (codeMaxLength) s = s.slice(0, codeMaxLength)
     return s
   }
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
-
-  const pathname = usePathname()
-  // Destino do "voltar" = hub pai (um nível acima na URL). Ex.: /settings/tabelas/paises → /settings/tabelas
-  const backHref = pathname.split('/').slice(0, -1).join('/') || '/settings'
 
   const { entries, add, remove, update, toggle } = useLookupTable(storageKey, initialData)
 
@@ -173,187 +165,130 @@ export function LookupTablePage({
   )
 
   return (
-    <div className="max-w-4xl mx-auto space-y-3">
+    <SettingsTableShell
+      title={title} description={description} icon={Icon}
+      headerAction={!adding ? (
+        <button type="button" onClick={() => { setAdding(true); setLabelErr('') }}
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
+          <Plus className="h-3.5 w-3.5" />Adicionar
+        </button>
+      ) : undefined}
+      search={search} onSearchChange={setSearch} searchPlaceholder="Buscar..."
+      status={status} onStatusChange={setStatus}
+      onExport={handleExport} exportDisabled={displayed.length === 0}
+      footer={
+        displayed.length === entries.length
+          ? <>{entries.length} registro{entries.length !== 1 ? 's' : ''} · {activeCount} ativo{activeCount !== 1 ? 's' : ''}</>
+          : <>{displayed.length} de {entries.length} registro{entries.length !== 1 ? 's' : ''}</>
+      }
+    >
+      <thead className="sticky top-0 z-10 [&_th]:bg-muted">
+        <tr className="border-b">
+          <th className="text-left px-4 py-1.5 font-medium text-muted-foreground w-8">#</th>
+          {withCode && <ThSort col="code" label={codeLabel} className="w-28" />}
+          <ThSort col="label" label="Nome" />
+          {selectField && <ThSort col="origem" label={selectField.label} className="w-56" />}
+          <th className="text-center px-3 py-1.5 font-medium text-muted-foreground w-20">Ativo</th>
+          <th className="w-20" />
+        </tr>
+      </thead>
+      <tbody>
 
-      {/* cabeçalho */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <Link href={backHref} title="Voltar para o hub"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-            <ChevronLeft className="h-4 w-4" />
-          </Link>
-          <div className="p-2 rounded-lg bg-primary/10"><Icon className="h-4 w-4 text-primary" /></div>
-          <div>
-            <h1 className="text-base font-semibold tracking-tight">{title}</h1>
-            <p className="text-[11px] text-muted-foreground">{description}</p>
-          </div>
-        </div>
-        {mounted && !adding && (
-          <button type="button" onClick={() => { setAdding(true); setLabelErr('') }}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
-            <Plus className="h-3.5 w-3.5" />Adicionar
-          </button>
+        {/* linha de adição */}
+        {adding && (
+          <tr className="border-b bg-primary/5">
+            <td className="px-4 py-1 text-muted-foreground">—</td>
+            {withCode && (
+              <td className="px-3 py-1">
+                <input value={newCode} onChange={e => setNewCode(sanitizeCode(e.target.value))} maxLength={codeMaxLength}
+                  onKeyDown={e => { if (e.key === 'Enter') handleAdd(); if (e.key === 'Escape') cancelAdd() }}
+                  placeholder={codePlaceholder} className={inputCls} autoFocus={withCode} />
+              </td>
+            )}
+            <td className="px-3 py-1">
+              <div className="space-y-1">
+                <input value={newLabel} onChange={e => { setNewLabel(e.target.value); setLabelErr('') }}
+                  onKeyDown={e => { if (e.key === 'Enter') handleAdd(); if (e.key === 'Escape') cancelAdd() }}
+                  placeholder="Nome do registro..." className={cn(inputCls, labelErr && 'border-red-400')} autoFocus={!withCode} />
+                {labelErr && <p className="text-[11px] text-red-500">{labelErr}</p>}
+              </div>
+            </td>
+            {selectField && (
+              <td className="px-3 py-1">
+                <select value={newOrigem} onChange={e => setNewOrigem(e.target.value)} className={inputCls}>
+                  {selectField.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </td>
+            )}
+            <td />
+            <td className="px-3 py-1">
+              <div className="flex items-center justify-end gap-1">
+                <button type="button" onClick={handleAdd} title="Confirmar" className="flex h-6 w-6 items-center justify-center rounded text-primary hover:bg-primary/10 transition-colors"><Check className="h-3.5 w-3.5" /></button>
+                <button type="button" onClick={cancelAdd} title="Cancelar" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted transition-colors"><X className="h-3.5 w-3.5" /></button>
+              </div>
+            </td>
+          </tr>
         )}
-      </div>
 
-      {/* toolbar: buscar · filtro de status · exportar */}
-      {mounted && (
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1 max-w-xs">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <input value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Buscar..."
-              className="flex h-7 w-full rounded-md border border-input bg-background pl-7 pr-3 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors" />
-          </div>
-
-          <div className="flex rounded-md border overflow-hidden">
-            {([['all', 'Todos'], ['active', 'Ativos'], ['inactive', 'Inativos']] as const).map(([v, l]) => (
-              <button key={v} type="button" onClick={() => setStatus(v)}
-                className={cn('px-2.5 h-7 text-xs font-medium transition-colors', status === v ? 'bg-primary text-primary-foreground' : 'hover:bg-muted text-muted-foreground')}>
-                {l}
-              </button>
-            ))}
-          </div>
-
-          <button type="button" onClick={() => { void handleExport() }} disabled={displayed.length === 0}
-            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors ml-auto">
-            <FileDown className="h-3.5 w-3.5" />Exportar
-          </button>
-        </div>
-      )}
-
-      {!mounted ? (
-        <div className="rounded-xl border bg-card shadow-sm overflow-hidden animate-pulse">
-          <div className="h-9 bg-muted/40 border-b" />
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-10 border-b last:border-0 flex items-center px-4 gap-4">
-              <div className="h-3 w-4 bg-muted rounded" /><div className="h-3 flex-1 bg-muted rounded" /><div className="h-5 w-8 bg-muted rounded" />
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
-          <div className="overflow-y-auto max-h-[calc(100vh-12rem)]">
-          <table className="w-full text-xs">
-            <thead className="sticky top-0 z-10 [&_th]:bg-muted">
-              <tr className="border-b">
-                <th className="text-left px-4 py-1.5 font-medium text-muted-foreground w-8">#</th>
-                {withCode && <ThSort col="code" label={codeLabel} className="w-28" />}
-                <ThSort col="label" label="Nome" />
-                {selectField && <ThSort col="origem" label={selectField.label} className="w-56" />}
-                <th className="text-center px-3 py-1.5 font-medium text-muted-foreground w-20">Ativo</th>
-                <th className="w-20" />
-              </tr>
-            </thead>
-            <tbody>
-
-              {/* linha de adição */}
-              {adding && (
-                <tr className="border-b bg-primary/5">
-                  <td className="px-4 py-1 text-muted-foreground">—</td>
-                  {withCode && (
-                    <td className="px-3 py-1">
-                      <input value={newCode} onChange={e => setNewCode(sanitizeCode(e.target.value))} maxLength={codeMaxLength}
-                        onKeyDown={e => { if (e.key === 'Enter') handleAdd(); if (e.key === 'Escape') cancelAdd() }}
-                        placeholder={codePlaceholder} className={inputCls} autoFocus={withCode} />
-                    </td>
-                  )}
-                  <td className="px-3 py-1">
-                    <div className="space-y-1">
-                      <input value={newLabel} onChange={e => { setNewLabel(e.target.value); setLabelErr('') }}
-                        onKeyDown={e => { if (e.key === 'Enter') handleAdd(); if (e.key === 'Escape') cancelAdd() }}
-                        placeholder="Nome do registro..." className={cn(inputCls, labelErr && 'border-red-400')} autoFocus={!withCode} />
-                      {labelErr && <p className="text-[11px] text-red-500">{labelErr}</p>}
-                    </div>
-                  </td>
-                  {selectField && (
-                    <td className="px-3 py-1">
-                      <select value={newOrigem} onChange={e => setNewOrigem(e.target.value)} className={inputCls}>
-                        {selectField.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                      </select>
-                    </td>
-                  )}
-                  <td />
-                  <td className="px-3 py-1">
-                    <div className="flex items-center justify-end gap-1">
-                      <button type="button" onClick={handleAdd} title="Confirmar" className="flex h-6 w-6 items-center justify-center rounded text-primary hover:bg-primary/10 transition-colors"><Check className="h-3.5 w-3.5" /></button>
-                      <button type="button" onClick={cancelAdd} title="Cancelar" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted transition-colors"><X className="h-3.5 w-3.5" /></button>
-                    </div>
-                  </td>
-                </tr>
+        {entries.length === 0 && !adding ? (
+          <tr><td colSpan={colCount} className="px-4 py-8 text-center text-muted-foreground">Nenhum registro. Clique em &ldquo;Adicionar&rdquo; para criar o primeiro.</td></tr>
+        ) : displayed.length === 0 && !adding ? (
+          <tr><td colSpan={colCount} className="px-4 py-8 text-center text-muted-foreground">Nenhum resultado para a busca/filtro.</td></tr>
+        ) : displayed.map((entry, idx) => (
+          editingId === entry.id ? (
+            <tr key={entry.id} className="border-b last:border-0 bg-primary/5">
+              <td className="px-4 py-1 text-muted-foreground">{idx + 1}</td>
+              {withCode && (
+                <td className="px-3 py-1">
+                  <input value={editCode} onChange={e => setEditCode(sanitizeCode(e.target.value))} maxLength={codeMaxLength}
+                    onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditingId(null) }}
+                    placeholder={codePlaceholder} className={inputCls} autoFocus={withCode} />
+                </td>
               )}
-
-              {entries.length === 0 && !adding ? (
-                <tr><td colSpan={colCount} className="px-4 py-8 text-center text-muted-foreground">Nenhum registro. Clique em &ldquo;Adicionar&rdquo; para criar o primeiro.</td></tr>
-              ) : displayed.length === 0 && !adding ? (
-                <tr><td colSpan={colCount} className="px-4 py-8 text-center text-muted-foreground">Nenhum resultado para a busca/filtro.</td></tr>
-              ) : displayed.map((entry, idx) => (
-                editingId === entry.id ? (
-                  <tr key={entry.id} className="border-b last:border-0 bg-primary/5">
-                    <td className="px-4 py-1 text-muted-foreground">{idx + 1}</td>
-                    {withCode && (
-                      <td className="px-3 py-1">
-                        <input value={editCode} onChange={e => setEditCode(sanitizeCode(e.target.value))} maxLength={codeMaxLength}
-                          onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditingId(null) }}
-                          placeholder={codePlaceholder} className={inputCls} autoFocus={withCode} />
-                      </td>
-                    )}
-                    <td className="px-3 py-1">
-                      <div className="space-y-1">
-                        <input value={editLabel} onChange={e => { setEditLabel(e.target.value); setEditErr('') }}
-                          onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditingId(null) }}
-                          placeholder="Nome..." className={cn(inputCls, editErr && 'border-red-400')} autoFocus={!withCode} />
-                        {editErr && <p className="text-[11px] text-red-500">{editErr}</p>}
-                      </div>
-                    </td>
-                    {selectField && (
-                      <td className="px-3 py-1">
-                        <select value={editOrigem} onChange={e => setEditOrigem(e.target.value)} className={inputCls}>
-                          {selectField.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                        </select>
-                      </td>
-                    )}
-                    <td />
-                    <td className="px-3 py-1">
-                      <div className="flex items-center justify-end gap-1">
-                        <button type="button" onClick={saveEdit} title="Salvar" className="flex h-6 w-6 items-center justify-center rounded text-primary hover:bg-primary/10 transition-colors"><Check className="h-3.5 w-3.5" /></button>
-                        <button type="button" onClick={() => setEditingId(null)} title="Cancelar" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted transition-colors"><X className="h-3.5 w-3.5" /></button>
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  <tr key={entry.id} className={cn('border-b last:border-0 hover:bg-muted/30 transition-colors group/row', !entry.active && 'opacity-50')}>
-                    <td className="px-4 py-1 text-muted-foreground tabular-nums">{idx + 1}</td>
-                    {withCode && <td className="px-3 py-1 font-mono text-muted-foreground">{entry.code ?? '—'}</td>}
-                    <td className="px-3 py-1 font-medium">{entry.label}</td>
-                    {selectField && <td className="px-3 py-1 text-muted-foreground">{origemLabel(selectField ? (entry[selectField.field] as string | undefined) : undefined)}</td>}
-                    <td className="px-3 py-1 text-center">
-                      <button type="button" onClick={() => toggle(entry.id)} title={entry.active ? 'Desativar' : 'Ativar'} className="inline-flex items-center justify-center transition-colors">
-                        {entry.active ? <ToggleRight className="h-5 w-5 text-primary" /> : <ToggleLeft className="h-5 w-5 text-muted-foreground" />}
-                      </button>
-                    </td>
-                    <td className="px-3 py-1">
-                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
-                        <button type="button" onClick={() => startEdit(entry)} title="Editar" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"><Pencil className="h-3.5 w-3.5" /></button>
-                        <button type="button" onClick={() => remove(entry.id)} title="Excluir" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              ))}
-            </tbody>
-          </table>
-          </div>
-        </div>
-      )}
-
-      {mounted && (
-        <p className="text-[11px] text-muted-foreground text-center">
-          {displayed.length === entries.length
-            ? <>{entries.length} registro{entries.length !== 1 ? 's' : ''} · {activeCount} ativo{activeCount !== 1 ? 's' : ''}</>
-            : <>{displayed.length} de {entries.length} registro{entries.length !== 1 ? 's' : ''}</>}
-        </p>
-      )}
-    </div>
+              <td className="px-3 py-1">
+                <div className="space-y-1">
+                  <input value={editLabel} onChange={e => { setEditLabel(e.target.value); setEditErr('') }}
+                    onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditingId(null) }}
+                    placeholder="Nome..." className={cn(inputCls, editErr && 'border-red-400')} autoFocus={!withCode} />
+                  {editErr && <p className="text-[11px] text-red-500">{editErr}</p>}
+                </div>
+              </td>
+              {selectField && (
+                <td className="px-3 py-1">
+                  <select value={editOrigem} onChange={e => setEditOrigem(e.target.value)} className={inputCls}>
+                    {selectField.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </td>
+              )}
+              <td />
+              <td className="px-3 py-1">
+                <div className="flex items-center justify-end gap-1">
+                  <button type="button" onClick={saveEdit} title="Salvar" className="flex h-6 w-6 items-center justify-center rounded text-primary hover:bg-primary/10 transition-colors"><Check className="h-3.5 w-3.5" /></button>
+                  <button type="button" onClick={() => setEditingId(null)} title="Cancelar" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted transition-colors"><X className="h-3.5 w-3.5" /></button>
+                </div>
+              </td>
+            </tr>
+          ) : (
+            <tr key={entry.id} className={cn('border-b last:border-0 hover:bg-muted/30 transition-colors group/row', !entry.active && 'opacity-50')}>
+              <td className="px-4 py-1 text-muted-foreground tabular-nums">{idx + 1}</td>
+              {withCode && <td className="px-3 py-1 font-mono text-muted-foreground">{entry.code ?? '—'}</td>}
+              <td className="px-3 py-1 font-medium">{entry.label}</td>
+              {selectField && <td className="px-3 py-1 text-muted-foreground">{origemLabel(selectField ? (entry[selectField.field] as string | undefined) : undefined)}</td>}
+              <td className="px-3 py-1 text-center">
+                <button type="button" onClick={() => toggle(entry.id)} title={entry.active ? 'Desativar' : 'Ativar'} className="inline-flex items-center justify-center transition-colors">
+                  {entry.active ? <ToggleRight className="h-5 w-5 text-primary" /> : <ToggleLeft className="h-5 w-5 text-muted-foreground" />}
+                </button>
+              </td>
+              <td className="px-3 py-1">
+                <div className="flex items-center justify-end gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
+                  <button type="button" onClick={() => startEdit(entry)} title="Editar" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"><Pencil className="h-3.5 w-3.5" /></button>
+                  <button type="button" onClick={() => remove(entry.id)} title="Excluir" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
+                </div>
+              </td>
+            </tr>
+          )
+        ))}
+      </tbody>
+    </SettingsTableShell>
   )
 }

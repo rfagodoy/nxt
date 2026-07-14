@@ -16,6 +16,12 @@ export class CatalogsController {
     return this.service.searchCnae(search ?? '', Number(limit) || 30)
   }
 
+  @Get('cnae/all')
+  @ApiOperation({ summary: 'Lista o catálogo CNAE completo (~1.332)' })
+  cnaeAll() {
+    return this.service.allCnae()
+  }
+
   @Get('cnae/by-codes')
   @ApiOperation({ summary: 'Resolve descrição de CNAEs por lista de códigos' })
   @ApiQuery({ name: 'codes', required: false, description: 'Códigos separados por vírgula' })

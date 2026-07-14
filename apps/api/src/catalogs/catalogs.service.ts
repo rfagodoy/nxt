@@ -20,6 +20,13 @@ export class CatalogsService {
     return this.prisma.cnae.findMany({ where, orderBy: { code: 'asc' }, take })
   }
 
+  /** Catálogo CNAE completo (~1.332), ordenado por código. Usado pela tela de
+   *  consulta das Tabelas (paginação/filtro/exportação no cliente); o combobox do
+   *  parceiro continua usando searchCnae (type-ahead server-side). */
+  async allCnae() {
+    return this.prisma.cnae.findMany({ orderBy: { code: 'asc' } })
+  }
+
   /** Resolve descrição de CNAEs específicos (para exibir os já selecionados no parceiro). */
   async cnaeByCodes(codes: string[]) {
     if (!codes.length) return []

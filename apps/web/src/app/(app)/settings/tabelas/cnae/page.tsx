@@ -12,7 +12,7 @@ export default function CnaeTable() {
       icon={Briefcase}
       endpoint="/api/cnae"
       inativosKey={CNAE_INATIVOS_KEY}
-      serverSearch
+      largeCatalog
       codeLabel="CNAE"
     />
   )
