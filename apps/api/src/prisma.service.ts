@@ -18,6 +18,7 @@ const JSON_FIELDS: Record<string, string[]> = {
   OrgUnit: ['usuarios'],
   GroupCompany: ['contatos', 'enderecos', 'bancos', 'socios'],
   AppSetting: ['value'],
+  ScreenField: ['options', 'validation'],
 }
 
 function serialize(model: string | undefined, data: unknown) {

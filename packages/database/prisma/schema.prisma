@@ -361,6 +361,95 @@ model AppSetting {
   @@map("app_settings")
 }
 
+// ─── Personalização de telas (Screens) ───────────────────────────────────────
+// Catálogo de "Telas" reutilizáveis (por perfil de acesso e por etapa de processo).
+// DEFINIÇÃO: Screen → ScreenSection/ScreenField. Cada campo é NATIVE (visão de um
+// dado nativo, via nativeKey) ou CUSTOM (captura de dado novo). VALOR preenchido:
+// ScreenFieldValue, normalizado e POLIMÓRFICO por (subjectType, subjectId) — serve
+// parceiro, contrato e instância de processo com uma tabela só. Snapshots de
+// nome/rótulo preservam histórico/exportação quando a definição muda.
+
+model Screen {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  subjectType    String   @default("FORNECEDOR") // FORNECEDOR | CONTRATO | GENERICA
+  status         String   @default("DRAFT")      // DRAFT | ACTIVE | ARCHIVED
+  isDefault      Boolean  @default(false)         // tela padrão do cadastro daquele subject (uma por subject)
+  isSystem       Boolean  @default(false)         // tela padrão DO SISTEMA (cadastro base; não deletável)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  sections ScreenSection[]
+  fields   ScreenField[]
+
+  @@index([organizationId, subjectType])
+  @@map("screens")
+}
+
+model ScreenSection {
+  id          String   @id @default(cuid())
+  screenId    String
+  label       String
+  name        String   // slug técnico
+  source      String   @default("CUSTOM") // NATIVE (seção nativa da entidade) | CUSTOM
+  nativeKey   String?  // quando source=NATIVE: chave da seção nativa (ex.: 'identificacao')
+  visible     Boolean  @default(true)
+  order       Int      @default(0)
+  defaultOpen Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  screen Screen @relation(fields: [screenId], references: [id], onDelete: Cascade)
+
+  @@index([screenId])
+  @@map("screen_sections")
+}
+
+model ScreenField {
+  id          String   @id @default(cuid())
+  screenId    String
+  sectionId   String?  // seção do mesmo screen; sem FK de propósito (integridade na app)
+  name        String   // slug técnico
+  label       String
+  type        String   // text|textarea|number|currency|date|time|datetime|select|multiselect|checkbox|file|email|phone
+  source      String   @default("CUSTOM") // NATIVE (campo nativo da entidade) | CUSTOM (captura)
+  nativeKey   String?  // quando source=NATIVE: chave do campo nativo (ex.: 'razao_social')
+  mode        String   @default("EDIT")   // VIEW | EDIT
+  visible     Boolean  @default(true)      // nativo: liga/desliga no cadastro (único atributo editável)
+  required    Boolean  @default(false)
+  placeholder String?
+  options     String?  @db.NVarChar(Max)  // [JSON] [{ value, label }] (select/multiselect)
+  validation  String?  @db.NVarChar(Max)  // [JSON] { maxLength?, min?, max?, pattern? }
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  screen Screen @relation(fields: [screenId], references: [id], onDelete: Cascade)
+
+  @@index([screenId])
+  @@map("screen_fields")
+}
+
+model ScreenFieldValue {
+  id                 String   @id @default(cuid())
+  organizationId     String
+  fieldId            String   // ScreenField.id — sem FK de propósito (valor sobrevive a alterações/remoção da definição)
+  subjectType        String   // PARTNER | CONTRACT | PROCESS_INSTANCE
+  subjectId          String
+  value              String   @db.NVarChar(Max)
+  fieldNameSnapshot  String
+  fieldLabelSnapshot String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([subjectType, subjectId, fieldId])
+  @@index([organizationId, subjectType, subjectId])
+  @@index([fieldId])
+  @@map("screen_field_values")
+}
+
 // ─── Estrutura organizacional ─────────────────────────────────────────────────
 // Empresas do grupo + organograma (unidades organizacionais em árvore).
 // Cada unidade tem uma "natureza": administrativa, centro de custo ou centro de lucro.
