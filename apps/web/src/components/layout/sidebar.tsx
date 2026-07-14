@@ -7,7 +7,7 @@ import { useSession, logout } from '@/lib/session-context'
 import { useTheme } from 'next-themes'
 import {
   LayoutDashboard, GitBranch, PanelLeft,
-  Table2, Sun, Moon, LogOut, Users, KeyRound, BellRing,
+  Table2, Sun, Moon, LogOut, Users, KeyRound, BellRing, LayoutTemplate,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSidebar } from '@/contexts/sidebar-context'
@@ -33,6 +33,7 @@ const sections: NavSection[] = [
     label: 'Configurações',
     items: [
       { href: '/processes',           label: 'Processos',    icon: GitBranch },
+      { href: '/settings/telas',      label: 'Telas',        icon: LayoutTemplate },
       { href: '/settings/tabelas',    label: 'Tabelas',      icon: Table2    },
       { href: '/settings/notificacoes', label: 'Notificações', icon: BellRing },
       { href: '/settings/usuarios',   label: 'Usuários',     icon: Users     },

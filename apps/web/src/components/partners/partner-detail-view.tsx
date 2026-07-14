@@ -1,12 +1,15 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Building2, Phone, MapPin, CreditCard, Users, Briefcase, Clock, Plus, X, SlidersHorizontal, CheckCircle2, RotateCcw, Pencil, Ban, type LucideIcon } from 'lucide-react'
+import { Building2, Phone, MapPin, CreditCard, Users, Briefcase, Clock, Plus, X, SlidersHorizontal, CheckCircle2, RotateCcw, Pencil, Ban, LayoutTemplate, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { usePartnerFields, useFieldVisibility } from '@/hooks/use-partner-fields'
 import { getLogUser } from '@/hooks/use-partner-logs'
 import { SaveStatus } from '@/components/save-status'
+import { ScreenRenderer } from '@/components/screens/screen-renderer'
+import { useScreens, getScreenValues, putScreenValues } from '@/hooks/use-screens'
+import { partnerNativeValue } from '@/lib/screen-partner-native'
 import {
   usePartnerForm, newPCon, newPEnd, newPBan, CategoryTabs,
   IdentificacaoFields, ContatoFields, EnderecoFields, BancarioFields, SociosFields, CnaeFields,
@@ -163,12 +166,14 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
   const cleanRef = useRef<string | null>(null)
   const [dirty,     setDirtyLocal] = useState(false)
   const [justSaved, setJustSaved]  = useState(false)  // "Salvo" verde por instantes após salvar
+  const [screenValues, setScreenValues] = useState<Record<string, string>>({}) // valores das telas personalizadas
+  const [screenDirty,  setScreenDirty]  = useState(false)
   useEffect(() => {
     if (cleanRef.current === null) cleanRef.current = JSON.stringify(v)
-    const d = cleanRef.current !== null && JSON.stringify(v) !== cleanRef.current
+    const d = (cleanRef.current !== null && JSON.stringify(v) !== cleanRef.current) || screenDirty
     setDirtyLocal(d)
     onDirtyChange?.(d)
-  }, [v, onDirtyChange])
+  }, [v, screenDirty, onDirtyChange])
   useEffect(() => {
     if (!justSaved) return
     const t = setTimeout(() => setJustSaved(false), 2000)
@@ -179,6 +184,24 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
   const { isVisibleInForm }  = useFieldVisibility()
   const { fieldsForSection } = usePartnerFields()
   const vfs = (section: string) => fieldsForSection(section).filter(f => (f.visible === 'form' || f.visible === 'both') && isVisibleInForm(f.id))
+
+  /* Telas personalizadas ativas para Fornecedor (Marco 3): valores por campo, ligados ao Save. */
+  const { screens: allScreens } = useScreens('FORNECEDOR')
+  const activeScreens = allScreens.filter(s => s.status === 'ACTIVE')
+  useEffect(() => {
+    let alive = true
+    void getScreenValues('PARTNER', partner.id).then(vals => {
+      if (!alive) return
+      const map: Record<string, string> = {}
+      vals.forEach(x => { map[x.fieldId] = x.value })
+      setScreenValues(map)
+    })
+    return () => { alive = false }
+  }, [partner.id])
+  const onScreenChange = (fieldId: string, value: string) => {
+    setScreenValues(p => ({ ...p, [fieldId]: value }))
+    setScreenDirty(true)
+  }
 
   const [tab,          setTab]          = useState<string>('identificacao')
   const [situacao,     setSituacao]     = useState(partner.status)
@@ -241,13 +264,14 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
     { id: 'endereco',      label: 'Endereço',         icon: MapPin },
     { id: 'bancario',      label: 'Dados Bancários',  icon: CreditCard },
     ...(isPJ ? [{ id: 'socios', label: 'Sócios', icon: Users }] : []),
+    ...(activeScreens.length ? [{ id: 'telas', label: 'Telas', icon: LayoutTemplate }] : []),
     { id: 'historico',     label: 'Histórico',        icon: Clock },
   ]
 
   /* se a aba ativa deixar de existir (ex.: trocar PJ→PF, ou CNAE ao sair de PJ_BR), volta para Identificação */
   useEffect(() => {
-    if ((tab === 'socios' && !isPJ) || (tab === 'cnae' && !isPJBR)) setTab('identificacao')
-  }, [isPJ, isPJBR, tab])
+    if ((tab === 'socios' && !isPJ) || (tab === 'cnae' && !isPJBR) || (tab === 'telas' && !activeScreens.length)) setTab('identificacao')
+  }, [isPJ, isPJBR, tab, activeScreens.length])
 
   const handleSave = async (statusOverride?: string, motivoTexto?: string) => {
     // Regra dos sócios: valida ao salvar rascunho (sem override) e ao ativar/reativar.
@@ -290,6 +314,11 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
         }),
       })
       if (!res.ok) throw new Error()
+      // valores das telas personalizadas (Marco 3) — persistidos junto ao parceiro
+      if (activeScreens.length) {
+        await putScreenValues('PARTNER', partner.id, Object.entries(screenValues).map(([fieldId, value]) => ({ fieldId, value })))
+        setScreenDirty(false)
+      }
       if (statusOverride) setSituacao(statusOverride)
       cleanRef.current = JSON.stringify(v); setDirtyLocal(false); setJustSaved(true); onDirtyChange?.(false)
       void fetchAudit()
@@ -449,6 +478,22 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
         {isPJBR && (
           <DSection active={tab === 'cnae'}>
             <CnaeFields form={partnerForm} ro={locked} />
+          </DSection>
+        )}
+
+        {/* Telas personalizadas (Marco 3) — campos de captura salvam valor; visão puxa o dado nativo */}
+        {activeScreens.length > 0 && (
+          <DSection active={tab === 'telas'}>
+            <div className="space-y-4">
+              {/* R1 intermediário: mostra só os campos personalizados (os nativos vêm nas abas próprias).
+                  A R2 substitui esta aba: as seções da tela padrão viram as abas do cadastro. */}
+              {activeScreens.map(sc => (
+                <div key={sc.id} className="space-y-2">
+                  {activeScreens.length > 1 && <p className="text-xs font-semibold text-muted-foreground">{sc.name}</p>}
+                  <ScreenRenderer screen={{ ...sc, fields: sc.fields.filter(f => f.source === 'CUSTOM') }} values={screenValues} onChange={onScreenChange} ro={locked} nativeValue={k => partnerNativeValue(v, k)} />
+                </div>
+              ))}
+            </div>
           </DSection>
         )}
 
