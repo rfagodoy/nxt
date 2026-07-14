@@ -70,6 +70,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
 
   const isPJ = v.category === 'PJ_BR' || v.category === 'PJ_EST'
   const isBR = v.category === 'PJ_BR' || v.category === 'PF_BR'
+  const isPJBR = v.category === 'PJ_BR' // CNAE é classificação nacional: só PJ brasileira
 
   useEffect(() => {
     if (embedded) return
@@ -256,7 +257,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
       )
     }
     if (key === 'cnae') {
-      if (!isPJ) return null
+      if (!isPJBR) return null
       return (
         <Section key="cnae" icon={Briefcase} title="CNAE — Atividades Econômicas" isOpen={open.has('cnae')} onToggle={() => toggle('cnae')}>
           <CnaeFields form={form} />

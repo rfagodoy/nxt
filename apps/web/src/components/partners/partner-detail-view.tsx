@@ -229,13 +229,14 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
   const histSelCls = 'h-7 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
 
   const isPJ   = category === 'PJ_BR' || category === 'PJ_EST'
+  const isPJBR = category === 'PJ_BR' // CNAE é classificação nacional: só PJ brasileira
   const locked = situacao !== 'EM_CADASTRAMENTO'
 
   const docLabel = category === 'PJ_BR' ? 'CNPJ' : category === 'PF_BR' ? 'CPF' : 'Código'
   const catLabel = CATEGORIES.find(c => c.value === category)?.label ?? category
   const sectionTabs = [
     { id: 'identificacao', label: 'Identificação',   icon: Building2 },
-    ...(isPJ ? [{ id: 'cnae', label: 'CNAE', icon: Briefcase }] : []),
+    ...(isPJBR ? [{ id: 'cnae', label: 'CNAE', icon: Briefcase }] : []),
     { id: 'contato',       label: 'Contato',          icon: Phone },
     { id: 'endereco',      label: 'Endereço',         icon: MapPin },
     { id: 'bancario',      label: 'Dados Bancários',  icon: CreditCard },
@@ -243,10 +244,10 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
     { id: 'historico',     label: 'Histórico',        icon: Clock },
   ]
 
-  /* se a aba ativa deixar de existir (ex.: trocar PJ→PF nas abas Sócios/CNAE), volta para Identificação */
+  /* se a aba ativa deixar de existir (ex.: trocar PJ→PF, ou CNAE ao sair de PJ_BR), volta para Identificação */
   useEffect(() => {
-    if ((tab === 'socios' || tab === 'cnae') && !isPJ) setTab('identificacao')
-  }, [isPJ, tab])
+    if ((tab === 'socios' && !isPJ) || (tab === 'cnae' && !isPJBR)) setTab('identificacao')
+  }, [isPJ, isPJBR, tab])
 
   const handleSave = async (statusOverride?: string, motivoTexto?: string) => {
     // Regra dos sócios: valida ao salvar rascunho (sem override) e ao ativar/reativar.
@@ -444,8 +445,8 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
           </DSection>
         )}
 
-        {/* CNAE */}
-        {isPJ && (
+        {/* CNAE — classificação nacional: só PJ brasileira */}
+        {isPJBR && (
           <DSection active={tab === 'cnae'}>
             <CnaeFields form={partnerForm} ro={locked} />
           </DSection>

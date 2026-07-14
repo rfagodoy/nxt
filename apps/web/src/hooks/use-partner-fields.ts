@@ -43,7 +43,7 @@ export const NATIVE_FIELDS: NativeField[] = [
   { key: 'razao_social',    section: 'identificacao', label: 'Razão Social / Nome'                           },
   { key: 'nome_fantasia',   section: 'identificacao', label: 'Nome Fantasia',       hint: 'Somente PJ'       },
   { key: 'data_abertura',   section: 'identificacao', label: 'Data de Abertura',    hint: 'Somente PJ'       },
-  { key: 'natureza_juridica', section: 'identificacao', label: 'Natureza Jurídica', hint: 'Somente PJ'       },
+  { key: 'natureza_juridica', section: 'identificacao', label: 'Natureza Jurídica', hint: 'PJ Brasileira'    },
   { key: 'ie',              section: 'identificacao', label: 'Inscrição Estadual',  hint: 'PJ Brasileira'    },
   { key: 'im',              section: 'identificacao', label: 'Inscrição Municipal', hint: 'PJ Brasileira'    },
   { key: 'rg',              section: 'identificacao', label: 'RG',                  hint: 'PF Brasileira'    },

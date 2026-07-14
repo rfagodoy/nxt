@@ -366,15 +366,15 @@ export function IdentificacaoFields({ form, ro, isVisible = always, customFields
         {isPJ && (
           <>
             {isVisible('data_abertura') && <Field label="Data de Abertura"><Txt type="date" value={v.dataAbertura} onChange={x => form.set('dataAbertura', x)} ro={ro} /></Field>}
+          </>
+        )}
+        {cat === 'PJ_BR' && (
+          <>
             {isVisible('natureza_juridica') && (
               <Field label="Natureza Jurídica">
                 <Sel value={v.naturezaJuridica} onChange={x => form.set('naturezaJuridica', x)} ro={ro} options={naturezaOpts} placeholder="Selecione..." />
               </Field>
             )}
-          </>
-        )}
-        {cat === 'PJ_BR' && (
-          <>
             {isVisible('ie') && <Field label="Inscrição Estadual"><Txt value={v.ie} onChange={x => form.set('ie', x)} ro={ro} placeholder="Inscrição estadual" /></Field>}
             {isVisible('im') && <Field label="Inscrição Municipal"><Txt value={v.im} onChange={x => form.set('im', x)} ro={ro} placeholder="Inscrição municipal" /></Field>}
           </>
