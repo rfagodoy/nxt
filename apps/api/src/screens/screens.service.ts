@@ -36,45 +36,71 @@ export class ScreensService {
   }
 
   async create(organizationId: string, dto: SaveScreenDto) {
+    const isSystem = dto.isSystem ?? false
+    const g = await this.pinnedFlags(organizationId, dto.subjectType, isSystem, dto.status ?? 'DRAFT', dto.isDefault ?? false)
     const screen = await this.prisma.screen.create({
       data: {
         organizationId,
         name:        dto.name,
         description: dto.description ?? null,
         subjectType: dto.subjectType,
-        status:      dto.status ?? 'DRAFT',
-        isDefault:   dto.isDefault ?? false,
-        isSystem:    dto.isSystem ?? false,
+        status:      g.status,
+        isDefault:   g.isDefault,
+        isSystem,
       },
     })
     await this.saveChildren(screen.id, dto)
-    if (dto.isDefault) await this.unsetOtherDefaults(organizationId, dto.subjectType, screen.id)
+    if (g.isDefault) await this.unsetOtherDefaults(organizationId, dto.subjectType, screen.id)
     return this.getScreen(organizationId, screen.id)
   }
 
   async update(organizationId: string, id: string, dto: SaveScreenDto) {
     const existing = await this.prisma.screen.findFirst({ where: { id, organizationId } })
     if (!existing) return null
+    // tela do sistema é IMUTÁVEL em tipo/situação/padrão (é a base): sempre ATIVA e padrão.
+    const subjectType = existing.isSystem ? existing.subjectType : dto.subjectType
+    const g = await this.pinnedFlags(organizationId, subjectType, existing.isSystem, dto.status ?? existing.status, dto.isDefault ?? false, id)
     await this.prisma.screen.update({
       where: { id },
       data: {
         name:        dto.name,
         description: dto.description ?? null,
-        subjectType: dto.subjectType,
-        isDefault:   dto.isDefault ?? false,
-        isSystem:    dto.isSystem ?? existing.isSystem, // preserva o flag do sistema
-        ...(dto.status ? { status: dto.status } : {}),
+        subjectType,
+        isDefault:   g.isDefault,
+        isSystem:    existing.isSystem, // preserva o flag do sistema
+        status:      g.status,
       },
     })
     await this.saveChildren(id, dto)
-    if (dto.isDefault) await this.unsetOtherDefaults(organizationId, dto.subjectType, id)
+    if (g.isDefault) await this.unsetOtherDefaults(organizationId, subjectType, id)
     return this.getScreen(organizationId, id)
   }
 
-  /** Garante uma única tela padrão por (org, subjectType). */
+  /**
+   * Regras das telas base do sistema:
+   * - `isSystem` → SEMPRE ativa e SEMPRE padrão (não pode arquivar nem deixar de ser padrão).
+   * - não-sistema → não pode virar padrão quando já existe uma tela do sistema para o tipo
+   *   (a padrão do tipo é a base; variações são telas não-padrão atribuídas por perfil/etapa).
+   */
+  private async pinnedFlags(
+    organizationId: string, subjectType: string, isSystem: boolean,
+    reqStatus: string, reqDefault: boolean, selfId?: string,
+  ): Promise<{ status: string; isDefault: boolean }> {
+    if (isSystem) return { status: 'ACTIVE', isDefault: true }
+    let isDefault = reqDefault
+    if (isDefault) {
+      const sys = await this.prisma.screen.findFirst({
+        where: { organizationId, subjectType, isSystem: true, ...(selfId ? { id: { not: selfId } } : {}) },
+      })
+      if (sys) isDefault = false // a base do sistema é a padrão do tipo
+    }
+    return { status: reqStatus, isDefault }
+  }
+
+  /** Garante uma única tela padrão por (org, subjectType). NUNCA desmarca a base do sistema. */
   private async unsetOtherDefaults(organizationId: string, subjectType: string, keepId: string) {
     await this.prisma.screen.updateMany({
-      where: { organizationId, subjectType, isDefault: true, id: { not: keepId } },
+      where: { organizationId, subjectType, isDefault: true, isSystem: false, id: { not: keepId } },
       data:  { isDefault: false },
     })
   }
@@ -125,6 +151,7 @@ export class ScreensService {
         placeholder: f.placeholder ?? null,
         options:     (f.options ?? null) as never,      // JSON serializado no middleware
         validation:  (f.validation ?? null) as never,   // JSON serializado no middleware
+        hiddenCategories: (f.hiddenCategories ?? null) as never, // JSON serializado no middleware
         order:       f.order,
       }
       await this.prisma.screenField.upsert({

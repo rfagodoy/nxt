@@ -33,6 +33,8 @@ export class ScreenFieldDto {
   options?: ScreenFieldOptionDto[]
   @IsOptional() @ValidateNested() @Type(() => ScreenFieldValidationDto)
   validation?: ScreenFieldValidationDto
+  @IsOptional() @IsArray() @IsString({ each: true })
+  hiddenCategories?: string[]   // tipos de parceiro onde o campo é oculto (visibilidade por tipo)
   @IsInt() order!: number
 }
 
