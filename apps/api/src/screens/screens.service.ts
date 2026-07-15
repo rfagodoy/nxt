@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
 import { SaveScreenDto, ScreenValueDto } from './dto/screen.dto'
+import { screenBaseFlags } from './screen-policy'
 
 /**
  * Personalização de telas (Screens). Definições (Screen/Section/Field) e valores
@@ -86,15 +87,13 @@ export class ScreensService {
     organizationId: string, subjectType: string, isSystem: boolean,
     reqStatus: string, reqDefault: boolean, selfId?: string,
   ): Promise<{ status: string; isDefault: boolean }> {
-    if (isSystem) return { status: 'ACTIVE', isDefault: true }
-    let isDefault = reqDefault
-    if (isDefault) {
-      const sys = await this.prisma.screen.findFirst({
-        where: { organizationId, subjectType, isSystem: true, ...(selfId ? { id: { not: selfId } } : {}) },
-      })
-      if (sys) isDefault = false // a base do sistema é a padrão do tipo
-    }
-    return { status: reqStatus, isDefault }
+    // só consulta o banco quando o pedido depende da existência da base do sistema
+    const systemExistsForType = !isSystem && reqDefault
+      ? Boolean(await this.prisma.screen.findFirst({
+          where: { organizationId, subjectType, isSystem: true, ...(selfId ? { id: { not: selfId } } : {}) },
+        }))
+      : false
+    return screenBaseFlags({ isSystem, systemExistsForType, reqStatus, reqDefault })
   }
 
   /** Garante uma única tela padrão por (org, subjectType). NUNCA desmarca a base do sistema. */
