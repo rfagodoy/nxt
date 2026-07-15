@@ -40,7 +40,7 @@ export class FilesController {
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_BYTES } }))
   async upload(@UploadedFile() file: UploadedFileLike, @CurrentOrg() organizationId: string): Promise<StoredFileMeta> {
     if (!file) throw new BadRequestException('Arquivo ausente (campo "file")')
-    const safeName = (file.originalname || 'arquivo').replace(/[^\w.\-]+/g, '_').slice(0, 120)
+    const safeName = (file.originalname || 'arquivo').replace(/[^\w.-]+/g, '_').slice(0, 120)
     const key = `${organizationId}__${randomUUID()}__${safeName}`
     const meta: StoredFileMeta = {
       key,
