@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils'
 import { saveScreen } from '@/hooks/use-screens'
 import {
   SUBJECT_LABELS, STATUS_LABELS, FIELD_TYPE_LABELS, PARTNER_CATEGORIES, slug,
-  type Screen, type ScreenSection, type ScreenField, type ScreenSubject, type ScreenStatus, type PartnerCategory,
+  type Screen, type ScreenField, type ScreenSubject, type ScreenStatus, type PartnerCategory,
 } from '@/lib/screen-types'
 import { buildNativeSeed, reconcileNative } from '@/lib/screen-native-structure'
 import { fieldAppliesTo, fieldVisibleFor } from '@/lib/screen-partner-categories'
