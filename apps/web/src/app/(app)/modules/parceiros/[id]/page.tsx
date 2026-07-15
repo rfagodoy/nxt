@@ -144,7 +144,6 @@ export default function ParceiroDetail() {
   const statusInfo = STATUS[partner.status] ?? { label: partner.status, cls: 'bg-muted text-muted-foreground' }
   const catLabel   = CAT_LABEL[partner.categoria] ?? partner.categoria
   const isPJ       = partner.categoria === 'PJ_BR' || partner.categoria === 'PJ_EST'
-  const isBR       = partner.categoria === 'PJ_BR' || partner.categoria === 'PF_BR'
 
   return (
     <div className="max-w-3xl mx-auto space-y-4">

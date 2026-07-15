@@ -1,5 +1,4 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma.service'
 import { CreatePartnerDto } from './dto/create-partner.dto'
 import { UpdatePartnerDto } from './dto/update-partner.dto'
