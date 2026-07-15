@@ -1,15 +1,15 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { Building2, Phone, MapPin, CreditCard, Users, Briefcase, Clock, Plus, X, SlidersHorizontal, CheckCircle2, RotateCcw, Pencil, Ban, LayoutTemplate, type LucideIcon } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { Building2, Phone, MapPin, CreditCard, Users, Briefcase, Clock, Plus, X, SlidersHorizontal, CheckCircle2, RotateCcw, Pencil, Ban, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { usePartnerFields, useFieldVisibility } from '@/hooks/use-partner-fields'
 import { getLogUser } from '@/hooks/use-partner-logs'
 import { SaveStatus } from '@/components/save-status'
-import { ScreenRenderer } from '@/components/screens/screen-renderer'
 import { useScreens, getScreenValues, putScreenValues } from '@/hooks/use-screens'
-import { partnerNativeValue } from '@/lib/screen-partner-native'
+import { pickDefaultScreen, resolvePartnerSections } from '@/lib/screen-partner-layout'
+import { PartnerSectionBody } from './partner-screen-body'
 import {
   usePartnerForm, newPCon, newPEnd, newPBan, CategoryTabs,
   IdentificacaoFields, ContatoFields, EnderecoFields, BancarioFields, SociosFields, CnaeFields,
@@ -185,9 +185,10 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
   const { fieldsForSection } = usePartnerFields()
   const vfs = (section: string) => fieldsForSection(section).filter(f => (f.visible === 'form' || f.visible === 'both') && isVisibleInForm(f.id))
 
-  /* Telas personalizadas ativas para Fornecedor (Marco 3): valores por campo, ligados ao Save. */
+  /* R2 — a tela padrão (isDefault/ACTIVE) desenha o cadastro; valores custom ligados ao Save. */
   const { screens: allScreens } = useScreens('FORNECEDOR')
-  const activeScreens = allScreens.filter(s => s.status === 'ACTIVE')
+  const defaultScreen = useMemo(() => pickDefaultScreen(allScreens), [allScreens])
+  const screenDriven  = !!defaultScreen
   useEffect(() => {
     let alive = true
     void getScreenValues('PARTNER', partner.id).then(vals => {
@@ -257,21 +258,34 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
 
   const docLabel = category === 'PJ_BR' ? 'CNPJ' : category === 'PF_BR' ? 'CPF' : 'Código'
   const catLabel = CATEGORIES.find(c => c.value === category)?.label ?? category
-  const sectionTabs = [
-    { id: 'identificacao', label: 'Identificação',   icon: Building2 },
-    ...(isPJBR ? [{ id: 'cnae', label: 'CNAE', icon: Briefcase }] : []),
-    { id: 'contato',       label: 'Contato',          icon: Phone },
-    { id: 'endereco',      label: 'Endereço',         icon: MapPin },
-    { id: 'bancario',      label: 'Dados Bancários',  icon: CreditCard },
-    ...(isPJ ? [{ id: 'socios', label: 'Sócios', icon: Users }] : []),
-    ...(activeScreens.length ? [{ id: 'telas', label: 'Telas', icon: LayoutTemplate }] : []),
-    { id: 'historico',     label: 'Histórico',        icon: Clock },
-  ]
 
-  /* se a aba ativa deixar de existir (ex.: trocar PJ→PF, ou CNAE ao sair de PJ_BR), volta para Identificação */
+  /* R2 — seções resolvidas da tela padrão (ordem/rótulos/visibilidade); gating de categoria por cima. */
+  const screenSections = useMemo(
+    () => defaultScreen ? resolvePartnerSections(defaultScreen, category as PartnerCategory) : [],
+    [defaultScreen, category],
+  )
+
+  /* abas: dirigidas pela tela quando há tela padrão; senão, seções nativas (sem a antiga aba "Telas"). */
+  const sectionTabs = screenDriven
+    ? [
+        ...screenSections.map(s => ({ id: s.key, label: s.label, icon: s.icon })),
+        { id: 'historico', label: 'Histórico', icon: Clock },
+      ]
+    : [
+        { id: 'identificacao', label: 'Identificação',   icon: Building2 },
+        ...(isPJBR ? [{ id: 'cnae', label: 'CNAE', icon: Briefcase }] : []),
+        { id: 'contato',       label: 'Contato',          icon: Phone },
+        { id: 'endereco',      label: 'Endereço',         icon: MapPin },
+        { id: 'bancario',      label: 'Dados Bancários',  icon: CreditCard },
+        ...(isPJ ? [{ id: 'socios', label: 'Sócios', icon: Users }] : []),
+        { id: 'historico',     label: 'Histórico',        icon: Clock },
+      ]
+
+  /* se a aba ativa deixar de existir (ex.: trocar PJ→PF, ou CNAE ao sair de PJ_BR), volta para a primeira. */
   useEffect(() => {
-    if ((tab === 'socios' && !isPJ) || (tab === 'cnae' && !isPJBR) || (tab === 'telas' && !activeScreens.length)) setTab('identificacao')
-  }, [isPJ, isPJBR, tab, activeScreens.length])
+    if (!sectionTabs.some(t => t.id === tab)) setTab(sectionTabs[0]?.id ?? 'identificacao')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPJ, isPJBR, screenDriven, screenSections.length, tab])
 
   const handleSave = async (statusOverride?: string, motivoTexto?: string) => {
     // Regra dos sócios: valida ao salvar rascunho (sem override) e ao ativar/reativar.
@@ -314,8 +328,8 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
         }),
       })
       if (!res.ok) throw new Error()
-      // valores das telas personalizadas (Marco 3) — persistidos junto ao parceiro
-      if (activeScreens.length) {
+      // valores dos campos personalizados da tela (R2) — persistidos junto ao parceiro
+      if (screenDriven) {
         await putScreenValues('PARTNER', partner.id, Object.entries(screenValues).map(([fieldId, value]) => ({ fieldId, value })))
         setScreenDirty(false)
       }
@@ -447,54 +461,49 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
 
       <form ref={formRef} className="flex-1 min-h-0 overflow-y-auto space-y-2 pt-3" onSubmit={e => e.preventDefault()}>
 
-        {/* Identificação */}
-        <DSection active={tab === 'identificacao'}>
-          <IdentificacaoFields form={partnerForm} ro={locked} isVisible={isVisibleInForm} customFields={vfs('identificacao')} />
-        </DSection>
+        {/* R2 — seções dirigidas pela tela padrão; fallback ao nativo quando não há tela padrão. */}
+        {screenDriven ? (
+          screenSections.map(s => (
+            <DSection key={s.id} active={tab === s.key}>
+              <PartnerSectionBody section={s} form={partnerForm} ro={locked} screenValues={screenValues} onScreenChange={onScreenChange} />
+            </DSection>
+          ))
+        ) : (
+          <>
+            {/* Identificação */}
+            <DSection active={tab === 'identificacao'}>
+              <IdentificacaoFields form={partnerForm} ro={locked} isVisible={isVisibleInForm} customFields={vfs('identificacao')} />
+            </DSection>
 
-        {/* Contato */}
-        <DSection active={tab === 'contato'}>
-          <ContatoFields form={partnerForm} ro={locked} isVisible={isVisibleInForm} customFields={vfs('contato')} />
-        </DSection>
+            {/* Contato */}
+            <DSection active={tab === 'contato'}>
+              <ContatoFields form={partnerForm} ro={locked} isVisible={isVisibleInForm} customFields={vfs('contato')} />
+            </DSection>
 
-        {/* Endereço */}
-        <DSection active={tab === 'endereco'}>
-          <EnderecoFields form={partnerForm} ro={locked} isVisible={isVisibleInForm} customFields={vfs('endereco')} />
-        </DSection>
+            {/* Endereço */}
+            <DSection active={tab === 'endereco'}>
+              <EnderecoFields form={partnerForm} ro={locked} isVisible={isVisibleInForm} customFields={vfs('endereco')} />
+            </DSection>
 
-        {/* Dados Bancários */}
-        <DSection active={tab === 'bancario'}>
-          <BancarioFields form={partnerForm} ro={locked} isVisible={isVisibleInForm} customFields={vfs('bancario')} />
-        </DSection>
+            {/* Dados Bancários */}
+            <DSection active={tab === 'bancario'}>
+              <BancarioFields form={partnerForm} ro={locked} isVisible={isVisibleInForm} customFields={vfs('bancario')} />
+            </DSection>
 
-        {/* Quadro de Sócios */}
-        {isPJ && (
-          <DSection active={tab === 'socios'}>
-            <SociosFields form={partnerForm} ro={locked} isVisible={isVisibleInForm} />
-          </DSection>
-        )}
+            {/* Quadro de Sócios */}
+            {isPJ && (
+              <DSection active={tab === 'socios'}>
+                <SociosFields form={partnerForm} ro={locked} isVisible={isVisibleInForm} />
+              </DSection>
+            )}
 
-        {/* CNAE — classificação nacional: só PJ brasileira */}
-        {isPJBR && (
-          <DSection active={tab === 'cnae'}>
-            <CnaeFields form={partnerForm} ro={locked} />
-          </DSection>
-        )}
-
-        {/* Telas personalizadas (Marco 3) — campos de captura salvam valor; visão puxa o dado nativo */}
-        {activeScreens.length > 0 && (
-          <DSection active={tab === 'telas'}>
-            <div className="space-y-4">
-              {/* R1 intermediário: mostra só os campos personalizados (os nativos vêm nas abas próprias).
-                  A R2 substitui esta aba: as seções da tela padrão viram as abas do cadastro. */}
-              {activeScreens.map(sc => (
-                <div key={sc.id} className="space-y-2">
-                  {activeScreens.length > 1 && <p className="text-xs font-semibold text-muted-foreground">{sc.name}</p>}
-                  <ScreenRenderer screen={{ ...sc, fields: sc.fields.filter(f => f.source === 'CUSTOM') }} values={screenValues} onChange={onScreenChange} ro={locked} nativeValue={k => partnerNativeValue(v, k)} />
-                </div>
-              ))}
-            </div>
-          </DSection>
+            {/* CNAE — classificação nacional: só PJ brasileira */}
+            {isPJBR && (
+              <DSection active={tab === 'cnae'}>
+                <CnaeFields form={partnerForm} ro={locked} />
+              </DSection>
+            )}
+          </>
         )}
 
         {/* Histórico — controle de alterações (auditoria) */}

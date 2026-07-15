@@ -28,7 +28,10 @@ export function ScreenRenderer({ screen, values = {}, onChange, ro, nativeValue 
   const sections = [...screen.sections].filter(s => s.visible !== false).sort((a, b) => a.order - b.order)
   const fieldsOf = (sectionId: string) =>
     screen.fields.filter(f => f.sectionId === sectionId && f.visible !== false).sort((a, b) => a.order - b.order)
-  const looseFields = screen.fields.filter(f => f.visible !== false && (!f.sectionId || !sections.some(s => s.id === f.sectionId)))
+  // Órfão = campo sem seção, OU cuja seção nem existe. Campo de seção OCULTA não é órfão:
+  // ele simplesmente não aparece (a seção some), exatamente como no cadastro real.
+  const allSectionIds = new Set(screen.sections.map(s => s.id))
+  const looseFields = screen.fields.filter(f => f.visible !== false && (!f.sectionId || !allSectionIds.has(f.sectionId)))
 
   if (screen.fields.length === 0) {
     return <p className="text-xs text-muted-foreground text-center py-8">Nenhum campo ainda. Adicione seções e campos para ver a prévia.</p>
@@ -78,13 +81,21 @@ function Section({ label, defaultOpen, children }: { label: string; defaultOpen:
 }
 
 function NativeValue({ value }: { value: string }) {
-  // Aparência de campo real (caixa somente-leitura) — na prévia do construtor mostra
-  // um valor de exemplo; no cadastro real o valor nativo vem do próprio registro.
+  // Aparência de campo real (caixa somente-leitura), SEMPRE VAZIA no construtor —
+  // o cadastro de telas é um molde e nunca exibe dados de um fornecedor.
   return (
-    <div className="h-8 rounded-md border border-input/70 bg-muted/40 flex items-center px-2.5 text-xs">
-      {value ? <span className="text-foreground/85 truncate">{value}</span> : <span className="text-muted-foreground/70 italic">dado do fornecedor</span>}
+    <div className="h-8 rounded-md border border-input/70 bg-muted/30 flex items-center px-2.5 text-xs">
+      {value && <span className="text-foreground/85 truncate">{value}</span>}
     </div>
   )
+}
+
+/** Input de um campo CUSTOM (captura persistida), sem rótulo — reutilizado no
+ *  cadastro dirigido pela tela (R2), envolto pelo `Field` nativo do parceiro. */
+export function ScreenCustomInput(props: {
+  field: ScreenField; value: string; ro?: boolean; onChange: (v: string) => void
+}) {
+  return <CustomInput {...props} />
 }
 
 function CustomInput({ field, value, ro, onChange }: {

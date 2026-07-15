@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -12,6 +12,9 @@ import { apiFetch } from '@/lib/http'
 import { usePartnerFields, useFieldVisibility, type CustomField } from '@/hooks/use-partner-fields'
 import { usePartnerSections } from '@/hooks/use-partner-sections'
 import { getLogUser } from '@/hooks/use-partner-logs'
+import { useScreens, putScreenValues } from '@/hooks/use-screens'
+import { pickDefaultScreen, resolvePartnerSections } from '@/lib/screen-partner-layout'
+import { PartnerSectionBody } from './partner-screen-body'
 import {
   usePartnerForm, emptyPartnerForm, newPSoc, CategoryTabs, CustomFieldsGrid,
   IdentificacaoFields, ContatoFields, EnderecoFields, BancarioFields, SociosFields, CnaeFields,
@@ -72,6 +75,19 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
   const isBR = v.category === 'PJ_BR' || v.category === 'PF_BR'
   const isPJBR = v.category === 'PJ_BR' // CNAE é classificação nacional: só PJ brasileira
 
+  /* R2 — a tela padrão (isDefault/ACTIVE) desenha o cadastro: seções, ordem, rótulos e
+     campos personalizados capturados nas seções. Sem tela padrão → form nativo (fallback). */
+  const { screens, loading: screensLoading } = useScreens('FORNECEDOR')
+  const defaultScreen  = useMemo(() => pickDefaultScreen(screens), [screens])
+  const screenDriven   = !!defaultScreen
+  const screenSections = useMemo(
+    () => defaultScreen ? resolvePartnerSections(defaultScreen, v.category) : [],
+    [defaultScreen, v.category],
+  )
+  const [screenValues, setScreenValues] = useState<Record<string, string>>({})
+  const onScreenChange = (fieldId: string, value: string) =>
+    setScreenValues(p => ({ ...p, [fieldId]: value }))
+
   useEffect(() => {
     if (embedded) return
     const params = new URLSearchParams(window.location.search)
@@ -79,7 +95,15 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
   }, [embedded])
 
   useEffect(() => {
-    if (!sectionsLoaded || openInit.current) return
+    if (screensLoading || openInit.current) return
+    // Modo dirigido pela tela: abre as seções marcadas como "aberta" na tela padrão.
+    if (screenDriven) {
+      openInit.current = true
+      setOpen(new Set(screenSections.filter(s => s.defaultOpen).map(s => s.key)))
+      return
+    }
+    // Fallback (sem tela padrão): seções nativas + personalizadas do sistema antigo.
+    if (!sectionsLoaded) return
     openInit.current = true
     const ids = ['identificacao', 'cnae', 'contato', 'endereco', 'bancario', 'socios', ...customSections.map(s => s.id)]
     const openSet = new Set<string>()
@@ -88,7 +112,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
       if (defaultOpen) openSet.add(id)
     }
     setOpen(openSet)
-  }, [sectionsLoaded, sectionDefaultOpen, customSections])
+  }, [screensLoading, screenDriven, screenSections, sectionsLoaded, sectionDefaultOpen, customSections])
 
   /* ao abrir a seção Sócios para PJ, garante uma linha em branco */
   useEffect(() => {
@@ -146,6 +170,13 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
     if (onSaved) { onSaved(result) } else { router.push('/modules/parceiros') }
   }
 
+  /* R2 — grava os valores dos campos personalizados da tela ligados ao novo parceiro. */
+  const persistScreen = async (partnerId: string) => {
+    if (!screenDriven) return
+    const entries = Object.entries(screenValues).map(([fieldId, value]) => ({ fieldId, value }))
+    if (entries.length) await putScreenValues('PARTNER', partnerId, entries)
+  }
+
   /* ─── salvar rascunho ───────────────────────────────────── */
   const handleSaveDraft = async () => {
     const razaoSocial = v.razaoSocial.trim()
@@ -169,7 +200,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
       })
       if (!res.ok) { setSaveError(`Erro ao salvar (${res.status}). Verifique a conexão com o servidor.`); return }
       const created = await res.json() as { id?: string }
-      if (created.id) { afterSave({ id: created.id, razaoSocial }) } else { afterSave() }
+      if (created.id) { await persistScreen(created.id); afterSave({ id: created.id, razaoSocial }) } else { afterSave() }
     } catch {
       setSaveError('Não foi possível conectar ao servidor. Verifique se o serviço está disponível.')
     } finally { setSaving(null) }
@@ -218,7 +249,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
       })
       if (!res.ok) { setSaveError(`Erro ao ativar (${res.status}). Verifique a conexão com o servidor.`); return }
       const created = await res.json() as { id?: string }
-      if (created.id) { afterSave({ id: created.id, razaoSocial }) } else { afterSave() }
+      if (created.id) { await persistScreen(created.id); afterSave({ id: created.id, razaoSocial }) } else { afterSave() }
     } catch {
       setSaveError('Não foi possível conectar ao servidor. Verifique se o serviço está disponível.')
     } finally { setSaving(null) }
@@ -313,7 +344,14 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
 
       <form className="space-y-2" onSubmit={handleSubmit}>
 
-        {resolvedOrder.map(key => renderSection(key))}
+        {screenDriven
+          ? screenSections.map(s => (
+              <Section key={s.id} icon={s.icon} title={s.label}
+                isOpen={open.has(s.key)} onToggle={() => toggle(s.key)} hasError={errors.has(s.key)}>
+                <PartnerSectionBody section={s} form={form} screenValues={screenValues} onScreenChange={onScreenChange} />
+              </Section>
+            ))
+          : resolvedOrder.map(key => renderSection(key))}
 
         {saveError && (
           <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">

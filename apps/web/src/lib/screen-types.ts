@@ -33,8 +33,20 @@ export interface ScreenField {
   placeholder?: string
   options?: ScreenFieldOption[]
   validation?: ScreenFieldValidation
+  /** Tipos de parceiro onde o campo é oculto (visibilidade por tipo). Vazio/ausente = visível em todos. */
+  hiddenCategories?: PartnerCategory[]
   order: number
 }
+
+/** Tipos de parceiro (categorias) — dimensão que ajusta os campos do cadastro de Fornecedor. */
+export type PartnerCategory = 'PJ_BR' | 'PJ_EST' | 'PF_BR' | 'PF_EST'
+
+export const PARTNER_CATEGORIES: { value: PartnerCategory; label: string; short: string }[] = [
+  { value: 'PJ_BR',  label: 'PJ Brasileira',  short: 'PJ BR'  },
+  { value: 'PJ_EST', label: 'PJ Estrangeira', short: 'PJ Est' },
+  { value: 'PF_BR',  label: 'PF Brasileira',  short: 'PF BR'  },
+  { value: 'PF_EST', label: 'PF Estrangeira', short: 'PF Est' },
+]
 
 export interface ScreenSection {
   id: string

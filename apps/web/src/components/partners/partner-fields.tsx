@@ -647,7 +647,7 @@ function CnaeCombo({ onPick, exclude, placeholder }: { onPick: (code: string) =>
 }
 
 /** Seção CNAE (só PJ): CNAE principal (1) + secundários (N), do catálogo IBGE. */
-export function CnaeFields({ form, ro }: { form: PartnerForm; ro?: boolean }) {
+export function CnaeFields({ form, ro, isVisible = always }: { form: PartnerForm; ro?: boolean; isVisible?: VisFn }) {
   const v = form.values
   const [, force] = useState(0)
 
@@ -675,27 +675,31 @@ export function CnaeFields({ form, ro }: { form: PartnerForm; ro?: boolean }) {
 
   return (
     <div className="space-y-4">
-      <div className="space-y-1.5">
-        <p className="text-[11px] font-medium text-muted-foreground">CNAE Principal</p>
-        {v.cnaePrincipal
-          ? <Chip code={v.cnaePrincipal} onRemove={ro ? undefined : () => form.set('cnaePrincipal', '')} />
-          : ro
-            ? <span className={readCls}>—</span>
-            : <CnaeCombo onPick={c => form.set('cnaePrincipal', c)} exclude={usados} placeholder="Buscar CNAE principal..." />}
-      </div>
+      {isVisible('cnae_principal') && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-medium text-muted-foreground">CNAE Principal</p>
+          {v.cnaePrincipal
+            ? <Chip code={v.cnaePrincipal} onRemove={ro ? undefined : () => form.set('cnaePrincipal', '')} />
+            : ro
+              ? <span className={readCls}>—</span>
+              : <CnaeCombo onPick={c => form.set('cnaePrincipal', c)} exclude={usados} placeholder="Buscar CNAE principal..." />}
+        </div>
+      )}
 
-      <div className="space-y-1.5">
-        <p className="text-[11px] font-medium text-muted-foreground">CNAEs Secundários</p>
-        {v.cnaesSecundarios.length === 0 && ro && <span className={readCls}>—</span>}
-        {v.cnaesSecundarios.length > 0 && (
-          <div className="space-y-1.5">
-            {v.cnaesSecundarios.map(code => (
-              <Chip key={code} code={code} onRemove={ro ? undefined : () => form.set('cnaesSecundarios', v.cnaesSecundarios.filter(c => c !== code))} />
-            ))}
-          </div>
-        )}
-        {!ro && <CnaeCombo onPick={c => form.set('cnaesSecundarios', [...v.cnaesSecundarios, c])} exclude={usados} placeholder="Adicionar CNAE secundário..." />}
-      </div>
+      {isVisible('cnaes_secundarios') && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-medium text-muted-foreground">CNAEs Secundários</p>
+          {v.cnaesSecundarios.length === 0 && ro && <span className={readCls}>—</span>}
+          {v.cnaesSecundarios.length > 0 && (
+            <div className="space-y-1.5">
+              {v.cnaesSecundarios.map(code => (
+                <Chip key={code} code={code} onRemove={ro ? undefined : () => form.set('cnaesSecundarios', v.cnaesSecundarios.filter(c => c !== code))} />
+              ))}
+            </div>
+          )}
+          {!ro && <CnaeCombo onPick={c => form.set('cnaesSecundarios', [...v.cnaesSecundarios, c])} exclude={usados} placeholder="Adicionar CNAE secundário..." />}
+        </div>
+      )}
     </div>
   )
 }
