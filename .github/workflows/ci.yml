@@ -28,11 +28,14 @@ jobs:
       - name: Gerar Prisma Client
         run: npm run db:generate --workspace @nxt/database
 
-      - name: Build (api + web + packages)
-        run: npm run build
+      - name: Verificacao de tipos (type-check)
+        run: npm run type-check
 
       - name: Testes
         run: npm test
+
+      - name: Build (api + web + packages)
+        run: npm run build
 
       # Gate de segurança: falha o CI se surgir vuln HIGH/CRITICAL no RUNTIME
       # (produção). Devdeps ficam de fora para não travar em CVE de ferramenta.
