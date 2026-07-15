@@ -9,7 +9,7 @@ const compat = new FlatCompat({ baseDirectory: import.meta.dirname })
  * (regras de hooks, código morto) sem afogar o código existente.
  * O `@typescript-eslint` é registrado aqui porque o next/core-web-vitals não o inclui.
  */
-export default [
+const config = [
   { ignores: ['.next/**', 'node_modules/**', 'next-env.d.ts', 'public/**'] },
   // diretivas eslint-disable "no-explicit-any" ficaram redundantes (a regra está off) — não reportar
   { linterOptions: { reportUnusedDisableDirectives: 'off' } },
@@ -26,3 +26,5 @@ export default [
     },
   },
 ]
+
+export default config

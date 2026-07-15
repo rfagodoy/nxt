@@ -181,14 +181,7 @@ export class ModulesService {
   async getDashboard(organizationId: string, slug: string) {
     const module = await this.findBySlug(organizationId, slug)
 
-    const [total, byInstanceStatus] = await Promise.all([
-      this.prisma.moduleRecord.count({ where: { moduleId: module.id } }),
-      this.prisma.moduleRecord.groupBy({
-        by: ['moduleId'],
-        where: { moduleId: module.id },
-        _count: true,
-      }),
-    ])
+    const total = await this.prisma.moduleRecord.count({ where: { moduleId: module.id } })
 
     const statusCounts = await this.prisma.$queryRaw<Array<{ status: string; count: bigint }>>`
       SELECT pi.status, COUNT(*) as count
