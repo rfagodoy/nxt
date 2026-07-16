@@ -19,6 +19,7 @@ import { UsersModule } from './users/users.module'
 import { NotificationsModule } from './notifications/notifications.module'
 import { CatalogsModule } from './catalogs/catalogs.module'
 import { ScreensModule } from './screens/screens.module'
+import { CepModule } from './cep/cep.module'
 
 // Rede de segurança global contra abuso/força-bruta em toda a API. É intencionalmente
 // generoso: o login já tem throttle por IP + lockout de conta; aqui o objetivo é só
@@ -46,6 +47,7 @@ const throttleLimit = Number(process.env.THROTTLE_LIMIT ?? 300)
     NotificationsModule,
     CatalogsModule,
     ScreensModule,
+    CepModule,
   ],
   controllers: [HealthController],
   providers: [
