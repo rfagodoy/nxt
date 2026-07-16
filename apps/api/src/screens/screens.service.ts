@@ -174,14 +174,23 @@ export class ScreensService {
    * Valores de VÁRIOS subjects numa tacada (listagem/exportação de Parceiros).
    * Retorna linhas planas {subjectId, fieldId, value}; o cliente agrupa por subjectId.
    * O índice ([organizationId, subjectType, subjectId]) cobre o `in`.
+   *
+   * O `in` é fatiado em blocos: o SQL Server limita a ~2100 parâmetros por consulta,
+   * e a exportação chega a mandar milhares de ids — sem fatiar, uma base grande faz a
+   * query estourar e as colunas custom saem vazias em silêncio.
    */
   async getValuesBatch(organizationId: string, subjectType: string, subjectIds: string[]) {
     const ids = [...new Set(subjectIds)].filter(Boolean)
     if (!ids.length) return []
-    const rows = await this.prisma.screenFieldValue.findMany({
-      where: { organizationId, subjectType, subjectId: { in: ids } },
-    })
-    return rows.map(r => ({ subjectId: r.subjectId, fieldId: r.fieldId, value: r.value }))
+    const CHUNK = 1000
+    const out: { subjectId: string; fieldId: string; value: string }[] = []
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const rows = await this.prisma.screenFieldValue.findMany({
+        where: { organizationId, subjectType, subjectId: { in: ids.slice(i, i + CHUNK) } },
+      })
+      for (const r of rows) out.push({ subjectId: r.subjectId, fieldId: r.fieldId, value: r.value })
+    }
+    return out
   }
 
   async putValues(organizationId: string, subjectType: string, subjectId: string, values: ScreenValueDto[]) {
