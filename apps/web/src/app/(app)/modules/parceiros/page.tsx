@@ -13,6 +13,10 @@ import { cacheRead, pushSetting, pullSetting } from '@/lib/settings-store'
 import { exportExcel } from '@/lib/export-excel'
 import { SettingsDrawer } from '@/components/partners/field-drawer'
 import { usePartnerFields, useFieldVisibility, useDefaultColumns, NATIVE_FIELDS, CORE_TABLE_KEYS, COLUMN_ORDER_RESET_EVENT } from '@/hooks/use-partner-fields'
+import { useScreens, getScreenValuesBatch } from '@/hooks/use-screens'
+import { pickDefaultScreen } from '@/lib/screen-partner-layout'
+import { formatScreenCellValue } from '@/lib/screen-value-format'
+import type { ScreenField } from '@/lib/screen-types'
 import { useWorkspace } from '@/contexts/workspace-context'
 
 
@@ -129,11 +133,28 @@ export default function ParceirosPage() {
     .filter(nf => !CORE_TABLE_KEYS.has(nf.key) && isVisibleInTable(nf.key) && nf.key in NATIVE_COL_MAP)
     .map(nf => ({ key: NATIVE_COL_MAP[nf.key], label: nf.label }))
 
+  /* ── campos personalizados das TELAS (Marco 3b) ──
+     A tela padrão do Fornecedor define os campos custom disponíveis como colunas.
+     A chave da coluna é o id do campo (cuid); o valor vem de ScreenFieldValue (em lote).
+     Colunas nascem OCULTAS e são ligadas no "Configurações" (mesmo store dos nativos). */
+  const { screens: fornecedorScreens }  = useScreens('FORNECEDOR')
+  const defaultScreen = useMemo(() => pickDefaultScreen(fornecedorScreens), [fornecedorScreens])
+  const screenCustomFields = useMemo<ScreenField[]>(
+    () => (defaultScreen?.fields ?? []).filter(f => f.source === 'CUSTOM').sort((a, b) => a.order - b.order),
+    [defaultScreen],
+  )
+  const screenCustomCols = useMemo(
+    () => screenCustomFields.filter(f => isVisibleInTable(f.id)).map(f => ({ key: f.id, label: f.label })),
+    [screenCustomFields, isVisibleInTable],
+  )
+
   /* ── dados do servidor ── */
   const [serverRows,      setServerRows]      = useState<Row[]>([])
   const [serverTotal,     setServerTotal]     = useState(0)
   const [serverStats,     setServerStats]     = useState({ total: 0, ativo: 0, inativo: 0, emCadastramento: 0 })
   const [serverLoading,   setServerLoading]   = useState(false)
+  /* valores dos campos custom (Telas) da página corrente: subjectId → fieldId → valor bruto */
+  const [screenVals,      setScreenVals]      = useState<Record<string, Record<string, string>>>({})
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const reqIdRef    = useRef(0)
@@ -150,6 +171,7 @@ export default function ParceirosPage() {
       ...baseColumns.map(c => c.key),
       ...nativeTableCols.map(c => c.key),
       ...tableFields.map(f => f.name),
+      ...screenCustomCols.map(c => c.key),
     ]
 
     setColumnOrder(prev => {
@@ -165,7 +187,7 @@ export default function ParceirosPage() {
       ]
       return reconciled.join(',') === prev.join(',') && base === prev ? prev : reconciled
     })
-  }, [tableFields, nativeTableCols, baseColumns])
+  }, [tableFields, nativeTableCols, baseColumns, screenCustomCols])
 
   /* persiste (cache local + backend) sempre que columnOrder muda */
   useEffect(() => {
@@ -190,7 +212,8 @@ export default function ParceirosPage() {
     ...baseColumns,
     ...nativeTableCols,
     ...tableFields.map(f => ({ key: f.name, label: f.label })),
-  ], [baseColumns, nativeTableCols, tableFields])
+    ...screenCustomCols,
+  ], [baseColumns, nativeTableCols, tableFields, screenCustomCols])
 
   const orderedColumns = useMemo(() =>
     columnOrder
@@ -263,6 +286,35 @@ export default function ParceirosPage() {
   }, [page, pageSize, debouncedSearch, sort, filters, logic]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { void queryServer() }, [queryServer])
+
+  /* busca os valores custom (Telas) dos parceiros da página, em lote */
+  useEffect(() => {
+    const ids = serverRows.map(r => r.id)
+    if (!ids.length || screenCustomFields.length === 0) { setScreenVals({}); return }
+    let cancelled = false
+    void getScreenValuesBatch('PARTNER', ids).then(rows => {
+      if (cancelled) return
+      const map: Record<string, Record<string, string>> = {}
+      for (const r of rows) (map[r.subjectId] ??= {})[r.fieldId] = r.value
+      setScreenVals(map)
+    })
+    return () => { cancelled = true }
+  }, [serverRows, screenCustomFields])
+
+  /* linhas com os valores custom já FORMATADOS sob a chave do campo (id) */
+  const displayRows = useMemo<Row[]>(() => {
+    if (screenCustomFields.length === 0) return serverRows
+    return serverRows.map(r => {
+      const vals = screenVals[r.id]
+      if (!vals) return r
+      const extra: Record<string, string> = {}
+      for (const f of screenCustomFields) {
+        const fmt = formatScreenCellValue(f, vals[f.id])
+        if (fmt) extra[f.id] = fmt
+      }
+      return { ...r, ...extra }
+    })
+  }, [serverRows, screenVals, screenCustomFields])
 
   const saveInputRef   = useRef<HTMLInputElement>(null)
   const viewsRef       = useRef<HTMLDivElement>(null)
@@ -340,25 +392,28 @@ export default function ParceirosPage() {
     } catch { return }
     if (!rows.length) return
 
+    /* valores custom (Telas) de TODOS os parceiros exportados, em lote */
+    const customVals: Record<string, Record<string, string>> = {}
+    if (screenCustomFields.length) {
+      const batch = await getScreenValuesBatch('PARTNER', rows.map(r => r.id))
+      for (const b of batch) (customVals[b.subjectId] ??= {})[b.fieldId] = b.value
+    }
+    const fieldById = new Map(screenCustomFields.map(f => [f.id, f]))
+
     const exportName = activeViewId ? (views.find(v => v.id === activeViewId)?.name ?? 'Todos') : 'Todos'
     const date = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
-    /* Campos personalizados NÃO entram: os valores ainda não são persistidos (Fase 2B).
-       Exportar a coluna vazia é pior que não exportá-la — parece dado ausente, não recurso
-       pendente. Antes daqui, os rótulos iam para a planilha e as células saíam em branco. */
+    /* A planilha leva EXATAMENTE as colunas visíveis na tela, na ordem escolhida
+       (colunas padrão + nativas extras + personalizadas das Telas). */
     await exportExcel({
       fileName: 'parceiros',
       sheet: 'Parceiros',
       title: `Exportação — ${exportName}`,
       subtitle: `Gerado em ${date}  •  ${serverTotal} registro${serverTotal !== 1 ? 's' : ''}`,
-      columns: [
-        { header: 'Nome / Razão Social' }, { header: 'Categoria' }, { header: 'Identificador' },
-        { header: 'Cidade' }, { header: 'Estado' }, { header: 'Contato' }, { header: 'Status' },
-      ],
-      rows: rows.map(p => [
-        p.nome, p.categoria, p.identificador,
-        p.cidade, p.estado, p.contato,
-        STATUS_LABEL[p.status] ?? p.status,
-      ]),
+      columns: orderedColumns.map(c => ({ header: c.label })),
+      rows: rows.map(p => orderedColumns.map(c => {
+        const f = fieldById.get(c.key)
+        return f ? formatScreenCellValue(f, customVals[p.id]?.[c.key]) : cellText(p, c.key)
+      })),
     })
   }
 
@@ -372,11 +427,25 @@ export default function ParceirosPage() {
   const totalFiltered      = serverTotal
   const totalPages         = Math.max(1, Math.ceil(serverTotal / pageSize))
   const safePage           = page
-  const pageRows           = serverRows
+  const pageRows           = displayRows
   const firstItem          = serverTotal === 0 ? 0 : (page - 1) * pageSize + 1
   const lastItem           = Math.min(page * pageSize, serverTotal)
   const activeFiltersCount = filters.filter(f => f.value.trim()).length
   const activeViewName     = activeViewId ? (views.find(v => v.id === activeViewId)?.name ?? 'Todos') : 'Todos'
+
+  /* valor em TEXTO PLANO de uma coluna base/nativa (usado na exportação) */
+  function cellText(row: Row, key: string): string {
+    switch (key) {
+      case 'categoria': return row.categoria
+      case 'cidade':    return [row.cidade, row.estado].filter(Boolean).join(' — ')
+      case 'status':    return STATUS_LABEL[row.status] ?? row.status
+      case 'dataNascimento': {
+        const raw = row.dataNascimento
+        return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw.split('-').reverse().join('/') : (raw || '')
+      }
+      default: return row[key] ?? ''
+    }
+  }
 
   /* renderiza célula pelo key da coluna */
   function renderCell(row: Row, key: string, colIdx: number) {
