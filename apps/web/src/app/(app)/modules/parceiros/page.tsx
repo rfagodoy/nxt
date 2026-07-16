@@ -45,6 +45,12 @@ const COLUMNS = [
   { key: 'status',        label: 'Status'              },
 ]
 
+/* Colunas que o servidor sabe ordenar (espelha SORT_FIELD em partners.service.ts).
+   As demais (cidade/contato base, nativas extras, custom das Telas) não têm ordenação
+   server-side — o cabeçalho delas não deve parecer clicável (senão o clique reordena
+   por createdAt em silêncio). */
+const SORTABLE_KEYS = new Set(['nome', 'categoria', 'identificador', 'status'])
+
 const OPERATORS = [
   { value: 'contains',      label: 'Contém'           },
   { value: 'notContains',   label: 'Não contém'       },
@@ -774,13 +780,17 @@ export default function ParceirosPage() {
                     dragOver === idx && dragOver !== dragFrom && 'border-l-2 border-primary bg-primary/5',
                   )}
                 >
-                  <button
-                    draggable={false}
-                    onClick={() => handleSort(col.key)}
-                    className="group inline-flex items-center hover:text-foreground transition-colors"
-                  >
-                    {col.label}<SortIcon col={col.key} />
-                  </button>
+                  {SORTABLE_KEYS.has(col.key) ? (
+                    <button
+                      draggable={false}
+                      onClick={() => handleSort(col.key)}
+                      className="group inline-flex items-center hover:text-foreground transition-colors"
+                    >
+                      {col.label}<SortIcon col={col.key} />
+                    </button>
+                  ) : (
+                    <span className="inline-flex items-center">{col.label}</span>
+                  )}
                 </th>
               ))}
             </tr>
