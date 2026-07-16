@@ -153,6 +153,11 @@ export default function ParceirosPage() {
     () => screenCustomFields.filter(f => isVisibleInTable(f.id)).map(f => ({ key: f.id, label: f.label })),
     [screenCustomFields, isVisibleInTable],
   )
+  /* colunas ordenáveis server-side: nativas conhecidas + campos custom (o backend agora ordena por eles) */
+  const sortableKeys = useMemo(
+    () => new Set<string>([...SORTABLE_KEYS, ...screenCustomFields.map(f => f.id)]),
+    [screenCustomFields],
+  )
 
   /* ── dados do servidor ── */
   const [serverRows,      setServerRows]      = useState<Row[]>([])
@@ -276,7 +281,7 @@ export default function ParceirosPage() {
           pageSize,
           search:  debouncedSearch || undefined,
           sort:    sort   ?? undefined,
-          filters: filters.filter(f => f.value.trim()),
+          filters: filters.filter(f => f.value.trim()).map(({ col, op, value }) => ({ col, op, value })),
           logic,
         }),
       })
@@ -389,7 +394,7 @@ export default function ParceirosPage() {
           pageSize: 10000,
           search:  debouncedSearch || undefined,
           sort:    sort   ?? undefined,
-          filters: filters.filter(f => f.value.trim()),
+          filters: filters.filter(f => f.value.trim()).map(({ col, op, value }) => ({ col, op, value })),
           logic,
         }),
       })
@@ -727,6 +732,7 @@ export default function ParceirosPage() {
                   <Sel value={f.col} onChange={v => updateFilter(f.id, 'col', v)} className="w-40">
                     {COLUMNS.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
                     {tableFields.map(tf => <option key={tf.name} value={tf.name}>{tf.label}</option>)}
+                    {screenCustomFields.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
                   </Sel>
                   <Sel value={f.op} onChange={v => updateFilter(f.id, 'op', v)} className="w-40">
                     {OPERATORS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -780,7 +786,7 @@ export default function ParceirosPage() {
                     dragOver === idx && dragOver !== dragFrom && 'border-l-2 border-primary bg-primary/5',
                   )}
                 >
-                  {SORTABLE_KEYS.has(col.key) ? (
+                  {sortableKeys.has(col.key) ? (
                     <button
                       draggable={false}
                       onClick={() => handleSort(col.key)}
