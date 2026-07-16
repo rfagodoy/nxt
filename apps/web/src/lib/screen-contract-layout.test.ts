@@ -64,8 +64,9 @@ describe('resolveContractSections — visibilidade e seções', () => {
 
   it('seção de CAMPOS esvaziada (todos os nativos ocultos, sem custom) some', () => {
     const screen = contractScreen()
+    const valorSecId = screen.sections.find(s => s.nativeKey === 'valor')!.id
     screen.fields = screen.fields.map(f =>
-      f.source === 'NATIVE' && f.sectionId === 'nsec_valor' ? { ...f, visible: false } : f)
+      f.source === 'NATIVE' && f.sectionId === valorSecId ? { ...f, visible: false } : f)
     const k = keys(screen, 'AMBOS', 'detail')
     expect(k).not.toContain('valor')
     // seção-bloco (partes) permanece mesmo sem campos nativos
@@ -75,8 +76,9 @@ describe('resolveContractSections — visibilidade e seções', () => {
 
   it('campo personalizado aparece na seção correspondente', () => {
     const screen = contractScreen()
+    const dadosSecId = screen.sections.find(s => s.nativeKey === 'dados_gerais')!.id
     screen.fields = [...screen.fields, {
-      id: 'cfld_x', sectionId: 'nsec_dados_gerais', name: 'ref_externa', label: 'Ref. externa',
+      id: 'cfld_x', sectionId: dadosSecId, name: 'ref_externa', label: 'Ref. externa',
       type: 'text', source: 'CUSTOM', mode: 'EDIT', visible: true, required: false, order: 99,
     }]
     const dados = resolveContractSections(screen, 'AMBOS', 'detail').find(s => s.nativeKey === 'dados_gerais')!

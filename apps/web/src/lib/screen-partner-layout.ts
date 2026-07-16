@@ -5,7 +5,7 @@
  * o predicado de visibilidade dos seus campos nativos (`screenVis`) + os campos
  * personalizados capturados ali dentro. Seções/campos CUSTOM vêm da própria tela.
  */
-import { Building2, Briefcase, Phone, MapPin, CreditCard, Users, Layers, type LucideIcon } from 'lucide-react'
+import { Building2, Briefcase, Phone, MapPin, CreditCard, Users, Clock, Layers, type LucideIcon } from 'lucide-react'
 import type { Screen, ScreenField, PartnerCategory } from './screen-types'
 import { reconcileNative } from './screen-native-structure'
 import { fieldVisibleFor, nativeAppliesTo } from './screen-partner-categories'
@@ -20,7 +20,13 @@ const NATIVE_ICON: Record<string, LucideIcon> = {
   endereco:      MapPin,
   bancario:      CreditCard,
   socios:        Users,
+  historico:     Clock,
 }
+
+/** Seções-BLOCO: componente atômico (sem toggle campo a campo); nunca somem por "0 campos". */
+export const PARTNER_BLOCK_SECTIONS = new Set(['historico'])
+/** Seções que só existem no DETALHE (auditoria de parceiro já existente). */
+const PARTNER_DETAIL_ONLY = new Set(['historico'])
 
 export interface ResolvedPartnerSection {
   id:           string       // id da seção da tela (chave estável)
@@ -50,6 +56,7 @@ export function pickDefaultScreen(screens: Screen[]): Screen | null {
 export function resolvePartnerSections(
   screen: Screen,
   category: PartnerCategory,
+  mode: 'new' | 'detail' = 'detail',
 ): ResolvedPartnerSection[] {
   const isPJ   = category === 'PJ_BR' || category === 'PJ_EST'
   const isPJBR = category === 'PJ_BR'
@@ -78,12 +85,15 @@ export function resolvePartnerSections(
   const out: ResolvedPartnerSection[] = []
   for (const s of [...screen.sections].filter(s => s.visible !== false).sort((a, b) => a.order - b.order)) {
     const nativeKey = s.source === 'NATIVE' ? (s.nativeKey ?? null) : null
-    // gating de categoria
+    // gating de modo (Histórico só no detalhe) e de categoria
+    if (nativeKey && PARTNER_DETAIL_ONLY.has(nativeKey) && mode === 'new') continue
     if (nativeKey === 'socios' && !isPJ)   continue
     if (nativeKey === 'cnae'   && !isPJBR) continue
-    const custom = customBySection.get(s.id) ?? []
-    // seção nativa esvaziada para este tipo (0 campos nativos visíveis e nenhum custom) → não exibe
-    if (nativeKey && (visibleNativeBySection.get(s.id) ?? 0) === 0 && custom.length === 0) continue
+    const custom   = customBySection.get(s.id) ?? []
+    const isBlock  = nativeKey ? PARTNER_BLOCK_SECTIONS.has(nativeKey) : false
+    // seção de campos nativa esvaziada (0 nativos visíveis e nenhum custom) → não exibe;
+    // seção-bloco (Histórico) é atômica: nunca some por contagem
+    if (nativeKey && !isBlock && (visibleNativeBySection.get(s.id) ?? 0) === 0 && custom.length === 0) continue
     out.push({
       id:          s.id,
       key:         nativeKey ?? s.id,

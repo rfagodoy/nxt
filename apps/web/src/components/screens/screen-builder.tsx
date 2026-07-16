@@ -14,6 +14,7 @@ import {
 } from '@/lib/screen-types'
 import { buildNativeSeed, reconcileNative } from '@/lib/screen-native-structure'
 import { fieldAppliesTo, fieldVisibleFor } from '@/lib/screen-partner-categories'
+import { PARTNER_BLOCK_SECTIONS } from '@/lib/screen-partner-layout'
 import { ScreenRenderer } from './screen-renderer'
 import { ScreenFieldEditor } from './screen-field-editor'
 
@@ -335,7 +336,9 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
               const isNativeSec = s.source === 'NATIVE'
               const secHidden = s.visible === false
               const isColl = collapsed.has(s.id)
-              const naNoTipo = isPartner && isNativeSec && applicable.length === 0  // seção nativa que não se aplica ao tipo
+              // seção-bloco (ex.: Histórico): atômica, aplica a todos os tipos — não é "não se aplica"
+              const isBlockSec = isNativeSec && !!s.nativeKey && PARTNER_BLOCK_SECTIONS.has(s.nativeKey)
+              const naNoTipo = isPartner && isNativeSec && !isBlockSec && applicable.length === 0  // seção nativa que não se aplica ao tipo
               const allVis = applicable.length > 0 && visible.length === applicable.length
               const allHid = applicable.length > 0 && hidden.length === applicable.length
               const wontShow = !secHidden && !naNoTipo && applicable.length > 0 && visible.length === 0

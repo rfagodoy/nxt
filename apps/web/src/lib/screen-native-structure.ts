@@ -18,6 +18,7 @@ const FORN_SECTIONS: NativeSectionDef[] = [
   { key: 'endereco',      label: 'Endereço' },
   { key: 'bancario',      label: 'Dados Bancários' },
   { key: 'socios',        label: 'Quadro de Sócios' },
+  { key: 'historico',     label: 'Histórico' }, // seção-bloco (auditoria): só liga/desliga, só no detalhe
 ]
 const FORN_FIELDS: NativeStructure['fieldsBySection'] = FORN_SECTIONS.reduce((acc, s) => {
   acc[s.key] = NATIVE_FIELDS.filter(f => f.section === s.key).map(f => ({ key: f.key, label: f.label }))
@@ -68,16 +69,19 @@ export const SUBJECT_NATIVE_STRUCTURE: Record<ScreenSubject, NativeStructure> = 
   GENERICA:   { sections: [], fieldsBySection: {} },
 }
 
-/** Monta as seções/campos NATIVOS pré-carregados de um tipo (ids determinísticos por chave). */
+/** Monta as seções/campos NATIVOS pré-carregados de um tipo. Os ids são ESCOPADOS por
+ *  subject (`nsec_<subject>_<key>`), porque uma mesma chave (ex.: `historico`) pode existir
+ *  em telas de tipos diferentes — ids globais por chave colidiriam entre telas. */
 export function buildNativeSeed(subject: ScreenSubject): { sections: ScreenSection[]; fields: ScreenField[] } {
   const struct = SUBJECT_NATIVE_STRUCTURE[subject]
+  const p = subject.toLowerCase()
   const sections: ScreenSection[] = struct.sections.map((s, i) => ({
-    id: `nsec_${s.key}`, label: s.label, name: s.key, source: 'NATIVE', nativeKey: s.key,
+    id: `nsec_${p}_${s.key}`, label: s.label, name: s.key, source: 'NATIVE', nativeKey: s.key,
     visible: true, order: i, defaultOpen: s.defaultOpen ?? (i === 0),
   }))
   const fields: ScreenField[] = struct.sections.flatMap(s =>
     (struct.fieldsBySection[s.key] ?? []).map((f, i) => ({
-      id: `nfld_${f.key}`, sectionId: `nsec_${s.key}`, name: f.key, label: f.label,
+      id: `nfld_${p}_${f.key}`, sectionId: `nsec_${p}_${s.key}`, name: f.key, label: f.label,
       type: 'text', source: 'NATIVE', nativeKey: f.key, mode: 'VIEW', visible: true, required: false, order: i,
     } as ScreenField)),
   )
@@ -86,39 +90,45 @@ export function buildNativeSeed(subject: ScreenSubject): { sections: ScreenSecti
 
 /**
  * Reconcilia uma tela carregada com a estrutura nativa viva: acrescenta seções/campos
- * nativos que ainda não estejam na tela (ex.: o sistema ganhou um campo nativo novo),
- * como VISÍVEIS por padrão, preservando o que já existe (visibilidade/ordem/customs).
+ * nativos que faltam (VISÍVEIS por padrão), poda os órfãos e re-parenta os campos nativos
+ * para a seção certa — tudo por `nativeKey`, robusto a ids legados. Preserva CUSTOM e a
+ * visibilidade (toggle do usuário).
  */
 export function reconcileNative(screen: Screen): Screen {
   const seed = buildNativeSeed(screen.subjectType)
   const seedSecKeys = new Set(seed.sections.map(s => s.nativeKey))
   const seedFldKeys = new Set(seed.fields.map(f => f.nativeKey))
+  const seedSecKeyById   = new Map(seed.sections.map(s => [s.id, s.nativeKey ?? '']))
+  const seedFieldSecKey  = new Map(seed.fields.map(f => [f.nativeKey ?? '', seedSecKeyById.get(f.sectionId ?? '') ?? '']))
 
-  /* Poda seções/campos NATIVOS que não existem mais na estrutura viva (ex.: a estrutura
-     do sistema mudou). NUNCA toca em CUSTOM (dado do usuário). Rende o cadastro correto
-     mesmo antes de a tela do sistema ser re-salva no banco. */
-  const sections = screen.sections.filter(s => s.source !== 'NATIVE' || seedSecKeys.has(s.nativeKey))
-  const prunedFields = screen.fields.filter(f => f.source !== 'NATIVE' || seedFldKeys.has(f.nativeKey))
+  /* Poda seções/campos NATIVOS fora da estrutura viva (nunca toca CUSTOM). */
+  const prunedSections = screen.sections.filter(s => s.source !== 'NATIVE' || seedSecKeys.has(s.nativeKey))
+  const prunedFields   = screen.fields.filter(f => f.source !== 'NATIVE' || seedFldKeys.has(f.nativeKey))
 
-  /* Re-parenta os campos NATIVOS para a seção definida na estrutura viva: o SISTEMA é dono
-     do lugar do campo nativo. Conserta drift quando um campo mudou de seção (ex.: a estrutura
-     do Contrato foi reorganizada) — preserva a visibilidade (toggle do usuário). */
-  const seedFldByKey = new Map(seed.fields.map(f => [f.nativeKey, f]))
-  const fields = prunedFields.map(f => {
-    if (f.source !== 'NATIVE') return f
-    const sf = seedFldByKey.get(f.nativeKey)
-    return sf && sf.sectionId !== f.sectionId ? { ...f, sectionId: sf.sectionId } : f
-  })
-  const reparented = fields.some((f, i) => f !== prunedFields[i])
-  const pruned = sections.length !== screen.sections.length || prunedFields.length !== screen.fields.length || reparented
-
-  const secByNative = new Map(sections.filter(s => s.source === 'NATIVE').map(s => [s.nativeKey, s]))
-  const fldByNative = new Map(fields.filter(f => f.source === 'NATIVE').map(f => [f.nativeKey, f]))
-
-  const maxSecOrder = sections.reduce((m, s) => Math.max(m, s.order), -1)
+  /* Acrescenta as seções nativas que faltam (id do seed, escopado por subject). */
+  const secByNative = new Map(prunedSections.filter(s => s.source === 'NATIVE').map(s => [s.nativeKey, s]))
+  const maxSecOrder = prunedSections.reduce((m, s) => Math.max(m, s.order), -1)
   const addSections = seed.sections.filter(s => !secByNative.has(s.nativeKey)).map((s, i) => ({ ...s, order: maxSecOrder + 1 + i }))
-  const addFields = seed.fields.filter(f => !fldByNative.has(f.nativeKey))
 
-  if (!pruned && addSections.length === 0 && addFields.length === 0) return screen
-  return { ...screen, sections: [...sections, ...addSections], fields: [...fields, ...addFields] }
+  /* id REAL de cada seção nativa por nativeKey (existente com id legado OU recém-acrescentada). */
+  const secIdByKey = new Map(
+    [...prunedSections, ...addSections].filter(s => s.source === 'NATIVE').map(s => [s.nativeKey ?? '', s.id]),
+  )
+  /* Re-parenta todo campo nativo para a seção com o nativeKey certo (o sistema é dono do lugar). */
+  const reparent = (f: ScreenField): ScreenField => {
+    if (f.source !== 'NATIVE') return f
+    const secKey   = seedFieldSecKey.get(f.nativeKey ?? '')
+    const targetId = secKey ? secIdByKey.get(secKey) : undefined
+    return targetId && targetId !== f.sectionId ? { ...f, sectionId: targetId } : f
+  }
+  const fldByNative = new Map(prunedFields.filter(f => f.source === 'NATIVE').map(f => [f.nativeKey, f]))
+  const fields   = prunedFields.map(reparent)
+  const addFields = seed.fields.filter(f => !fldByNative.has(f.nativeKey)).map(reparent)
+
+  const changed = prunedSections.length !== screen.sections.length
+    || prunedFields.length !== screen.fields.length
+    || addSections.length > 0 || addFields.length > 0
+    || fields.some((f, i) => f !== prunedFields[i])
+  if (!changed) return screen
+  return { ...screen, sections: [...prunedSections, ...addSections], fields: [...fields, ...addFields] }
 }
