@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { Plus, Trash2, Loader2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { apiJson } from '@/lib/http'
+import { apiJson, apiFetch } from '@/lib/http'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { useNaturezaJuridica, useCatalogInactive, CNAE_INATIVOS_KEY, type CatalogEntry } from '@/hooks/use-catalogs'
 import { PAISES, PAISES_SEED, PAISES_STORAGE_KEY } from '@/lib/paises'
@@ -440,15 +440,17 @@ export function EnderecoFields({ form, ro, isVisible = always, customFields = []
     setCepLoading(p => ({ ...p, [id]: true }))
     setCepError(p => ({ ...p, [id]: '' }))
     try {
-      const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`)
+      // Consulta pela PRÓPRIA origem (proxy server-side). O browser não fala com a
+      // ViaCEP direto — CSP connect-src 'self'.
+      const res = await apiFetch(`/api/cep/${digits}`)
+      if (res.status === 404) { setCepError(p => ({ ...p, [id]: 'CEP não encontrado.' })); return }
       if (!res.ok) throw new Error()
-      const data = await res.json() as { erro?: boolean; logradouro?: string; bairro?: string; localidade?: string; uf?: string }
-      if (data.erro) { setCepError(p => ({ ...p, [id]: 'CEP não encontrado.' })); return }
+      const data = await res.json() as { logradouro?: string; bairro?: string; cidade?: string; estado?: string }
       form.patchEnd(id, {
         ...(data.logradouro ? { logradouro: data.logradouro } : {}),
         ...(data.bairro     ? { bairro: data.bairro }         : {}),
-        ...(data.localidade ? { cidade: data.localidade }     : {}),
-        ...(data.uf         ? { estado: data.uf }             : {}),
+        ...(data.cidade     ? { cidade: data.cidade }         : {}),
+        ...(data.estado     ? { estado: data.estado }         : {}),
       })
     } catch {
       setCepError(p => ({ ...p, [id]: 'Erro ao buscar CEP.' }))
