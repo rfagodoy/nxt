@@ -61,6 +61,11 @@ export class CnpjService {
 
     const data = await this.fetchProvider(cnpj)
 
+    // A base ABERTA da RFB (BrasilAPI/minhareceita) omite o e-mail. Quando faltar,
+    // tenta a ReceitaWS (best-effort — rate-limit/offline não quebram a busca).
+    let email = (data.email ?? '').trim().toLowerCase()
+    if (!email) email = await this.fetchEmailFallback(cnpj)
+
     return {
       cnpj,
       razaoSocial:  (data.razao_social ?? '').trim(),
@@ -81,7 +86,7 @@ export class CnpjService {
         estado:      (data.uf ?? '').trim().toUpperCase(),
       },
       telefone: (data.ddd_telefone_1 ?? '').trim(),
-      email:    (data.email ?? '').trim().toLowerCase(),
+      email,
       porte:    (data.porte ?? '').trim(),
       capitalSocial: typeof data.capital_social === 'number' ? data.capital_social : null,
       socios: (data.qsa ?? []).map((s) => ({
@@ -114,6 +119,36 @@ export class CnpjService {
     if (res.status === 404) throw new NotFoundException('CNPJ não encontrado')
     if (!res.ok) throw new HttpException('Serviço de consulta de CNPJ indisponível', 502)
     return (await res.json()) as BrasilApiCnpj
+  }
+
+  /**
+   * E-mail só existe em provedores que enriquecem além da base aberta (ex.: ReceitaWS).
+   * BEST-EFFORT: qualquer falha (429 rate-limit, offline, timeout) → '' e a busca segue.
+   * `RECEITAWS_TOKEN` (opcional) usa o tier pago e eleva o limite.
+   */
+  private async fetchEmailFallback(cnpj: string): Promise<string> {
+    try {
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), 5000)
+      try {
+        const token = process.env.RECEITAWS_TOKEN
+        const res = await fetch(`https://receitaws.com.br/v1/cnpj/${cnpj}`, {
+          signal:  ctrl.signal,
+          headers: {
+            'User-Agent': 'Nxt/1.0 (cadastro-parceiro)',
+            Accept:       'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        })
+        if (!res.ok) return ''
+        const d = (await res.json()) as { status?: string; email?: string }
+        return d.status === 'OK' && d.email ? d.email.trim().toLowerCase() : ''
+      } finally {
+        clearTimeout(timer)
+      }
+    } catch {
+      return ''
+    }
   }
 }
 

@@ -152,6 +152,14 @@ export function maskCelular(v: string): string {
   if (d.length <=  7) return `(${d.slice(0,2)}) ${d.slice(2)}`
   return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`
 }
+export function maskCEP(v: string): string {
+  const d = v.replace(/\D/g, '').slice(0, 8)
+  return d.length <= 5 ? d : `${d.slice(0,5)}-${d.slice(5)}`
+}
+/** Formata telefone da Receita (fixo 10 díg ou celular 11 díg). */
+export function maskFone(v: string): string {
+  return v.replace(/\D/g, '').length > 10 ? maskCelular(v) : maskTelefone(v)
+}
 
 /* ─── controlador de estado (usado pelas duas telas) ─────── */
 
@@ -372,7 +380,7 @@ export function IdentificacaoFields({ form, ro, isVisible = always, customFields
         cnaePrincipal:    d.cnaePrincipal    || prev.cnaePrincipal,
         cnaesSecundarios: d.cnaesSecundarios?.length ? d.cnaesSecundarios : prev.cnaesSecundarios,
         enderecos: e0 ? [{ ...e0,
-          cep:         d.endereco.cep         || e0.cep,
+          cep:         (d.endereco.cep && maskCEP(d.endereco.cep)) || e0.cep,
           logradouro:  d.endereco.logradouro  || e0.logradouro,
           numero:      d.endereco.numero      || e0.numero,
           complemento: d.endereco.complemento || e0.complemento,
@@ -382,7 +390,7 @@ export function IdentificacaoFields({ form, ro, isVisible = always, customFields
         }, ...prev.enderecos.slice(1)] : prev.enderecos,
         contatos: c0 ? [{ ...c0,
           email:    d.email    || c0.email,
-          telefone: d.telefone || c0.telefone,
+          telefone: (d.telefone && maskFone(d.telefone)) || c0.telefone,
         }, ...prev.contatos.slice(1)] : prev.contatos,
         // QSA → Sócios. Sem participação na Receita → deixa vazia (evita a trava de soma 100%).
         socios: d.socios?.length
@@ -559,7 +567,7 @@ export function EnderecoFields({ form, ro, isVisible = always, customFields = []
                       <>
                         <div className="flex gap-2">
                           <input value={en.cep}
-                            onChange={e => { form.updEnd(en.id, 'cep', e.target.value); if (e.target.value.replace(/\D/g, '').length === 8) void fetchCep(en.id, e.target.value) }}
+                            onChange={e => { const m = maskCEP(e.target.value); form.updEnd(en.id, 'cep', m); if (m.replace(/\D/g, '').length === 8) void fetchCep(en.id, m) }}
                             placeholder="00000-000" maxLength={9} className={inputCls} />
                           <button type="button" onClick={() => void fetchCep(en.id, en.cep)} disabled={cepLoading[en.id]}
                             className="px-2.5 h-8 shrink-0 text-xs rounded-md border hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
