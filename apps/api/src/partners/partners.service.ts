@@ -3,6 +3,15 @@ import { PrismaService } from '../prisma.service'
 import { CreatePartnerDto } from './dto/create-partner.dto'
 import { UpdatePartnerDto } from './dto/update-partner.dto'
 import { QueryPartnersDto } from './dto/query-partners.dto'
+import {
+  type CustomFieldMeta, isNegateOp, customValueWhere, displayCustomValue, customSearchOr,
+} from './custom-field-query'
+
+/** SQL Server limita ~2100 parâmetros/consulta; fatiamos os `in` de ids em blocos. */
+const IN_CHUNK = 1000
+/** Colunas nativas conhecidas (nome/status → Prisma; cidade/estado/contato → JSON).
+ *  Um filtro/sort fora deste conjunto é candidato a campo personalizado das Telas. */
+const NATIVE_COLS = new Set(['nome', 'categoria', 'identificador', 'status', 'cidade', 'estado', 'contato'])
 
 /* ── legenda de categoria (label p/ display) ── */
 const CAT_LABEL: Record<string, string> = {
@@ -258,18 +267,20 @@ function buildWhere(
   filters?: FilterItem[],
   logic?: 'AND' | 'OR',
   jsonConditions: object[] = [],
+  searchCustomIds: string[] = [],
 ) {
   const conditions: object[] = []
 
   if (search?.trim()) {
     const q = search.trim()
-    conditions.push({
-      OR: [
-        { razaoSocial: { contains: q } },
-        { nomeFantasia: { contains: q } },
-        { documento:    { contains: q } },
-      ],
-    })
+    const or: object[] = [
+      { razaoSocial: { contains: q } },
+      { nomeFantasia: { contains: q } },
+      { documento:    { contains: q } },
+    ]
+    /* busca "todas as colunas" também alcança os valores custom (por id resolvido) */
+    if (searchCustomIds.length) or.push({ id: { in: searchCustomIds } })
+    conditions.push({ OR: or })
   }
 
   const filterConditions = [
@@ -291,6 +302,15 @@ function buildOrder(sort?: { col: string; dir: 'asc' | 'desc' }) {
   if (!field) return { createdAt: 'desc' as const }
   return { [field]: sort.dir as 'asc' | 'desc' }
 }
+
+/** Colunas do Partner trazidas para a listagem (reutilizado nos dois caminhos de query). */
+const PARTNER_SELECT = {
+  id: true, razaoSocial: true, categoria: true, status: true,
+  documento: true, nomeFantasia: true, ie: true, im: true,
+  rg: true, orgaoExpedidor: true, dataNascimento: true, paisOrigem: true,
+  dataAbertura: true, naturezaJuridica: true, cnaePrincipal: true, cnaesSecundarios: true,
+  contatos: true, enderecos: true, bancos: true, socios: true,
+} satisfies Record<string, true>
 
 @Injectable()
 export class PartnersService {
@@ -410,57 +430,148 @@ export class PartnersService {
     return negate ? { id: { notIn: ids } } : { id: { in: ids } }
   }
 
-  async query(dto: QueryPartnersDto, organizationId: string) {
-    const page     = Math.max(1, dto.page ?? 1)
-    const pageSize = Math.min(Math.max(1, dto.pageSize ?? 50), 10000)
-    const jsonConditions = (
-      await Promise.all((dto.filters ?? []).map((f) => this.resolveJsonFilter(organizationId, f)))
-    ).filter((c): c is object => c !== null)
-    const where    = buildWhere(organizationId, dto.search, dto.filters, dto.logic, jsonConditions)
-    const orderBy  = buildOrder(dto.sort)
+  /** Campos personalizados do Parceiro (source=CUSTOM da tela do FORNECEDOR): id → tipo/opções. */
+  private async loadPartnerCustomFields(organizationId: string): Promise<Map<string, CustomFieldMeta>> {
+    const fields = await this.prisma.screenField.findMany({
+      where:  { source: 'CUSTOM', screen: { organizationId, subjectType: 'FORNECEDOR' } },
+      select: { id: true, type: true, options: true },
+    })
+    return new Map(fields.map((f) => [f.id, {
+      type:    f.type,
+      options: (f.options as unknown as { value: string; label: string }[] | null) ?? [],
+    }]))
+  }
 
-    const orgWhere = { organizationId }
-    const [data, total, nAtivo, nInativo, nEmCad] = await this.prisma.$transaction([
-      this.prisma.partner.findMany({
-        where,
-        orderBy,
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        select: {
-          id: true, razaoSocial: true, categoria: true, status: true,
-          documento: true, nomeFantasia: true, ie: true, im: true,
-          rg: true, orgaoExpedidor: true, dataNascimento: true, paisOrigem: true,
-          dataAbertura: true, naturezaJuridica: true, cnaePrincipal: true, cnaesSecundarios: true,
-          contatos: true, enderecos: true, bancos: true, socios: true,
-        },
-      }),
-      this.prisma.partner.count({ where }),
-      this.prisma.partner.count({ where: { ...orgWhere, status: 'ATIVO' } }),
-      this.prisma.partner.count({ where: { ...orgWhere, status: 'INATIVO' } }),
-      this.prisma.partner.count({ where: { ...orgWhere, status: 'EM_CADASTRAMENTO' } }),
+  /** Filtro por campo custom → {id:{in|notIn}} (mesmo shape do filtro JSON), via screen_field_values. */
+  private async resolveCustomFilter(organizationId: string, f: FilterItem, meta: CustomFieldMeta): Promise<object | null> {
+    const val = f.value.trim()
+    if (!val) return null
+    const rows = await this.prisma.screenFieldValue.findMany({
+      where:  { organizationId, subjectType: 'PARTNER', fieldId: f.col, ...customValueWhere(f.op, val, meta) },
+      select: { subjectId: true },
+    })
+    const ids = [...new Set(rows.map((r) => r.subjectId))]
+    return isNegateOp(f.op) ? { id: { notIn: ids } } : { id: { in: ids } }
+  }
+
+  /** Ids de parceiros cujos valores custom casam a busca global (por rótulo, resolvendo listas). */
+  private async resolveCustomSearchIds(organizationId: string, q: string, fields: Map<string, CustomFieldMeta>): Promise<string[]> {
+    const rows = await this.prisma.screenFieldValue.findMany({
+      where:  { organizationId, subjectType: 'PARTNER', OR: customSearchOr(q, fields) },
+      select: { subjectId: true },
+    })
+    return [...new Set(rows.map((r) => r.subjectId))]
+  }
+
+  /** Totais por situação (org-wide, independem de filtro/sort). */
+  private async computeStats(organizationId: string) {
+    const [ativo, inativo, emCad] = await this.prisma.$transaction([
+      this.prisma.partner.count({ where: { organizationId, status: 'ATIVO' } }),
+      this.prisma.partner.count({ where: { organizationId, status: 'INATIVO' } }),
+      this.prisma.partner.count({ where: { organizationId, status: 'EM_CADASTRAMENTO' } }),
     ])
+    return { total: ativo + inativo + emCad, ativo, inativo, emCadastramento: emCad }
+  }
 
-    const stats = {
-      total:           nAtivo + nInativo + nEmCad,
-      ativo:           nAtivo,
-      inativo:         nInativo,
-      emCadastramento: nEmCad,
-    }
-
-    /* resolve os códigos de Natureza Jurídica e CNAE principal da página → descrição */
-    const natCodes = [...new Set(data.map((d) => d.naturezaJuridica).filter((c): c is string => !!c))]
+  /** Resolve Natureza Jurídica/CNAE da página → descrição e mapeia para Row. */
+  private async hydrateRows(data: PartnerSelectRow[]) {
+    const natCodes  = [...new Set(data.map((d) => d.naturezaJuridica).filter((c): c is string => !!c))]
     const cnaeCodes = [...new Set(data.map((d) => d.cnaePrincipal).filter((c): c is string => !!c))]
     const [nats, cnaes] = await Promise.all([
-      natCodes.length ? this.prisma.naturezaJuridica.findMany({ where: { code: { in: natCodes } } }) : Promise.resolve([]),
+      natCodes.length  ? this.prisma.naturezaJuridica.findMany({ where: { code: { in: natCodes } } })  : Promise.resolve([]),
       cnaeCodes.length ? this.prisma.cnae.findMany({ where: { code: { in: cnaeCodes } } }) : Promise.resolve([]),
     ])
-    const natMap = new Map(nats.map((n) => [n.code, n.descricao]))
+    const natMap  = new Map(nats.map((n) => [n.code, n.descricao]))
     const cnaeMap = new Map(cnaes.map((c) => [c.code, c.descricao]))
     const res: RowResolvers = {
       nat:  (c) => { const d = natMap.get(c);  return d ? `${c} — ${d}` : c },
       cnae: (c) => { const d = cnaeMap.get(c); return d ? `${c} — ${d}` : c },
     }
+    return data.map((p) => toRow(p, res))
+  }
 
-    return { rows: data.map((p) => toRow(p as PartnerSelectRow, res)), total, stats }
+  async query(dto: QueryPartnersDto, organizationId: string) {
+    const page     = Math.max(1, dto.page ?? 1)
+    const pageSize = Math.min(Math.max(1, dto.pageSize ?? 50), 10000)
+
+    /* carrega os campos custom só quando o request os referencia (filtro/sort/busca) */
+    const referencesCustom =
+      !!dto.search?.trim() ||
+      (!!dto.sort && !SORT_FIELD[dto.sort.col]) ||
+      (dto.filters ?? []).some((f) => f.value?.trim() && !NATIVE_COLS.has(f.col))
+    const customFields = referencesCustom
+      ? await this.loadPartnerCustomFields(organizationId)
+      : new Map<string, CustomFieldMeta>()
+
+    const [jsonConditions, customFilterConds] = await Promise.all([
+      Promise.all((dto.filters ?? []).map((f) => this.resolveJsonFilter(organizationId, f)))
+        .then((cs) => cs.filter((c): c is object => c !== null)),
+      Promise.all((dto.filters ?? [])
+        .filter((f) => customFields.has(f.col) && f.value?.trim())
+        .map((f) => this.resolveCustomFilter(organizationId, f, customFields.get(f.col)!)))
+        .then((cs) => cs.filter((c): c is object => c !== null)),
+    ])
+    const searchCustomIds = dto.search?.trim()
+      ? await this.resolveCustomSearchIds(organizationId, dto.search.trim(), customFields)
+      : []
+
+    const where = buildWhere(
+      organizationId, dto.search, dto.filters, dto.logic,
+      [...jsonConditions, ...customFilterConds], searchCustomIds,
+    )
+    const stats = await this.computeStats(organizationId)
+
+    /* ordenação por campo custom: não há coluna no Partner → carrega ids filtrados,
+       ordena pelos valores (rótulo resolvido) e pagina em memória */
+    const sortCol = dto.sort?.col
+    if (dto.sort && sortCol && !SORT_FIELD[sortCol] && customFields.has(sortCol)) {
+      return this.queryByCustomSort(organizationId, where, page, pageSize, dto.sort.dir, sortCol, customFields.get(sortCol)!, stats)
+    }
+
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.partner.findMany({
+        where, orderBy: buildOrder(dto.sort),
+        skip: (page - 1) * pageSize, take: pageSize, select: PARTNER_SELECT,
+      }),
+      this.prisma.partner.count({ where }),
+    ])
+    return { rows: await this.hydrateRows(data as PartnerSelectRow[]), total, stats }
+  }
+
+  private async queryByCustomSort(
+    organizationId: string, where: object, page: number, pageSize: number,
+    dir: 'asc' | 'desc', fieldId: string, meta: CustomFieldMeta,
+    stats: { total: number; ativo: number; inativo: number; emCadastramento: number },
+  ) {
+    const idRows = await this.prisma.partner.findMany({ where, select: { id: true } })
+    const allIds = idRows.map((r) => r.id)
+
+    const valMap = new Map<string, string>()
+    for (let i = 0; i < allIds.length; i += IN_CHUNK) {
+      const chunk = allIds.slice(i, i + IN_CHUNK)
+      const vals = await this.prisma.screenFieldValue.findMany({
+        where:  { organizationId, subjectType: 'PARTNER', fieldId, subjectId: { in: chunk } },
+        select: { subjectId: true, value: true },
+      })
+      for (const v of vals) valMap.set(v.subjectId, displayCustomValue(v.value, meta))
+    }
+
+    const mult = dir === 'asc' ? 1 : -1
+    const sorted = [...allIds].sort((a, b) => {
+      const va = valMap.get(a) ?? ''
+      const vb = valMap.get(b) ?? ''
+      if (va === vb) return 0
+      if (!va) return 1  // vazios sempre por último, independentemente da direção
+      if (!vb) return -1
+      return mult * va.localeCompare(vb, 'pt-BR', { numeric: true, sensitivity: 'base' })
+    })
+
+    const pageIds = sorted.slice((page - 1) * pageSize, page * pageSize)
+    const rows = pageIds.length
+      ? await this.prisma.partner.findMany({ where: { id: { in: pageIds } }, select: PARTNER_SELECT })
+      : []
+    const byId = new Map((rows as PartnerSelectRow[]).map((r) => [r.id, r]))
+    const ordered = pageIds.map((id) => byId.get(id)).filter((r): r is PartnerSelectRow => !!r)
+    return { rows: await this.hydrateRows(ordered), total: allIds.length, stats }
   }
 }
