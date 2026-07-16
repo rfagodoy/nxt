@@ -94,7 +94,7 @@ const areaCls   = 'flex w-full rounded-md border border-input bg-background px-3
 const readCls   = 'flex min-h-[1.5rem] w-full items-center bg-transparent px-0 text-[13px] font-medium text-foreground'
 const readArea  = 'block w-full bg-transparent px-0 py-0 text-[13px] font-medium text-foreground whitespace-pre-wrap'
 
-function Field({ label, required, span2, children }: { label: string; required?: boolean; span2?: boolean; children: React.ReactNode }) {
+export function Field({ label, required, span2, children }: { label: string; required?: boolean; span2?: boolean; children: React.ReactNode }) {
   return (
     <div className={cn('space-y-0.5', span2 && 'col-span-2')}>
       <label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}{required && <span className="text-red-500 ml-1">*</span>}</label>
@@ -102,6 +102,11 @@ function Field({ label, required, span2, children }: { label: string; required?:
     </div>
   )
 }
+
+/** R3 — predicado de visibilidade de campo nativo dirigido pela tela. Sem tela (form nativo
+ *  puro) o default mostra tudo; a tela padrão do sistema também mostra tudo. */
+export type ContractVisFn = (key: string) => boolean
+const showAll: ContractVisFn = () => true
 
 function Txt({ value, onChange, ro, type = 'text', placeholder, min }: { value: string; onChange: (v: string) => void; ro?: boolean; type?: string; placeholder?: string; min?: string }) {
   if (ro) {
@@ -203,7 +208,7 @@ function HistBlock({ title, count, children }: { title: string; count: number; c
 
 /** Dados Gerais: Número, Situação, Título, Descrição, Objeto, Tipo. Número segue editável mesmo em leitura;
  *  Situação é sempre só-leitura e preenchida automaticamente pelo ciclo de vida (ver effectiveSituacao). */
-export function IdentificacaoFields({ form, ro, autoNumero = false, numeroPreview }: { form: ContractForm; ro?: boolean; autoNumero?: boolean; numeroPreview?: string }) {
+export function IdentificacaoFields({ form, ro, autoNumero = false, numeroPreview, isVisible = showAll }: { form: ContractForm; ro?: boolean; autoNumero?: boolean; numeroPreview?: string; isVisible?: ContractVisFn }) {
   const tipos   = useLookupTable(TIPOS_KEY, INIT_TIPOS)
   const objetos = useLookupTable(OBJETOS_KEY, INIT_OBJETOS)
   const v = form.values
@@ -216,26 +221,26 @@ export function IdentificacaoFields({ form, ro, autoNumero = false, numeroPrevie
   return (
     <div className="grid grid-cols-2 gap-3">
       {/* Natureza vem primeiro: é o "modo" que define o que o resto do formulário exibe */}
-      <Field label="Natureza do contrato" span2><Segmented value={v.natureza} onChange={x => form.set('natureza', x)} ro={ro} options={NATUREZAS} /></Field>
-      {autoNumero ? (
+      {isVisible('natureza') && <Field label="Natureza do contrato" span2><Segmented value={v.natureza} onChange={x => form.set('natureza', x)} ro={ro} options={NATUREZAS} /></Field>}
+      {isVisible('numero') && (autoNumero ? (
         <Field label="Número">
           <span className={readCls}>{numeroPreview || 'Gerado ao salvar'}</span>
           <p className="mt-0.5 text-[10px] text-muted-foreground normal-case">Gerado automaticamente ao salvar (Parâmetros gerais)</p>
         </Field>
       ) : (
         <Field label="Número" required><Txt value={v.numero} onChange={x => form.set('numero', x)} ro={ro} placeholder="CTR-2026-001" /></Field>
-      )}
+      ))}
       {/* situação usa o término VIGENTE (com aditivos) — prorrogou, não fica "Vencido" */}
-      <Field label="Situação"><span className={readCls}>{SITUACOES.find(s => s.value === effectiveSituacao(v.situacao, v.prazoIndeterminado ? '' : terminoVigente(v)))?.label ?? '—'}</span></Field>
-      <Field label="Título" required span2>
+      {isVisible('situacao') && <Field label="Situação"><span className={readCls}>{SITUACOES.find(s => s.value === effectiveSituacao(v.situacao, v.prazoIndeterminado ? '' : terminoVigente(v)))?.label ?? '—'}</span></Field>}
+      {isVisible('titulo') && <Field label="Título" required span2>
         <Txt value={ro ? tituloVigente(v) : v.titulo} onChange={x => form.set('titulo', x)} ro={ro} placeholder="Título resumido do contrato" />
         {ro && titInfo.aditivo && <p className="mt-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">· alterado no {titInfo.aditivo}</p>}
-      </Field>
-      <Field label="Descrição" span2>
+      </Field>}
+      {isVisible('descricao') && <Field label="Descrição" span2>
         <Area value={ro ? descricaoVigente(v) : v.descricao} onChange={x => form.set('descricao', x)} ro={ro} rows={4} placeholder="Descrição detalhada do objeto e escopo do contrato..." />
         {ro && descInfo.aditivo && <p className="mt-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">· alterado no {descInfo.aditivo}</p>}
-      </Field>
-      <Field label="Objeto do contrato" span2>
+      </Field>}
+      {isVisible('objeto') && <Field label="Objeto do contrato" span2>
         <div className="space-y-1.5">
           {ro ? (() => {
             /* leitura: diff dos aditivos de escopo — acrescido (verde) / removido (tachado vermelho) */
@@ -271,9 +276,9 @@ export function IdentificacaoFields({ form, ro, autoNumero = false, numeroPrevie
             </>
           )}
         </div>
-      </Field>
-      <Field label="Tipo de contrato" required><Sel value={v.tipo} onChange={x => form.set('tipo', x)} ro={ro} options={lookupOpts(tipos.active)} placeholder="Selecione..." /></Field>
-      <Field label="Data de assinatura"><Txt type="date" value={v.dataAssinatura} onChange={x => form.set('dataAssinatura', x)} ro={ro} /></Field>
+      </Field>}
+      {isVisible('tipo') && <Field label="Tipo de contrato" required><Sel value={v.tipo} onChange={x => form.set('tipo', x)} ro={ro} options={lookupOpts(tipos.active)} placeholder="Selecione..." /></Field>}
+      {isVisible('data_assinatura') && <Field label="Data de assinatura"><Txt type="date" value={v.dataAssinatura} onChange={x => form.set('dataAssinatura', x)} ro={ro} /></Field>}
     </div>
   )
 }
@@ -321,7 +326,7 @@ const toCReajusteRealizado = (r: CoreReajusteRealizado): CReajusteRealizado => (
   dataAplicacao: r.dataAplicacao ?? '', observacao: r.observacao ?? '', createdAt: r.createdAt ?? '',
 })
 
-export function VigenciaFields({ form, ro }: { form: ContractForm; ro?: boolean }) {
+export function VigenciaFields({ form, ro, isVisible = showAll }: { form: ContractForm; ro?: boolean; isVisible?: ContractVisFn }) {
   const v = form.values
   /* série de índices e catálogo: alimentam o reajuste que a renovação aplica antes de gerar o período */
   const indiceVals = useIndiceValores()
@@ -417,23 +422,23 @@ export function VigenciaFields({ form, ro }: { form: ContractForm; ro?: boolean 
   return (
     <div className="grid grid-cols-2 gap-3">
       {/* Ordem: Início → Prazo indeterminado → Término → Ao término (a âncora vem antes do modificador) */}
-      <Field label="Início da vigência" required><Txt type="date" value={v.inicioVigencia} onChange={x => form.set('inicioVigencia', x)} ro={ro} /></Field>
-      <Field label="Prazo indeterminado">
+      {isVisible('inicio') && <Field label="Início da vigência" required><Txt type="date" value={v.inicioVigencia} onChange={x => form.set('inicioVigencia', x)} ro={ro} /></Field>}
+      {isVisible('prazo_indeterminado') && <Field label="Prazo indeterminado">
         {ro ? <span className={readCls}>{v.prazoIndeterminado ? 'Sim' : 'Não'}</span> : (
           <label className="flex items-center gap-2 h-7 cursor-pointer">
             <input type="checkbox" checked={v.prazoIndeterminado} onChange={e => form.set('prazoIndeterminado', e.target.checked)} className="h-3.5 w-3.5 rounded border-gray-300 accent-primary" />
             <span className="text-xs text-muted-foreground">Sem data de término</span>
           </label>
         )}
-      </Field>
-      {!v.prazoIndeterminado && <Field label="Término da vigência"><Txt type="date" value={ro ? terminoVigente(v) : v.terminoVigencia} onChange={x => form.set('terminoVigencia', x)} ro={ro} min={v.inicioVigencia || undefined} /></Field>}
+      </Field>}
+      {!v.prazoIndeterminado && isVisible('termino') && <Field label="Término da vigência"><Txt type="date" value={ro ? terminoVigente(v) : v.terminoVigencia} onChange={x => form.set('terminoVigencia', x)} ro={ro} min={v.inicioVigencia || undefined} /></Field>}
 
-      {!v.prazoIndeterminado && (
+      {!v.prazoIndeterminado && isVisible('acao_termino') && (
         <Field label="Ao término da vigência">
           <Sel value={v.acaoTermino || 'MANUAL'} onChange={x => form.set('acaoTermino', x)} ro={ro} options={ACOES_TERMINO} />
         </Field>
       )}
-      {!v.prazoIndeterminado && v.acaoTermino === 'RENOVAR' && (
+      {!v.prazoIndeterminado && isVisible('acao_termino') && v.acaoTermino === 'RENOVAR' && (
         <Field label="Renovar por" span2>
           {ro ? (
             <span className={readCls}>{renovacaoResumo(v) || '—'}</span>
@@ -557,7 +562,7 @@ function MoneyRead({ label, value, moedaCode, strong }: { label: string; value: 
 }
 
 /** Valor e Pagamento: Moeda, Valor da parcela, Valor total, totais realizados + saldo (por natureza), Condição, Complemento. */
-export function ValoresFields({ form, ro }: { form: ContractForm; ro?: boolean }) {
+export function ValoresFields({ form, ro, isVisible = showAll }: { form: ContractForm; ro?: boolean; isVisible?: ContractVisFn }) {
   const moedas    = useLookupTable(MOEDAS_KEY, INIT_MOEDAS)
   const condicoes = useLookupTable(CONDICOES_KEY, INIT_CONDICOES)
   const formas    = useLookupTable(FORMAS_PGTO_KEY, INIT_FORMAS_PGTO)
@@ -571,19 +576,19 @@ export function ValoresFields({ form, ro }: { form: ContractForm; ro?: boolean }
       {/* Ordem: (1) moeda + condição — descritores de topo; (2) os dois VALORES colados
           (vigentes na leitura); (3) forma + quantidade — como paga e em quantas. A quantidade
           é condicional e fica por último, então nunca separa os dois valores. */}
-      <Field label="Moeda"><Sel value={v.moeda} onChange={x => form.set('moeda', x)} ro={ro} options={moedaOpts} placeholder="Selecione..." /></Field>
-      <Field label="Condição de pagamento"><Sel value={ro ? condicaoVigente(v) : v.condicaoPagamento} onChange={x => form.set('condicaoPagamento', x)} ro={ro} options={lookupOpts(condicoes.active)} placeholder="Selecione..." /></Field>
+      {isVisible('moeda') && <Field label="Moeda"><Sel value={v.moeda} onChange={x => form.set('moeda', x)} ro={ro} options={moedaOpts} placeholder="Selecione..." /></Field>}
+      {isVisible('condicao_pagamento') && <Field label="Condição de pagamento"><Sel value={ro ? condicaoVigente(v) : v.condicaoPagamento} onChange={x => form.set('condicaoPagamento', x)} ro={ro} options={lookupOpts(condicoes.active)} placeholder="Selecione..." /></Field>}
 
-      <Field label="Valor total do contrato" required>
+      {isVisible('valor_total') && <Field label="Valor total do contrato" required>
         <MoneyField value={ro ? String(valorTotalNum) : v.valorTotal} moedaCode={v.moeda} onChange={x => form.set('valorTotal', x)} ro={ro} />
-      </Field>
-      <Field label="Valor da parcela">
+      </Field>}
+      {isVisible('valor_parcela') && <Field label="Valor da parcela">
         <MoneyField value={ro ? parcelaVigenteInput(v) : v.valorParcela} moedaCode={v.moeda} onChange={x => form.set('valorParcela', x)} ro={ro} />
-      </Field>
+      </Field>}
 
-      <Field label="Forma de pagamento"><Sel value={v.formaPagamento} onChange={x => form.set('formaPagamento', x)} ro={ro} options={lookupOpts(formas.active)} placeholder="Selecione..." /></Field>
+      {isVisible('forma_pagamento') && <Field label="Forma de pagamento"><Sel value={v.formaPagamento} onChange={x => form.set('formaPagamento', x)} ro={ro} options={lookupOpts(formas.active)} placeholder="Selecione..." /></Field>}
       {/* Quantidade de parcelas — só faz sentido em prazo determinado; base do reajuste de parcela */}
-      {!v.prazoIndeterminado && (
+      {!v.prazoIndeterminado && isVisible('qtd_parcelas') && (
         <Field label="Quantidade de parcelas">
           {ro
             ? <span className={readCls}>{v.qtdParcelas || '—'}</span>
@@ -602,7 +607,7 @@ export function ValoresFields({ form, ro }: { form: ContractForm; ro?: boolean }
       </>}
 
       {/* Complemento vigente fica junto do estado atual, ANTES do histórico */}
-      <Field label="Complemento do valor" span2><Area value={ro ? complementoVigente(v) : v.complementoValor} onChange={x => form.set('complementoValor', x)} ro={ro} placeholder="Ex: mais impostos, inclusive ISS, frete e demais encargos..." /></Field>
+      {isVisible('complemento') && <Field label="Complemento do valor" span2><Area value={ro ? complementoVigente(v) : v.complementoValor} onChange={x => form.set('complementoValor', x)} ro={ro} placeholder="Ex: mais impostos, inclusive ISS, frete e demais encargos..." /></Field>}
 
       {/* Histórico de valor: changelog por aditivo — rótulo à esquerda + valor colado (de → para, com acréscimo) */}
       {ro && (() => {
