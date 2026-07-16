@@ -68,3 +68,16 @@ export async function putScreenValues(subjectType: string, subjectId: string, va
   if (!res.ok) return []
   return res.json() as Promise<ScreenValue[]>
 }
+
+/** Valor preenchido em lote (vários subjects) — para colunas custom na listagem/exportação. */
+export interface ScreenValueRow { subjectId: string; fieldId: string; value: string }
+
+export async function getScreenValuesBatch(subjectType: string, subjectIds: string[]): Promise<ScreenValueRow[]> {
+  if (!subjectIds.length) return []
+  const res = await apiFetch('/api/screen-values/batch', {
+    method: 'POST',
+    body: JSON.stringify({ subjectType, subjectIds }),
+  })
+  if (!res.ok) return []
+  return res.json() as Promise<ScreenValueRow[]>
+}

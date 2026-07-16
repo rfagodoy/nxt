@@ -170,6 +170,20 @@ export class ScreensService {
     return rows.map(r => ({ fieldId: r.fieldId, value: r.value }))
   }
 
+  /**
+   * Valores de VÁRIOS subjects numa tacada (listagem/exportação de Parceiros).
+   * Retorna linhas planas {subjectId, fieldId, value}; o cliente agrupa por subjectId.
+   * O índice ([organizationId, subjectType, subjectId]) cobre o `in`.
+   */
+  async getValuesBatch(organizationId: string, subjectType: string, subjectIds: string[]) {
+    const ids = [...new Set(subjectIds)].filter(Boolean)
+    if (!ids.length) return []
+    const rows = await this.prisma.screenFieldValue.findMany({
+      where: { organizationId, subjectType, subjectId: { in: ids } },
+    })
+    return rows.map(r => ({ subjectId: r.subjectId, fieldId: r.fieldId, value: r.value }))
+  }
+
   async putValues(organizationId: string, subjectType: string, subjectId: string, values: ScreenValueDto[]) {
     const ids = values.map(v => v.fieldId)
     const fields = await this.prisma.screenField.findMany({

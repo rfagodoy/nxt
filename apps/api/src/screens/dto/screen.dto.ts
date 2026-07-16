@@ -76,3 +76,10 @@ export class PutValuesDto {
   @IsArray() @ValidateNested({ each: true }) @Type(() => ScreenValueDto)
   values!: ScreenValueDto[]
 }
+
+/** Leitura em lote: valores de VÁRIOS subjects de uma vez (listagem/exportação). */
+export class BatchValuesDto {
+  @IsString() subjectType!: string        // PARTNER | CONTRACT | PROCESS_INSTANCE
+  @IsArray() @IsString({ each: true })
+  subjectIds!: string[]
+}

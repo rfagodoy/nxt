@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/common'
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger'
 import { ScreensService } from './screens.service'
-import { SaveScreenDto, PutValuesDto } from './dto/screen.dto'
+import { SaveScreenDto, PutValuesDto, BatchValuesDto } from './dto/screen.dto'
 import { CurrentOrg } from '../auth/current-org.decorator'
 
 @ApiTags('screens')
@@ -61,5 +61,11 @@ export class ScreensController {
   @ApiOperation({ summary: 'Grava (upsert) os valores preenchidos de um subject' })
   putValues(@CurrentOrg() org: string, @Body() dto: PutValuesDto) {
     return this.service.putValues(org, dto.subjectType, dto.subjectId, dto.values)
+  }
+
+  @Post('screen-values/batch')
+  @ApiOperation({ summary: 'Valores preenchidos de vários subjects (listagem/exportação)' })
+  getValuesBatch(@CurrentOrg() org: string, @Body() dto: BatchValuesDto) {
+    return this.service.getValuesBatch(org, dto.subjectType, dto.subjectIds)
   }
 }
