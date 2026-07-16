@@ -327,6 +327,15 @@ interface GroupProps {
 const isPJof = (c: PartnerCategory) => c === 'PJ_BR' || c === 'PJ_EST'
 const isBRof = (c: PartnerCategory) => c === 'PJ_BR' || c === 'PF_BR'
 
+/** Resposta do proxy /api/cnpj (cartão CNPJ normalizado da Receita, via backend). */
+interface CnpjLookup {
+  razaoSocial: string; nomeFantasia: string; dataAbertura: string; situacao: string
+  naturezaJuridica: string; cnaePrincipal: string; cnaesSecundarios: string[]
+  endereco: { cep: string; logradouro: string; numero: string; complemento: string; bairro: string; cidade: string; estado: string }
+  telefone: string; email: string
+  socios: { nome: string; qualificacao: string; documento: string }[]
+}
+
 /** Identificação: documento + razão/nome + campos por categoria (CNPJ/CPF/Código, IE/IM, RG, etc.). */
 export function IdentificacaoFields({ form, ro, isVisible = always, customFields = [] }: GroupProps) {
   const v   = form.values
@@ -345,6 +354,65 @@ export function IdentificacaoFields({ form, ro, isVisible = always, customFields
   const docPlaceholder = cat === 'PJ_BR' ? '00.000.000/0000-00' : cat === 'PF_BR' ? '000.000.000-00' : 'Número do documento'
   const docHint = cat === 'PJ_BR' ? 'Novo formato alfanumérico — Reforma Tributária 2026' : (cat === 'PJ_EST' || cat === 'PF_EST') ? 'Identificador no país de origem' : undefined
 
+  /* ── busca de CNPJ (só PJ_BR): preenche o cadastro com o "cartão CNPJ" da Receita
+     (via proxy /api/cnpj — o browser não fala com host externo por causa da CSP). ── */
+  const [cnpjLoading, setCnpjLoading] = useState(false)
+  const [cnpjMsg,     setCnpjMsg]     = useState<{ tone: 'error' | 'warn' | 'ok'; text: string } | null>(null)
+
+  const applyCnpj = (d: CnpjLookup) => {
+    form.setValues(prev => {
+      const e0 = prev.enderecos[0]
+      const c0 = prev.contatos[0]
+      return {
+        ...prev,
+        razaoSocial:      d.razaoSocial      || prev.razaoSocial,
+        nomeFantasia:     d.nomeFantasia     || prev.nomeFantasia,
+        dataAbertura:     d.dataAbertura     || prev.dataAbertura,
+        naturezaJuridica: d.naturezaJuridica || prev.naturezaJuridica,
+        cnaePrincipal:    d.cnaePrincipal    || prev.cnaePrincipal,
+        cnaesSecundarios: d.cnaesSecundarios?.length ? d.cnaesSecundarios : prev.cnaesSecundarios,
+        enderecos: e0 ? [{ ...e0,
+          cep:         d.endereco.cep         || e0.cep,
+          logradouro:  d.endereco.logradouro  || e0.logradouro,
+          numero:      d.endereco.numero      || e0.numero,
+          complemento: d.endereco.complemento || e0.complemento,
+          bairro:      d.endereco.bairro      || e0.bairro,
+          cidade:      d.endereco.cidade      || e0.cidade,
+          estado:      d.endereco.estado      || e0.estado,
+        }, ...prev.enderecos.slice(1)] : prev.enderecos,
+        contatos: c0 ? [{ ...c0,
+          email:    d.email    || c0.email,
+          telefone: d.telefone || c0.telefone,
+        }, ...prev.contatos.slice(1)] : prev.contatos,
+        // QSA → Sócios. Sem participação na Receita → deixa vazia (evita a trava de soma 100%).
+        socios: d.socios?.length
+          ? d.socios.map(s => ({ ...newPSoc(), nome: s.nome, documento: s.documento, cargo: s.qualificacao }))
+          : prev.socios,
+      }
+    })
+  }
+
+  const fetchCnpj = async (raw: string) => {
+    const digits = raw.replace(/\D/g, '')
+    if (digits.length !== 14) return
+    setCnpjLoading(true)
+    setCnpjMsg(null)
+    try {
+      const res = await apiFetch(`/api/cnpj/${digits}`)
+      if (res.status === 404) { setCnpjMsg({ tone: 'error', text: 'CNPJ não encontrado.' }); return }
+      if (!res.ok) throw new Error()
+      const d = await res.json() as CnpjLookup
+      applyCnpj(d)
+      setCnpjMsg(d.situacao && d.situacao !== 'ATIVA'
+        ? { tone: 'warn', text: `Preenchido. Atenção: situação cadastral "${d.situacao}".` }
+        : { tone: 'ok', text: 'Dados preenchidos pela Receita Federal.' })
+    } catch {
+      setCnpjMsg({ tone: 'error', text: 'Erro ao buscar CNPJ.' })
+    } finally {
+      setCnpjLoading(false)
+    }
+  }
+
   return (
     <>
       <div className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -357,7 +425,26 @@ export function IdentificacaoFields({ form, ro, isVisible = always, customFields
         {isVisible(docKey) && (
           <Field label={docLabel} required hint={docHint}>
             {ro ? <span className={readCls}>{v.documento || '—'}</span>
-                : <input value={v.documento} onChange={e => form.set('documento', docMask(e.target.value))} placeholder={docPlaceholder} maxLength={cat === 'PJ_BR' ? 18 : cat === 'PF_BR' ? 14 : undefined} className={inputCls} />}
+              : cat === 'PJ_BR' ? (
+                <>
+                  <div className="flex gap-2">
+                    <input value={v.documento}
+                      onChange={e => { const m = docMask(e.target.value); form.set('documento', m); if (m.replace(/\D/g, '').length === 14) void fetchCnpj(m) }}
+                      placeholder={docPlaceholder} maxLength={18} className={inputCls} />
+                    <button type="button" onClick={() => void fetchCnpj(v.documento)} disabled={cnpjLoading || v.documento.replace(/\D/g, '').length !== 14}
+                      className="px-2.5 h-8 shrink-0 text-xs rounded-md border hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
+                      {cnpjLoading && <Loader2 className="h-3 w-3 animate-spin" />}Buscar
+                    </button>
+                  </div>
+                  {cnpjMsg && (
+                    <p className={cn('text-[11px] mt-0.5',
+                      cnpjMsg.tone === 'error' ? 'text-red-500' : cnpjMsg.tone === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400')}>
+                      {cnpjMsg.text}
+                    </p>
+                  )}
+                </>
+              )
+                : <input value={v.documento} onChange={e => form.set('documento', docMask(e.target.value))} placeholder={docPlaceholder} maxLength={cat === 'PF_BR' ? 14 : undefined} className={inputCls} />}
           </Field>
         )}
         {isPJ && isVisible('nome_fantasia') && (
