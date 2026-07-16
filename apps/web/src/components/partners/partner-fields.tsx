@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { Plus, Trash2, Loader2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiJson, apiFetch } from '@/lib/http'
+import { isValidCPF, isValidCNPJ } from '@/lib/doc-validation'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { useNaturezaJuridica, useCatalogInactive, CNAE_INATIVOS_KEY, type CatalogEntry } from '@/hooks/use-catalogs'
 import { PAISES, PAISES_SEED, PAISES_STORAGE_KEY } from '@/lib/paises'
@@ -421,6 +422,12 @@ export function IdentificacaoFields({ form, ro, isVisible = always, customFields
     }
   }
 
+  /* documento inválido (dígito verificador) — só sinaliza quando COMPLETO, p/ não incomodar digitando */
+  const docDigits  = v.documento.replace(/[^0-9A-Za-z]/g, '')
+  const docInvalido =
+    (cat === 'PJ_BR' && docDigits.length === 14 && !isValidCNPJ(v.documento)) ||
+    (cat === 'PF_BR' && docDigits.length === 11 && !isValidCPF(v.documento))
+
   return (
     <>
       <div className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -437,22 +444,32 @@ export function IdentificacaoFields({ form, ro, isVisible = always, customFields
                 <>
                   <div className="flex gap-2">
                     <input value={v.documento}
-                      onChange={e => { const m = docMask(e.target.value); form.set('documento', m); if (m.replace(/\D/g, '').length === 14) void fetchCnpj(m) }}
-                      placeholder={docPlaceholder} maxLength={18} className={inputCls} />
-                    <button type="button" onClick={() => void fetchCnpj(v.documento)} disabled={cnpjLoading || v.documento.replace(/\D/g, '').length !== 14}
+                      onChange={e => { const m = docMask(e.target.value); form.set('documento', m); if (isValidCNPJ(m)) void fetchCnpj(m) }}
+                      placeholder={docPlaceholder} maxLength={18}
+                      className={cn(inputCls, docInvalido && 'border-red-500 focus-visible:ring-red-500')} />
+                    <button type="button" onClick={() => void fetchCnpj(v.documento)} disabled={cnpjLoading || !isValidCNPJ(v.documento)}
                       className="px-2.5 h-8 shrink-0 text-xs rounded-md border hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
                       {cnpjLoading && <Loader2 className="h-3 w-3 animate-spin" />}Buscar
                     </button>
                   </div>
-                  {cnpjMsg && (
-                    <p className={cn('text-[11px] mt-0.5',
-                      cnpjMsg.tone === 'error' ? 'text-red-500' : cnpjMsg.tone === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400')}>
-                      {cnpjMsg.text}
-                    </p>
-                  )}
+                  {docInvalido
+                    ? <p className="text-[11px] mt-0.5 text-red-500">CNPJ inválido — confira o número.</p>
+                    : cnpjMsg && (
+                      <p className={cn('text-[11px] mt-0.5',
+                        cnpjMsg.tone === 'error' ? 'text-red-500' : cnpjMsg.tone === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400')}>
+                        {cnpjMsg.text}
+                      </p>
+                    )}
                 </>
               )
-                : <input value={v.documento} onChange={e => form.set('documento', docMask(e.target.value))} placeholder={docPlaceholder} maxLength={cat === 'PF_BR' ? 14 : undefined} className={inputCls} />}
+                : (
+                  <>
+                    <input value={v.documento} onChange={e => form.set('documento', docMask(e.target.value))} placeholder={docPlaceholder}
+                      maxLength={cat === 'PF_BR' ? 14 : undefined}
+                      className={cn(inputCls, docInvalido && 'border-red-500 focus-visible:ring-red-500')} />
+                    {docInvalido && <p className="text-[11px] mt-0.5 text-red-500">CPF inválido — confira o número.</p>}
+                  </>
+                )}
           </Field>
         )}
         {isPJ && isVisible('nome_fantasia') && (

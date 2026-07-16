@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
 import { CreatePartnerDto } from './dto/create-partner.dto'
 import { UpdatePartnerDto } from './dto/update-partner.dto'
 import { QueryPartnersDto } from './dto/query-partners.dto'
+import { isDocumentoValido } from './doc-validation'
 import {
   type CustomFieldMeta, isNegateOp, customValueWhere, displayCustomValue, customSearchOr,
 } from './custom-field-query'
@@ -317,6 +318,9 @@ export class PartnersService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(dto: CreatePartnerDto, organizationId: string, actor?: string) {
+    if (!isDocumentoValido(dto.categoria, dto.documento ?? '')) {
+      throw new BadRequestException('Documento (CPF/CNPJ) inválido')
+    }
     /* `user` do payload é descartado — o autor vem do token (`actor`), não do cliente */
     const { user: _clientUser, ...data } = dto
     const created = await this.prisma.partner.create({
@@ -348,6 +352,12 @@ export class PartnersService {
 
   async update(id: string, dto: UpdatePartnerDto, organizationId: string, actor?: string) {
     const old = await this.findOne(id, organizationId)
+    // valida o documento efetivo (o que vier no payload, senão o já gravado)
+    const cat = (dto.categoria ?? (old as { categoria?: string }).categoria) ?? ''
+    const doc = (dto.documento ?? (old as { documento?: string }).documento) ?? ''
+    if (!isDocumentoValido(cat, doc)) {
+      throw new BadRequestException('Documento (CPF/CNPJ) inválido')
+    }
     /* `user` do payload é descartado — o autor vem do token (`actor`), não do cliente */
     const { user: _clientUser, motivo, ...data } = dto
     const updated = await this.prisma.partner.update({ where: { id }, data: data as never })
