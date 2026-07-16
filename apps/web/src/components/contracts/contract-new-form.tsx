@@ -1,12 +1,15 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, FileText, Calendar, DollarSign, RefreshCw, Users, Paperclip, ChevronDown, TrendingDown, TrendingUp } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { getLogUser } from '@/hooks/use-partner-logs'
+import { useScreens, putScreenValues } from '@/hooks/use-screens'
+import { pickDefaultScreen, resolveContractSections } from '@/lib/screen-contract-layout'
+import { ContractSectionNative, ContractCustomFields } from './contract-screen-body'
 import { EntitySearchModal } from './entity-search-modal'
 import {
   useContractForm, IdentificacaoFields, VigenciaFields, ValoresFields,
@@ -57,6 +60,25 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
   const [errors,      setErrors]      = useState<Set<string>>(new Set())
   const [saveError,   setSaveError]   = useState<string | null>(null)
   const [saving,      setSaving]      = useState<'draft' | 'active' | null>(null)
+
+  /* R3 — a tela padrão (isDefault/ACTIVE) desenha o cadastro: seções, ordem, rótulos e
+     campos personalizados capturados nas seções. Sem tela padrão → form nativo (fallback). */
+  const { screens, loading: screensLoading } = useScreens('CONTRATO')
+  const defaultScreen  = useMemo(() => pickDefaultScreen(screens), [screens])
+  const screenDriven   = !!defaultScreen
+  const screenSections = useMemo(
+    () => defaultScreen ? resolveContractSections(defaultScreen, v.natureza, 'new') : [],
+    [defaultScreen, v.natureza],
+  )
+  const [screenValues, setScreenValues] = useState<Record<string, string>>({})
+  const onScreenChange = (fieldId: string, value: string) =>
+    setScreenValues(p => ({ ...p, [fieldId]: value }))
+  const [openInit, setOpenInit] = useState(false)
+  useEffect(() => {
+    if (screensLoading || openInit || !screenDriven) return
+    setOpenInit(true)
+    setOpen(new Set(screenSections.filter(s => s.defaultOpen).map(s => s.key)))
+  }, [screensLoading, openInit, screenDriven, screenSections])
 
   useEffect(() => {
     void (async () => {
@@ -115,6 +137,11 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
       if (res.ok) {
         let result: { id?: string } | undefined
         try { result = await res.json() as { id?: string } } catch { /* sem corpo */ }
+        /* R3 — grava os valores dos campos personalizados da tela ligados ao novo contrato */
+        if (screenDriven && result?.id) {
+          const entries = Object.entries(screenValues).map(([fieldId, value]) => ({ fieldId, value }))
+          if (entries.length) await putScreenValues('CONTRACT', result.id, entries)
+        }
         if (onSaved) onSaved(result)
         else router.push('/modules/contratos')
         return
@@ -141,6 +168,19 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
       )}
 
       <form className="space-y-2" onSubmit={e => e.preventDefault()}>
+        {screenDriven ? (
+          screenSections.map(s => (
+            <Section key={s.id} icon={s.icon} title={s.label}
+              isOpen={open.has(s.key)} onToggle={() => toggleSection(s.key)} hasError={errors.has(s.key)}>
+              <ContractSectionNative section={s} ctx={{
+                form, moedaCode: v.moeda, autoNumero, numeroPreview,
+                onOpenSearch: (parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds }),
+                onNewPartner: () => router.push('/modules/parceiros/new?from=contratos'),
+              }} />
+              <ContractCustomFields fields={s.customFields} screenValues={screenValues} onScreenChange={onScreenChange} />
+            </Section>
+          ))
+        ) : (<>
         <Section icon={FileText} title="Dados Gerais" isOpen={open.has('dados_gerais')} onToggle={() => toggleSection('dados_gerais')} hasError={errors.has('dados_gerais')}>
           <IdentificacaoFields form={form} autoNumero={autoNumero} numeroPreview={numeroPreview} />
         </Section>
@@ -178,6 +218,7 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
         <Section icon={Paperclip} title="Documentos do contrato" isOpen={open.has('documentos')} onToggle={() => toggleSection('documentos')}>
           <DocumentosFields form={form} />
         </Section>
+        </>)}
 
         {saveError && (
           <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">{saveError}</div>

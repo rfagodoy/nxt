@@ -1,11 +1,14 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { FileText, Users, Calendar, Banknote, TrendingUp, TrendingDown, RefreshCw, Paperclip, FilePlus2, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { CONTRACTS_CHANGED_EVENT } from '@/lib/contract-events'
+import { useScreens, getScreenValues, putScreenValues } from '@/hooks/use-screens'
+import { pickDefaultScreen, resolveContractSections } from '@/lib/screen-contract-layout'
+import { ContractSectionNative, ContractCustomFields } from '@/components/contracts/contract-screen-body'
 import { useContractForm, IdentificacaoFields, VigenciaFields, ValoresFields, ReajustesFields, PartesFields, DocumentosFields, LancamentosFields, AditivosFields } from '@/components/contracts/contract-fields'
 import { emptyContractForm, contractFromApi, contractToPayload, effectiveSituacao, normalizeSituacao, temPagamentos, temRecebimentos, terminoVigente, validateContract, validateLancamentos, TIPOS_KEY, INIT_TIPOS, type CAditivo } from '@/lib/contract-options'
 import { useLookupTable } from '@/hooks/use-lookup-table'
@@ -101,6 +104,30 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
   const [auditVersion, setAuditVersion] = useState(0)      // muda a cada save → recarrega a aba Histórico
   const cleanRef = useRef('')  // snapshot "limpo" para detectar edição não salva
 
+  /* R3 — a tela padrão (isDefault/ACTIVE) dirige as abas/seções e captura campos
+     personalizados persistidos (via /api/screen-values). Sem tela → abas nativas (fallback). */
+  const { screens } = useScreens('CONTRATO')
+  const defaultScreen  = useMemo(() => pickDefaultScreen(screens), [screens])
+  const screenDriven   = !!defaultScreen
+  const screenSections = useMemo(
+    () => defaultScreen ? resolveContractSections(defaultScreen, v.natureza, 'detail') : [],
+    [defaultScreen, v.natureza],
+  )
+  const [screenValues, setScreenValues] = useState<Record<string, string>>({})
+  const [screenClean,  setScreenClean]  = useState('{}')
+  const screenDirty = JSON.stringify(screenValues) !== screenClean
+  const onScreenChange = (fieldId: string, value: string) => setScreenValues(p => ({ ...p, [fieldId]: value }))
+  /* carrega os valores personalizados ligados a este contrato */
+  useEffect(() => {
+    void (async () => {
+      const vals = await getScreenValues('CONTRACT', row.id)
+      const map: Record<string, string> = {}
+      vals.forEach(x => { map[x.fieldId] = x.value })
+      setScreenValues(map)
+      setScreenClean(JSON.stringify(map))
+    })()
+  }, [row.id])
+
   /* carrega o registro completo (a Row da listagem é só um resumo) */
   const recarregar = useCallback(async () => {
     try {
@@ -131,10 +158,14 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
   /* reporta "não salvo" comparando o estado atual com o snapshot limpo — para a aba (workspace)
      e para o selo de estado no cabeçalho */
   useEffect(() => {
-    const d = cleanRef.current !== '' && JSON.stringify(v) !== cleanRef.current
+    const d = (cleanRef.current !== '' && JSON.stringify(v) !== cleanRef.current) || screenDirty
     setDirtyLocal(d)
     onDirtyChange?.(d)
-  }, [v, onDirtyChange])
+  }, [v, onDirtyChange, screenDirty])
+  /* aba ativa sempre aponta para uma seção existente da tela (evita aba "morta") */
+  useEffect(() => {
+    if (screenDriven && screenSections.length && !screenSections.some(s => s.key === tab)) setTab(screenSections[0].key)
+  }, [screenDriven, screenSections, tab])
   useEffect(() => {
     if (!justSaved) return
     const t = setTimeout(() => setJustSaved(false), 2000)
@@ -164,6 +195,8 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
     { id: 'documentos',   label: 'Documentos',        icon: Paperclip },
     { id: 'historico',    label: 'Histórico',         icon: Clock },
   ]
+  /* abas: a tela padrão manda (ordem/rótulos/quais aparecem); sem tela → abas nativas */
+  const tabs = screenDriven ? screenSections.map(s => ({ id: s.key, label: s.label, icon: s.icon })) : sectionTabs
 
   const handleSave = async (statusOverride?: string, motivoTexto?: string, aditivosOverride?: CAditivo[]) => {
     /* A obrigatoriedade da data de assinatura é validada na ATIVAÇÃO de cada aditivo
@@ -195,7 +228,15 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
         method: 'PATCH',
         body:   JSON.stringify(contractToPayload(vals, { user: getLogUser(), motivo: motivoTexto })),
       })
-      if (res.ok) { if (statusOverride) form.set('situacao', statusOverride); cleanRef.current = JSON.stringify(vals); setDirtyLocal(false); setJustSaved(true); setAuditVersion(x => x + 1); onDirtyChange?.(false); onSaved?.() }
+      if (res.ok) {
+        /* R3 — grava os valores dos campos personalizados da tela junto do save do contrato */
+        if (screenDriven) {
+          const entries = Object.entries(screenValues).map(([fieldId, value]) => ({ fieldId, value }))
+          await putScreenValues('CONTRACT', row.id, entries)
+          setScreenClean(JSON.stringify(screenValues))
+        }
+        if (statusOverride) form.set('situacao', statusOverride); cleanRef.current = JSON.stringify(vals); setDirtyLocal(false); setJustSaved(true); setAuditVersion(x => x + 1); onDirtyChange?.(false); onSaved?.()
+      }
       else setSaveError(`Erro ao salvar contrato (${res.status}).`)
     } catch {
       setSaveError('Não foi possível conectar ao servidor.')
@@ -326,7 +367,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
       )}
 
       <div className="flex items-center gap-1 flex-wrap border-b pb-2">
-        {sectionTabs.map(t => (
+        {tabs.map(t => (
           <button key={t.id} type="button" onClick={() => setTab(t.id)}
             className={cn('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
               tab === t.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-muted')}>
@@ -338,6 +379,20 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
       </div>{/* fim do cabeçalho fixo */}
 
       <form className="flex-1 min-h-0 overflow-y-auto space-y-2 pt-3" onSubmit={e => e.preventDefault()}>
+        {screenDriven ? (
+          screenSections.map(s => (
+            <DSection key={s.id} active={tab === s.key}>
+              <ContractSectionNative section={s} ctx={{
+                form, ro: locked, moedaCode: v.moeda, contractId: row.id, reloadKey: auditVersion,
+                onOpenSearch: (parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds }),
+                onNewPartner: () => router.push('/modules/parceiros/new?from=contratos'),
+                onOpenCessaoSearch: (aditivoId, cessaoId, origem) => setCessaoSearch({ aditivoId, cessaoId, origem }),
+                onActivate: activateAditivo, onRevise: reviseAditivo,
+              }} />
+              <ContractCustomFields fields={s.customFields} screenValues={screenValues} onScreenChange={onScreenChange} ro={locked} />
+            </DSection>
+          ))
+        ) : (<>
         <DSection active={tab === 'dados_gerais'}><IdentificacaoFields form={form} ro={locked} /></DSection>
         <DSection active={tab === 'partes'}>
           <PartesFields form={form} ro={locked}
@@ -352,6 +407,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
         <DSection active={tab === 'aditivos'}><AditivosFields form={form} onOpenCessaoSearch={(aditivoId, cessaoId, origem) => setCessaoSearch({ aditivoId, cessaoId, origem })} onActivate={activateAditivo} onRevise={reviseAditivo} /></DSection>
         <DSection active={tab === 'documentos'}><DocumentosFields form={form} ro={locked} /></DSection>
         <DSection active={tab === 'historico'}><ContractHistory contractId={row.id} reloadKey={auditVersion} /></DSection>
+        </>)}
       </form>
 
       {searchModal && (
