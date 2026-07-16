@@ -81,7 +81,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
   const defaultScreen  = useMemo(() => pickDefaultScreen(screens), [screens])
   const screenDriven   = !!defaultScreen
   const screenSections = useMemo(
-    () => defaultScreen ? resolvePartnerSections(defaultScreen, v.category) : [],
+    () => defaultScreen ? resolvePartnerSections(defaultScreen, v.category, 'new') : [],
     [defaultScreen, v.category],
   )
   const [screenValues, setScreenValues] = useState<Record<string, string>>({})

@@ -117,3 +117,21 @@ describe('resolvePartnerSections — seção oculta pela tela', () => {
     expect(keys(resolvePartnerSections(screen, _c))).not.toContain('identificacao')
   })
 })
+
+describe('resolvePartnerSections — Histórico (seção-bloco, só-detalhe, liga/desliga)', () => {
+  const fields = [nf('razao_social', { sectionId: 'nsec_identificacao' })]
+  const screenWithHist = (over: Partial<ScreenSection> = {}) => makeScreen(fields, [
+    sec('identificacao', { order: 0 }),
+    sec('historico',     { order: 1, ...over }),  // seção-bloco: 0 campos nativos
+  ])
+
+  it('aparece no DETALHE mesmo sem campos nativos (é atômica)', () => {
+    expect(keys(resolvePartnerSections(screenWithHist(), 'PJ_BR', 'detail'))).toContain('historico')
+  })
+  it('NÃO aparece no cadastro novo (só-detalhe)', () => {
+    expect(keys(resolvePartnerSections(screenWithHist(), 'PJ_BR', 'new'))).not.toContain('historico')
+  })
+  it('desligada na tela (visible=false) não aparece nem no detalhe', () => {
+    expect(keys(resolvePartnerSections(screenWithHist({ visible: false }), 'PJ_BR', 'detail'))).not.toContain('historico')
+  })
+})

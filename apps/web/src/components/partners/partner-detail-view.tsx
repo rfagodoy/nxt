@@ -259,18 +259,17 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
   const docLabel = category === 'PJ_BR' ? 'CNPJ' : category === 'PF_BR' ? 'CPF' : 'Código'
   const catLabel = CATEGORIES.find(c => c.value === category)?.label ?? category
 
-  /* R2 — seções resolvidas da tela padrão (ordem/rótulos/visibilidade); gating de categoria por cima. */
+  /* R2 — seções resolvidas da tela padrão (ordem/rótulos/visibilidade); gating de categoria por cima.
+     R3 — o Histórico entrou na estrutura da tela (seção-bloco só-detalhe): agora liga/desliga pela tela. */
   const screenSections = useMemo(
-    () => defaultScreen ? resolvePartnerSections(defaultScreen, category as PartnerCategory) : [],
+    () => defaultScreen ? resolvePartnerSections(defaultScreen, category as PartnerCategory, 'detail') : [],
     [defaultScreen, category],
   )
 
-  /* abas: dirigidas pela tela quando há tela padrão; senão, seções nativas (sem a antiga aba "Telas"). */
+  /* abas: dirigidas pela tela quando há tela padrão (o Histórico é uma seção da tela, quando visível);
+     senão, seções nativas (sem a antiga aba "Telas"). */
   const sectionTabs = screenDriven
-    ? [
-        ...screenSections.map(s => ({ id: s.key, label: s.label, icon: s.icon })),
-        { id: 'historico', label: 'Histórico', icon: Clock },
-      ]
+    ? screenSections.map(s => ({ id: s.key, label: s.label, icon: s.icon }))
     : [
         { id: 'identificacao', label: 'Identificação',   icon: Building2 },
         ...(isPJBR ? [{ id: 'cnae', label: 'CNAE', icon: Briefcase }] : []),
@@ -463,7 +462,8 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
 
         {/* R2 — seções dirigidas pela tela padrão; fallback ao nativo quando não há tela padrão. */}
         {screenDriven ? (
-          screenSections.map(s => (
+          // Histórico é seção-bloco (auditoria): renderizado pela seção dedicada abaixo, não pelo corpo genérico
+          screenSections.filter(s => s.nativeKey !== 'historico').map(s => (
             <DSection key={s.id} active={tab === s.key}>
               <PartnerSectionBody section={s} form={partnerForm} ro={locked} screenValues={screenValues} onScreenChange={onScreenChange} />
             </DSection>
