@@ -9,6 +9,7 @@ import { getLogUser } from '@/hooks/use-partner-logs'
 import { SaveStatus } from '@/components/save-status'
 import { useScreens, getScreenValues, putScreenValues } from '@/hooks/use-screens'
 import { pickDefaultScreen, resolvePartnerSections } from '@/lib/screen-partner-layout'
+import { isDocumentoValido } from '@/lib/doc-validation'
 import { PartnerSectionBody } from './partner-screen-body'
 import {
   usePartnerForm, newPCon, newPEnd, newPBan, CategoryTabs,
@@ -296,6 +297,10 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
         setSaveError(socErr)
         return
       }
+    }
+    if (v.documento.trim() !== '' && !isDocumentoValido(v.category, v.documento)) {
+      setSaveError('CPF/CNPJ inválido — confira o número digitado.')
+      return
     }
     setSaving(true)
     setSaveError(null)

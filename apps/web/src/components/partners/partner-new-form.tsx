@@ -14,6 +14,7 @@ import { usePartnerSections } from '@/hooks/use-partner-sections'
 import { getLogUser } from '@/hooks/use-partner-logs'
 import { useScreens, putScreenValues } from '@/hooks/use-screens'
 import { pickDefaultScreen, resolvePartnerSections } from '@/lib/screen-partner-layout'
+import { isDocumentoValido } from '@/lib/doc-validation'
 import { PartnerSectionBody } from './partner-screen-body'
 import {
   usePartnerForm, emptyPartnerForm, newPSoc, CategoryTabs, CustomFieldsGrid,
@@ -180,9 +181,11 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
   /* ─── salvar rascunho ───────────────────────────────────── */
   const handleSaveDraft = async () => {
     const razaoSocial = v.razaoSocial.trim()
-    if (!razaoSocial) {
+    const docInvalido = v.documento.trim() !== '' && !isDocumentoValido(v.category, v.documento)
+    if (!razaoSocial || docInvalido) {
       setErrors(new Set(['identificacao']))
       setOpen(prev => { const n = new Set(prev); n.add('identificacao'); return n })
+      if (docInvalido) setSaveError('CPF/CNPJ inválido — confira o número digitado.')
       return
     }
     const socErr = isPJ ? validateSociosParticipacao(v.socios) : null
@@ -212,7 +215,9 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
     const razaoSocial = v.razaoSocial.trim()
     const err         = new Set<string>()
 
+    const docInvalido = v.documento.trim() !== '' && !isDocumentoValido(v.category, v.documento)
     if (!v.documento.trim())  err.add('identificacao')
+    if (docInvalido)          err.add('identificacao')
     if (!razaoSocial)         err.add('identificacao')
     if ((v.category === 'PF_BR' || v.category === 'PF_EST') && !v.dataNascimento.trim()) err.add('identificacao')
     if ((v.category === 'PJ_EST' || v.category === 'PF_EST') && !v.paisOrigem.trim())    err.add('identificacao')
@@ -230,7 +235,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
     setErrors(err)
     if (err.size > 0) {
       setOpen(prev => { const n = new Set(prev); err.forEach(k => n.add(k)); return n })
-      setSaveError(socErr)
+      setSaveError(socErr ?? (docInvalido ? 'CPF/CNPJ inválido — confira o número digitado.' : null))
       return
     }
 
