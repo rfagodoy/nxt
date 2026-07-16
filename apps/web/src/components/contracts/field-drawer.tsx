@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Plus, Trash2, X, Pencil, Check, GripVertical, Eye, EyeOff, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -9,6 +9,9 @@ import {
   type CustomField, type FieldType, type SectionKey, type SelectOption,
 } from '@/hooks/use-contract-fields'
 import { useContractSections, type CustomSection } from '@/hooks/use-contract-sections'
+import { useScreens } from '@/hooks/use-screens'
+import { pickDefaultScreen } from '@/lib/screen-contract-layout'
+import { FIELD_TYPE_LABELS } from '@/lib/screen-types'
 
 const FIELD_TYPES: { value: FieldType; label: string }[] = [
   { value: 'text',     label: 'Texto'           },
@@ -566,19 +569,41 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
     .map(([id, label]) => ({ id, label, fields: fields.filter(f => f.section === id) }))
     .filter(g => g.fields.length > 0)
 
+  /* campos personalizados das TELAS (Marco 3b): colunas da tela padrão do Contrato,
+     togglados como coluna pelo mesmo store dos nativos (por id do campo). */
+  const { screens: contratoScreens } = useScreens('CONTRATO')
+  const defaultScreen = useMemo(() => pickDefaultScreen(contratoScreens), [contratoScreens])
+  const screenCustom = useMemo(
+    () => (defaultScreen?.fields ?? []).filter(f => f.source === 'CUSTOM').sort((a, b) => a.order - b.order),
+    [defaultScreen],
+  )
+  const screenCustomKeys = screenCustom.map(f => f.id)
+  const screenGroups = useMemo(() => {
+    const labelOf = new Map((defaultScreen?.sections ?? []).map(s => [s.id, s.label]))
+    const by = new Map<string, typeof screenCustom>()
+    for (const f of screenCustom) {
+      const k = f.sectionId ?? '__loose__'
+      const arr = by.get(k) ?? []; arr.push(f); by.set(k, arr)
+    }
+    return [...by.entries()].map(([id, gfields]) => ({
+      id, label: labelOf.get(id) ?? 'Sem seção', fields: gfields,
+    }))
+  }, [screenCustom, defaultScreen])
+
   const allVisible =
     BASE_TABLE_COLUMNS.every(c => isColumnVisible(c.key)) &&
     NATIVE_FIELDS.every(f => isVisibleInTable(f.key)) &&
-    fields.every(f => f.visible === 'form_and_table')
+    fields.every(f => f.visible === 'form_and_table') &&
+    screenCustomKeys.every(k => isVisibleInTable(k))
 
   const setAll = (visible: boolean) => {
     setAllColumns(visible)
-    setTableForKeys(nativeKeys, visible)
+    setTableForKeys([...nativeKeys, ...screenCustomKeys], visible)
     setAllTableVisible(visible)
   }
   const restoreDefault = () => {
     setAllColumns(true)
-    setTableForKeys(nativeKeys, false)
+    setTableForKeys([...nativeKeys, ...screenCustomKeys], false)
     setAllTableVisible(false)
     window.dispatchEvent(new Event(COLUMN_ORDER_RESET_EVENT))
   }
@@ -673,6 +698,42 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
               </div>
             </div>
           ))}
+
+          {/* campos personalizados vindos das TELAS (Marco 3b) */}
+          {screenGroups.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 pt-1">
+                <div className="h-px flex-1 bg-border" />
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Campos das Telas</p>
+                <div className="h-px flex-1 bg-border" />
+              </div>
+              {screenGroups.map(({ id, label, fields: gfields }) => (
+                <div key={id} className="rounded-lg border overflow-hidden">
+                  <div className="px-3 py-2 bg-muted/40 border-b">
+                    <p className="text-xs font-semibold">{label}</p>
+                  </div>
+                  <div className="divide-y">
+                    {gfields.map(f => {
+                      const inTable = isVisibleInTable(f.id)
+                      return (
+                        <div key={f.id} className="flex items-center gap-2 px-3 py-2.5">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium truncate">{f.label}</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {FIELD_TYPE_LABELS[f.type]}
+                              {f.options?.length ? ` · ${f.options.length} opções` : ''}
+                            </p>
+                          </div>
+                          <EyeToggle visible={inTable} title={inTable ? 'Remover da tabela' : 'Adicionar na tabela'}
+                            onClick={() => setFieldVisibility(f.id, !inTable)} />
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="px-4 py-3 border-t bg-card flex items-center justify-between gap-2 shrink-0">

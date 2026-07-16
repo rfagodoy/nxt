@@ -14,6 +14,10 @@ import { SettingsDrawer } from '@/components/contracts/field-drawer'
 import { effectiveSituacao } from '@/lib/contract-options'
 import { cacheRead, pushSetting, pullSetting } from '@/lib/settings-store'
 import { useContractFields, useContractDefaultColumns, useContractFieldVisibility, NATIVE_FIELDS, COLUMN_ORDER_RESET_EVENT } from '@/hooks/use-contract-fields'
+import { useScreens, getScreenValuesBatch } from '@/hooks/use-screens'
+import { pickDefaultScreen } from '@/lib/screen-contract-layout'
+import { formatScreenCellValue } from '@/lib/screen-value-format'
+import type { ScreenField } from '@/lib/screen-types'
 import { type Row, SIT_CLS, SIT_LABEL, BRL, fmtDate } from '@/components/contracts/contract-detail-view'
 import { useWorkspace } from '@/contexts/workspace-context'
 
@@ -101,7 +105,25 @@ export default function ContratosPage() {
   const baseColumns = useMemo(() => COLUMNS.filter(c => isColumnVisible(c.key)), [isColumnVisible])
   const nativeTableCols = NATIVE_FIELDS.filter(f => isVisibleInTable(f.key)).map(f => ({ key: f.key, label: f.label }))
 
+  /* ── campos personalizados das TELAS (Marco 3b — análogo ao de Parceiros) ──
+     A tela padrão do Contrato define os campos custom disponíveis como colunas.
+     A chave da coluna é o id do campo (cuid); o valor vem de ScreenFieldValue (em lote).
+     Como a listagem é client-side, os valores mesclados nas linhas já ficam ordenáveis/
+     filtráveis/pesquisáveis por `fieldValue`. Colunas nascem OCULTAS. */
+  const { screens: contratoScreens } = useScreens('CONTRATO')
+  const defaultScreen = useMemo(() => pickDefaultScreen(contratoScreens), [contratoScreens])
+  const screenCustomFields = useMemo<ScreenField[]>(
+    () => (defaultScreen?.fields ?? []).filter(f => f.source === 'CUSTOM').sort((a, b) => a.order - b.order),
+    [defaultScreen],
+  )
+  const screenCustomCols = useMemo(
+    () => screenCustomFields.filter(f => isVisibleInTable(f.id)).map(f => ({ key: f.id, label: f.label })),
+    [screenCustomFields, isVisibleInTable],
+  )
+
   const [allContratos, setAllContratos] = useState<Row[]>([])
+  /* valores custom (Telas) por contrato: subjectId → fieldId → valor bruto */
+  const [screenVals, setScreenVals] = useState<Record<string, Record<string, string>>>({})
   const loadContratos = useCallback(async (): Promise<Row[]> => {
     try {
       const res = await apiFetch(`/api/contracts`)
@@ -116,6 +138,36 @@ export default function ContratosPage() {
   }, [])
   useEffect(() => { void loadContratos() }, [loadContratos])
 
+  /* busca os valores custom (Telas) de TODOS os contratos, em lote (listagem client-side) */
+  useEffect(() => {
+    const ids = allContratos.map(r => r.id)
+    if (!ids.length || screenCustomFields.length === 0) { setScreenVals({}); return }
+    let cancelled = false
+    void getScreenValuesBatch('CONTRACT', ids).then(rows => {
+      if (cancelled) return
+      const map: Record<string, Record<string, string>> = {}
+      for (const r of rows) (map[r.subjectId] ??= {})[r.fieldId] = r.value
+      setScreenVals(map)
+    })
+    return () => { cancelled = true }
+  }, [allContratos, screenCustomFields])
+
+  /* linhas com os valores custom já FORMATADOS sob a chave do campo (id) — assim
+     `fieldValue`/`renderCell`/ordenação/filtro/busca funcionam sem tratamento especial */
+  const contratos = useMemo<Row[]>(() => {
+    if (screenCustomFields.length === 0) return allContratos
+    return allContratos.map(r => {
+      const vals = screenVals[r.id]
+      if (!vals) return r
+      const extra: Record<string, string> = {}
+      for (const f of screenCustomFields) {
+        const fmt = formatScreenCellValue(f, vals[f.id])
+        if (fmt) extra[f.id] = fmt
+      }
+      return { ...r, ...extra } as Row
+    })
+  }, [allContratos, screenVals, screenCustomFields])
+
   /* ── column order + drag ── */
   const [columnOrder, setColumnOrder] = useState<string[]>(() => COLUMNS.map(c => c.key))
   const [dragFrom,    setDragFrom]    = useState<number | null>(null)
@@ -129,11 +181,11 @@ export default function ContratosPage() {
         storageLoaded.current = true
         const s = cacheRead<string[] | null>(COL_ORDER_KEY, null); if (s) base = s
       }
-      const allKeys = [...baseColumns.map(c => c.key), ...nativeTableCols.map(c => c.key), ...tableFields.map(f => f.name)]
+      const allKeys = [...baseColumns.map(c => c.key), ...nativeTableCols.map(c => c.key), ...tableFields.map(f => f.name), ...screenCustomCols.map(c => c.key)]
       const reconciled = [...base.filter((k: string) => allKeys.includes(k)), ...allKeys.filter(k => !base.includes(k))]
       return reconciled.join(',') === prev.join(',') && base === prev ? prev : reconciled
     })
-  }, [tableFields, baseColumns, nativeTableCols])
+  }, [tableFields, baseColumns, nativeTableCols, screenCustomCols])
 
   useEffect(() => {
     if (!storageLoaded.current) return
@@ -156,7 +208,8 @@ export default function ContratosPage() {
     ...baseColumns,
     ...nativeTableCols,
     ...tableFields.map(f => ({ key: f.name, label: f.label })),
-  ], [baseColumns, nativeTableCols, tableFields])
+    ...screenCustomCols,
+  ], [baseColumns, nativeTableCols, tableFields, screenCustomCols])
 
   const orderedColumns = useMemo(() =>
     columnOrder.map(k => allColumns.find(c => c.key === k)).filter((c): c is typeof COLUMNS[0] => !!c),
@@ -231,18 +284,30 @@ export default function ContratosPage() {
     e.stopPropagation(); deleteView(id); if (activeViewId === id) selectView(null)
   }
 
+  /* valor em TEXTO PLANO de uma coluna (base/nativa/custom) para a exportação.
+     Colunas custom já vêm formatadas na linha mesclada (`contratos`) sob a chave do campo. */
+  function cellText(row: Row, key: string): string {
+    switch (key) {
+      case 'inicio':          return fmtDate(row.inicio)
+      case 'termino':         return fmtDate(row.termino)
+      case 'valor_total':     return BRL.format(row.valor_total)
+      case 'situacao':        return SIT_LABEL[effectiveSituacao(row.situacao, row.termino)] ?? row.situacao
+      case 'valor_parcela':   return row.valor_parcela ? BRL.format(Number(row.valor_parcela)) : ''
+      case 'data_assinatura': return row.data_assinatura ? fmtDate(row.data_assinatura) : ''
+      default:                return String((row as unknown as Record<string, unknown>)[key] ?? '')
+    }
+  }
+
   const handleExport = async () => {
     const exportName = activeViewId ? (views.find(v => v.id === activeViewId)?.name ?? 'Todos') : 'Todos'
+    /* A planilha leva EXATAMENTE as colunas visíveis na tela, na ordem escolhida
+       (colunas padrão + nativas extras + personalizadas das Telas). */
     await exportExcel({
       fileName: 'contratos',
       sheet: 'Contratos',
       title: `Exportação — ${exportName}`,
-      columns: COLUMNS.map(c => ({ header: c.label })),
-      rows: filteredRows.map(r => [
-        r.numero, r.titulo, r.tipo, r.parte_principal,
-        fmtDate(r.inicio), fmtDate(r.termino), BRL.format(r.valor_total),
-        SIT_LABEL[effectiveSituacao(r.situacao, r.termino)] ?? r.situacao,
-      ]),
+      columns: orderedColumns.map(c => ({ header: c.label })),
+      rows: filteredRows.map(r => orderedColumns.map(c => cellText(r, c.key))),
     })
   }
 
@@ -253,14 +318,14 @@ export default function ContratosPage() {
   }, [activeViewId, views, sort, filters, logic])
 
   const filteredRows = useMemo(() => {
-    let data = [...allContratos]
+    let data = [...contratos]
     const q = search.trim().toLowerCase()
     if (q) data = data.filter(r => orderedColumns.some(c => fieldValue(r, c.key).toLowerCase().includes(q)))
     const active = filters.filter(f => f.value.trim())
     if (active.length) data = data.filter(r => { const res = active.map(f => applyOp(fieldValue(r, f.col), f.op, f.value)); return logic === 'AND' ? res.every(Boolean) : res.some(Boolean) })
     if (sort) data.sort((a, b) => { const cmp = fieldValue(a, sort.col).localeCompare(fieldValue(b, sort.col), 'pt-BR', { sensitivity: 'base' }); return sort.dir === 'asc' ? cmp : -cmp })
     return data
-  }, [allContratos, search, sort, filters, logic, orderedColumns])
+  }, [contratos, search, sort, filters, logic, orderedColumns])
 
   const totalFiltered      = filteredRows.length
   const totalPages         = Math.max(1, Math.ceil(totalFiltered / pageSize))
