@@ -58,11 +58,12 @@ export function proximaDataReajusteContrato(c: CoreContract): string {
   return datas[0] ?? ''
 }
 
-/** % ACUMULADO do índice na janela da periodicidade terminando na competência,
- *  por composição: fator = ∏(1 + varₘ/100).
- *  Devolve null quando NENHUM mês da janela tem valor publicado.
- *  `completo: false` avisa que a janela está incompleta (índice ainda não publicado) —
- *  aplicar reajuste com janela incompleta subestima o percentual. */
+/** % ACUMULADO do índice sobre a janela da periodicidade que ANTECEDE a competência
+ *  (os N meses FECHADOS antes do aniversário — convenção de mercado do reajuste anual:
+ *  aniversário 2027-01, anual → jan..dez/2026, todos já publicados). Não inclui o mês do
+ *  aniversário (índice ainda não sai na data) — isso é o que permite aplicar NA DATA.
+ *  Composição: fator = ∏(1 + varₘ/100). Null quando NENHUM mês da janela tem valor.
+ *  `completo: false` avisa que a janela ainda não está toda publicada. */
 export function acumuladoPeriodo(
   serie: Record<string, number> | undefined,
   periodicidade: string,
@@ -73,7 +74,7 @@ export function acumuladoPeriodo(
   const n = stepMeses(periodicidade)
   let fator = 1
   let achou = 0
-  for (let k = 0; k < n; k++) {
+  for (let k = 1; k <= n; k++) {           // k=1..n → cmp-1 … cmp-n (os N meses ANTERIORES ao aniversário)
     const mes = addMesesComp(cmp, -k)
     const varM = mes ? serie[mes] : undefined
     if (typeof varM === 'number' && Number.isFinite(varM)) {

@@ -44,18 +44,37 @@ describe('proximaDataReajuste', () => {
 })
 
 describe('acumuladoPeriodo', () => {
-  const serie = { '2026-10': 1, '2026-11': 1, '2026-12': 1 }
+  /* janela = os N meses ANTERIORES à competência (aniversário). Trimestral em 2026-12 →
+     set/out/nov 2026 (fechados), NÃO dez/2026. */
+  const serie = { '2026-09': 1, '2026-10': 1, '2026-11': 1 }
 
-  it('compõe multiplicativamente os meses da janela', () => {
+  it('compõe multiplicativamente os meses ANTERIORES ao aniversário', () => {
     const r = acumuladoPeriodo(serie, 'Trimestral', '2026-12')
-    expect(r?.percentual).toBeCloseTo(3.0301, 4) // 1.01³ − 1
+    expect(r?.percentual).toBeCloseTo(3.0301, 4) // 1.01³ − 1 (set+out+nov)
     expect(r?.completo).toBe(true)
   })
 
-  it('janela incompleta é sinalizada — índice ainda não publicado', () => {
+  it('NÃO inclui o mês do aniversário — usa só os meses fechados', () => {
+    // dez/2026 no lugar de set/2026: fora da janela trimestral de 2026-12 → só 2 meses valem
+    const semSet = { '2026-10': 1, '2026-11': 1, '2026-12': 1 }
+    const r = acumuladoPeriodo(semSet, 'Trimestral', '2026-12')
+    expect(r?.completo).toBe(false)               // set/2026 (necessário) está ausente
+    expect(r?.percentual).toBeCloseTo(2.0100, 4)  // 1.01² − 1 (out+nov; dez é ignorado)
+  })
+
+  it('janela anual incompleta é sinalizada', () => {
     const r = acumuladoPeriodo(serie, 'Anual', '2026-12')
     expect(r?.completo).toBe(false)
     expect(r?.percentual).toBeCloseTo(3.0301, 4) // só 3 dos 12 meses existem
+  })
+
+  it('reajuste anual APLICA NA DATA com o ano decorrido publicado (não espera o mês do aniversário)', () => {
+    // aniversário jan/2027; janela = jan..dez/2026 (todos fechados). NÃO precisa de jan/2027.
+    const anoFechado: Record<string, number> = {}
+    for (let m = 1; m <= 12; m++) anoFechado[`2026-${String(m).padStart(2, '0')}`] = 0.5
+    const r = acumuladoPeriodo(anoFechado, 'Anual', '2027-01')
+    expect(r?.completo).toBe(true) // 12/12 já publicados → aplicaria na data
+    expect(r?.percentual).toBeCloseTo((1.005 ** 12 - 1) * 100, 4)
   })
 
   it('nenhum mês publicado devolve null', () => {
@@ -247,7 +266,8 @@ describe('arredondamento', () => {
 })
 
 describe('planejarReajuste — decide se o motor aplica', () => {
-  /* 0,5% ao mês em 2026 e 2027 — cobre a janela de 12 meses que termina em 2027-01 */
+  /* 0,5% ao mês em 2026 e 2027 — cobre a janela de 12 meses FECHADOS (jan..dez/2026) do
+     aniversário 2027-01 */
   const serieCheia: Record<string, number> = {}
   for (const ano of [2026, 2027]) for (let m = 1; m <= 12; m++) serieCheia[`${ano}-${String(m).padStart(2, '0')}`] = 0.5
   /* linha ancorada em 2026-01, anual → próxima competência 2027-01 */
