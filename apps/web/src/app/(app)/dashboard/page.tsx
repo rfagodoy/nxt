@@ -32,7 +32,7 @@ interface Summary {
 }
 
 /* ─────────────────────────── helpers ─────────────────────────────────────── */
-const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
+const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }) // 2 casas (centavos) por padrão
 const NUM = new Intl.NumberFormat('pt-BR')
 
 const ACCENT = 'hsl(154 70% 40%)' // Emerald da marca (sparklines, séries)
