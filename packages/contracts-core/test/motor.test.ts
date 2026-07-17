@@ -26,7 +26,7 @@ const contratoBase = () => ({
   terminoVigencia: '2020-04-26',
   valorTotal: 60000, valorParcela: 5000, qtdParcelas: 12,
   aditivos: [], renovacoes: [], reajustesRealizados: [], recebimentos: [],
-  reajustes: [{ id: 'r1', indice: 'ipca', data: '2019-04-01', periodicidade: 'Anual', aplicacao: 'AUTOMATICA', base: 'parcela' }],
+  reajustes: [{ id: 'r1', indice: 'ipca', data: '2020-04-01', periodicidade: 'Anual', aplicacao: 'AUTOMATICA', base: 'parcela' }],
   pagamentos: Array.from({ length: 12 }, (_, i) => {
     const d = new Date(Date.UTC(2019, 4 + i, 27))
     return { id: `p${i + 1}`, status: 'previsto', vencimento: d.toISOString().slice(0, 10), data: '', valor: 5000, forma: '' }

@@ -41,9 +41,13 @@ export function realizadosDaLinha(c: CoreContract, reajusteId: string): CoreReaj
 export function proximaDataReajuste(c: CoreContract, r: CoreReajuste): string {
   if (!r.data) return ''
   const aplicadas = realizadosDaLinha(c, r.id).map(x => comp(String(x.competencia))).filter(Boolean)
-  const anchor = aplicadas.length ? aplicadas[aplicadas.length - 1] : comp(String(r.data))
-  if (!anchor) return ''
-  const prox = addMesesComp(anchor, stepMeses(r.periodicidade))
+  /* PRIMEIRO reajuste = a PRÓPRIA data-base: a data-base é a data em que o reajuste passa
+     a INCIDIR (não uma âncora um período antes). A janela do índice usa os 12 meses
+     fechados anteriores — data-base fev/2024 aplica o acumulado de fev/2023..jan/2024.
+     A partir daí, próximo = última competência aplicada + periodicidade. */
+  const prox = aplicadas.length
+    ? addMesesComp(aplicadas[aplicadas.length - 1], stepMeses(r.periodicidade))
+    : comp(String(r.data))
   return prox ? `${prox}-01` : ''
 }
 
