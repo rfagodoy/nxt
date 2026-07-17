@@ -16,14 +16,20 @@ export function currentComp(): string {
   return todayISO().slice(0, 7)
 }
 
-/** Soma anos/meses/dias a uma data ISO. '' se a data for inválida. */
+/** Soma anos/meses/dias a uma data ISO. '' se a data for inválida.
+ *  Anos+meses NÃO usam o overflow nativo do JS (`setUTCMonth`): somar 1 mês a 31/01
+ *  daria 03/03, pulando fevereiro. O dia é CLAMPADO ao último dia do mês de destino
+ *  (31/01 +1m → 28|29/02) — convenção "end-of-month" padrão (date-fns/Java/.NET);
+ *  só então os `dias` são somados. */
 export function addToDate(iso: string, anos: number, meses: number, dias: number): string {
   const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
   if (!y || !m || !d) return ''
-  const dt = new Date(Date.UTC(y, m - 1, d))
-  dt.setUTCFullYear(dt.getUTCFullYear() + anos)
-  dt.setUTCMonth(dt.getUTCMonth() + meses)
-  dt.setUTCDate(dt.getUTCDate() + dias)
+  const totalMonths = (y * 12 + (m - 1)) + (anos * 12 + meses)
+  const ty = Math.floor(totalMonths / 12)
+  const tm = ((totalMonths % 12) + 12) % 12 // 0-based, seguro p/ meses negativos
+  const ultimoDia = new Date(Date.UTC(ty, tm + 1, 0)).getUTCDate() // dia 0 do mês seguinte = último dia
+  const dt = new Date(Date.UTC(ty, tm, Math.min(d, ultimoDia)))
+  if (dias) dt.setUTCDate(dt.getUTCDate() + dias)
   return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`
 }
 
