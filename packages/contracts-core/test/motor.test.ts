@@ -49,6 +49,14 @@ describe('motor: reajuste e renovação intercalados', () => {
     expect(terminoVigente(c)).toBe('2027-04-26')
   })
 
+  it('VENCIDO que NÃO renova: reajuste só até o término, nada no período morto (fix #3)', () => {
+    const c = contratoBase()
+    const { reajustes, renovacoes } = avancarContrato(c, { ...opts(HOJE), permitirRenovar: false })
+    expect(renovacoes).toHaveLength(0) // não renova
+    // com o overflow antigo aplicava 7 (2020..2026, no período morto); agora só a de 2020-04 (≤ término)
+    expect(reajustes).toHaveLength(1)
+  })
+
   it('cada período fica com o preço do SEU ano — não todos no preço de hoje', () => {
     const c = contratoBase()
     avancar(c)
