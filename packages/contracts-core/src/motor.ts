@@ -132,9 +132,14 @@ export function avancarContrato(c: CoreContract, opts: AvancarOpts & { permitirR
     const venceu = !(c as ComPrazo).prazoIndeterminado && !!termino && termino < opts.today
     const renovarAgora = venceu && opts.permitirRenovar !== false && temPrazo
 
-    /* drena os reajustes da vigência corrente: até o TÉRMINO quando vai renovar (o próximo
-       período nasce depois dele), até HOJE quando não renova (aplica tudo que já venceu). */
-    reajustes.push(...drenarReajustes(c, opts, renovarAgora ? termino : opts.today, seq))
+    /* drena os reajustes da vigência CORRENTE. Limite = mín(término, hoje) para um contrato
+       com prazo: nunca aplica reajuste no "período morto" pós-término (contrato vencido que
+       NÃO renova — encerrar/manual/auto-renov off — inflaria parcelaVigente e criaria
+       auditoria espúria). Renovando: mín = término (o próximo período nasce depois).
+       Ativo: mín = hoje. Prazo indeterminado (sem término): sempre até hoje. */
+    const indeterminado = !!(c as ComPrazo).prazoIndeterminado
+    const limiteDreno = (!indeterminado && termino && termino < opts.today) ? termino : opts.today
+    reajustes.push(...drenarReajustes(c, opts, limiteDreno, seq))
 
     if (!renovarAgora) break
 
