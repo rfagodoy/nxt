@@ -1,4 +1,5 @@
 import { HttpException, Injectable, NotFoundException } from '@nestjs/common'
+import { isValidCNPJ } from '../partners/doc-validation'
 
 export interface CnpjSocio {
   nome: string
@@ -58,6 +59,9 @@ export class CnpjService {
   async lookup(rawCnpj: string): Promise<CnpjResult> {
     const cnpj = (rawCnpj ?? '').replace(/\D/g, '')
     if (cnpj.length !== 14) throw new HttpException('CNPJ inválido', 400)
+    // valida o dígito verificador ANTES de bater no provedor externo (evita 502 confuso
+    // p/ CNPJ malformado e uma chamada de rede desnecessária).
+    if (!isValidCNPJ(cnpj)) throw new HttpException('CNPJ inválido', 400)
 
     const data = await this.fetchProvider(cnpj)
 

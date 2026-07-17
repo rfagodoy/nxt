@@ -119,7 +119,13 @@ export class ContractSchedulerService implements OnModuleInit {
     setTimeout(() => { void this.runAll() }, 20_000)
   }
 
+  /** Trava anti-concorrência: o boot (+20s) pode coincidir com o agendamento das 3h ou
+   *  com um POST /run manual. Duas execuções sobre o mesmo estado duplicam a auditoria. */
+  private running = false
+
   private async runAll() {
+    if (this.running) { this.logger.warn('runAll já em execução — ignorando disparo concorrente'); return }
+    this.running = true
     try {
       const orgs = await this.prisma.contract.findMany({ distinct: ['organizationId'], select: { organizationId: true } })
       for (const { organizationId } of orgs) {
@@ -128,6 +134,7 @@ export class ContractSchedulerService implements OnModuleInit {
       }
       await this.sweepOrphans()  // storage é global (a key carrega o prefixo da org) → varre uma vez só
     } catch (e) { this.logger.error(`runAll falhou: ${String(e)}`) }
+    finally { this.running = false }
   }
 
   /* FRENTE 2 — varredura de órfãos agendada. A Frente 1 (apagar no salvar) cobre remover/
@@ -189,8 +196,10 @@ export class ContractSchedulerService implements OnModuleInit {
           const primeira = Object.keys(existente).length === 0
           const dados = await this.contracts.importBcb(idx.code as string, undefined, undefined, primeira)
           if (!dados.length) continue
+          // NÃO sobrescreve competência já existente (valor manual é a fonte de verdade;
+          // índice publicado é final). O import só PREENCHE as competências ausentes.
           const merged = { ...existente }
-          for (const d of dados) merged[d.competencia] = d.valor
+          for (const d of dados) if (!(d.competencia in merged)) merged[d.competencia] = d.valor
           valores[idx.id] = merged
           atualizados++
         } catch (e) { this.logger.warn(`importIndices ${idx.label} (${idx.code}) falhou: ${String(e)}`) }

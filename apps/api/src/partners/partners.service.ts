@@ -10,6 +10,17 @@ import {
 
 /** SQL Server limita ~2100 parâmetros/consulta; fatiamos os `in` de ids em blocos. */
 const IN_CHUNK = 1000
+
+/** Condição Prisma sobre `id` FATIADA p/ não estourar o limite de ~2100 parâmetros do
+ *  SQL Server: `in` grande vira OR de blocos; `notIn` grande vira AND de blocos. */
+function idCondition(ids: string[], negate: boolean): object {
+  if (ids.length <= IN_CHUNK) return { id: { [negate ? 'notIn' : 'in']: ids } }
+  const chunks: string[][] = []
+  for (let i = 0; i < ids.length; i += IN_CHUNK) chunks.push(ids.slice(i, i + IN_CHUNK))
+  return negate
+    ? { AND: chunks.map((c) => ({ id: { notIn: c } })) }
+    : { OR:  chunks.map((c) => ({ id: { in: c } })) }
+}
 /** Colunas nativas conhecidas (nome/status → Prisma; cidade/estado/contato → JSON).
  *  Um filtro/sort fora deste conjunto é candidato a campo personalizado das Telas. */
 const NATIVE_COLS = new Set(['nome', 'categoria', 'identificador', 'status', 'cidade', 'estado', 'contato'])
@@ -280,7 +291,7 @@ function buildWhere(
       { documento:    { contains: q } },
     ]
     /* busca "todas as colunas" também alcança os valores custom (por id resolvido) */
-    if (searchCustomIds.length) or.push({ id: { in: searchCustomIds } })
+    if (searchCustomIds.length) or.push(idCondition(searchCustomIds, false))
     conditions.push({ OR: or })
   }
 
@@ -437,7 +448,7 @@ export class PartnersService {
       `WHERE organizationId = @P1 AND JSON_VALUE(${spec.col}, '${spec.path}') ${cmp}`
     const rows = await this.prisma.$queryRawUnsafe<Array<{ id: string }>>(sql, organizationId, param)
     const ids = rows.map((r) => r.id)
-    return negate ? { id: { notIn: ids } } : { id: { in: ids } }
+    return idCondition(ids, negate)
   }
 
   /** Campos personalizados do Parceiro (source=CUSTOM da tela do FORNECEDOR): id → tipo/opções. */
@@ -461,7 +472,7 @@ export class PartnersService {
       select: { subjectId: true },
     })
     const ids = [...new Set(rows.map((r) => r.subjectId))]
-    return isNegateOp(f.op) ? { id: { notIn: ids } } : { id: { in: ids } }
+    return idCondition(ids, isNegateOp(f.op))
   }
 
   /** Ids de parceiros cujos valores custom casam a busca global (por rótulo, resolvendo listas). */
@@ -473,14 +484,16 @@ export class PartnersService {
     return [...new Set(rows.map((r) => r.subjectId))]
   }
 
-  /** Totais por situação (org-wide, independem de filtro/sort). */
+  /** Totais por situação (org-wide, independem de filtro/sort). `total` é COUNT(*) real
+   *  (não soma dos 3 status) → não some registro com status fora do trio conhecido. */
   private async computeStats(organizationId: string) {
-    const [ativo, inativo, emCad] = await this.prisma.$transaction([
+    const [total, ativo, inativo, emCad] = await this.prisma.$transaction([
+      this.prisma.partner.count({ where: { organizationId } }),
       this.prisma.partner.count({ where: { organizationId, status: 'ATIVO' } }),
       this.prisma.partner.count({ where: { organizationId, status: 'INATIVO' } }),
       this.prisma.partner.count({ where: { organizationId, status: 'EM_CADASTRAMENTO' } }),
     ])
-    return { total: ativo + inativo + emCad, ativo, inativo, emCadastramento: emCad }
+    return { total, ativo, inativo, emCadastramento: emCad }
   }
 
   /** Resolve Natureza Jurídica/CNAE da página → descrição e mapeia para Row. */
@@ -578,7 +591,7 @@ export class PartnersService {
 
     const pageIds = sorted.slice((page - 1) * pageSize, page * pageSize)
     const rows = pageIds.length
-      ? await this.prisma.partner.findMany({ where: { id: { in: pageIds } }, select: PARTNER_SELECT })
+      ? await this.prisma.partner.findMany({ where: idCondition(pageIds, false), select: PARTNER_SELECT })
       : []
     const byId = new Map((rows as PartnerSelectRow[]).map((r) => [r.id, r]))
     const ordered = pageIds.map((id) => byId.get(id)).filter((r): r is PartnerSelectRow => !!r)
