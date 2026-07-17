@@ -152,17 +152,25 @@ export class CnpjService {
   }
 }
 
-/** Código de natureza jurídica IBGE: 4 dígitos → "XXX-X" (ex.: 2062 → 206-2). */
-function formatNatureza(code: number | string | undefined): string {
-  const d = String(code ?? '').replace(/\D/g, '')
-  if (d.length !== 4) return d
+/** Código de natureza jurídica IBGE: 4 dígitos → "XXX-X" (ex.: 2062 → 206-2).
+ *  A BrasilAPI devolve como NÚMERO — `padStart` recupera zero à esquerda. */
+export function formatNatureza(code: number | string | undefined): string {
+  const raw = String(code ?? '').replace(/\D/g, '')
+  if (!raw) return ''
+  const d = raw.padStart(4, '0')
+  if (d.length !== 4) return raw
   return `${d.slice(0, 3)}-${d.slice(3)}`
 }
 
-/** Código CNAE subclasse: 7 dígitos → "DDDD-D/DD" (ex.: 6201501 → 6201-5/01). */
-function formatCnae(code: number | string | undefined): string {
-  const d = String(code ?? '').replace(/\D/g, '')
-  if (d.length !== 7) return d
+/** Código CNAE subclasse: 7 dígitos → "DDDD-D/DD" (ex.: 6201501 → 6201-5/01).
+ *  ⚠️ CNAEs da Seção A (agro) começam com 0 e a BrasilAPI os devolve como número
+ *  (0115-6/00 chega "115600"); `padStart(7,'0')` recupera o zero e mantém o match
+ *  com o catálogo IBGE. */
+export function formatCnae(code: number | string | undefined): string {
+  const raw = String(code ?? '').replace(/\D/g, '')
+  if (!raw) return ''
+  const d = raw.padStart(7, '0')
+  if (d.length !== 7) return raw
   return `${d.slice(0, 4)}-${d.slice(4, 5)}/${d.slice(5)}`
 }
 
