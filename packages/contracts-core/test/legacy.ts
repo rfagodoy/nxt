@@ -70,14 +70,19 @@ export function consumoBack(c: any): number {
 }
 
 /* ── backend: laço de geração de parcelas da RENOVAÇÃO automática, como era
-      em contract-scheduler.service.ts antes de usar gerarParcelas() ── */
+      em contract-scheduler.service.ts antes de usar gerarParcelas() ──
+   NOTA: a referência de data foi CORRIGIDA junto com o src (clamp end-of-month) — o
+   overflow de mês era um BUG, não comportamento a preservar. A paridade agora prova
+   que gerarParcelas gera o MESMO cronograma (correto) da geração de referência. */
 function addToDateLegacy(iso: string, anos: number, meses: number, dias: number): string {
   const pad = (n: number) => String(n).padStart(2, '0')
   const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
-  const dt = new Date(Date.UTC(y, m - 1, d))
-  dt.setUTCFullYear(dt.getUTCFullYear() + anos)
-  dt.setUTCMonth(dt.getUTCMonth() + meses)
-  dt.setUTCDate(dt.getUTCDate() + dias)
+  const totalMonths = (y * 12 + (m - 1)) + (anos * 12 + meses)
+  const ty = Math.floor(totalMonths / 12)
+  const tm = ((totalMonths % 12) + 12) % 12
+  const ultimoDia = new Date(Date.UTC(ty, tm + 1, 0)).getUTCDate()
+  const dt = new Date(Date.UTC(ty, tm, Math.min(d, ultimoDia)))
+  if (dias) dt.setUTCDate(dt.getUTCDate() + dias)
   return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`
 }
 

@@ -150,10 +150,10 @@ describe('o prazo pode vir de fora do cadastro do contrato', () => {
   it('renova 18 meses mesmo sem prazo no contrato', () => {
     const r = renovar(semPrazoCadastrado, { meses: 18 })!
     expect(r.renovacao.terminoAnterior).toBe('2026-12-31')
-    /* 31/12 + 18 meses cai em "31 de junho", que não existe: a data transborda para 01/07.
-       É o comportamento do Date do JS, e o do addToDate desde sempre. Documentado, não
-       corrigido — mudá-lo alteraria o término de renovações já gravadas. */
-    expect(r.renovacao.novoTermino).toBe('2028-07-01')
+    /* 31/12 + 18 meses cai em "31 de junho", que não existe: o dia é CLAMPADO ao último
+       dia de junho (30). Convenção end-of-month padrão de mercado (date-fns/Java/.NET) —
+       era um overflow bugado (transbordava p/ 01/07). Consistente com o dia 30 abaixo. */
+    expect(r.renovacao.novoTermino).toBe('2028-06-30')
   })
 
   it('dia que existe no mês de destino não transborda', () => {
