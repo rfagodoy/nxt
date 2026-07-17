@@ -368,40 +368,49 @@ export function IdentificacaoFields({ form, ro, isVisible = always, customFields
   const [cnpjLoading, setCnpjLoading] = useState(false)
   const [cnpjMsg,     setCnpjMsg]     = useState<{ tone: 'error' | 'warn' | 'ok'; text: string } | null>(null)
 
-  const applyCnpj = (d: CnpjLookup) => {
+  /** Preenche o cadastro com o cartão CNPJ. `overwrite`=true (botão "Buscar", intento
+   *  explícito) → dado da Receita vence; `overwrite`=false (auto ao digitar) → preenche só
+   *  o que está VAZIO (não apaga o que o usuário já digitou, ex.: em edição). */
+  const applyCnpj = (d: CnpjLookup, overwrite: boolean) => {
+    const pick = (rfb: string, cur: string) => (overwrite ? (rfb || cur) : (cur || rfb))
     form.setValues(prev => {
       const e0 = prev.enderecos[0]
       const c0 = prev.contatos[0]
+      const cepFmt  = d.endereco.cep ? maskCEP(d.endereco.cep) : ''
+      const foneFmt = d.telefone ? maskFone(d.telefone) : ''
+      const sociosRfb = (d.socios ?? []).map(s => ({ ...newPSoc(), nome: s.nome, documento: s.documento, cargo: s.qualificacao }))
+      const temSocioReal = (prev.socios ?? []).some(s => s.nome?.trim())
+      const temCnaeSec   = (prev.cnaesSecundarios ?? []).length > 0
       return {
         ...prev,
-        razaoSocial:      d.razaoSocial      || prev.razaoSocial,
-        nomeFantasia:     d.nomeFantasia     || prev.nomeFantasia,
-        dataAbertura:     d.dataAbertura     || prev.dataAbertura,
-        naturezaJuridica: d.naturezaJuridica || prev.naturezaJuridica,
-        cnaePrincipal:    d.cnaePrincipal    || prev.cnaePrincipal,
-        cnaesSecundarios: d.cnaesSecundarios?.length ? d.cnaesSecundarios : prev.cnaesSecundarios,
+        razaoSocial:      pick(d.razaoSocial, prev.razaoSocial),
+        nomeFantasia:     pick(d.nomeFantasia, prev.nomeFantasia),
+        dataAbertura:     pick(d.dataAbertura, prev.dataAbertura),
+        naturezaJuridica: pick(d.naturezaJuridica, prev.naturezaJuridica),
+        cnaePrincipal:    pick(d.cnaePrincipal, prev.cnaePrincipal),
+        cnaesSecundarios: (overwrite ? d.cnaesSecundarios?.length : !temCnaeSec && d.cnaesSecundarios?.length)
+          ? d.cnaesSecundarios : prev.cnaesSecundarios,
         enderecos: e0 ? [{ ...e0,
-          cep:         (d.endereco.cep && maskCEP(d.endereco.cep)) || e0.cep,
-          logradouro:  d.endereco.logradouro  || e0.logradouro,
-          numero:      d.endereco.numero      || e0.numero,
-          complemento: d.endereco.complemento || e0.complemento,
-          bairro:      d.endereco.bairro      || e0.bairro,
-          cidade:      d.endereco.cidade      || e0.cidade,
-          estado:      d.endereco.estado      || e0.estado,
+          cep:         pick(cepFmt, e0.cep),
+          logradouro:  pick(d.endereco.logradouro,  e0.logradouro),
+          numero:      pick(d.endereco.numero,      e0.numero),
+          complemento: pick(d.endereco.complemento, e0.complemento),
+          bairro:      pick(d.endereco.bairro,      e0.bairro),
+          cidade:      pick(d.endereco.cidade,      e0.cidade),
+          estado:      pick(d.endereco.estado,      e0.estado),
         }, ...prev.enderecos.slice(1)] : prev.enderecos,
         contatos: c0 ? [{ ...c0,
-          email:    d.email    || c0.email,
-          telefone: (d.telefone && maskFone(d.telefone)) || c0.telefone,
+          email:    pick(d.email, c0.email),
+          telefone: pick(foneFmt, c0.telefone),
         }, ...prev.contatos.slice(1)] : prev.contatos,
-        // QSA → Sócios. Sem participação na Receita → deixa vazia (evita a trava de soma 100%).
-        socios: d.socios?.length
-          ? d.socios.map(s => ({ ...newPSoc(), nome: s.nome, documento: s.documento, cargo: s.qualificacao }))
-          : prev.socios,
+        // QSA → Sócios (sem participação → vazia, evita a trava de soma 100%). Em auto,
+        // só substitui se ainda não há sócio real (não apaga o quadro digitado).
+        socios: (overwrite ? sociosRfb.length : !temSocioReal && sociosRfb.length) ? sociosRfb : prev.socios,
       }
     })
   }
 
-  const fetchCnpj = async (raw: string) => {
+  const fetchCnpj = async (raw: string, overwrite = false) => {
     const digits = raw.replace(/\D/g, '')
     if (digits.length !== 14) return
     setCnpjLoading(true)
@@ -411,7 +420,7 @@ export function IdentificacaoFields({ form, ro, isVisible = always, customFields
       if (res.status === 404) { setCnpjMsg({ tone: 'error', text: 'CNPJ não encontrado.' }); return }
       if (!res.ok) throw new Error()
       const d = await res.json() as CnpjLookup
-      applyCnpj(d)
+      applyCnpj(d, overwrite)
       setCnpjMsg(d.situacao && d.situacao !== 'ATIVA'
         ? { tone: 'warn', text: `Preenchido. Atenção: situação cadastral "${d.situacao}".` }
         : { tone: 'ok', text: 'Dados preenchidos pela Receita Federal.' })
@@ -447,7 +456,7 @@ export function IdentificacaoFields({ form, ro, isVisible = always, customFields
                       onChange={e => { const m = docMask(e.target.value); form.set('documento', m); if (isValidCNPJ(m)) void fetchCnpj(m) }}
                       placeholder={docPlaceholder} maxLength={18}
                       className={cn(inputCls, docInvalido && 'border-red-500 focus-visible:ring-red-500')} />
-                    <button type="button" onClick={() => void fetchCnpj(v.documento)} disabled={cnpjLoading || !isValidCNPJ(v.documento)}
+                    <button type="button" onClick={() => void fetchCnpj(v.documento, true)} disabled={cnpjLoading || !isValidCNPJ(v.documento)}
                       className="px-2.5 h-8 shrink-0 text-xs rounded-md border hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
                       {cnpjLoading && <Loader2 className="h-3 w-3 animate-spin" />}Buscar
                     </button>
