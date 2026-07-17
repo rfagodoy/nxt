@@ -14,9 +14,15 @@ describe('stepMeses', () => {
 })
 
 describe('proximaDataReajuste', () => {
-  it('sem reajuste aplicado, ancora na data base do cadastro', () => {
-    const r = despesaComReajuste.reajustes[0]
+  it('sem reajuste aplicado, o 1º reajuste incide NA PRÓPRIA data-base', () => {
+    const r = despesaComReajuste.reajustes[0]  // data-base 2027-01
     expect(proximaDataReajuste(despesaComReajuste, r)).toBe('2027-01-01')
+  })
+
+  it('data-base fev/2024 → 1º reajuste em fev/2024 (não fev/2025)', () => {
+    // regressão do CCT_2026_0001: a data-base é a data em que o reajuste passa a incidir
+    const c: any = { ...despesaSimples, reajustes: [{ id: 'r1', indice: '2', data: '2024-02-01', periodicidade: 'Anual' }] }
+    expect(proximaDataReajuste(c, c.reajustes[0])).toBe('2024-02-01')
   })
 
   it('com reajuste aplicado, ancora na última competência', () => {
@@ -26,7 +32,7 @@ describe('proximaDataReajuste', () => {
 
   it('linha sem data base não agenda nada; sem índice, agenda (linha em preenchimento)', () => {
     expect(proximaDataReajuste(despesaComReajuste, { id: 'x', indice: '1', data: '', periodicidade: 'Anual' })).toBe('')
-    expect(proximaDataReajuste(despesaComReajuste, { id: 'x', indice: '', data: '2026-01-01', periodicidade: 'Anual' })).toBe('2027-01-01')
+    expect(proximaDataReajuste(despesaComReajuste, { id: 'x', indice: '', data: '2027-01-01', periodicidade: 'Anual' })).toBe('2027-01-01')
   })
 
   it('mas o CONTRATO só agenda por linhas completas (índice + data base)', () => {
@@ -270,10 +276,11 @@ describe('planejarReajuste — decide se o motor aplica', () => {
      aniversário 2027-01 */
   const serieCheia: Record<string, number> = {}
   for (const ano of [2026, 2027]) for (let m = 1; m <= 12; m++) serieCheia[`${ano}-${String(m).padStart(2, '0')}`] = 0.5
-  /* linha ancorada em 2026-01, anual → próxima competência 2027-01 */
+  /* data-base 2027-01 = a data em que o 1º reajuste incide (Design: data-base é a data
+     do reajuste, não uma âncora um ano antes) → competência 2027-01 */
   const comReajuste = (over: any = {}) => ({
     ...despesaComReajuste,
-    reajustes: [{ id: 'r1', indice: '1', data: '2026-01-01', periodicidade: 'Anual', ...over }],
+    reajustes: [{ id: 'r1', indice: '1', data: '2027-01-01', periodicidade: 'Anual', ...over }],
   })
 
   it('linha sem índice não tem agenda', () => {

@@ -27,7 +27,7 @@ export const despesaSimples: any = {
 export const despesaComReajuste: any = {
   ...despesaSimples,
   numero: 'FIX-002',
-  reajustes: [{ id: 'r1', indice: '1', data: '2026-01-01', periodicidade: 'Anual' }],
+  reajustes: [{ id: 'r1', indice: '1', data: '2027-01-01', periodicidade: 'Anual' }],
 }
 
 /** Aditivo ATIVO (prorroga + acresce valor + nova parcela) e outro em RASCUNHO (não aplica). */
@@ -72,7 +72,7 @@ export const receita: any = {
   terminoVigencia: '2026-12-31',
   valorTotal: 6000, valorParcela: 500, qtdParcelas: 12,
   aditivos: [], renovacoes: [], reajustesRealizados: [],
-  reajustes: [{ id: 'r1', indice: '1', data: '2026-01-01', periodicidade: 'Semestral' }],
+  reajustes: [{ id: 'r1', indice: '1', data: '2026-07-01', periodicidade: 'Semestral' }],
   pagamentos: [],
   recebimentos: Array.from({ length: 12 }, (_, i) =>
     lanc(`r${i + 1}`, `2026-${String(i + 1).padStart(2, '0')}-10`, 500, i < 2 ? 'pago' : 'previsto')),
@@ -84,7 +84,7 @@ export const ambos: any = {
   terminoVigencia: '2026-12-31',
   valorTotal: 18000, valorParcela: 1000, qtdParcelas: 12,
   aditivos: [], renovacoes: [], reajustesRealizados: [],
-  reajustes: [{ id: 'r1', indice: '1', data: '2026-01-01', periodicidade: 'Anual' }],
+  reajustes: [{ id: 'r1', indice: '1', data: '2027-01-01', periodicidade: 'Anual' }],
   pagamentos: Array.from({ length: 6 }, (_, i) => lanc(`p${i + 1}`, `2026-${String(i + 1).padStart(2, '0')}-10`, 1000)),
   recebimentos: Array.from({ length: 6 }, (_, i) => lanc(`r${i + 1}`, `2026-${String(i + 1).padStart(2, '0')}-10`, 2000)),
 }
@@ -95,7 +95,7 @@ export const semCronograma: any = {
   terminoVigencia: '2026-12-31',
   valorTotal: 12000, valorParcela: 1000, qtdParcelas: 12,
   aditivos: [], renovacoes: [], reajustesRealizados: [],
-  reajustes: [{ id: 'r1', indice: '1', data: '2026-01-01', periodicidade: 'Anual' }],
+  reajustes: [{ id: 'r1', indice: '1', data: '2027-01-01', periodicidade: 'Anual' }],
   pagamentos: [], recebimentos: [],
 }
 
