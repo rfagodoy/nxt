@@ -173,7 +173,7 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
             <Section key={s.id} icon={s.icon} title={s.label}
               isOpen={open.has(s.key)} onToggle={() => toggleSection(s.key)} hasError={errors.has(s.key)}>
               <ContractSectionNative section={s} ctx={{
-                form, moedaCode: v.moeda, autoNumero, numeroPreview,
+                form, moedaCode: v.moeda, autoNumero, numeroPreview, dualView: true,
                 onOpenSearch: (parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds }),
                 onNewPartner: () => router.push('/modules/parceiros/new?from=contratos'),
               }} />
@@ -201,13 +201,13 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
 
         {temPagamentos(v.natureza) && (
           <Section icon={TrendingDown} title="Pagamentos realizados" isOpen={open.has('pagamentos')} onToggle={() => toggleSection('pagamentos')}>
-            <LancamentosFields form={form} field="pagamentos" moedaCode={v.moeda} />
+            <LancamentosFields form={form} field="pagamentos" moedaCode={v.moeda} dualView />
           </Section>
         )}
 
         {temRecebimentos(v.natureza) && (
           <Section icon={TrendingUp} title="Recebimentos realizados" isOpen={open.has('recebimentos')} onToggle={() => toggleSection('recebimentos')}>
-            <LancamentosFields form={form} field="recebimentos" moedaCode={v.moeda} />
+            <LancamentosFields form={form} field="recebimentos" moedaCode={v.moeda} dualView />
           </Section>
         )}
 
