@@ -278,9 +278,10 @@ export class ContractsService {
     }
   }
 
-  async create(dto: CreateContractDto, organizationId: string, actor?: string) {
+  async create(dto: CreateContractDto, organizationId: string, actor?: string, actorId?: string) {
     /* `user` do payload é DESCARTADO (só serve para não vazar como coluna): o autor da
-       auditoria vem do token autenticado (`actor`), que o cliente não consegue forjar. */
+       auditoria vem do token autenticado (`actor`/`actorId`), que o cliente não consegue forjar.
+       `user` é o snapshot do nome; `userId` resolve o nome ATUAL na leitura (renome reflete). */
     const { user: _clientUser, ...data } = dto
     const numero = await this.resolveNumero(organizationId, (data as { numero?: string }).numero)
     const created = await this.prisma.contract.create({ data: { ...data, numero, organizationId } as never })
@@ -288,6 +289,7 @@ export class ContractsService {
       data: {
         contractId: created.id,
         user:       actor ?? 'Usuário do sistema',
+        userId:     actorId ?? null,
         event:      'CRIADO',
         changes:    [{ field: 'situacao', label: 'Situação', before: '—', after: SIT_LABEL[created.situacao] ?? created.situacao }] as never,
       },
@@ -394,7 +396,7 @@ export class ContractsService {
     return contract
   }
 
-  async update(id: string, dto: UpdateContractDto, organizationId: string, actor?: string) {
+  async update(id: string, dto: UpdateContractDto, organizationId: string, actor?: string, actorId?: string) {
     /* busca o BRUTO (sem resolvePartesLive) para o diff comparar estado gravado vs novo */
     const old = await this.prisma.contract.findFirst({ where: { id, organizationId } })
     if (!old) throw new NotFoundException('Contrato não encontrado')
@@ -420,6 +422,7 @@ export class ContractsService {
           data: {
             contractId: id,
             user:       actor ?? 'Usuário do sistema',
+            userId:     actorId ?? null,
             event:      ev,
             motivo:     isTransitionEvent(ev) && motivo?.trim() ? motivo.trim() : null,
             changes:    byEvent.get(ev) as never,
@@ -447,7 +450,13 @@ export class ContractsService {
   async getAuditLogs(contractId: string, organizationId: string) {
     const exists = await this.prisma.contract.findFirst({ where: { id: contractId, organizationId }, select: { id: true } })
     if (!exists) throw new NotFoundException('Contrato não encontrado')
-    return this.prisma.contractAuditLog.findMany({ where: { contractId }, orderBy: { createdAt: 'desc' } })
+    const logs = await this.prisma.contractAuditLog.findMany({ where: { contractId }, orderBy: { createdAt: 'desc' } })
+    /* nome do autor resolvido AO VIVO pelo userId (renome reflete); cai para o snapshot
+       gravado (`user`) em logs sem id — ex.: "Sistema" ou registros legados. */
+    const ids = [...new Set(logs.map(l => l.userId).filter((v): v is string => !!v))]
+    const users = ids.length ? await this.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : []
+    const nome = new Map(users.map(u => [u.id, u.name]))
+    return logs.map(l => ({ ...l, user: (l.userId && nome.get(l.userId)) || l.user }))
   }
 
   /** Chaves de TODO anexo do contrato (documentos, arquivos de aditivo, comprovantes de

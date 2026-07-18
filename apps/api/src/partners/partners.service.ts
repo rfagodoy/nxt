@@ -328,11 +328,12 @@ const PARTNER_SELECT = {
 export class PartnersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(dto: CreatePartnerDto, organizationId: string, actor?: string) {
+  async create(dto: CreatePartnerDto, organizationId: string, actor?: string, actorId?: string) {
     if (!isDocumentoValido(dto.categoria, dto.documento ?? '')) {
       throw new BadRequestException('Documento (CPF/CNPJ) inválido')
     }
-    /* `user` do payload é descartado — o autor vem do token (`actor`), não do cliente */
+    /* `user` do payload é descartado — o autor vem do token (`actor`/`actorId`), não do cliente.
+       `user` = snapshot do nome; `userId` resolve o nome ATUAL na leitura (renome reflete). */
     const { user: _clientUser, ...data } = dto
     const created = await this.prisma.partner.create({
       data: { ...data, organizationId } as never,
@@ -341,6 +342,7 @@ export class PartnersService {
       data: {
         partnerId: created.id,
         user:      actor ?? 'Usuário do sistema',
+        userId:    actorId ?? null,
         event:     created.status === 'ATIVO' ? 'ATIVADO' : 'EM_CADASTRAMENTO',
         changes:   [{ field: 'status', label: 'Situação', before: '—', after: STATUS_LABEL[created.status] ?? created.status }] as never,
       },
@@ -361,7 +363,7 @@ export class PartnersService {
     return partner
   }
 
-  async update(id: string, dto: UpdatePartnerDto, organizationId: string, actor?: string) {
+  async update(id: string, dto: UpdatePartnerDto, organizationId: string, actor?: string, actorId?: string) {
     const old = await this.findOne(id, organizationId)
     // valida o documento efetivo (o que vier no payload, senão o já gravado)
     const cat = (dto.categoria ?? (old as { categoria?: string }).categoria) ?? ''
@@ -405,6 +407,7 @@ export class PartnersService {
           data: {
             partnerId: id,
             user:      actor ?? 'Usuário do sistema',
+            userId:    actorId ?? null,
             event:     ev,
             motivo:    isTransition(ev) && motivo?.trim() ? motivo.trim() : null,
             changes:   byEvent.get(ev) as never,
@@ -417,10 +420,16 @@ export class PartnersService {
 
   async getAuditLogs(partnerId: string, organizationId: string) {
     await this.findOne(partnerId, organizationId) // garante que o parceiro é do tenant
-    return this.prisma.partnerAuditLog.findMany({
+    const logs = await this.prisma.partnerAuditLog.findMany({
       where:   { partnerId },
       orderBy: { createdAt: 'desc' },
     })
+    /* nome do autor resolvido AO VIVO pelo userId (renome reflete); cai para o snapshot
+       gravado (`user`) em logs sem id — ex.: "Sistema" ou registros legados. */
+    const ids = [...new Set(logs.map(l => l.userId).filter((v): v is string => !!v))]
+    const users = ids.length ? await this.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : []
+    const nome = new Map(users.map(u => [u.id, u.name]))
+    return logs.map(l => ({ ...l, user: (l.userId && nome.get(l.userId)) || l.user }))
   }
 
   async remove(id: string, organizationId: string) {

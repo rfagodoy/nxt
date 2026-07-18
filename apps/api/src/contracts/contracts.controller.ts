@@ -15,7 +15,7 @@ export class ContractsController {
   @Post()
   @ApiOperation({ summary: 'Cria um novo contrato' })
   create(@Body() dto: CreateContractDto, @CurrentOrg() organizationId: string, @CurrentUser() actor: CurrentUserData) {
-    return this.contractsService.create(dto, organizationId, actor.name)
+    return this.contractsService.create(dto, organizationId, actor.name, actor.sub)
   }
 
   @Get()
@@ -47,7 +47,7 @@ export class ContractsController {
   @Patch(':id')
   @ApiOperation({ summary: 'Atualiza contrato' })
   update(@Param('id') id: string, @Body() dto: UpdateContractDto, @CurrentOrg() organizationId: string, @CurrentUser() actor: CurrentUserData) {
-    return this.contractsService.update(id, dto, organizationId, actor.name)
+    return this.contractsService.update(id, dto, organizationId, actor.name, actor.sub)
   }
 
   @Delete(':id')
