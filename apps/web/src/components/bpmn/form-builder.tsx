@@ -44,6 +44,12 @@ function generateId() {
   return `field_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
 }
 
+/** Nome da variável derivado do rótulo (chave usada nos dados e nas condições
+ *  dos gateways). Ex.: "Valor do contrato" → "valor_do_contrato". */
+function deriveName(label: string) {
+  return label.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
+}
+
 interface FieldRowProps {
   field: FormField
   onChange: (updated: FormField) => void
@@ -62,7 +68,11 @@ function FieldRow({ field, onChange, onRemove }: FieldRowProps) {
           className="h-7 text-sm flex-1"
           placeholder="Nome do campo"
           value={field.label}
-          onChange={(e) => onChange({ ...field, label: e.target.value, name: e.target.value.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') })}
+          onChange={(e) => {
+            // Só re-deriva o nome se ele ainda era automático (não foi customizado).
+            const wasAuto = field.name === deriveName(field.label)
+            onChange({ ...field, label: e.target.value, name: wasAuto ? deriveName(e.target.value) : field.name })
+          }}
         />
 
         <Select
@@ -111,6 +121,18 @@ function FieldRow({ field, onChange, onRemove }: FieldRowProps) {
             <label htmlFor={`req-${field.id}`} className="text-xs text-muted-foreground">
               Campo obrigatório
             </label>
+          </div>
+
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">
+              Variável <span className="text-muted-foreground/60">(usada nas condições dos gateways)</span>
+            </label>
+            <Input
+              className="h-7 text-xs font-mono"
+              placeholder="ex.: valor"
+              value={field.name}
+              onChange={(e) => onChange({ ...field, name: e.target.value.replace(/[^a-zA-Z0-9_]/g, '') })}
+            />
           </div>
 
           <div>

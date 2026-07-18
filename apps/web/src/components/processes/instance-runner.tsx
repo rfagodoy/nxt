@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { CheckCircle2, Loader2, ListChecks, XCircle } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { CheckCircle2, Loader2, ListChecks, XCircle, AlertTriangle, RefreshCw } from 'lucide-react'
 import { DynamicForm } from '@/components/modules/dynamic-form'
 import { apiFetch } from '@/lib/http'
 import type { StepFormSchema, ProcessFormSchema } from '@nxt/types'
@@ -31,6 +31,10 @@ export function InstanceRunner({ processDefinitionId, processName, formSchema, o
   const [completed, setCompleted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Erro de conector de domínio (serviceTask): a instância parou em ERRO.
+  const [errored, setErrored] = useState<string | null>(null)
+  const [retrying, setRetrying] = useState(false)
+  const startedRef = useRef(false)
 
   const stepFor = useCallback(
     (nodeId: string): StepFormSchema =>
@@ -53,12 +57,39 @@ export function InstanceRunner({ processDefinitionId, processName, formSchema, o
     setInstanceId(data.instance.id)
     setTasks(data.tasks ?? [])
     setCompleted(!!data.completed)
+    if (data.errored) setErrored(data.errored)
     if (data.completed) onFinished?.()
   }, [processDefinitionId, onFinished])
 
+  // Inicia UMA vez (guard contra re-execução do efeito — ex.: StrictMode).
   useEffect(() => {
+    if (startedRef.current) return
+    startedRef.current = true
     start()
   }, [start])
+
+  // Reprocessa a etapa automática que falhou (instância em ERRO). Reaproveita a
+  // resposta padrão do motor (tasks/completed/errored) para retomar a execução.
+  const retry = async () => {
+    if (!instanceId) return
+    setRetrying(true)
+    setError(null)
+    try {
+      const res = await apiFetch(`/api/instances/${instanceId}/retry`, { method: 'POST' })
+      if (!res.ok) {
+        const e = await res.json().catch(() => null)
+        setError(e?.message || 'Não foi possível reprocessar.')
+        return
+      }
+      const result = await res.json()
+      setErrored(result.errored ?? null)
+      setTasks(result.tasks ?? [])
+      setCompleted(!!result.completed)
+      if (result.completed) onFinished?.()
+    } finally {
+      setRetrying(false)
+    }
+  }
 
   const complete = async (data: Record<string, unknown>) => {
     const active = tasks[0]
@@ -78,7 +109,8 @@ export function InstanceRunner({ processDefinitionId, processName, formSchema, o
       const result = await res.json()
       setTasks(result.tasks ?? [])
       setCompleted(!!result.completed)
-      if (result.completed) onFinished?.()
+      if (result.errored) setErrored(result.errored)
+      if (result.completed || result.errored) onFinished?.()
     } finally {
       setSubmitting(false)
     }
@@ -102,6 +134,34 @@ export function InstanceRunner({ processDefinitionId, processName, formSchema, o
     return (
       <div className="rounded-xl border bg-card p-6 flex items-center justify-center text-xs text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin mr-2" /> Iniciando…
+      </div>
+    )
+  }
+
+  if (errored) {
+    return (
+      <div className="rounded-xl border bg-card p-8 text-center">
+        <AlertTriangle className="h-10 w-10 text-amber-500 mx-auto mb-3" />
+        <h3 className="text-sm font-semibold">Processo interrompido</h3>
+        <p className="text-xs text-muted-foreground mt-1">
+          Uma etapa automática de “{processName}” falhou: {errored}
+        </p>
+        {error && <p className="text-[11px] text-destructive mt-2">{error}</p>}
+        <div className="mt-4 flex items-center justify-center gap-2">
+          <button
+            onClick={retry}
+            disabled={retrying}
+            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs hover:bg-muted disabled:opacity-60"
+          >
+            {retrying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            Tentar novamente
+          </button>
+          {onClose && (
+            <button onClick={onClose} className="inline-flex items-center rounded-md border px-3 py-1.5 text-xs hover:bg-muted">
+              Fechar
+            </button>
+          )}
+        </div>
       </div>
     )
   }
