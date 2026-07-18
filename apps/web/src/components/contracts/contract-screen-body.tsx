@@ -23,6 +23,7 @@ import type { ScreenField } from '@/lib/screen-types'
 export interface ContractNativeCtx {
   form:                ContractForm
   ro?:                 boolean          // contrato travado (detalhe) → leitura
+  dualView?:           boolean          // grade de pagamentos com visões Planejar/Baixas (só no cadastro novo)
   autoNumero?:         boolean          // numeração automática (cadastro novo)
   numeroPreview?:      string
   moedaCode:           string
@@ -48,9 +49,9 @@ export function ContractSectionNative({ section, ctx }: { section: ResolvedContr
     case 'partes':
       return <PartesFields form={form} ro={ro} onOpenSearch={ctx.onOpenSearch!} onNewPartner={ctx.onNewPartner!} />
     case 'pagamentos':
-      return <LancamentosFields form={form} field="pagamentos" moedaCode={ctx.moedaCode} travado={ro} />
+      return <LancamentosFields form={form} field="pagamentos" moedaCode={ctx.moedaCode} travado={ro} dualView={ctx.dualView} />
     case 'recebimentos':
-      return <LancamentosFields form={form} field="recebimentos" moedaCode={ctx.moedaCode} travado={ro} />
+      return <LancamentosFields form={form} field="recebimentos" moedaCode={ctx.moedaCode} travado={ro} dualView={ctx.dualView} />
     case 'reajuste':
       return <ReajustesFields form={form} ro={ro} />
     case 'aditivos':

@@ -154,26 +154,98 @@ function Segmented({ value, onChange, ro, options }: { value: string; onChange: 
 const lookupOpts = (entries: { id: string; label: string }[]) => entries.map(e => ({ value: e.id, label: e.label }))
 const labelOf    = (entries: { id: string; label: string }[], value: string) => entries.find(e => e.id === value)?.label ?? value
 
+/** Avaliador SEGURO de expressão aritmética (o "=expr" dos campos de valor). Sem `eval`:
+ *  descida recursiva sobre + − × ÷ e parênteses, com menos/mais unário. Convenção pt-BR igual
+ *  à do campo: `.` é separador de MILHAR (removido) e `,` é o decimal (vira `.`) — assim
+ *  `1.000,50` = 1000.5 e `120000/12` = 10000. Devolve null quando a expressão é inválida
+ *  (sobra de caractere, divisão por zero, número malformado). */
+function evalExpr(src: string): number | null {
+  const s = src.replace(/\s+/g, '').replace(/\./g, '').replace(/,/g, '.')
+  if (!s) return null
+  let i = 0
+  let ok = true
+  const peek = () => s[i]
+  function expr(): number {           // + e −
+    let v = term()
+    while (ok && (peek() === '+' || peek() === '-')) { const op = s[i++]; const r = term(); v = op === '+' ? v + r : v - r }
+    return v
+  }
+  function term(): number {           // × e ÷
+    let v = factor()
+    while (ok && (peek() === '*' || peek() === '/')) { const op = s[i++]; const r = factor(); v = op === '*' ? v * r : v / r }
+    return v
+  }
+  function factor(): number {         // unário · parênteses · número
+    if (peek() === '+') { i++; return factor() }
+    if (peek() === '-') { i++; return -factor() }
+    if (peek() === '(') { i++; const v = expr(); if (peek() === ')') i++; else ok = false; return v }
+    const start = i
+    while (i < s.length && /[0-9.]/.test(s[i])) i++
+    if (i === start) { ok = false; return 0 }
+    const n = parseFloat(s.slice(start, i))
+    if (Number.isNaN(n)) { ok = false; return 0 }
+    return n
+  }
+  const out = expr()
+  if (!ok || i !== s.length || !Number.isFinite(out)) return null
+  return out
+}
+
 /** Campo monetário com máscara pt-BR e prefixo do código da moeda. `value` é o número como string.
  *  `vazio`: sem placeholder e sem moldura — usado quando o valor ainda NÃO EXISTE (parcela não
- *  baixada). Um "0,00" cinza ali sugeriria que se pagou zero. */
+ *  baixada). Um "0,00" cinza ali sugeriria que se pagou zero.
+ *
+ *  CÁLCULO NO CAMPO: digitar `=` entra em "modo fórmula" — o campo aceita texto livre (ex.:
+ *  `=120000/12`) e, no Enter ou ao sair, avalia a conta e grava o número já arredondado a 2
+ *  casas. Enquanto NÃO se usa `=`, a máscara de centavos original é preservada intacta. */
 function MoneyField({ value, moedaCode, onChange, ro, bare, vazio }: { value: string; moedaCode: string; onChange: (v: string) => void; ro?: boolean; bare?: boolean; vazio?: boolean }) {
   const num     = value ? parseFloat(value) : 0
   const display = value ? num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''
+  const [draft, setDraft] = useState<string | null>(null)   // texto da fórmula em edição (null = máscara normal)
+  const [erroCalc, setErroCalc] = useState(false)
   if (ro) return <span className={readCls}>{value ? (bare ? display : `${moedaCode} ${display}`) : '—'}</span>
-  const handle = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const digits = e.target.value.replace(/\D/g, '').slice(0, 13)
+
+  const emFormula = draft !== null
+  const shown = emFormula ? (draft as string) : display
+
+  /** aplica a fórmula: grava o número; se inválida, ou descarta (blur) ou apenas sinaliza (Enter). */
+  const aplicar = (descartarSeInvalida: boolean) => {
+    if (draft === null) return
+    const r = evalExpr(draft.replace(/^=/, ''))
+    if (r === null) {
+      if (descartarSeInvalida) { setDraft(null); setErroCalc(false) }  // blur: descarta, volta ao valor anterior
+      else setErroCalc(true)                                          // Enter: mantém e sinaliza p/ corrigir
+      return
+    }
+    onChange(String(Math.round(r * 100) / 100))
+    setDraft(null); setErroCalc(false)
+  }
+  const onInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value
+    if (emFormula) { setDraft(raw); setErroCalc(false); return }            // já em fórmula: texto livre
+    if (raw.includes('=')) { setDraft(raw.slice(raw.indexOf('='))); setErroCalc(false); return }  // dispara a fórmula
+    const digits = raw.replace(/\D/g, '').slice(0, 13)                       // máscara de centavos (comportamento original)
     onChange(digits ? String(parseInt(digits, 10) / 100) : '')
   }
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!emFormula) return
+    if (e.key === 'Enter') { e.preventDefault(); aplicar(false) }
+    else if (e.key === 'Escape') { e.preventDefault(); setDraft(null); setErroCalc(false) }
+  }
+  const dica = 'Dica: comece com = para calcular. Ex.: =120000/12'
+  const anel = emFormula ? (erroCalc ? 'ring-1 ring-red-400 border-red-400' : 'ring-1 ring-amber-400/70') : ''
+
   /* bare: sem prefixo de moeda, alinhado à direita (para listas onde a moeda vive no resumo) */
   if (bare) return (
-    <input inputMode="numeric" value={display} onChange={handle} placeholder={vazio ? '' : '0,00'}
-           className={cn(inputCls, 'h-7 text-right tabular-nums', vazio && 'border-transparent bg-transparent hover:border-input focus:border-input')} />
+    <input inputMode={emFormula ? 'text' : 'numeric'} value={shown} onChange={onInput} onKeyDown={onKeyDown} onBlur={() => aplicar(true)}
+           title={dica} placeholder={vazio ? '' : '0,00'}
+           className={cn(inputCls, 'h-7', anel, emFormula ? 'text-left' : 'text-right tabular-nums', !emFormula && vazio && 'border-transparent bg-transparent hover:border-input focus:border-input')} />
   )
   return (
     <div className="relative">
       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-muted-foreground pointer-events-none select-none">{moedaCode}</span>
-      <input inputMode="numeric" value={display} onChange={handle} placeholder="0,00" className={cn(inputCls, 'pl-11 tabular-nums')} />
+      <input inputMode={emFormula ? 'text' : 'numeric'} value={shown} onChange={onInput} onKeyDown={onKeyDown} onBlur={() => aplicar(true)}
+             title={dica} placeholder="0,00" className={cn(inputCls, 'pl-11 tabular-nums', anel, emFormula && 'text-left')} />
     </div>
   )
 }
@@ -668,7 +740,7 @@ function StatTile({ label, value, bar, danger, hint }: { label: string; value: s
 /** Pagamentos/Recebimentos como "extrato operacional": resumo (total, nº, % do contrato, saldo),
  *  toolbar fixa (adicionar / gerar em massa) e lista agrupada por ano — cada ano recolhível.
  *  Editável mesmo com o contrato travado. */
-export function LancamentosFields({ form, field, moedaCode, travado }: { form: ContractForm; field: 'pagamentos' | 'recebimentos'; moedaCode: string; travado?: boolean }) {
+export function LancamentosFields({ form, field, moedaCode, travado, dualView }: { form: ContractForm; field: 'pagamentos' | 'recebimentos'; moedaCode: string; travado?: boolean; dualView?: boolean }) {
   const v = form.values
   const lista = v[field]
   const singular = field === 'pagamentos' ? 'pagamento' : 'recebimento'
@@ -859,6 +931,8 @@ export function LancamentosFields({ form, field, moedaCode, travado }: { form: C
   }, [novoId])
 
   /* ── gerar em massa (valor fixo) ─────────────────────────── */
+  /* visão da grade: 'planejar' (default, foco em criar o cronograma) ou 'baixas' (liquidar) */
+  const [modo, setModo] = useState<'planejar' | 'baixas'>('planejar')
   const [gerarOpen, setGerarOpen] = useState(false)
   const [gData, setGData]   = useState('')
   const [gQtd, setGQtd]     = useState('')
@@ -894,13 +968,27 @@ export function LancamentosFields({ form, field, moedaCode, travado }: { form: C
      As duas colunas de DATA precisam caber "dd/mm/aaaa" + o ícone do date picker do
      navegador: abaixo de ~9rem o Chrome corta o ícone. A soma das larguras fixas fica
      sob o `min-w` da tabela, que rola na horizontal em telas estreitas em vez de cortar. */
-  /* a 5ª coluna (2rem) é o comprovante: pertence ao bloco REALIZADO, junto de data e valor */
-  const COLS = 'grid grid-cols-[9rem_7.5rem_9rem_7.5rem_4.25rem_2.75rem_7.5rem_5.5rem_5.5rem_minmax(8rem,1fr)_1.25rem] items-center gap-2'
+  /* DUAS VISÕES da grade (só no CADASTRO, `dualView`) — as 11 colunas juntas estouravam a
+     largura do painel e escondiam campos à direita. Cada visão mostra só o que se preenche
+     NAQUELA fase e cabe sem rolar para o lado:
+       PLANEJAMENTO (ao criar): previsto data/valor · reaj · forma · nº doc · observação
+       BAIXAS (ao liquidar):    previsto data/valor · baixa data/valor pago · anexo · status
+     As duas primeiras colunas (previsto data/valor) são âncora comum. Datas ficam em 9rem —
+     abaixo disso o Chrome corta o ícone do date picker. Nada é perdido ao trocar de visão.
+     No DETALHE (edição, sem `dualView`) mantém-se a grade LEGADA de 11 colunas, com rolagem
+     horizontal — a pedido: só o cadastro ganhou as duas visões. */
+  const modoBaixas = modo === 'baixas'
+  const COLS = !dualView
+    ? 'grid grid-cols-[9rem_7.5rem_9rem_7.5rem_4.25rem_2.75rem_7.5rem_5.5rem_5.5rem_minmax(8rem,1fr)_1.25rem] items-center gap-2'
+    : modoBaixas
+      ? 'grid grid-cols-[9rem_7.5rem_9rem_7.5rem_4.25rem_minmax(5.5rem,1fr)_1.25rem] items-center gap-2'
+      : 'grid grid-cols-[9rem_7.5rem_3rem_8rem_6rem_minmax(8rem,1fr)_1.25rem] items-center gap-2'
+  const MINW = dualView ? 'min-w-[42rem]' : 'min-w-[75rem]'
   const cell = cn(inputCls, 'h-7')
   const desvioDe = (l: CLancamento) => lancDesvio(l)
-  /* o bloco REALIZADO ganha fundo e bordas que descem por TODA a tabela: é isso que faz
-     o agrupamento existir na linha, e não só no cabeçalho. `self-stretch` faz o fundo
-     cobrir a altura inteira da linha sem deslocar o conteúdo (margem negativa desalinhava). */
+  /* o bloco REALIZADO (só na visão Baixas) ganha fundo e bordas que descem por TODA a tabela:
+     é isso que faz o agrupamento existir na linha, e não só no cabeçalho. `self-stretch` faz o
+     fundo cobrir a altura inteira da linha sem deslocar o conteúdo (margem negativa desalinhava). */
   const blocoRealizado = 'col-span-3 grid grid-cols-subgrid items-center gap-2 self-stretch bg-muted/20 border-x border-border/40'
 
   return (
@@ -937,7 +1025,24 @@ export function LancamentosFields({ form, field, moedaCode, travado }: { form: C
             <FileDown className="h-3.5 w-3.5" />Exportar
           </button>
         </div>
-        {lista.length > 0 && <span className="text-[11px] text-muted-foreground">{lista.length} lançamento{lista.length > 1 ? 's' : ''} · <span className="font-semibold tabular-nums text-foreground">{money(total)}</span></span>}
+        {lista.length > 0 && (
+          <div className="flex items-center gap-3">
+            {/* alterna as colunas visíveis (só no cadastro): planejar o cronograma × registrar as baixas */}
+            {dualView && (
+              <div className="inline-flex rounded-md border bg-muted/30 p-0.5 text-[11px] font-medium">
+                {([['planejar', 'Planejamento'], ['baixas', 'Baixas']] as const).map(([m, lbl]) => (
+                  <button key={m} type="button" onClick={() => setModo(m)}
+                    title={m === 'planejar' ? 'Colunas do cronograma: previsto, reajuste, forma, nº doc, observação' : 'Colunas de liquidação: baixa, valor pago, comprovante, status'}
+                    className={cn('rounded px-2 py-0.5 transition-colors',
+                      modo === m ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+            )}
+            <span className="text-[11px] text-muted-foreground">{lista.length} lançamento{lista.length > 1 ? 's' : ''} · <span className="font-semibold tabular-nums text-foreground">{money(total)}</span></span>
+          </div>
+        )}
       </div>
 
       {/* gerar em massa (painel) */}
@@ -982,28 +1087,60 @@ export function LancamentosFields({ form, field, moedaCode, travado }: { form: C
            `overflow-x-auto` já fazia deste div um scrollport — só que sem altura, então o
            cabeçalho nunca teria onde grudar. */
         <div className="rounded-md border overflow-auto max-h-[60vh]">
-          <div className="min-w-[75rem]">
+          <div className={MINW}>
             {/* CABEÇALHO ÚNICO, grudado no topo. Antes havia uma cópia dentro de cada ano
-                expandido — idênticas entre si, e todas sumiam ao rolar. */}
+                expandido — idênticas entre si, e todas sumiam ao rolar. Duas linhas (grupo +
+                rótulos), altura fixa em ambos os modos p/ o subcabeçalho de ano grudar em top-8. */}
             <div className="sticky top-0 z-20 bg-card border-b">
-              {/* faixa de grupo: dois pares simétricos — o que era, o que foi */}
+              {/* faixa de grupo: pares simétricos "o que era × o que foi" (legado e Baixas) */}
               <div className={cn(COLS, 'h-4 px-3 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/50')}>
                 <span className="col-span-2 text-center">Previsto</span>
-                <span className={cn(blocoRealizado, 'justify-items-center')}>
-                  <span className="col-span-3 text-center">Realizado</span>
-                </span>
-                <span /><span /><span /><span /><span /><span />
+                {!dualView ? (
+                  <>
+                    <span className={cn(blocoRealizado, 'justify-items-center')}>
+                      <span className="col-span-3 text-center">Realizado</span>
+                    </span>
+                    <span /><span /><span /><span /><span /><span />
+                  </>
+                ) : modoBaixas ? (
+                  <>
+                    <span className={cn(blocoRealizado, 'justify-items-center')}>
+                      <span className="col-span-3 text-center">Realizado</span>
+                    </span>
+                    <span /><span />
+                  </>
+                ) : (
+                  <><span /><span /><span /><span /><span /></>
+                )}
               </div>
               <div className={cn(COLS, 'h-4 px-3 text-[9px] font-medium uppercase tracking-wide text-muted-foreground/70')}>
                 <span title="Data prevista de pagamento — é ela que produz o status Vencido">Data</span>
                 <span className="text-right pr-2" title="Valor contratado da parcela">Valor</span>
-                <span className={blocoRealizado}>
-                  <span title="Data em que a parcela foi baixada">Data</span>
-                  <span className="text-right pr-2" title={`Valor efetivamente ${rotulo}. Preencher baixa a parcela.`}>Valor</span>
-                  <span className="text-center" title="Comprovante do pagamento (anexo)">Anexo</span>
-                </span>
-                <span className="text-center" title="Se marcada, o reajuste alcança o valor previsto desta parcela">Reaj.</span>
-                <span>Forma</span><span>Nº doc.</span><span>Status</span><span>Observação</span><span />
+                {!dualView ? (
+                  <>
+                    <span className={blocoRealizado}>
+                      <span title="Data em que a parcela foi baixada">Data</span>
+                      <span className="text-right pr-2" title={`Valor efetivamente ${rotulo}. Preencher baixa a parcela.`}>Valor</span>
+                      <span className="text-center" title="Comprovante do pagamento (anexo)">Anexo</span>
+                    </span>
+                    <span className="text-center" title="Se marcada, o reajuste alcança o valor previsto desta parcela">Reaj.</span>
+                    <span>Forma</span><span>Nº doc.</span><span>Status</span><span>Observação</span><span />
+                  </>
+                ) : modoBaixas ? (
+                  <>
+                    <span className={blocoRealizado}>
+                      <span title="Data em que a parcela foi baixada">Data</span>
+                      <span className="text-right pr-2" title={`Valor efetivamente ${rotulo}. Preencher baixa a parcela.`}>Valor</span>
+                      <span className="text-center" title="Comprovante do pagamento (anexo)">Anexo</span>
+                    </span>
+                    <span>Status</span><span />
+                  </>
+                ) : (
+                  <>
+                    <span className="text-center" title="Se marcada, o reajuste alcança o valor previsto desta parcela">Reaj.</span>
+                    <span>Forma</span><span>Nº doc.</span><span>Observação</span><span />
+                  </>
+                )}
               </div>
             </div>
             {grupos.map(([ano, ids]) => {
@@ -1041,85 +1178,143 @@ export function LancamentosFields({ form, field, moedaCode, travado }: { form: C
                                     className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 select-none text-[11px] font-semibold text-amber-600 dark:text-amber-500">≈</span>
                             )}
                           </div>
-                          {/* ── REALIZADO: data da baixa e valor efetivo, lado a lado ──
-                              Enquanto não há baixa, as duas células ficam VAZIAS: o vazio diz
-                              "ainda não aconteceu" melhor que um 0,00 cinza, que sugeriria
-                              que se pagou zero. Continuam editáveis ao clicar. */}
-                          <div className={cn(blocoRealizado, 'py-1 -my-1')}>
-                            {/* informar a data também baixa a parcela: o pago assume o previsto */}
-                            <input type="date" value={l.data} title={`Data do ${rotulo === 'pago' ? 'pagamento' : 'recebimento'} (preencher baixa a parcela pelo valor previsto)`}
-                                   onChange={e => form.patchLanc(field, l.id, { data: e.target.value, ...(e.target.value && !lancPago(l) ? { valorPago: l.valorPrevisto } : {}) })}
-                                   className={cn(cell, !lancPago(l) && 'border-transparent bg-transparent opacity-40 hover:opacity-100 hover:border-input focus:opacity-100 focus:border-input')} />
-                            <div className="relative">
-                              <MoneyField value={l.valorPago} moedaCode={moedaCode} bare vazio={!lancPago(l)} onChange={x => form.updLanc(field, l.id, 'valorPago', x)} />
-                              {desvioDe(l) !== 0 && (
-                                <span title={`${rotulo === 'pago' ? 'Pago' : 'Recebido'} a ${desvioDe(l) > 0 ? 'mais' : 'menos'} que o previsto`}
-                                      className={cn('pointer-events-none absolute -bottom-1 right-1 select-none text-[9px] font-semibold tabular-nums',
-                                        desvioDe(l) > 0 ? 'text-amber-600 dark:text-amber-500' : 'text-emerald-600 dark:text-emerald-400')}>
-                                  {desvioDe(l) > 0 ? '+' : '−'}{money(Math.abs(desvioDe(l)))}
-                                </span>
-                              )}
-                            </div>
-                            {/* COMPROVANTE — só existe prova de pagamento que aconteceu.
-                                Parcela a vencer não mostra clipe; estornar esconde, não apaga. */}
-                            <div className="flex justify-center">
-                              {anexando === l.id ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                              ) : !lancPago(l) ? (
-                                <span className="text-[10px] text-muted-foreground/30 select-none" title="Anexe o comprovante após baixar a parcela">—</span>
-                              ) : l.comprovante_key ? (
-                                /* três ações SEMPRE visíveis: esconder a remoção atrás de hover,
-                                   num alvo de 10px, é armadilha — e o overflow do scroll da
-                                   tabela ainda cortaria o botão flutuante. */
-                                <span className="flex items-center gap-1">
-                                  <button type="button" onClick={() => void abrirComprovante(l)}
-                                    title={isPreviewable(l.comprovante_nome) ? `Abrir: ${l.comprovante_nome}` : `Baixar: ${l.comprovante_nome} (formato sem visualização)`}
-                                    className="text-emerald-600 transition-colors hover:text-emerald-700 dark:text-emerald-400">
-                                    <Eye className="h-3.5 w-3.5" />
-                                  </button>
-                                  <button type="button" onClick={() => pedirArquivo(l.id)}
-                                    title={`Substituir comprovante (atual: ${l.comprovante_nome})`}
-                                    className="text-muted-foreground/60 transition-colors hover:text-primary">
-                                    <Upload className="h-3 w-3" />
-                                  </button>
-                                  <button type="button" onClick={() => removerComprovante(l)} title="Remover comprovante desta parcela"
-                                    className="text-muted-foreground/60 transition-colors hover:text-destructive">
-                                    <X className="h-3 w-3" />
-                                  </button>
-                                </span>
-                              ) : (
-                                <button type="button" onClick={() => pedirArquivo(l.id)} title="Anexar comprovante do pagamento"
-                                  className="text-muted-foreground/40 transition-colors hover:text-primary">
-                                  <Paperclip className="h-3.5 w-3.5" />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                          {/* Atributo da parcela: o reajuste alcança (ou não) o valor previsto.
-                              Parcela PAGA não é reprecificada — isso já é derivado de lancPago, e a
-                              baixa NÃO desmarca este campo. Ele guarda a INTENÇÃO ("nunca reajustar
-                              esta parcela"), não o fato. Apagá-la na baixa zeraria `pagasAlcancadas`
-                              e o alerta de diferença não cobrada morreria em silêncio. Aqui o campo
-                              só é desabilitado: mostra que não age, sem destruir o que diz. */}
-                          <div className="flex justify-center">
-                            <input type="checkbox" checked={l.reajustavel !== false} disabled={lancPago(l)}
-                              onChange={e => form.patchLanc(field, l.id, { reajustavel: e.target.checked })}
-                              title={lancPago(l)
-                                ? `Parcela ${rotulo} — o reajuste não reprecifica parcela baixada. Estorne para alterar.`
-                                : l.reajustavel !== false ? 'O reajuste alcança esta parcela' : 'Esta parcela não é reajustada'}
-                              className={cn('h-3.5 w-3.5 accent-primary',
-                                lancPago(l) ? 'cursor-not-allowed opacity-40' : 'cursor-pointer')} />
-                          </div>
-                          <select value={l.forma} onChange={e => form.updLanc(field, l.id, 'forma', e.target.value)} className={cell}>
-                            <option value="">Forma...</option>
-                            {l.forma && !formas.active.some(f => f.id === l.forma) && <option value={l.forma}>{labelOf(formas.entries, l.forma)}</option>}
-                            {formas.active.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
-                          </select>
-                          <input value={l.documento} onChange={e => form.updLanc(field, l.id, 'documento', e.target.value)} placeholder="NF 1234" className={cell} />
-                          <button type="button" onClick={() => (lancPago(l) ? reabrir(l) : marcarPago(l))} title={lancPago(l) ? 'Reabrir (voltar a A vencer)' : `Marcar como ${rotulo}`} className={cn('inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-80', statusInfo(l).cls)}>{statusInfo(l).label}</button>
-                          <input value={l.observacao} onChange={e => form.updLanc(field, l.id, 'observacao', e.target.value)} placeholder="—" className={cn(cell, 'text-muted-foreground')} />
-                          {/* travado: registra baixa/comprovante, mas EXCLUIR exige abrir para revisão */}
-                          {travado ? <span /> : <button type="button" onClick={() => form.remLanc(field, l.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>}
+                          {!dualView ? (
+                            /* LEGADO (edição/detalhe): todas as 11 colunas numa linha só, como era antes. */
+                            <>
+                              <div className={cn(blocoRealizado, 'py-1 -my-1')}>
+                                <input type="date" value={l.data} title={`Data do ${rotulo === 'pago' ? 'pagamento' : 'recebimento'} (preencher baixa a parcela pelo valor previsto)`}
+                                       onChange={e => form.patchLanc(field, l.id, { data: e.target.value, ...(e.target.value && !lancPago(l) ? { valorPago: l.valorPrevisto } : {}) })}
+                                       className={cn(cell, !lancPago(l) && 'border-transparent bg-transparent opacity-40 hover:opacity-100 hover:border-input focus:opacity-100 focus:border-input')} />
+                                <div className="relative">
+                                  <MoneyField value={l.valorPago} moedaCode={moedaCode} bare vazio={!lancPago(l)} onChange={x => form.updLanc(field, l.id, 'valorPago', x)} />
+                                  {desvioDe(l) !== 0 && (
+                                    <span title={`${rotulo === 'pago' ? 'Pago' : 'Recebido'} a ${desvioDe(l) > 0 ? 'mais' : 'menos'} que o previsto`}
+                                          className={cn('pointer-events-none absolute -bottom-1 right-1 select-none text-[9px] font-semibold tabular-nums',
+                                            desvioDe(l) > 0 ? 'text-amber-600 dark:text-amber-500' : 'text-emerald-600 dark:text-emerald-400')}>
+                                      {desvioDe(l) > 0 ? '+' : '−'}{money(Math.abs(desvioDe(l)))}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex justify-center">
+                                  {anexando === l.id ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                                  ) : !lancPago(l) ? (
+                                    <span className="text-[10px] text-muted-foreground/30 select-none" title="Anexe o comprovante após baixar a parcela">—</span>
+                                  ) : l.comprovante_key ? (
+                                    <span className="flex items-center gap-1">
+                                      <button type="button" onClick={() => void abrirComprovante(l)} title={isPreviewable(l.comprovante_nome) ? `Abrir: ${l.comprovante_nome}` : `Baixar: ${l.comprovante_nome} (formato sem visualização)`} className="text-emerald-600 transition-colors hover:text-emerald-700 dark:text-emerald-400"><Eye className="h-3.5 w-3.5" /></button>
+                                      <button type="button" onClick={() => pedirArquivo(l.id)} title={`Substituir comprovante (atual: ${l.comprovante_nome})`} className="text-muted-foreground/60 transition-colors hover:text-primary"><Upload className="h-3 w-3" /></button>
+                                      <button type="button" onClick={() => removerComprovante(l)} title="Remover comprovante desta parcela" className="text-muted-foreground/60 transition-colors hover:text-destructive"><X className="h-3 w-3" /></button>
+                                    </span>
+                                  ) : (
+                                    <button type="button" onClick={() => pedirArquivo(l.id)} title="Anexar comprovante do pagamento" className="text-muted-foreground/40 transition-colors hover:text-primary"><Paperclip className="h-3.5 w-3.5" /></button>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex justify-center">
+                                <input type="checkbox" checked={l.reajustavel !== false} disabled={lancPago(l)} onChange={e => form.patchLanc(field, l.id, { reajustavel: e.target.checked })}
+                                  title={lancPago(l) ? `Parcela ${rotulo} — o reajuste não reprecifica parcela baixada. Estorne para alterar.` : l.reajustavel !== false ? 'O reajuste alcança esta parcela' : 'Esta parcela não é reajustada'}
+                                  className={cn('h-3.5 w-3.5 accent-primary', lancPago(l) ? 'cursor-not-allowed opacity-40' : 'cursor-pointer')} />
+                              </div>
+                              <select value={l.forma} onChange={e => form.updLanc(field, l.id, 'forma', e.target.value)} className={cell}>
+                                <option value="">Forma...</option>
+                                {l.forma && !formas.active.some(f => f.id === l.forma) && <option value={l.forma}>{labelOf(formas.entries, l.forma)}</option>}
+                                {formas.active.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                              </select>
+                              <input value={l.documento} onChange={e => form.updLanc(field, l.id, 'documento', e.target.value)} placeholder="NF 1234" className={cell} />
+                              <button type="button" onClick={() => (lancPago(l) ? reabrir(l) : marcarPago(l))} title={lancPago(l) ? 'Reabrir (voltar a A vencer)' : `Marcar como ${rotulo}`} className={cn('inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-80', statusInfo(l).cls)}>{statusInfo(l).label}</button>
+                              <input value={l.observacao} onChange={e => form.updLanc(field, l.id, 'observacao', e.target.value)} placeholder="—" className={cn(cell, 'text-muted-foreground')} />
+                              {travado ? <span /> : <button type="button" onClick={() => form.remLanc(field, l.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>}
+                            </>
+                          ) : modoBaixas ? (
+                            <>
+                              {/* ── REALIZADO: data da baixa e valor efetivo, lado a lado ──
+                                  Enquanto não há baixa, as duas células ficam VAZIAS: o vazio diz
+                                  "ainda não aconteceu" melhor que um 0,00 cinza, que sugeriria
+                                  que se pagou zero. Continuam editáveis ao clicar. */}
+                              <div className={cn(blocoRealizado, 'py-1 -my-1')}>
+                                {/* informar a data também baixa a parcela: o pago assume o previsto */}
+                                <input type="date" value={l.data} title={`Data do ${rotulo === 'pago' ? 'pagamento' : 'recebimento'} (preencher baixa a parcela pelo valor previsto)`}
+                                       onChange={e => form.patchLanc(field, l.id, { data: e.target.value, ...(e.target.value && !lancPago(l) ? { valorPago: l.valorPrevisto } : {}) })}
+                                       className={cn(cell, !lancPago(l) && 'border-transparent bg-transparent opacity-40 hover:opacity-100 hover:border-input focus:opacity-100 focus:border-input')} />
+                                <div className="relative">
+                                  <MoneyField value={l.valorPago} moedaCode={moedaCode} bare vazio={!lancPago(l)} onChange={x => form.updLanc(field, l.id, 'valorPago', x)} />
+                                  {desvioDe(l) !== 0 && (
+                                    <span title={`${rotulo === 'pago' ? 'Pago' : 'Recebido'} a ${desvioDe(l) > 0 ? 'mais' : 'menos'} que o previsto`}
+                                          className={cn('pointer-events-none absolute -bottom-1 right-1 select-none text-[9px] font-semibold tabular-nums',
+                                            desvioDe(l) > 0 ? 'text-amber-600 dark:text-amber-500' : 'text-emerald-600 dark:text-emerald-400')}>
+                                      {desvioDe(l) > 0 ? '+' : '−'}{money(Math.abs(desvioDe(l)))}
+                                    </span>
+                                  )}
+                                </div>
+                                {/* COMPROVANTE — só existe prova de pagamento que aconteceu.
+                                    Parcela a vencer não mostra clipe; estornar esconde, não apaga. */}
+                                <div className="flex justify-center">
+                                  {anexando === l.id ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                                  ) : !lancPago(l) ? (
+                                    <span className="text-[10px] text-muted-foreground/30 select-none" title="Anexe o comprovante após baixar a parcela">—</span>
+                                  ) : l.comprovante_key ? (
+                                    /* três ações SEMPRE visíveis: esconder a remoção atrás de hover,
+                                       num alvo de 10px, é armadilha — e o overflow do scroll da
+                                       tabela ainda cortaria o botão flutuante. */
+                                    <span className="flex items-center gap-1">
+                                      <button type="button" onClick={() => void abrirComprovante(l)}
+                                        title={isPreviewable(l.comprovante_nome) ? `Abrir: ${l.comprovante_nome}` : `Baixar: ${l.comprovante_nome} (formato sem visualização)`}
+                                        className="text-emerald-600 transition-colors hover:text-emerald-700 dark:text-emerald-400">
+                                        <Eye className="h-3.5 w-3.5" />
+                                      </button>
+                                      <button type="button" onClick={() => pedirArquivo(l.id)}
+                                        title={`Substituir comprovante (atual: ${l.comprovante_nome})`}
+                                        className="text-muted-foreground/60 transition-colors hover:text-primary">
+                                        <Upload className="h-3 w-3" />
+                                      </button>
+                                      <button type="button" onClick={() => removerComprovante(l)} title="Remover comprovante desta parcela"
+                                        className="text-muted-foreground/60 transition-colors hover:text-destructive">
+                                        <X className="h-3 w-3" />
+                                      </button>
+                                    </span>
+                                  ) : (
+                                    <button type="button" onClick={() => pedirArquivo(l.id)} title="Anexar comprovante do pagamento"
+                                      className="text-muted-foreground/40 transition-colors hover:text-primary">
+                                      <Paperclip className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                              {/* Status = ação de baixar / reabrir a parcela */}
+                              <button type="button" onClick={() => (lancPago(l) ? reabrir(l) : marcarPago(l))} title={lancPago(l) ? 'Reabrir (voltar a A vencer)' : `Marcar como ${rotulo}`} className={cn('inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-80', statusInfo(l).cls)}>{statusInfo(l).label}</button>
+                              {/* travado: registra baixa/comprovante, mas EXCLUIR exige abrir para revisão */}
+                              {travado ? <span /> : <button type="button" onClick={() => form.remLanc(field, l.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>}
+                            </>
+                          ) : (
+                            <>
+                              {/* Atributo da parcela: o reajuste alcança (ou não) o valor previsto.
+                                  Parcela PAGA não é reprecificada — isso já é derivado de lancPago, e a
+                                  baixa NÃO desmarca este campo. Ele guarda a INTENÇÃO ("nunca reajustar
+                                  esta parcela"), não o fato. Apagá-la na baixa zeraria `pagasAlcancadas`
+                                  e o alerta de diferença não cobrada morreria em silêncio. Aqui o campo
+                                  só é desabilitado: mostra que não age, sem destruir o que diz. */}
+                              <div className="flex justify-center">
+                                <input type="checkbox" checked={l.reajustavel !== false} disabled={lancPago(l)}
+                                  onChange={e => form.patchLanc(field, l.id, { reajustavel: e.target.checked })}
+                                  title={lancPago(l)
+                                    ? `Parcela ${rotulo} — o reajuste não reprecifica parcela baixada. Estorne para alterar.`
+                                    : l.reajustavel !== false ? 'O reajuste alcança esta parcela' : 'Esta parcela não é reajustada'}
+                                  className={cn('h-3.5 w-3.5 accent-primary',
+                                    lancPago(l) ? 'cursor-not-allowed opacity-40' : 'cursor-pointer')} />
+                              </div>
+                              <select value={l.forma} onChange={e => form.updLanc(field, l.id, 'forma', e.target.value)} className={cell}>
+                                <option value="">Forma...</option>
+                                {l.forma && !formas.active.some(f => f.id === l.forma) && <option value={l.forma}>{labelOf(formas.entries, l.forma)}</option>}
+                                {formas.active.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                              </select>
+                              <input value={l.documento} onChange={e => form.updLanc(field, l.id, 'documento', e.target.value)} placeholder="NF 1234" className={cell} />
+                              <input value={l.observacao} onChange={e => form.updLanc(field, l.id, 'observacao', e.target.value)} placeholder="—" className={cn(cell, 'text-muted-foreground')} />
+                              {/* travado: registra baixa/comprovante, mas EXCLUIR exige abrir para revisão */}
+                              {travado ? <span /> : <button type="button" onClick={() => form.remLanc(field, l.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>}
+                            </>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1131,20 +1326,45 @@ export function LancamentosFields({ form, field, moedaCode, travado }: { form: C
           {/* Rodapé: total geral + realizado — acompanha o min-w da tabela. Grudado embaixo:
               com a rolagem interna ele ficaria enterrado sob as parcelas, e o total é o
               número que se consulta o tempo todo. Opaco, como todo sticky. */}
-          <div className={cn(COLS, 'sticky bottom-0 z-20 min-w-[75rem] px-3 py-1.5 bg-muted border-t')}>
-            {/* mesma ordem das colunas: total previsto sob Previsto, total realizado sob Realizado */}
+          <div className={cn(COLS, MINW, 'sticky bottom-0 z-20 px-3 py-1.5 bg-muted border-t')}>
+            {/* mesma ordem das colunas do modo atual: total previsto sob Previsto; na visão
+                Baixas, o total realizado sob Realizado; o desvio na última coluna livre. */}
             <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Total</span>
             <span className="text-xs font-semibold tabular-nums text-right pr-2">{money(total)}</span>
-            <span className={blocoRealizado}>
-              <span />
-              <span className="text-xs font-semibold tabular-nums text-right pr-2">{money(totalPago)}</span>
-              <span />
-            </span>
-            <span /><span /><span /><span />
-            <span className={cn('text-[10px] tabular-nums truncate', desvioTotal === 0 ? 'text-muted-foreground' : desvioTotal > 0 ? 'text-amber-600 dark:text-amber-500' : 'text-emerald-600 dark:text-emerald-400')}>
-              {desvioTotal === 0 ? 'sem desvio' : `desvio ${desvioTotal > 0 ? '+' : '−'}${money(Math.abs(desvioTotal))}`}
-            </span>
-            <span />
+            {!dualView ? (
+              <>
+                <span className={blocoRealizado}>
+                  <span />
+                  <span className="text-xs font-semibold tabular-nums text-right pr-2">{money(totalPago)}</span>
+                  <span />
+                </span>
+                <span /><span /><span /><span />
+                <span className={cn('text-[10px] tabular-nums truncate', desvioTotal === 0 ? 'text-muted-foreground' : desvioTotal > 0 ? 'text-amber-600 dark:text-amber-500' : 'text-emerald-600 dark:text-emerald-400')}>
+                  {desvioTotal === 0 ? 'sem desvio' : `desvio ${desvioTotal > 0 ? '+' : '−'}${money(Math.abs(desvioTotal))}`}
+                </span>
+                <span />
+              </>
+            ) : modoBaixas ? (
+              <>
+                <span className={blocoRealizado}>
+                  <span />
+                  <span className="text-xs font-semibold tabular-nums text-right pr-2">{money(totalPago)}</span>
+                  <span />
+                </span>
+                <span className={cn('text-[10px] tabular-nums truncate', desvioTotal === 0 ? 'text-muted-foreground' : desvioTotal > 0 ? 'text-amber-600 dark:text-amber-500' : 'text-emerald-600 dark:text-emerald-400')}>
+                  {desvioTotal === 0 ? 'sem desvio' : `desvio ${desvioTotal > 0 ? '+' : '−'}${money(Math.abs(desvioTotal))}`}
+                </span>
+                <span />
+              </>
+            ) : (
+              <>
+                <span /><span /><span />
+                <span className={cn('text-[10px] tabular-nums truncate', desvioTotal === 0 ? 'text-muted-foreground' : desvioTotal > 0 ? 'text-amber-600 dark:text-amber-500' : 'text-emerald-600 dark:text-emerald-400')}>
+                  {desvioTotal === 0 ? 'sem desvio' : `desvio ${desvioTotal > 0 ? '+' : '−'}${money(Math.abs(desvioTotal))}`}
+                </span>
+                <span />
+              </>
+            )}
           </div>
         </div>
       )}
