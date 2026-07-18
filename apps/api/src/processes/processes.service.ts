@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma.service'
 import { ModuleGeneratorService } from '../modules/module-generator.service'
 import { CreateProcessDto } from './dto/create-process.dto'
 import { ProcessFormSchema } from '@nxt/types'
+import { compileBpmn, CompileError, type WfGraph } from '@nxt/workflow-core'
 
 @Injectable()
 export class ProcessesService {
@@ -43,33 +44,59 @@ export class ProcessesService {
   async activate(id: string, organizationId: string) {
     const process = await this.findOne(id, organizationId)
 
-    if (process.status === 'ACTIVE') {
-      throw new BadRequestException('Processo já está ativo')
+    // Compila o BPMN → grafo executável. É AQUI que o diagrama deixa de ser
+    // cosmético: se o desenho for inválido (seta órfã, sem início, construção
+    // não suportada), a ativação FALHA com a causa — em vez de "ativar" algo
+    // que o motor não consegue executar.
+    let graph: WfGraph
+    try {
+      graph = compileBpmn(process.bpmnXml)
+    } catch (e) {
+      if (e instanceof CompileError) throw new BadRequestException(`Diagrama inválido: ${e.message}`)
+      throw e
     }
 
+    // Mescla o que foi configurado no painel "Atividade" do designer (guardado no
+    // formSchema por nó): executor (papel) e prazo/SLA. É a forma explícita de
+    // definir esses atributos sem depender de raias/extensões no XML.
     const formSchema = process.formSchema as unknown as ProcessFormSchema
-    const slug = process.name
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/(^-|-$)/g, '')
+    for (const step of formSchema.steps ?? []) {
+      const node = graph.nodes[step.stepId]
+      if (!node) continue
+      if (step.role) node.role = step.role
+      if (typeof step.slaMinutes === 'number' && step.slaMinutes > 0) node.slaMinutes = step.slaMinutes
+    }
 
-    const [updatedProcess] = await this.prisma.$transaction([
-      this.prisma.processDefinition.update({
-        where: { id },
-        data: { status: 'ACTIVE' },
-      }),
-    ])
-
-    // Gera o módulo dinamicamente a partir do formSchema
-    await this.moduleGenerator.generate({
-      processDefinitionId: id,
-      organizationId,
-      processName: process.name,
-      slug,
-      formSchema,
+    const updatedProcess = await this.prisma.processDefinition.update({
+      where: { id },
+      data: {
+        status: 'ACTIVE',
+        compiledGraph: graph as never,
+        version: { increment: 1 },
+      },
     })
+
+    // Módulo legado (listagem genérica) — gera só se ainda não existir, para
+    // permitir reativar/recompilar o processo depois de editar o diagrama.
+    const existingModule = await this.prisma.module.findUnique({
+      where: { processDefinitionId: id },
+    })
+    if (!existingModule) {
+      const formSchema = process.formSchema as unknown as ProcessFormSchema
+      const slug = process.name
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '')
+      await this.moduleGenerator.generate({
+        processDefinitionId: id,
+        organizationId,
+        processName: process.name,
+        slug,
+        formSchema,
+      })
+    }
 
     return updatedProcess
   }

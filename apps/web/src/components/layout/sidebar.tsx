@@ -7,7 +7,7 @@ import { useSession, logout } from '@/lib/session-context'
 import { useTheme } from 'next-themes'
 import {
   LayoutDashboard, GitBranch, PanelLeft,
-  Table2, Sun, Moon, LogOut, Users, KeyRound, BellRing, LayoutTemplate,
+  Table2, Sun, Moon, LogOut, Users, KeyRound, BellRing, LayoutTemplate, ListChecks,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSidebar } from '@/contexts/sidebar-context'
@@ -26,8 +26,11 @@ const sections: NavSection[] = [
   },
   {
     label: 'Gestão',
-    // Dirigido pelo catálogo de módulos (fonte única de verdade).
-    items: SYSTEM_MODULES.map((m) => ({ href: m.href, label: m.name, icon: m.icon })),
+    // "Minhas tarefas" (caixa do workflow) + catálogo de módulos (fonte única).
+    items: [
+      { href: '/tarefas', label: 'Minhas tarefas', icon: ListChecks },
+      ...SYSTEM_MODULES.map((m) => ({ href: m.href, label: m.name, icon: m.icon })),
+    ],
   },
   {
     label: 'Configurações',

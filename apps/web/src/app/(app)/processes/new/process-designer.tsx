@@ -79,17 +79,13 @@ export function ProcessDesigner() {
       alert('Dê um nome ao processo antes de ativar.')
       return
     }
-    const totalFields = Object.values(stepForms).reduce((acc, s) => acc + s.fields.length, 0)
-    if (totalFields === 0) {
-      alert('Configure pelo menos um campo em uma etapa antes de ativar.')
-      return
-    }
     setActivating(true)
     try {
       const xml = await editorRef.current?.getXml() || bpmnXml
       const formSchema: ProcessFormSchema = { steps: Object.values(stepForms) }
 
-      // Cria rascunho e já ativa
+      // Cria rascunho e já ativa — o backend COMPILA o BPMN aqui (o motor executa
+      // o diagrama de verdade). Se o desenho for inválido, mostramos a causa.
       const createRes = await apiFetch(`/api/processes`, {
         method: 'POST',
         body: JSON.stringify({
@@ -103,13 +99,16 @@ export function ProcessDesigner() {
       if (!createRes.ok) throw new Error('Erro ao criar processo')
       const created = await createRes.json()
 
-      const activateRes = await apiFetch(
-        `/api/processes/${created.id}/activate`,
-        { method: 'PATCH' },
-      )
+      const activateRes = await apiFetch(`/api/processes/${created.id}/activate`, { method: 'PATCH' })
 
-      if (!activateRes.ok) throw new Error('Erro ao ativar processo')
-      router.push('/modules')
+      if (!activateRes.ok) {
+        const e = await activateRes.json().catch(() => null)
+        // O processo foi criado como rascunho; leva ao detalhe para corrigir/reativar.
+        alert(e?.message || 'Não foi possível ativar o processo.')
+        router.push(`/processes/${created.id}`)
+        return
+      }
+      router.push(`/processes/${created.id}`)
     } catch (err) {
       alert('Não foi possível ativar o processo.')
       console.error(err)

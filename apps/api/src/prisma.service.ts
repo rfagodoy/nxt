@@ -7,8 +7,10 @@ import { Prisma, PrismaClient } from '@nxt/database'
 // Esta Client Extension serializa na escrita e desserializa na leitura, de modo
 // que os services continuam lendo/gravando objetos e arrays como antes (Postgres).
 const JSON_FIELDS: Record<string, string[]> = {
-  ProcessDefinition: ['formSchema'],
-  ProcessInstance: ['data'],
+  ProcessDefinition: ['formSchema', 'compiledGraph'],
+  ProcessInstance: ['data', 'state'],
+  WorkflowTask: ['data'],
+  WorkflowRole: ['members'],
   Module: ['schema'],
   ModuleRecord: ['data'],
   Partner: ['contatos', 'enderecos', 'bancos', 'socios', 'cnaesSecundarios'],

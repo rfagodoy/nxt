@@ -104,6 +104,8 @@ model ProcessDefinition {
   description    String?
   bpmnXml        String   @db.NVarChar(Max)
   formSchema     String   @db.NVarChar(Max) // [JSON] schema dos forms por step
+  compiledGraph  String?  @db.NVarChar(Max) // [JSON] grafo normalizado (WfGraph) compilado do BPMN na ativação
+  version        Int      @default(1) // versão da definição (incrementa a cada recompilação/ativação)
   status         String   @default("DRAFT") // DRAFT | ACTIVE | ARCHIVED
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -118,17 +120,68 @@ model ProcessDefinition {
 model ProcessInstance {
   id                  String    @id @default(cuid())
   processDefinitionId String
+  definitionVersion   Int       @default(1) // versão do grafo com que esta instância roda (imutável após o start)
   status              String    @default("RUNNING") // RUNNING | COMPLETED | CANCELLED | ERROR
-  currentStep         String
-  data                String    @default("{}") @db.NVarChar(Max) // [JSON]
+  currentStep         String? // legado (motor linear antigo); o motor por token usa `state`
+  data                String    @default("{}") @db.NVarChar(Max) // [JSON] legado — dados achatados do motor antigo
+  state               String    @default("{}") @db.NVarChar(Max) // [JSON] WfState do motor por token (tokens/variables/joinCounts)
+  startedBy           String? // quem iniciou (nome do @CurrentUser)
+  startedById         String? // id estável de quem iniciou
   startedAt           DateTime  @default(now())
   completedAt         DateTime?
   updatedAt           DateTime  @updatedAt
 
   processDefinition ProcessDefinition @relation(fields: [processDefinitionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   records           ModuleRecord[]
+  tasks             WorkflowTask[]
 
   @@map("process_instances")
+}
+
+// Caixa de tarefas: cada userTask ativo do motor vira uma linha aqui (a "inbox").
+// Precisa ser relacional (não JSON) porque é consultada por executor/papel/status.
+model WorkflowTask {
+  id          String    @id @default(cuid())
+  instanceId  String
+  tokenId     String // token do motor que criou esta tarefa (para retomar a execução)
+  nodeId      String // id do nó (userTask) no grafo
+  name        String?
+  role        String? // executor por papel/lane (F2)
+  assignee    String? // executor por usuário direto (F2)
+  formRef     String? // tela/formulário associado à atividade (F3)
+  status      String    @default("PENDING") // PENDING | DONE | CANCELED
+  dueAt       DateTime? // prazo/SLA (F4)
+  escalatedAt DateTime? // quando a varredura marcou a tarefa como vencida/escalonada (F4)
+  data        String    @default("{}") @db.NVarChar(Max) // [JSON] dados preenchidos ao concluir
+  completedBy String? // quem concluiu (nome do @CurrentUser)
+  completedById String? // id estável do usuário que concluiu
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  instance ProcessInstance @relation(fields: [instanceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([instanceId])
+  @@index([status])
+  @@map("workflow_tasks")
+}
+
+// Papel de negócio (executor) que o cliente define e associa a pessoas. As
+// atividades (userTask/lane) apontam para um papel; a caixa de tarefas mostra a
+// atividade a quem participa dele. Sem FK de propósito (como a auditoria) para
+// não criar caminho de cascade; o escopo por org é pelo scalar organizationId.
+model WorkflowRole {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  members        String   @default("[]") @db.NVarChar(Max) // [JSON] userId[] dos participantes
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("workflow_roles")
 }
 
 // ─── Módulos gerados ─────────────────────────────────────────────────────────
