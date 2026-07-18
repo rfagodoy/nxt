@@ -16,7 +16,7 @@ export class PartnersController {
   @Post()
   @ApiOperation({ summary: 'Cria um novo parceiro' })
   create(@Body() dto: CreatePartnerDto, @CurrentOrg() organizationId: string, @CurrentUser() actor: CurrentUserData) {
-    return this.partnersService.create(dto, organizationId, actor.name)
+    return this.partnersService.create(dto, organizationId, actor.name, actor.sub)
   }
 
   @Post('query')
@@ -46,7 +46,7 @@ export class PartnersController {
   @Patch(':id')
   @ApiOperation({ summary: 'Atualiza parceiro' })
   update(@Param('id') id: string, @Body() dto: UpdatePartnerDto, @CurrentOrg() organizationId: string, @CurrentUser() actor: CurrentUserData) {
-    return this.partnersService.update(id, dto, organizationId, actor.name)
+    return this.partnersService.update(id, dto, organizationId, actor.name, actor.sub)
   }
 
   @Delete(':id')

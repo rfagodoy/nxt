@@ -202,7 +202,8 @@ model Partner {
 model PartnerAuditLog {
   id        String   @id @default(cuid())
   partnerId String
-  user      String
+  user      String   // nome do autor no momento da ação (snapshot; fallback quando userId nulo)
+  userId    String?  // id estável do autor → nome resolvido ao vivo na leitura (sem FK, de propósito)
   event     String   // EM_CADASTRAMENTO | ATIVADO | INATIVADO | REATIVADO | ALTERADO
   motivo    String?
   changes   String   @default("[]") @db.NVarChar(Max) // [JSON] [{ field, label, before, after }]
@@ -283,7 +284,8 @@ model Contract {
 model ContractAuditLog {
   id         String   @id @default(cuid())
   contractId String
-  user       String
+  user       String   // nome do autor no momento da ação (snapshot; fallback quando userId nulo)
+  userId     String?  // id estável do autor → nome resolvido ao vivo na leitura (sem FK, de propósito)
   event      String   // CRIADO | ATUALIZADO | ATIVADO | EM_REVISAO | ENCERRADO | RESCINDIDO | ADITIVO | REAJUSTE | LANCAMENTO | DOCUMENTO
   motivo     String?
   changes    String   @default("[]") @db.NVarChar(Max) // [JSON] [{ field, label, before, after }]
