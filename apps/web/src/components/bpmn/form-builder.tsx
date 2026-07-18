@@ -235,6 +235,10 @@ export function FormBuilder({ selectedElement, stepForms, onStepFormsChange }: F
     updateForm({ ...currentForm, fields: currentForm.fields.filter((_, i) => i !== idx) })
   }
 
+  // Painel de executor/prazo só faz sentido para atividades (tarefas).
+  const isActivity = selectedElement.type.includes('Task')
+  const slaHours = currentForm.slaMinutes ? Math.round((currentForm.slaMinutes / 60) * 10) / 10 : ''
+
   return (
     <div className="flex flex-col h-full">
       <div className="px-4 py-3 border-b shrink-0">
@@ -250,6 +254,34 @@ export function FormBuilder({ selectedElement, stepForms, onStepFormsChange }: F
           {currentForm.fields.length} campo{currentForm.fields.length !== 1 ? 's' : ''} configurado{currentForm.fields.length !== 1 ? 's' : ''}
         </p>
       </div>
+
+      {isActivity && (
+        <div className="px-4 py-3 border-b shrink-0 space-y-2 bg-muted/20">
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Executor (papel)</label>
+            <Input
+              className="h-7 text-sm"
+              placeholder="Ex.: Gestor, Diretor…"
+              value={currentForm.role || ''}
+              onChange={(e) => updateForm({ ...currentForm, role: e.target.value || undefined })}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Prazo (SLA) em horas</label>
+            <Input
+              className="h-7 text-sm"
+              type="number"
+              min={0}
+              placeholder="Ex.: 24"
+              value={slaHours}
+              onChange={(e) => {
+                const h = parseFloat(e.target.value)
+                updateForm({ ...currentForm, slaMinutes: !isNaN(h) && h > 0 ? Math.round(h * 60) : undefined })
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
         {currentForm.fields.length === 0 ? (

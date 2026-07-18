@@ -32,6 +32,11 @@ export interface StepFormSchema {
   stepId: string
   stepName: string
   fields: FormField[]
+  /** Executor da atividade (papel). Alternativa às raias do BPMN; definido no
+   *  painel "Atividade" do designer. Mesclado ao grafo na ativação. */
+  role?: string
+  /** Prazo/SLA da atividade em MINUTOS. O designer coleta em horas e converte. */
+  slaMinutes?: number
 }
 
 export interface ProcessFormSchema {
