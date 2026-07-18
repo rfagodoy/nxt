@@ -166,6 +166,11 @@ export default function DashboardPage() {
   const c = data?.contracts
   const p = data?.partners
   const attention = (data?.contracts.expiring.length ?? 0) + (data?.instances.stuck.length ?? 0)
+  /* VENCIDO é um VIGENTE cujo término passou (derivado). No card ele conta como vigente:
+     vigentes = em dia, vencidos = a renovar, "em vigência" = a soma dos dois. */
+  const vigentes   = c?.byStatus.VIGENTE ?? 0
+  const vencidos   = c?.byStatus.VENCIDO ?? 0
+  const emVigencia = vigentes + vencidos
 
   return (
     // Cockpit de tela única no desktop: ocupa a altura disponível e NÃO rola a
@@ -213,13 +218,14 @@ export default function DashboardPage() {
               <div>
                 <p className="text-xs font-medium text-muted-foreground">Contratos</p>
                 <p className="text-[11px] text-muted-foreground/70">
-                  {c?.byStatus.VIGENTE ?? 0} vigentes · {BRL.format(c?.valorAtivos ?? 0)} em vigência
+                  <span className="font-medium text-emerald-600 dark:text-emerald-400">{vigentes}</span> vigente{vigentes === 1 ? '' : 's'} · <span className={cn('font-medium', vencidos > 0 && 'text-amber-600 dark:text-amber-500')}>{vencidos}</span> vencido{vencidos === 1 ? '' : 's'} · <span className="font-medium text-foreground">{emVigencia}</span> em vigência · {BRL.format(c?.valorAtivos ?? 0)}
                 </p>
               </div>
             </div>
             <Delta pct={c?.deltaPct ?? null} />
           </div>
           <div className="mt-2 flex items-end justify-between gap-3">
+            {/* número grande = TOTAL GERAL do cadastro (todas as situações) */}
             <p className="text-2xl font-bold tabular-nums leading-none">
               <CountUp value={c?.total ?? 0} />
             </p>
@@ -307,10 +313,10 @@ export default function DashboardPage() {
                   {a.kind === 'partner' ? <Users className="h-3 w-3" /> : <FileText className="h-3 w-3" />}
                 </span>
                 <div className="min-w-0 flex-1">
+                  {/* padrão do card: Usuário + Ação + Descrição */}
                   <p className="truncate text-xs">
-                    {a.user
-                      ? <><span className="font-medium">{a.user}</span> <span className="text-muted-foreground">{a.detail}</span> </>
-                      : <span className="text-muted-foreground">Novo contrato · </span>}
+                    {a.user && <><span className="font-medium">{a.user}</span> </>}
+                    <span className="text-muted-foreground">{a.detail}</span>{' '}
                     <span className="font-medium text-foreground">{a.title}</span>
                   </p>
                 </div>

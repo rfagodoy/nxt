@@ -5,13 +5,15 @@ import { PrismaService } from '../prisma.service'
 const DAY = 86_400_000
 
 /* ── rótulos ── */
+/* Ação no padrão "Usuário + Ação + Descrição": o verbo termina em "o parceiro", logo antes
+   do nome (title), simétrico a "cadastrou o contrato". */
 const PARTNER_EVENT_LABEL: Record<string, string> = {
-  EM_CADASTRAMENTO: 'cadastrou',
-  EM_REVISAO:       'habilitou para alteração',
-  ATIVADO:          'ativou',
-  INATIVADO:        'inativou',
-  REATIVADO:        'reativou',
-  ALTERADO:         'atualizou',
+  EM_CADASTRAMENTO: 'cadastrou o parceiro',
+  EM_REVISAO:       'habilitou para alteração o parceiro',
+  ATIVADO:          'ativou o parceiro',
+  INATIVADO:        'inativou o parceiro',
+  REATIVADO:        'reativou o parceiro',
+  ALTERADO:         'atualizou o parceiro',
 }
 
 /**
@@ -51,7 +53,8 @@ export class DashboardService {
       recordsTotal,
       stuckRaw,
       auditLogs,
-      recentContracts,
+      recentContractLogs,
+      orgUsers,
     ] = await Promise.all([
       this.prisma.contract.findMany({
         where:  { organizationId },
@@ -83,13 +86,21 @@ export class DashboardService {
         orderBy: { createdAt: 'desc' },
         take:    10,
       }),
-      this.prisma.contract.findMany({
-        where:   { organizationId },
-        select:  { id: true, numero: true, titulo: true, createdAt: true },
+      /* Atividade "cadastrou o contrato": vem da AUDITORIA (evento CRIADO), que carrega o
+         autor. Os contratos crus não guardam quem cadastrou — por isso antes vinha sem usuário. */
+      this.prisma.contractAuditLog.findMany({
+        where:   { event: 'CRIADO', contract: { organizationId } },
+        include: { contract: { select: { numero: true, titulo: true } } },
         orderBy: { createdAt: 'desc' },
         take:    6,
       }),
+      /* usuários da org → resolve o nome ATUAL do autor pelo userId da auditoria (renome reflete) */
+      this.prisma.user.findMany({ where: { organizationId }, select: { id: true, name: true } }),
     ])
+
+    /* nome vivo do autor: userId → nome atual; cai para o snapshot (`user`) em logs sem id (Sistema/legado) */
+    const userName = new Map(orgUsers.map(u => [u.id, u.name]))
+    const autor = (userId: string | null | undefined, snapshot: string) => (userId ? userName.get(userId) : undefined) ?? snapshot
 
     /* ── Contratos ── estado VIGENTE (aditivos ATIVOS + renovações + reajustes aplicados)
        derivado por @nxt/contracts-core, a mesma implementação da listagem e do detalhe. */
@@ -108,7 +119,9 @@ export class DashboardService {
     for (const c of contracts) {
       const d = derivar(c)
       contractsByStatus[d.situacao] = (contractsByStatus[d.situacao] ?? 0) + 1
-      if (d.situacao === 'VIGENTE') valorAtivos += d.valor
+      /* VENCIDO é um VIGENTE cujo término passou (derivado, nunca gravado). No somatório do
+         card ele conta como vigente: o contrato segue em vigor até ser renovado/encerrado. */
+      if (d.situacao === 'VIGENTE' || d.situacao === 'VENCIDO') valorAtivos += d.valor
     }
     const contractSeries = buildSeries(contracts.map(c => c.createdAt))
 
@@ -144,17 +157,18 @@ export class DashboardService {
         id:     l.id,
         kind:   'partner' as const,
         title:  l.partner?.razaoSocial ?? 'Parceiro',
-        detail: PARTNER_EVENT_LABEL[l.event] ?? 'atualizou',
-        user:   l.user,
+        detail: PARTNER_EVENT_LABEL[l.event] ?? 'atualizou o parceiro',
+        user:   autor(l.userId, l.user),
         at:     l.createdAt.toISOString(),
       })),
-      ...recentContracts.map(c => ({
-        id:     c.id,
+      ...recentContractLogs.map(l => ({
+        id:     l.id,
         kind:   'contract' as const,
-        title:  c.titulo || `Contrato ${c.numero}`,
-        detail: 'criado',
-        user:   null,
-        at:     c.createdAt.toISOString(),
+        /* descrição = Número + Título do contrato */
+        title:  [l.contract?.numero, l.contract?.titulo].filter(Boolean).join(' — ') || 'contrato',
+        detail: 'cadastrou o contrato',
+        user:   autor(l.userId, l.user),
+        at:     l.createdAt.toISOString(),
       })),
     ]
       .sort((a, b) => (a.at < b.at ? 1 : -1))
