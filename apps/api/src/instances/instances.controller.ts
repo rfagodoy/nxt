@@ -1,10 +1,12 @@
-import { Controller, Post, Patch, Get, Param, Body, Query } from '@nestjs/common'
+import { Controller, Post, Patch, Get, Param, Body, Query, UseGuards } from '@nestjs/common'
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger'
 import { InstancesService } from './instances.service'
 import { StartInstanceDto } from './dto/start-instance.dto'
 import { CompleteTaskDto } from './dto/complete-task.dto'
 import { CurrentOrg } from '../auth/current-org.decorator'
 import { CurrentUser, type CurrentUserData } from '../auth/current-user.decorator'
+import { Roles } from '../auth/roles.decorator'
+import { RolesGuard } from '../auth/roles.guard'
 
 @ApiTags('instances')
 @ApiBearerAuth()
@@ -52,13 +54,25 @@ export class InstancesController {
   }
 
   @Patch(':id/cancel')
-  @ApiOperation({ summary: 'Cancela uma instância em execução' })
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Cancela uma instância em execução ou com erro — admin' })
   cancel(@Param('id') id: string, @CurrentOrg() organizationId: string) {
     return this.instancesService.cancel(id, organizationId)
   }
 
+  @Post(':id/retry')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Reprocessa a etapa automática que falhou (instância em ERRO) — admin' })
+  retry(@Param('id') id: string, @CurrentOrg() organizationId: string, @CurrentUser() actor: CurrentUserData) {
+    return this.instancesService.retry(id, organizationId, actor)
+  }
+
   @Post('sweep-overdue')
-  @ApiOperation({ summary: 'Varre e escalona tarefas vencidas da organização (SLA)' })
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Varre e escalona tarefas vencidas da organização (SLA) — admin' })
   async sweepOverdue(@CurrentOrg() organizationId: string) {
     const escalated = await this.instancesService.sweepOverdue(organizationId)
     return { escalated }

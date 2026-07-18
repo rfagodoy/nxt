@@ -1,4 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common'
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+  ConflictException,
+} from '@nestjs/common'
 import { randomUUID } from 'crypto'
 import { PrismaService } from '../prisma.service'
 import { WorkflowRolesService } from '../workflow-roles/workflow-roles.service'
@@ -7,6 +13,7 @@ import {
   startProcess,
   completeToken,
   cancelProcess,
+  WfError,
   type WfGraph,
   type WfState,
   type WfEffect,
@@ -31,6 +38,9 @@ interface ConnectorCtx {
 
 const str = (v: unknown): string | undefined => (v == null || v === '' ? undefined : String(v))
 const numOr = (v: unknown): number | undefined => {
+  // Campo vazio/nulo NÃO é zero — deixa o valor por definir (senão um "Valor"
+  // em branco criaria contrato com valorTotal 0). Number('') === 0 é a armadilha.
+  if (v == null || v === '') return undefined
   const n = Number(v)
   return Number.isFinite(n) ? n : undefined
 }
@@ -62,30 +72,47 @@ export class InstancesService {
 
     // Roda o motor a partir do start e resolve os efeitos (cria tarefas, executa
     // service-tasks: conectores de domínio) até parar nos pontos de espera humanos.
-    const settled = await this.settle(graph, startProcess(graph, dto.variables ?? {}, runtime), {
+    // Um erro do MOTOR (gateway sem saída casada, laço, nó inexistente) não vira 500:
+    // o `settle` o captura e a instância nasce em ERRO (fallbackState = estado inicial).
+    const baseState: WfState = {
+      status: 'running',
+      tokens: [],
+      variables: { ...(dto.variables ?? {}) },
+      joinCounts: {},
+    }
+    const settled = await this.settle(graph, () => startProcess(graph, dto.variables ?? {}, runtime), {
       organizationId,
       actor,
-    })
+    }, baseState)
     const status = settled.errored ? 'ERROR' : settled.completed ? 'COMPLETED' : 'RUNNING'
 
-    const instance = await this.prisma.processInstance.create({
-      data: {
-        processDefinitionId: process.id,
-        definitionVersion: process.version,
-        status,
-        state: settled.state as never,
-        startedBy: actor?.name ?? null,
-        startedById: actor?.sub ?? null,
-        completedAt: settled.completed && !settled.errored ? new Date() : null,
-      },
+    // Instância + tarefas criadas ATOMICAMENTE (se a criação de tarefas falhar, a
+    // instância não fica órfã sem tarefa pendente). Numa instância em ERRO não se
+    // criam tarefas — o fluxo está parado no serviceTask que falhou.
+    const instance = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.processInstance.create({
+        data: {
+          processDefinitionId: process.id,
+          definitionVersion: process.version,
+          // Congela o grafo com que esta instância roda: reativar/editar o processo
+          // depois NÃO afeta instâncias já em andamento (elas seguem no snapshot).
+          graphSnapshot: graph as never,
+          status,
+          state: settled.state as never,
+          startedBy: actor?.name ?? null,
+          startedById: actor?.sub ?? null,
+          completedAt: settled.completed && !settled.errored ? new Date() : null,
+        },
+      })
+      if (!settled.errored) await this.persistTasks(tx, created.id, settled.tasksToCreate)
+      return created
     })
-
-    await this.persistTasks(instance.id, settled.tasksToCreate)
 
     return {
       instance,
       tasks: await this.pendingTasks(instance.id),
       completed: settled.completed,
+      errored: settled.errored ?? null,
     }
   }
 
@@ -106,41 +133,75 @@ export class InstancesService {
       throw new ForbiddenException('Você não é o executor desta tarefa')
     }
 
-    const graph = task.instance.processDefinition.compiledGraph as unknown as WfGraph | null
+    // Grafo CONGELADO da instância (imune a reativação/edição do processo depois do
+    // start). Fallback para o grafo vivo cobre instâncias criadas antes do snapshot.
+    const graph =
+      (task.instance.graphSnapshot as unknown as WfGraph | null) ??
+      (task.instance.processDefinition.compiledGraph as unknown as WfGraph | null)
     if (!graph || !graph.nodes) throw new BadRequestException('Processo sem grafo compilado')
 
     const prevState = task.instance.state as unknown as WfState
+    const prevRevision = task.instance.revision
     const data = dto.data ?? {}
 
-    // Avança o motor a partir do token desta tarefa (executando conectores).
-    const settled = await this.settle(graph, completeToken(graph, prevState, task.tokenId, data, runtime), {
-      organizationId,
-      actor,
+    // ── Anti-corrida (1/2): REIVINDICA a tarefa por CAS ANTES de rodar o motor. ──
+    // Só um request troca PENDING→DONE; um duplo-submit (2 abas, duplo-clique) perde
+    // a corrida aqui e não chega a executar o conector — sem contrato/parceiro duplicado.
+    const claim = await this.prisma.workflowTask.updateMany({
+      where: { id: task.id, status: 'PENDING' },
+      data: {
+        status: 'DONE',
+        data: data as never,
+        completedBy: actor?.name ?? 'Usuário do sistema',
+        completedById: actor?.sub ?? null,
+        completedAt: new Date(),
+      },
     })
+    if (claim.count === 0) throw new BadRequestException('Tarefa já concluída ou cancelada')
+
+    // Avança o motor a partir do token desta tarefa (executando conectores). Erro do
+    // MOTOR não vira 500: `settle` captura e a instância vai para ERRO.
+    const settled = await this.settle(
+      graph,
+      () => completeToken(graph, prevState, task.tokenId, data, runtime),
+      { organizationId, actor },
+      { ...prevState, variables: { ...prevState.variables, ...data } },
+    )
     const status = settled.errored ? 'ERROR' : settled.completed ? 'COMPLETED' : 'RUNNING'
 
-    await this.prisma.$transaction([
-      this.prisma.workflowTask.update({
-        where: { id: task.id },
-        data: {
-          status: 'DONE',
-          data: data as never,
-          completedBy: actor?.name ?? 'Usuário do sistema',
-          completedById: actor?.sub ?? null,
-          completedAt: new Date(),
-        },
-      }),
-      this.prisma.processInstance.update({
-        where: { id: task.instanceId },
-        data: {
-          state: settled.state as never,
-          status,
-          completedAt: settled.completed && !settled.errored ? new Date() : null,
-        },
-      }),
-    ])
-
-    await this.persistTasks(task.instanceId, settled.tasksToCreate)
+    // ── Anti-corrida (2/2): avança o estado da instância com LOCK OTIMÍSTICO. ──
+    // Em ramos paralelos, duas conclusões simultâneas partiriam do mesmo estado e uma
+    // sobrescreveria a outra (token perdido / join travado). A guarda por `revision`
+    // rejeita a perdedora (409) e devolve SUA tarefa a PENDING para refazer com estado
+    // fresco. (Resíduo raro conhecido: se o ramo perdedor já disparou um conector, o
+    // reprocesso pode reexecutá-lo — coincidência tripla, aceitável nesta escala.)
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const upd = await tx.processInstance.updateMany({
+          where: { id: task.instanceId, revision: prevRevision },
+          data: {
+            state: settled.state as never,
+            status,
+            revision: { increment: 1 },
+            completedAt: settled.completed && !settled.errored ? new Date() : null,
+          },
+        })
+        if (upd.count === 0) {
+          throw new ConflictException('A instância foi alterada por outra ação simultânea. Recarregue e tente novamente.')
+        }
+        // Em ERRO não se criam novas tarefas: o fluxo parou no serviceTask que falhou.
+        if (!settled.errored) await this.persistTasks(tx, task.instanceId, settled.tasksToCreate)
+      })
+    } catch (e) {
+      if (e instanceof ConflictException) {
+        // desfaz a reivindicação: a tarefa volta a PENDING para ser refeita.
+        await this.prisma.workflowTask.updateMany({
+          where: { id: task.id, status: 'DONE' },
+          data: { status: 'PENDING', completedBy: null, completedById: null, completedAt: null },
+        })
+      }
+      throw e
+    }
 
     return {
       instanceId: task.instanceId,
@@ -177,6 +238,13 @@ export class InstancesService {
     opts: { status?: string; mine?: boolean; actor?: CurrentUserData } = {},
   ) {
     const status = opts.status ?? 'PENDING'
+
+    // Visão gerencial (todas as tarefas da org) é restrita a admin — um membro comum
+    // só enxerga a SUA caixa. (Antes, mine=false vazava as tarefas de todos.)
+    if (opts.mine === false && !this.isAdmin(opts.actor)) {
+      throw new ForbiddenException('Visão de todas as tarefas restrita a administradores')
+    }
+
     const tasks = await this.prisma.workflowTask.findMany({
       where: { status, instance: { processDefinition: { organizationId } } },
       include: { instance: { include: { processDefinition: { select: { name: true } } } } },
@@ -217,8 +285,9 @@ export class InstancesService {
       where: { id: instanceId, processDefinition: { organizationId } },
     })
     if (!instance) throw new NotFoundException('Instância não encontrada')
-    if (instance.status !== 'RUNNING') {
-      throw new BadRequestException('Só é possível cancelar instâncias em execução')
+    // Também cancela instâncias em ERRO (antes ficavam presas para sempre).
+    if (instance.status !== 'RUNNING' && instance.status !== 'ERROR') {
+      throw new BadRequestException('Só é possível cancelar instâncias em execução ou com erro')
     }
 
     const state = cancelProcess(instance.state as unknown as WfState)
@@ -226,7 +295,7 @@ export class InstancesService {
     const [updated] = await this.prisma.$transaction([
       this.prisma.processInstance.update({
         where: { id: instanceId },
-        data: { status: 'CANCELLED', state: state as never },
+        data: { status: 'CANCELLED', state: state as never, revision: { increment: 1 } },
       }),
       this.prisma.workflowTask.updateMany({
         where: { instanceId, status: 'PENDING' },
@@ -237,20 +306,84 @@ export class InstancesService {
     return updated
   }
 
+  /** Reprocessa a(s) etapa(s) automática(s) de uma instância em ERRO: reexecuta os
+   *  conectores dos serviceTasks parados. Se agora passarem, a instância avança; se
+   *  falharem de novo, permanece em ERRO (pode-se tentar outra vez após corrigir a causa). */
+  async retry(instanceId: string, organizationId: string, actor?: CurrentUserData) {
+    const instance = await this.prisma.processInstance.findFirst({
+      where: { id: instanceId, processDefinition: { organizationId } },
+      include: { processDefinition: true },
+    })
+    if (!instance) throw new NotFoundException('Instância não encontrada')
+    if (instance.status !== 'ERROR') {
+      throw new BadRequestException('Só é possível reprocessar instâncias com erro')
+    }
+
+    const graph =
+      (instance.graphSnapshot as unknown as WfGraph | null) ??
+      (instance.processDefinition.compiledGraph as unknown as WfGraph | null)
+    if (!graph || !graph.nodes) throw new BadRequestException('Processo sem grafo compilado')
+
+    const state = instance.state as unknown as WfState
+    const prevRevision = instance.revision
+
+    // Tokens de serviceTask parados = os conectores que falharam. Reemite o efeito
+    // `runService` de cada um e deixa o `settle` executá-los novamente.
+    const resting = state.tokens.filter((t) => graph.nodes[t.nodeId]?.type === 'serviceTask')
+    if (resting.length === 0) {
+      throw new BadRequestException('Não há etapa automática pendente para reprocessar')
+    }
+
+    const settled = await this.settle(
+      graph,
+      () => ({
+        state,
+        effects: resting.map((t) => ({ kind: 'runService' as const, token: t, node: graph.nodes[t.nodeId] })),
+      }),
+      { organizationId, actor },
+      state,
+    )
+    const status = settled.errored ? 'ERROR' : settled.completed ? 'COMPLETED' : 'RUNNING'
+
+    await this.prisma.$transaction(async (tx) => {
+      const upd = await tx.processInstance.updateMany({
+        where: { id: instanceId, revision: prevRevision },
+        data: {
+          state: settled.state as never,
+          status,
+          revision: { increment: 1 },
+          completedAt: settled.completed && !settled.errored ? new Date() : null,
+        },
+      })
+      if (upd.count === 0) {
+        throw new ConflictException('A instância foi alterada por outra ação simultânea. Recarregue e tente novamente.')
+      }
+      if (!settled.errored) await this.persistTasks(tx, instanceId, settled.tasksToCreate)
+    })
+
+    return {
+      instanceId,
+      completed: settled.completed,
+      errored: settled.errored ?? null,
+      tasks: await this.pendingTasks(instanceId),
+    }
+  }
+
   // ── Motor: resolução de efeitos ──────────────────────────────────────────────
   /** Consome os efeitos de uma execução: acumula as userTasks a criar e executa
    *  os service-tasks automáticos (conectores na F5) até o motor descansar. */
   private async settle(
     graph: WfGraph,
-    result: WfRunResult,
+    run: () => WfRunResult,
     ctx: ConnectorCtx,
+    fallbackState: WfState,
   ): Promise<{
     state: WfState
     tasksToCreate: Array<{ token: { id: string; nodeId: string }; node: WfNode }>
     completed: boolean
     errored?: string
   }> {
-    let state = result.state
+    let state: WfState = fallbackState
     const tasksToCreate: Array<{ token: { id: string; nodeId: string }; node: WfNode }> = []
     const serviceQueue: Array<{ token: { id: string; nodeId: string }; node: WfNode }> = []
     let completed = false
@@ -262,8 +395,25 @@ export class InstancesService {
         else if (e.kind === 'completed') completed = true
       }
     }
+    const msgOf = (e: unknown) => (e instanceof Error ? e.message : String(e))
+    // Erro do MOTOR (gateway sem saída casada, laço infinito, nó inexistente) leva a
+    // instância a ERRO (com a causa nas variáveis) em vez de escapar como HTTP 500.
+    const engineErrored = (s: WfState, msg: string) => ({
+      state: { ...s, variables: { ...s.variables, __engineError: msg } },
+      tasksToCreate,
+      completed: false,
+      errored: msg,
+    })
 
-    absorb(result.effects)
+    // Execução inicial (start ou conclusão de tarefa): captura erros do motor.
+    try {
+      const result = run()
+      state = result.state
+      absorb(result.effects)
+    } catch (e) {
+      if (e instanceof WfError) return engineErrored(fallbackState, msgOf(e))
+      throw e
+    }
 
     while (serviceQueue.length > 0) {
       const svc = serviceQueue.shift() as { token: { id: string; nodeId: string }; node: WfNode }
@@ -273,13 +423,19 @@ export class InstancesService {
       } catch (e) {
         // Conector de domínio falhou: instância para em ERRO (o token do serviceTask
         // permanece parado). Guardamos a causa nas variáveis para diagnóstico.
-        const msg = e instanceof Error ? e.message : String(e)
+        const msg = msgOf(e)
         state = { ...state, variables: { ...state.variables, __connectorError: msg } }
         return { state, tasksToCreate, completed: false, errored: msg }
       }
-      const next = completeToken(graph, state, svc.token.id, out, runtime)
-      state = next.state
-      absorb(next.effects)
+      // Retomada do token após o conector: erro do motor aqui também vira ERRO.
+      try {
+        const next = completeToken(graph, state, svc.token.id, out, runtime)
+        state = next.state
+        absorb(next.effects)
+      } catch (e) {
+        if (e instanceof WfError) return engineErrored(state, msgOf(e))
+        throw e
+      }
     }
 
     return { state, tasksToCreate, completed }
@@ -348,11 +504,12 @@ export class InstancesService {
 
   // ── Persistência auxiliar ────────────────────────────────────────────────────
   private async persistTasks(
+    client: Pick<PrismaService, 'workflowTask'>,
     instanceId: string,
     tasks: Array<{ token: { id: string; nodeId: string }; node: WfNode }>,
   ) {
     if (tasks.length === 0) return
-    await this.prisma.workflowTask.createMany({
+    await client.workflowTask.createMany({
       data: tasks.map(({ token, node }) => ({
         instanceId,
         tokenId: token.id,

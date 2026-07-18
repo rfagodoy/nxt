@@ -121,10 +121,12 @@ model ProcessInstance {
   id                  String    @id @default(cuid())
   processDefinitionId String
   definitionVersion   Int       @default(1) // versão do grafo com que esta instância roda (imutável após o start)
+  revision            Int       @default(0) // lock otimístico do `state` (concorrência entre conclusões)
   status              String    @default("RUNNING") // RUNNING | COMPLETED | CANCELLED | ERROR
   currentStep         String? // legado (motor linear antigo); o motor por token usa `state`
   data                String    @default("{}") @db.NVarChar(Max) // [JSON] legado — dados achatados do motor antigo
   state               String    @default("{}") @db.NVarChar(Max) // [JSON] WfState do motor por token (tokens/variables/joinCounts)
+  graphSnapshot       String?   @db.NVarChar(Max) // [JSON] WfGraph congelado no start (imune a reativação/edição do diagrama)
   startedBy           String? // quem iniciou (nome do @CurrentUser)
   startedById         String? // id estável de quem iniciou
   startedAt           DateTime  @default(now())
