@@ -8,6 +8,9 @@ import { ORIGEM } from '@/lib/contract-roles'
 
 const inputCls = 'flex h-7 w-full rounded-md border border-input bg-background px-2.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
 
+/* Ordem alfabética pt-BR (acento/caixa-insensível) para a lista de partes. */
+const byNome = (a: { nome: string }, b: { nome: string }) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' })
+
 export interface EntityRef  { ref_tipo: string; ref_id: string; nome: string; documento: string }
 export interface EmpresaItem { id: string; nome: string; documento: string }
 
@@ -44,8 +47,9 @@ export function EntitySearchModal({ origem, empresas, excludeIds, onSelect, onCl
         } else {
           const res = await apiFetch(`/api/partners/query`, {
             method: 'POST',
-            /* somente parceiros ATIVOS podem ser vinculados a um contrato */
-            body: JSON.stringify({ search: q.trim(), page: 1, pageSize: 30, filters: [{ col: 'status', op: 'eq', value: 'ATIVO' }], logic: 'AND' }),
+            /* somente parceiros ATIVOS podem ser vinculados a um contrato; ordem alfabética por nome
+               (garante que, com >30 parceiros, venham os alfabeticamente primeiros) */
+            body: JSON.stringify({ search: q.trim(), page: 1, pageSize: 30, filters: [{ col: 'status', op: 'eq', value: 'ATIVO' }], logic: 'AND', sort: { col: 'nome', dir: 'asc' } }),
           })
           const data = res.ok ? (await res.json() as { rows: { id: string; nome: string; identificador: string }[] }) : { rows: [] }
           setParceiros((data.rows ?? []).map(r => ({ id: r.id, nome: r.nome, documento: r.identificador })))
@@ -55,14 +59,18 @@ export function EntitySearchModal({ origem, empresas, excludeIds, onSelect, onCl
     return () => clearTimeout(t)
   }, [q, isUnidade])
 
+  /* empresas do grupo PRIMEIRO, em ordem alfabética */
   const empresasFiltered = useMemo(() => {
     if (isUnidade) return []
     const lq = q.toLowerCase().trim(); const dq = q.replace(/\D/g, '')
-    return empresas.filter(e => !exclude.has(e.id) && (!q || e.nome.toLowerCase().includes(lq) || (dq.length > 0 && e.documento.replace(/\D/g, '').includes(dq))))
+    return empresas
+      .filter(e => !exclude.has(e.id) && (!q || e.nome.toLowerCase().includes(lq) || (dq.length > 0 && e.documento.replace(/\D/g, '').includes(dq))))
+      .sort(byNome)
   }, [q, empresas, isUnidade, exclude])
 
-  /* remove entidades já usadas neste papel (parceiros/unidades vêm do servidor, filtra no cliente) */
-  const parceirosShown = useMemo(() => parceiros.filter(p => !exclude.has(p.id)), [parceiros, exclude])
+  /* parceiros DEPOIS, em ordem alfabética (o servidor já ordena; reordena no cliente para a
+     exibição ficar consistente em pt-BR). Remove entidades já usadas neste papel. */
+  const parceirosShown = useMemo(() => parceiros.filter(p => !exclude.has(p.id)).sort(byNome), [parceiros, exclude])
   const unidadesShown  = useMemo(() => unidades.filter(u => !exclude.has(u.id)), [unidades, exclude])
 
   const hasResults = isUnidade ? unidadesShown.length > 0 : (empresasFiltered.length + parceirosShown.length) > 0
