@@ -27,6 +27,7 @@ import { CompleteTaskDto } from './dto/complete-task.dto'
 import type { CurrentUserData } from '../auth/current-user.decorator'
 import { ContractsService } from '../contracts/contracts.service'
 import { PartnersService } from '../partners/partners.service'
+import { RoleAssignmentsService } from '../role-assignments/role-assignments.service'
 
 /** Ids de token únicos para o motor (viram WorkflowTask.tokenId). */
 const runtime: WfRuntime = { genId: () => randomUUID() }
@@ -53,6 +54,7 @@ export class InstancesService {
     private readonly roles: WorkflowRolesService,
     private readonly contracts: ContractsService,
     private readonly partners: PartnersService,
+    private readonly roleAssignments: RoleAssignmentsService,
   ) {}
 
   private isAdmin(actor?: CurrentUserData): boolean {
@@ -105,7 +107,7 @@ export class InstancesService {
           completedAt: settled.completed && !settled.errored ? new Date() : null,
         },
       })
-      if (!settled.errored) await this.persistTasks(tx, created.id, settled.tasksToCreate)
+      if (!settled.errored) await this.persistTasks(tx, created.id, settled.tasksToCreate, organizationId, settled.state.variables)
       return created
     })
 
@@ -191,7 +193,7 @@ export class InstancesService {
           throw new ConflictException('A instância foi alterada por outra ação simultânea. Recarregue e tente novamente.')
         }
         // Em ERRO não se criam novas tarefas: o fluxo parou no serviceTask que falhou.
-        if (!settled.errored) await this.persistTasks(tx, task.instanceId, settled.tasksToCreate)
+        if (!settled.errored) await this.persistTasks(tx, task.instanceId, settled.tasksToCreate, organizationId, settled.state.variables)
       })
     } catch (e) {
       if (e instanceof ConflictException) {
@@ -359,7 +361,7 @@ export class InstancesService {
       if (upd.count === 0) {
         throw new ConflictException('A instância foi alterada por outra ação simultânea. Recarregue e tente novamente.')
       }
-      if (!settled.errored) await this.persistTasks(tx, instanceId, settled.tasksToCreate)
+      if (!settled.errored) await this.persistTasks(tx, instanceId, settled.tasksToCreate, organizationId, settled.state.variables)
     })
 
     return {
@@ -567,21 +569,49 @@ export class InstancesService {
     client: Pick<PrismaService, 'workflowTask'>,
     instanceId: string,
     tasks: Array<{ token: { id: string; nodeId: string }; node: WfNode }>,
+    organizationId: string,
+    variables: Record<string, unknown>,
   ) {
     if (tasks.length === 0) return
-    await client.workflowTask.createMany({
-      data: tasks.map(({ token, node }) => ({
-        instanceId,
-        tokenId: token.id,
-        nodeId: node.id,
-        name: node.name ?? null,
-        role: node.role ?? null,
-        assignee: node.assignee ?? null,
-        formRef: node.formRef ?? null,
-        dueAt: node.slaMinutes ? new Date(Date.now() + node.slaMinutes * 60_000) : null,
-        status: 'PENDING',
-      })),
-    })
+    // Resolve o executor (papel+entidade → usuário[]) de cada tarefa ANTES de gravar.
+    const rows = await Promise.all(tasks.map(async ({ token, node }) => ({
+      instanceId,
+      tokenId: token.id,
+      nodeId: node.id,
+      name: node.name ?? null,
+      role: node.role ?? null,
+      assignee: node.assignee ?? null,
+      assignees: await this.resolveExecutor(node, organizationId, variables),
+      formRef: node.formRef ?? null,
+      dueAt: node.slaMinutes ? new Date(Date.now() + node.slaMinutes * 60_000) : null,
+      status: 'PENDING',
+    })))
+    await client.workflowTask.createMany({ data: rows as never })
+  }
+
+  /** Resolve o executor de uma atividade (papel de PESSOA + entidade) em uma lista de
+   *  usuários responsáveis. A entidade vem FIXA (id do desenho) ou por VARIÁVEL (id
+   *  lido de uma variável do processo). ORG = papel global (sem entidade). Pool vazio
+   *  (papel sem responsável cadastrado, ou variável ausente) → tarefa fica ABERTA. */
+  private async resolveExecutor(
+    node: WfNode,
+    organizationId: string,
+    variables: Record<string, unknown>,
+  ): Promise<string[]> {
+    const ex = node.executor
+    if (!ex?.papelId) return []
+    let entityId: string | undefined
+    if (ex.entityType === 'ORG') {
+      entityId = undefined
+    } else if (ex.mode === 'VARIAVEL') {
+      const v = variables[ex.entityVar ?? '']
+      entityId = v == null || v === '' ? undefined : String(v)
+      if (!entityId) return [] // variável ainda não definida → sem pool (tarefa aberta)
+    } else {
+      entityId = ex.entityId || undefined
+      if (!entityId) return []
+    }
+    return this.roleAssignments.resolveUsers(organizationId, ex.papelId, ex.entityType, entityId)
   }
 
   private pendingTasks(instanceId: string) {

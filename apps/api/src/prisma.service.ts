@@ -9,7 +9,7 @@ import { Prisma, PrismaClient } from '@nxt/database'
 const JSON_FIELDS: Record<string, string[]> = {
   ProcessDefinition: ['formSchema', 'compiledGraph'],
   ProcessInstance: ['data', 'state', 'graphSnapshot'],
-  WorkflowTask: ['data'],
+  WorkflowTask: ['data', 'assignees'],
   WorkflowRole: ['members'],
   Module: ['schema'],
   ModuleRecord: ['data'],

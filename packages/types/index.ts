@@ -47,6 +47,17 @@ export interface StepFormSchema {
    *  designer; mesclado ao grafo na ativação (vira node.connectorInputs). Quando
    *  uma entrada não é mapeada, o backend usa a convenção de nome. */
   connectorInputs?: Record<string, string>
+
+  /** Executor por PAPEL (referência PESSOA) + ENTIDADE. Alternativa ao `role` de
+   *  texto livre: o motor resolve papel+entidade → usuário(s) responsável(is) e
+   *  roteia a tarefa. Mesclado ao grafo na ativação (vira node.executor). */
+  executor?: {
+    papelId: string
+    entityType: string        // EMPRESA | PARCEIRO | UNIDADE | CONTRATO | ORG
+    mode: 'FIXA' | 'VARIAVEL'
+    entityId?: string
+    entityVar?: string
+  }
 }
 
 // ─── Manifesto dos conectores de domínio (F5) ────────────────────────────────

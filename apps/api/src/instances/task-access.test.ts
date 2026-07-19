@@ -33,4 +33,23 @@ describe('canActOnTask', () => {
     // atribuída a u2 → u1 (mesmo no papel) NÃO pode
     expect(canActOnTask({ assignee: 'u2', role: 'Gestor' }, 'u1', keys('Gestor'), false)).toBe(false)
   })
+
+  it('pool de responsáveis (executor papel+entidade): só quem está no pool', () => {
+    expect(canActOnTask({ assignees: ['u1', 'u2'] }, 'u1', keys(), false)).toBe(true)
+    expect(canActOnTask({ assignees: ['u1', 'u2'] }, 'u3', keys(), false)).toBe(false)
+  })
+
+  it('pool tem precedência sobre assignee/papel', () => {
+    // resolvido para u2 → u1 (assignee legado e no papel) NÃO pode
+    expect(canActOnTask({ assignees: ['u2'], assignee: 'u1', role: 'Gestor' }, 'u1', keys('Gestor'), false)).toBe(false)
+  })
+
+  it('pool vazio cai na lógica legada (papel/assignee/aberta)', () => {
+    expect(canActOnTask({ assignees: [], role: 'Gestor' }, 'u1', keys('Gestor'), false)).toBe(true)
+    expect(canActOnTask({ assignees: [] }, 'qualquer', keys(), false)).toBe(true)
+  })
+
+  it('assignees como string crua (JSON não desserializado) → pool vazio, não quebra', () => {
+    expect(canActOnTask({ assignees: '["u1"]', role: 'Gestor' }, 'u1', keys('Gestor'), false)).toBe(true)
+  })
 })

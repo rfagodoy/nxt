@@ -72,6 +72,8 @@ export class ProcessesService {
       if (step.connectorInputs && Object.keys(step.connectorInputs).length) {
         node.connectorInputs = step.connectorInputs
       }
+      // Executor por papel+entidade (resolve para usuário(s) responsável(is) em runtime).
+      if (step.executor?.papelId) node.executor = step.executor
     }
 
     const updatedProcess = await this.prisma.processDefinition.update({
