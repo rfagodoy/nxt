@@ -28,7 +28,7 @@ function Field({ label, required, span2, children }: { label: string; required?:
   )
 }
 
-/* Seção accordion — mesmo chrome do cadastro de Parceiros/Empresas. */
+/* Seção accordion — usada na INCLUSÃO (mesmo chrome do cadastro de Parceiros/Empresas). */
 function Section({ icon: Icon, title, isOpen, onToggle, hasError, children }: {
   icon: React.ElementType; title: string; isOpen: boolean; onToggle: () => void
   hasError?: boolean; children: React.ReactNode
@@ -46,7 +46,9 @@ function Section({ icon: Icon, title, isOpen, onToggle, hasError, children }: {
   )
 }
 
-/* Detalhe/edição da unidade — mesmo padrão das demais telas (seções accordion). */
+/* Detalhe/edição da unidade. Segue o padrão do sistema: INCLUSÃO = seções accordion
+ * (como o cadastro NOVO de Parceiro/Empresa); EDIÇÃO = sub-abas (como o detalhe do
+ * Parceiro). O conteúdo das seções é o mesmo nos dois modos. */
 export function UnitDetailView({ mode, unit, companyId, parentId, parentName, onClose, onSaved, onDirtyChange }: {
   mode: 'detail' | 'new'
   unit?: Unit
@@ -58,8 +60,10 @@ export function UnitDetailView({ mode, unit, companyId, parentId, parentName, on
   onDirtyChange?: (dirty: boolean) => void
 }) {
   const tipos = useLookupTable(TIPOS_UNIDADE_KEY, INIT_TIPOS_UNIDADE)
+  // inclusão (accordion): quais seções abertas · edição (abas): aba ativa
   const [open, setOpen] = useState<Set<string>>(new Set(['dados', 'partes']))
   const toggle = (k: string) => setOpen(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
+  const [tab, setTab] = useState<'dados' | 'partes'>('dados')
 
   const [nome,      setNome]      = useState(unit?.nome ?? '')
   const [codigo,    setCodigo]    = useState(unit?.codigo ?? '')
@@ -97,7 +101,7 @@ export function UnitDetailView({ mode, unit, companyId, parentId, parentName, on
   }, [nome, codigo, natureza, status, onDirtyChange]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = async () => {
-    if (!nome.trim()) { setSaveError('Informe o nome da unidade.'); setOpen(prev => new Set(prev).add('dados')); return }
+    if (!nome.trim()) { setSaveError('Informe o nome da unidade.'); setOpen(prev => new Set(prev).add('dados')); setTab('dados'); return }
     setSaving(true); setSaveError(null)
     const body = { nome: nome.trim(), codigo: codigo?.trim() || undefined, natureza, status, user: getLogUser() }
     try {
@@ -115,6 +119,22 @@ export function UnitDetailView({ mode, unit, companyId, parentId, parentName, on
 
   const tipo = tipos.entries.find(t => t.id === natureza)
   const cls  = CLASS_COLOR[tipo?.classificacao ?? 'NEUTRO'] ?? CLASS_COLOR.NEUTRO
+
+  // conteúdo das seções (reaproveitado por accordion e por abas)
+  const dadosFields = (
+    <div className="grid grid-cols-2 gap-3">
+      <Field label="Nome" required span2><input value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome da unidade" className={inputCls} autoFocus /></Field>
+      <Field label="Código"><input value={codigo ?? ''} onChange={e => setCodigo(alnum15(e.target.value))} maxLength={15} placeholder="Alfanum. (até 15)" className={cn(inputCls, 'font-mono uppercase')} /></Field>
+      <Field label="Tipo de unidade">
+        <select value={natureza} onChange={e => setNatureza(e.target.value)} className={inputCls}>
+          {natureza && !tipos.active.some(t => t.id === natureza) && <option value={natureza}>{tipo?.label ?? natureza}</option>}
+          {tipos.active.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+        </select>
+      </Field>
+      <Field label="Status"><select value={status} onChange={e => setStatus(e.target.value)} className={inputCls}>{STATUS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}</select></Field>
+    </div>
+  )
+  const partesContent = <ResponsaveisSection entityType="UNIDADE" entityId={mode === 'detail' ? unit?.id : undefined} />
 
   return (
     <div className="space-y-3 pb-6">
@@ -148,25 +168,33 @@ export function UnitDetailView({ mode, unit, companyId, parentId, parentName, on
         <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">{saveError}</div>
       )}
 
-      {/* Dados */}
-      <Section icon={Building2} title="Dados" isOpen={open.has('dados')} onToggle={() => toggle('dados')} hasError={!!saveError && !nome.trim()}>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Nome" required span2><input value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome da unidade" className={inputCls} autoFocus /></Field>
-          <Field label="Código"><input value={codigo ?? ''} onChange={e => setCodigo(alnum15(e.target.value))} maxLength={15} placeholder="Alfanum. (até 15)" className={cn(inputCls, 'font-mono uppercase')} /></Field>
-          <Field label="Tipo de unidade">
-            <select value={natureza} onChange={e => setNatureza(e.target.value)} className={inputCls}>
-              {natureza && !tipos.active.some(t => t.id === natureza) && <option value={natureza}>{tipo?.label ?? natureza}</option>}
-              {tipos.active.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
-            </select>
-          </Field>
-          <Field label="Status"><select value={status} onChange={e => setStatus(e.target.value)} className={inputCls}>{STATUS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}</select></Field>
-        </div>
-      </Section>
-
-      {/* Partes envolvidas (papel de pessoa → usuário) */}
-      <Section icon={UserCog} title="Partes envolvidas" isOpen={open.has('partes')} onToggle={() => toggle('partes')}>
-        <ResponsaveisSection entityType="UNIDADE" entityId={mode === 'detail' ? unit?.id : undefined} />
-      </Section>
+      {mode === 'new' ? (
+        /* INCLUSÃO — seções accordion */
+        <>
+          <Section icon={Building2} title="Dados" isOpen={open.has('dados')} onToggle={() => toggle('dados')} hasError={!!saveError && !nome.trim()}>
+            {dadosFields}
+          </Section>
+          <Section icon={UserCog} title="Partes envolvidas" isOpen={open.has('partes')} onToggle={() => toggle('partes')}>
+            {partesContent}
+          </Section>
+        </>
+      ) : (
+        /* EDIÇÃO — sub-abas (como o detalhe do Parceiro) */
+        <>
+          <div className="flex items-center gap-1 flex-wrap border-b pb-2">
+            {([{ id: 'dados', label: 'Dados', icon: Building2 }, { id: 'partes', label: 'Partes envolvidas', icon: UserCog }] as const).map(t => (
+              <button key={t.id} type="button" onClick={() => setTab(t.id)}
+                className={cn('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                  tab === t.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-muted')}>
+                <t.icon className="h-3.5 w-3.5" />{t.label}
+              </button>
+            ))}
+          </div>
+          <div className="rounded-xl border bg-card p-4 shadow-sm">
+            {tab === 'dados' ? dadosFields : partesContent}
+          </div>
+        </>
+      )}
     </div>
   )
 }

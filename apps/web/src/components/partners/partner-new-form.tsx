@@ -359,17 +359,15 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
                 </Section>
               ))
             : resolvedOrder.map(key => renderSection(key))
-          // "Partes envolvidas" = 2ª posição (após Identificação). No cadastro novo ainda
-          // não há id → a seção orienta a salvar antes de atribuir pessoas.
+          // "Partes envolvidas" por ÚLTIMO (na inclusão não há Histórico). No cadastro
+          // novo ainda não há id → a seção orienta a salvar antes de atribuir pessoas.
           const partes = (
             <Section key="responsaveis" icon={UserCog} title="Partes envolvidas"
               isOpen={open.has('responsaveis')} onToggle={() => toggle('responsaveis')}>
               <ResponsaveisSection entityType="PARCEIRO" entityId={undefined} />
             </Section>
           )
-          const out = [...nodes]
-          out.splice(1, 0, partes)
-          return out
+          return [...nodes, partes]
         })()}
 
         {saveError && (

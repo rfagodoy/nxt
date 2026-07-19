@@ -282,10 +282,13 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
         ...(isPJ ? [{ id: 'socios', label: 'Sócios', icon: Users }] : []),
         { id: 'historico',     label: 'Histórico',        icon: Clock },
       ]
-  // "Partes envolvidas" (pessoas por papel) = 2ª posição, logo após Identificação
-  // (consistente com o Contrato). Seção fixa, fora da tela customizável.
+  // "Partes envolvidas" (pessoas por papel) = logo ANTES do Histórico (última seção
+  // de dados, antes da trilha de auditoria). Seção fixa, fora da tela customizável.
   const responsaveisTab = { id: 'responsaveis', label: 'Partes envolvidas', icon: UserCog }
-  const sectionTabs = baseTabs.length ? [baseTabs[0], responsaveisTab, ...baseTabs.slice(1)] : [responsaveisTab]
+  const hIdx = baseTabs.findIndex(t => t.id === 'historico')
+  const sectionTabs = hIdx >= 0
+    ? [...baseTabs.slice(0, hIdx), responsaveisTab, ...baseTabs.slice(hIdx)]
+    : [...baseTabs, responsaveisTab]
 
   /* se a aba ativa deixar de existir (ex.: trocar PJ→PF, ou CNAE ao sair de PJ_BR), volta para a primeira. */
   useEffect(() => {
