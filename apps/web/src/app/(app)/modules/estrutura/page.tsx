@@ -207,9 +207,6 @@ function CompanyModal({ editId, initial, onSave, onClose }: {
                 </Field>
               </div>
             </Section>
-            <Section icon={UserCog} title="Partes envolvidas" isOpen={open.has('responsaveis')} onToggle={() => toggle('responsaveis')}>
-              <ResponsaveisSection entityType="EMPRESA" entityId={editId} />
-            </Section>
             <Section icon={Phone} title="Contato" isOpen={open.has('contato')} onToggle={() => toggle('contato')}>
               <ContatoFields form={form} />
             </Section>
@@ -221,6 +218,9 @@ function CompanyModal({ editId, initial, onSave, onClose }: {
             </Section>
             <Section icon={Users} title="Quadro de Sócios" isOpen={open.has('socios')} onToggle={() => toggle('socios')} hasError={!!err && !!validateSociosParticipacao(v.socios)}>
               <SociosFields form={form} />
+            </Section>
+            <Section icon={UserCog} title="Partes envolvidas" isOpen={open.has('responsaveis')} onToggle={() => toggle('responsaveis')}>
+              <ResponsaveisSection entityType="EMPRESA" entityId={editId} />
             </Section>
           </div>
 
