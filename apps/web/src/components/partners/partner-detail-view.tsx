@@ -282,8 +282,8 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
           ...(isPJ ? [{ id: 'socios', label: 'Sócios', icon: Users }] : []),
           { id: 'historico',     label: 'Histórico',        icon: Clock },
         ]),
-    // Responsáveis (pessoas por papel) — seção fixa, fora da tela customizável.
-    { id: 'responsaveis', label: 'Responsáveis', icon: UserCog },
+    // Partes envolvidas (pessoas por papel) — seção fixa, fora da tela customizável.
+    { id: 'responsaveis', label: 'Partes envolvidas', icon: UserCog },
   ]
 
   /* se a aba ativa deixar de existir (ex.: trocar PJ→PF, ou CNAE ao sair de PJ_BR), volta para a primeira. */
