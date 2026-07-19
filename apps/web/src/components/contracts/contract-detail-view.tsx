@@ -2,15 +2,15 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { FileText, Users, Calendar, Banknote, TrendingUp, TrendingDown, RefreshCw, Paperclip, FilePlus2, Clock, UserCog } from 'lucide-react'
-import { ResponsaveisSection } from '@/components/responsaveis/responsaveis-section'
+import { FileText, Users, Calendar, Banknote, TrendingUp, TrendingDown, RefreshCw, Paperclip, FilePlus2, Clock } from 'lucide-react'
+import { PartesEResponsaveis } from '@/components/contracts/partes-responsaveis'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { CONTRACTS_CHANGED_EVENT } from '@/lib/contract-events'
 import { useScreens, getScreenValues, putScreenValues } from '@/hooks/use-screens'
 import { pickDefaultScreen, resolveContractSections } from '@/lib/screen-contract-layout'
 import { ContractSectionNative, ContractCustomFields } from '@/components/contracts/contract-screen-body'
-import { useContractForm, IdentificacaoFields, VigenciaFields, ValoresFields, ReajustesFields, PartesFields, DocumentosFields, LancamentosFields, AditivosFields } from '@/components/contracts/contract-fields'
+import { useContractForm, IdentificacaoFields, VigenciaFields, ValoresFields, ReajustesFields, DocumentosFields, LancamentosFields, AditivosFields } from '@/components/contracts/contract-fields'
 import { emptyContractForm, contractFromApi, contractToPayload, effectiveSituacao, normalizeSituacao, temPagamentos, temRecebimentos, terminoVigente, validateContract, validateLancamentos, TIPOS_KEY, INIT_TIPOS, type CAditivo } from '@/lib/contract-options'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { PAPEIS_KEY, INIT_PAPEIS, validatePartes } from '@/lib/contract-roles'
@@ -186,7 +186,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
 
   const sectionTabs = [
     { id: 'dados_gerais', label: 'Dados Gerais',      icon: FileText },
-    { id: 'partes',       label: 'Partes',            icon: Users },
+    { id: 'partes',       label: 'Partes envolvidas', icon: Users },
     { id: 'vigencia',     label: 'Vigência',          icon: Calendar },
     { id: 'valor',        label: 'Valor e Pagamento', icon: Banknote },
     ...(temPagamentos(v.natureza)   ? [{ id: 'pagamentos',   label: 'Pagamentos',   icon: TrendingDown }] : []),
@@ -198,10 +198,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
   ]
   /* abas: a tela padrão manda (ordem/rótulos/quais aparecem); sem tela → abas nativas.
      "Responsáveis" (pessoas por papel) é aba fixa, fora da tela customizável. */
-  const tabs = [
-    ...(screenDriven ? screenSections.map(s => ({ id: s.key, label: s.label, icon: s.icon })) : sectionTabs),
-    { id: 'responsaveis', label: 'Responsáveis', icon: UserCog },
-  ]
+  const tabs = screenDriven ? screenSections.map(s => ({ id: s.key, label: s.label, icon: s.icon })) : sectionTabs
 
   const handleSave = async (statusOverride?: string, motivoTexto?: string, aditivosOverride?: CAditivo[]) => {
     /* A obrigatoriedade da data de assinatura é validada na ATIVAÇÃO de cada aditivo
@@ -400,7 +397,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
         ) : (<>
         <DSection active={tab === 'dados_gerais'}><IdentificacaoFields form={form} ro={locked} /></DSection>
         <DSection active={tab === 'partes'}>
-          <PartesFields form={form} ro={locked}
+          <PartesEResponsaveis form={form} ro={locked} contractId={row.id}
             onOpenSearch={(parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds })}
             onNewPartner={() => router.push('/modules/parceiros/new?from=contratos')} />
         </DSection>
@@ -411,7 +408,6 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
         <DSection active={tab === 'reajuste'}><ReajustesFields form={form} ro={locked} /></DSection>
         <DSection active={tab === 'aditivos'}><AditivosFields form={form} onOpenCessaoSearch={(aditivoId, cessaoId, origem) => setCessaoSearch({ aditivoId, cessaoId, origem })} onActivate={activateAditivo} onRevise={reviseAditivo} /></DSection>
         <DSection active={tab === 'documentos'}><DocumentosFields form={form} ro={locked} /></DSection>
-        <DSection active={tab === 'responsaveis'}><ResponsaveisSection entityType="CONTRATO" entityId={row.id} readOnly={locked} /></DSection>
         <DSection active={tab === 'historico'}><ContractHistory contractId={row.id} reloadKey={auditVersion} /></DSection>
         </>)}
       </form>

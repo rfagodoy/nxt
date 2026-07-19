@@ -13,8 +13,9 @@ import { ContractSectionNative, ContractCustomFields } from './contract-screen-b
 import { EntitySearchModal } from './entity-search-modal'
 import {
   useContractForm, IdentificacaoFields, VigenciaFields, ValoresFields,
-  ReajustesFields, PartesFields, DocumentosFields, LancamentosFields,
+  ReajustesFields, DocumentosFields, LancamentosFields,
 } from './contract-fields'
+import { PartesEResponsaveis } from './partes-responsaveis'
 import { emptyContractForm, contractToPayload, newCParte, temPagamentos, temRecebimentos, validateContract, validateLancamentos } from '@/lib/contract-options'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { PAPEIS_KEY, INIT_PAPEIS, validatePartes } from '@/lib/contract-roles'
@@ -186,7 +187,7 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
         </Section>
 
         <Section icon={Users} title="Partes Envolvidas" isOpen={open.has('partes')} onToggle={() => toggleSection('partes')} hasError={errors.has('partes')}>
-          <PartesFields form={form}
+          <PartesEResponsaveis form={form}
             onOpenSearch={(parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds })}
             onNewPartner={() => router.push('/modules/parceiros/new?from=contratos')} />
         </Section>
