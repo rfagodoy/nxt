@@ -70,7 +70,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T | null> {
 /* ─── estilos comuns ─────────────────────────────────────── */
 
 const inputCls  = 'flex h-7 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
-const ROW_GRID  = 'grid grid-cols-[6.5rem_1fr_6rem_8.5rem] items-center gap-2'
+const ROW_GRID  = 'grid grid-cols-[6.5rem_1fr_9rem] items-center gap-2'
 
 function Modal({ title, onClose, wide, children }: { title: string; onClose: () => void; wide?: boolean; children: React.ReactNode }) {
   return (
@@ -268,7 +268,6 @@ function UnitRow({ row, flatMode, typeMap, onToggle, onAddChild, onEdit, onRemov
       <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground min-w-0">
         <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', view.dot)} /><span className="truncate">{view.nome}</span>
       </span>
-      <span className="text-[11px] text-muted-foreground truncate">{u.responsavel || '—'}</span>
       <div className="absolute right-2 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center gap-0.5 rounded-md bg-card/95 px-1 shadow-sm ring-1 ring-border">
         <button type="button" title="Adicionar subunidade" onClick={() => onAddChild(u)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-primary"><Plus className="h-3.5 w-3.5" /></button>
         <button type="button" title="Editar" onClick={() => onEdit(u)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"><Pencil className="h-3 w-3" /></button>
@@ -397,7 +396,7 @@ function OrgChart({ companyId, onChanged }: { companyId: string; onChanged: () =
 
       {/* cabeçalho da tabela */}
       <div className={cn('px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground border-b bg-muted/40 rounded-t-md', ROW_GRID)}>
-        <span>Código</span><span>Unidade</span><span>Tipo de unidade</span><span>Responsável</span>
+        <span>Código</span><span>Unidade</span><span>Tipo de unidade</span>
       </div>
 
       {/* corpo */}
