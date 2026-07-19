@@ -3,14 +3,13 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { FileText, Users, Calendar, Banknote, TrendingUp, TrendingDown, RefreshCw, Paperclip, FilePlus2, Clock } from 'lucide-react'
-import { PartesEResponsaveis } from '@/components/contracts/partes-responsaveis'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { CONTRACTS_CHANGED_EVENT } from '@/lib/contract-events'
 import { useScreens, getScreenValues, putScreenValues } from '@/hooks/use-screens'
 import { pickDefaultScreen, resolveContractSections } from '@/lib/screen-contract-layout'
 import { ContractSectionNative, ContractCustomFields } from '@/components/contracts/contract-screen-body'
-import { useContractForm, IdentificacaoFields, VigenciaFields, ValoresFields, ReajustesFields, DocumentosFields, LancamentosFields, AditivosFields } from '@/components/contracts/contract-fields'
+import { useContractForm, IdentificacaoFields, VigenciaFields, ValoresFields, ReajustesFields, PartesFields, DocumentosFields, LancamentosFields, AditivosFields } from '@/components/contracts/contract-fields'
 import { emptyContractForm, contractFromApi, contractToPayload, effectiveSituacao, normalizeSituacao, temPagamentos, temRecebimentos, terminoVigente, validateContract, validateLancamentos, TIPOS_KEY, INIT_TIPOS, type CAditivo } from '@/lib/contract-options'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { PAPEIS_KEY, INIT_PAPEIS, validatePartes } from '@/lib/contract-roles'
@@ -397,7 +396,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
         ) : (<>
         <DSection active={tab === 'dados_gerais'}><IdentificacaoFields form={form} ro={locked} /></DSection>
         <DSection active={tab === 'partes'}>
-          <PartesEResponsaveis form={form} ro={locked} contractId={row.id}
+          <PartesFields form={form} ro={locked} contractId={row.id}
             onOpenSearch={(parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds })}
             onNewPartner={() => router.push('/modules/parceiros/new?from=contratos')} />
         </DSection>

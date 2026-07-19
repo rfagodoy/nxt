@@ -9,11 +9,10 @@
  */
 import {
   Field,
-  IdentificacaoFields, VigenciaFields, ValoresFields,
+  IdentificacaoFields, VigenciaFields, ValoresFields, PartesFields,
   ReajustesFields, DocumentosFields, LancamentosFields, AditivosFields,
   type ContractForm,
 } from './contract-fields'
-import { PartesEResponsaveis } from './partes-responsaveis'
 import { ContractHistory } from './contract-history'
 import { ScreenCustomInput } from '@/components/screens/screen-renderer'
 import type { ResolvedContractSection } from '@/lib/screen-contract-layout'
@@ -48,7 +47,7 @@ export function ContractSectionNative({ section, ctx }: { section: ResolvedContr
     case 'valor':
       return <ValoresFields form={form} ro={ro} isVisible={screenVis} />
     case 'partes':
-      return <PartesEResponsaveis form={form} ro={ro} contractId={ctx.contractId} onOpenSearch={ctx.onOpenSearch!} onNewPartner={ctx.onNewPartner!} />
+      return <PartesFields form={form} ro={ro} contractId={ctx.contractId} onOpenSearch={ctx.onOpenSearch!} onNewPartner={ctx.onNewPartner!} />
     case 'pagamentos':
       return <LancamentosFields form={form} field="pagamentos" moedaCode={ctx.moedaCode} travado={ro} dualView={ctx.dualView} />
     case 'recebimentos':

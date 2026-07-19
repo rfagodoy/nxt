@@ -9,8 +9,10 @@ import {
   comp, currentComp, todayISO, type CoreLancamento, type CoreReajusteRealizado, type LancField,
 } from '@nxt/contracts-core'
 import { cn } from '@/lib/utils'
-import { apiFetch } from '@/lib/http'
+import { apiFetch, apiJson } from '@/lib/http'
 import { exportExcel } from '@/lib/export-excel'
+import { UserSelect } from '@/components/ui/user-select'
+import { useSelectableUsers } from '@/hooks/use-users'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { useIndiceValores } from '@/hooks/use-indice-valores'
 import { INIT_PAPEIS, PAPEIS_KEY, ORIGEM, REFERENCIA, origemDoPapel, ladoDoPapel, referenciaDoPapelEntry } from '@/lib/contract-roles'
@@ -2090,40 +2092,93 @@ function DocumentoCard({ doc, idx, ro, form, open, onToggle, onCollapse }: { doc
 }
 
 /** Partes em tabela compacta: Papel · Nome/Razão Social · Documento (lupa via modal do shell). */
-export function PartesFields({ form, ro, onOpenSearch, onNewPartner }: {
+/** Uma linha de parte-PESSOA (responsável): papel + usuário. Persiste em role_assignments. */
+interface PartePessoa { key: string; papelId: string; userId: string; userName?: string }
+interface ApiAssignment { id: string; papelId: string; userId: string; userName: string; userEmail: string }
+
+/** "Partes envolvidas" do contrato: UMA lista só. Cada linha tem um papel; se o papel
+ *  é de ENTIDADE (Contratante…), escolhe-se a entidade (empresa/parceiro/unidade); se
+ *  é de PESSOA (Gestor…), escolhe-se o usuário. Entidades vivem em Contract.partes;
+ *  pessoas em role_assignments (para o motor de workflow). A UI é unificada. */
+export function PartesFields({ form, ro, onOpenSearch, onNewPartner, contractId }: {
   form: ContractForm; ro?: boolean
   onOpenSearch: (parteId: string, origem: string, excludeIds: string[]) => void
   onNewPartner: () => void
+  contractId?: string
 }) {
   const papeis = useLookupTable(PAPEIS_KEY, INIT_PAPEIS)
-  /* As Partes do contrato são ENTIDADES — papéis de PESSOA (responsáveis) ficam de
-     fora deste seletor (eles vivem na seção "Responsáveis" de cada cadastro). */
+  const { users } = useSelectableUsers()
   const papeisEntidade = papeis.active.filter(p => referenciaDoPapelEntry(p) === REFERENCIA.ENTIDADE)
+  const papeisPessoa   = papeis.active.filter(p => referenciaDoPapelEntry(p) === REFERENCIA.PESSOA && p.origem === ORIGEM.CONTRATO)
+  const isPessoaPapel  = (id: string) => papeisPessoa.some(p => p.id === id)
+  // No contrato NÃO salvo (sem id) não dá para atribuir pessoas (precisam de role_assignments).
+  const podePessoa = !!contractId
+  const papelOptions = podePessoa ? [...papeisEntidade, ...papeisPessoa] : papeisEntidade
   const v = form.values
-  /* em leitura, exibe as partes VIGENTES (com cessões dos aditivos aplicadas) */
+
+  // ── Partes-PESSOA (responsáveis) — store relacional role_assignments ──
+  const [people, setPeople] = useState<PartePessoa[]>([])
+  const [saving, setSaving] = useState<'idle' | 'saving' | 'saved'>('idle')
+  useEffect(() => {
+    if (!contractId) { setPeople([]); return }
+    let alive = true
+    void apiJson<ApiAssignment[]>(`/api/role-assignments?entityType=CONTRATO&entityId=${contractId}`)
+      .then(list => { if (alive) setPeople((list ?? []).map(a => ({ key: a.id, papelId: a.papelId, userId: a.userId, userName: a.userName }))) })
+    return () => { alive = false }
+  }, [contractId])
+  const persistPeople = (next: PartePessoa[]) => {
+    setPeople(next)
+    if (!contractId) return
+    const items = next.filter(r => r.papelId && r.userId).map(r => ({ papelId: r.papelId, userId: r.userId }))
+    setSaving('saving')
+    void apiFetch('/api/role-assignments', { method: 'PUT', body: JSON.stringify({ entityType: 'CONTRATO', entityId: contractId, items }) })
+      .then(res => setSaving(res.ok ? 'saved' : 'idle')).catch(() => setSaving('idle'))
+  }
+  const userName = (r: PartePessoa) => r.userName ?? users.find(u => u.id === r.userId)?.name ?? '(usuário removido)'
+
   const partesList = ro ? partesVigentes(v) : v.partes
+  const isEmpty = partesList.length === 0 && people.length === 0
   const COLS = 'grid grid-cols-[12rem_1fr_10rem_1.25rem] items-center gap-2'
+
+  // Troca de papel numa linha de ENTIDADE: se virar papel de PESSOA, CONVERTE a linha.
+  const onEntityPapel = (p: { id: string; papel: string }, val: string) => {
+    if (isPessoaPapel(val)) { form.remParte(p.id); persistPeople([...people, { key: `p_${Date.now()}`, papelId: val, userId: '' }]); return }
+    const origemAntes = origemDoPapel(papeis.active, p.papel)
+    form.updParte(p.id, 'papel', val)
+    if (origemDoPapel(papeis.active, val) !== origemAntes) form.setParteEntity(p.id, { ref_tipo: '', ref_id: '', nome: '', documento: '' })
+  }
+  // Troca de papel numa linha de PESSOA: se virar papel de ENTIDADE, CONVERTE a linha.
+  const onPersonPapel = (r: PartePessoa, val: string) => {
+    if (!isPessoaPapel(val)) { persistPeople(people.filter(x => x.key !== r.key)); form.addParte(val); return }
+    persistPeople(people.map(x => x.key === r.key ? { ...x, papelId: val } : x))
+  }
+
+  // Função (não componente) para não criar fronteira de remontagem no <select>.
+  const papelSelect = (value: string, onChange: (v: string) => void) => (
+    <select value={value} onChange={e => onChange(e.target.value)} className={cn(inputCls, 'h-7')}>
+      <option value="">Selecione...</option>
+      {value && !papelOptions.some(pp => pp.id === value) && <option value={value}>{labelOf(papeis.entries, value)}</option>}
+      {papeisEntidade.map(pp => <option key={pp.id} value={pp.id}>{pp.label}</option>)}
+      {podePessoa && papeisPessoa.map(pp => <option key={pp.id} value={pp.id}>{pp.label}</option>)}
+    </select>
+  )
+
   return (
     <div className="space-y-2">
-      {partesList.length === 0 ? (
+      {isEmpty ? (
         <p className="text-xs text-muted-foreground">Nenhuma parte.</p>
       ) : (
         <div className="rounded-md border overflow-hidden">
           <div className={cn(COLS, 'px-3 py-1.5 bg-muted/40 border-b text-[10px] font-semibold uppercase tracking-wide text-muted-foreground')}>
-            <span>Papel</span><span>Nome / Razão Social</span><span>Documento</span><span />
+            <span>Papel</span><span>Nome / Responsável</span><span>Documento</span><span />
           </div>
           <div className="divide-y divide-border/50">
+            {/* Linhas de ENTIDADE (empresa/parceiro/unidade) */}
             {partesList.map((p, idx) => {
               const origem = origemDoPapel(papeis.active, p.papel)
               const isUnidade = origem === ORIGEM.UNIDADE
-              const onPapel = (val: string) => {
-                form.updParte(p.id, 'papel', val)
-                if (origemDoPapel(papeis.active, val) !== origem) form.setParteEntity(p.id, { ref_tipo: '', ref_id: '', nome: '', documento: '' })
-              }
               const open = () => {
                 if (!p.papel || ro) return
-                /* Exclui entidades já usadas: (1) no MESMO papel; (2) no lado OPOSTO
-                   (contratante ↔ contratada) — a mesma entidade não pode estar nos dois lados. */
                 const meuLado = ladoDoPapel(papeis.active, p.papel)
                 const oposto  = meuLado === 'CONTRATANTE' ? 'CONTRATADA' : meuLado === 'CONTRATADA' ? 'CONTRATANTE' : null
                 const excludeIds = v.partes.filter(o => {
@@ -2138,11 +2193,7 @@ export function PartesFields({ form, ro, onOpenSearch, onNewPartner }: {
                   {ro ? (
                     <span className="text-xs font-medium truncate">{labelOf(papeis.entries, p.papel) || '—'}</span>
                   ) : (
-                    <select value={p.papel} onChange={e => onPapel(e.target.value)} className={cn(inputCls, 'h-7')}>
-                      <option value="">Selecione...</option>
-                      {p.papel && !papeisEntidade.some(pp => pp.id === p.papel) && <option value={p.papel}>{labelOf(papeis.entries, p.papel)}</option>}
-                      {papeisEntidade.map(pp => <option key={pp.id} value={pp.id}>{pp.label}</option>)}
-                    </select>
+                    papelSelect(p.papel, val => onEntityPapel(p, val))
                   )}
                   {ro ? (
                     <span className="text-xs truncate">{p.nome || '—'}</span>
@@ -2161,6 +2212,25 @@ export function PartesFields({ form, ro, onOpenSearch, onNewPartner }: {
                 </div>
               )
             })}
+            {/* Linhas de PESSOA (responsáveis) — mesma tabela, sem divisão */}
+            {people.map((r) => (
+              <div key={r.key} className={cn(COLS, 'group px-3 py-1.5 hover:bg-muted/30')}>
+                {ro ? (
+                  <span className="text-xs font-medium truncate">{labelOf(papeis.entries, r.papelId) || '—'}</span>
+                ) : (
+                  papelSelect(r.papelId, val => onPersonPapel(r, val))
+                )}
+                {ro ? (
+                  <span className="text-xs truncate">{userName(r)}</span>
+                ) : (
+                  <UserSelect value={r.userId || undefined} onChange={id => persistPeople(people.map(x => x.key === r.key ? { ...x, userId: id ?? '', userName: undefined } : x))} placeholder="Selecionar responsável..." />
+                )}
+                <span className="text-[11px] text-muted-foreground truncate">—</span>
+                {!ro ? (
+                  <button type="button" onClick={() => persistPeople(people.filter(x => x.key !== r.key))} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>
+                ) : <span />}
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -2186,8 +2256,11 @@ export function PartesFields({ form, ro, onOpenSearch, onNewPartner }: {
 
       {!ro && (
         <div className="flex items-center gap-3">
-          <button type="button" onClick={() => form.addParte(papeisEntidade[0]?.id ?? '')} className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar parte</button>
+          <button type="button" onClick={() => form.addParte('')} className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar parte</button>
           <button type="button" onClick={onNewPartner} className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"><Plus className="h-3 w-3" />Cadastrar novo parceiro</button>
+          {saving === 'saving' && <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" />salvando…</span>}
+          {saving === 'saved' && <span className="text-[11px] text-primary">salvo</span>}
+          {!podePessoa && <span className="text-[11px] text-muted-foreground">· salve o contrato para adicionar pessoas responsáveis</span>}
         </div>
       )}
     </div>
