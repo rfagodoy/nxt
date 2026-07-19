@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, Trash2, GripVertical, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Trash2, GripVertical, ChevronDown, ChevronUp, MousePointerClick, CircleDot, UserSquare, Zap, GitBranch, GitMerge, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -215,17 +215,41 @@ interface FormBuilderProps {
 
 export function FormBuilder({ selectedElement, stepForms, onStepFormsChange }: FormBuilderProps) {
   if (!selectedElement) {
+    const legend: Array<{ icon: typeof CircleDot; label: string; hint: string; color: string }> = [
+      { icon: CircleDot, label: 'Início / Fim', hint: 'onde o processo começa e termina', color: 'text-emerald-600 dark:text-emerald-400' },
+      { icon: UserSquare, label: 'Tarefa do usuário', hint: 'uma pessoa preenche um formulário', color: 'text-sky-600 dark:text-sky-400' },
+      { icon: Zap, label: 'Ação automática', hint: 'o sistema executa sozinho (criar contrato, aditivo…)', color: 'text-amber-600 dark:text-amber-400' },
+      { icon: GitBranch, label: 'Decisão (ou/ou)', hint: 'segue por um caminho conforme a condição', color: 'text-violet-600 dark:text-violet-400' },
+      { icon: GitMerge, label: 'Paralelo (e/e)', hint: 'divide e junta caminhos simultâneos', color: 'text-rose-600 dark:text-rose-400' },
+    ]
     return (
-      <div className="flex flex-col items-center justify-center h-full text-center px-6">
-        <div className="p-3 rounded-full bg-muted mb-3">
-          <svg className="h-6 w-6 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 15l-6-6m0 0l6-6m-6 6h12" />
-          </svg>
+      <div className="flex flex-col h-full px-4 py-6">
+        <div className="flex flex-col items-center text-center px-2 mb-5">
+          <div className="p-3 rounded-full bg-accent mb-3">
+            <MousePointerClick className="h-5 w-5 text-primary" />
+          </div>
+          <p className="text-sm font-semibold">Selecione uma etapa</p>
+          <p className="text-xs text-muted-foreground mt-1 leading-snug">
+            Clique numa atividade do diagrama para configurar os campos e ações dela.
+          </p>
         </div>
-        <p className="text-sm font-medium">Selecione uma etapa</p>
-        <p className="text-xs text-muted-foreground mt-1">
-          Clique em uma tarefa no diagrama para configurar os campos de coleta de dados
-        </p>
+        <div className="rounded-xl border bg-muted/30 p-3">
+          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">Blocos do desenho</p>
+          <ul className="space-y-2.5">
+            {legend.map((l) => (
+              <li key={l.label} className="flex items-start gap-2.5">
+                <l.icon className={`h-4 w-4 mt-0.5 shrink-0 ${l.color}`} />
+                <div className="min-w-0">
+                  <p className="text-xs font-medium leading-tight">{l.label}</p>
+                  <p className="text-[11px] text-muted-foreground leading-tight">{l.hint}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <p className="text-[11px] text-muted-foreground mt-3 pt-2.5 border-t leading-snug">
+            Arraste os blocos da paleta à esquerda ou use o <Square className="inline h-3 w-3 -mt-0.5" /> ao lado de uma etapa para adicionar a próxima.
+          </p>
+        </div>
       </div>
     )
   }
