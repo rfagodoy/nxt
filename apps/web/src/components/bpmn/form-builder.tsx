@@ -29,6 +29,21 @@ const FIELD_TYPES: Array<{ value: FieldType; label: string }> = [
   { value: 'file', label: 'Arquivo' },
 ]
 
+/** Conectores de domínio de uma atividade de serviço (ação automática). O valor
+ *  deve casar com o switch do backend (InstancesService.runConnector). "" = nenhum
+ *  (passo automático de passagem). */
+const CONNECTORS: Array<{ value: string; label: string }> = [
+  { value: '', label: 'Nenhuma (só passa)' },
+  { value: 'contracts.create', label: 'Criar contrato' },
+  { value: 'contracts.aditivo', label: 'Registrar aditivo' },
+  { value: 'contracts.distrato', label: 'Registrar distrato (rescisão)' },
+  { value: 'partners.create', label: 'Criar parceiro' },
+  { value: 'partners.activate', label: 'Ativar parceiro' },
+]
+
+/** Tipos BPMN que o motor executa como serviceTask (ação automática). */
+const SERVICE_TASK_TYPES = ['bpmn:ServiceTask', 'bpmn:ScriptTask', 'bpmn:SendTask', 'bpmn:BusinessRuleTask']
+
 const ELEMENT_TYPE_LABEL: Record<string, string> = {
   'bpmn:Task': 'Tarefa',
   'bpmn:UserTask': 'Tarefa do usuário',
@@ -259,6 +274,7 @@ export function FormBuilder({ selectedElement, stepForms, onStepFormsChange }: F
 
   // Painel de executor/prazo só faz sentido para atividades (tarefas).
   const isActivity = selectedElement.type.includes('Task')
+  const isServiceTask = SERVICE_TASK_TYPES.includes(selectedElement.type)
   const slaHours = currentForm.slaMinutes ? Math.round((currentForm.slaMinutes / 60) * 10) / 10 : ''
 
   return (
@@ -277,7 +293,31 @@ export function FormBuilder({ selectedElement, stepForms, onStepFormsChange }: F
         </p>
       </div>
 
-      {isActivity && (
+      {isServiceTask && (
+        <div className="px-4 py-3 border-b shrink-0 bg-muted/20">
+          <label className="text-xs text-muted-foreground mb-1 block">Ação automática (conector)</label>
+          <Select
+            value={currentForm.connector || 'none'}
+            onValueChange={(v) => updateForm({ ...currentForm, connector: v && v !== 'none' ? v : undefined })}
+          >
+            <SelectTrigger className="h-7 text-sm">
+              <SelectValue placeholder="Nenhuma (só passa)" />
+            </SelectTrigger>
+            <SelectContent>
+              {CONNECTORS.map((c) => (
+                <SelectItem key={c.value || 'none'} value={c.value || 'none'}>
+                  {c.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
+            Executa sozinha ao chegar aqui, usando as variáveis coletadas nas atividades anteriores.
+          </p>
+        </div>
+      )}
+
+      {isActivity && !isServiceTask && (
         <div className="px-4 py-3 border-b shrink-0 space-y-2 bg-muted/20">
           <div>
             <label className="text-xs text-muted-foreground mb-1 block">Executor (papel)</label>

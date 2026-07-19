@@ -65,6 +65,9 @@ export class ProcessesService {
       if (!node) continue
       if (step.role) node.role = step.role
       if (typeof step.slaMinutes === 'number' && step.slaMinutes > 0) node.slaMinutes = step.slaMinutes
+      // Conector de domínio da atividade de serviço (ação automática). Definido no
+      // painel "Ação automática" do designer; tem precedência sobre nxt:connector do XML.
+      if (step.connector) node.connector = step.connector
     }
 
     const updatedProcess = await this.prisma.processDefinition.update({
