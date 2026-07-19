@@ -9,7 +9,7 @@ import { randomUUID } from 'crypto'
 import { PrismaService } from '../prisma.service'
 import { WorkflowRolesService } from '../workflow-roles/workflow-roles.service'
 import { canActOnTask } from './task-access'
-import { resolveContractId, resolvePartnerId, aditivoFromVars } from './connector-helpers'
+import { resolveContractId, resolvePartnerId, aditivoFromVars, applyInputMap } from './connector-helpers'
 import {
   startProcess,
   completeToken,
@@ -448,11 +448,14 @@ export class InstancesService {
    *  As variáveis coletadas nas atividades anteriores alimentam o DTO (por nome). */
   private async runConnector(
     node: WfNode,
-    vars: Record<string, unknown>,
+    rawVars: Record<string, unknown>,
     ctx: ConnectorCtx,
   ): Promise<Record<string, unknown>> {
     const actorName = ctx.actor?.name
     const actorId = ctx.actor?.sub
+    // Re-liga as variáveis mapeadas no designer ao nome que o conector espera; sem
+    // mapa, cai na convenção de nome (os reads abaixo não mudam).
+    const vars = applyInputMap(node.connectorInputs, rawVars)
     switch (node.connector) {
       case undefined:
       case '':

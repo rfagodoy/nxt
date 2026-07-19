@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import type { FormField, FieldType, StepFormSchema } from '@nxt/types'
+import { CONNECTORS } from '@nxt/types'
 import { BpmnElement } from './bpmn-editor'
 
 const FIELD_TYPES: Array<{ value: FieldType; label: string }> = [
@@ -27,18 +28,6 @@ const FIELD_TYPES: Array<{ value: FieldType; label: string }> = [
   { value: 'phone', label: 'Telefone' },
   { value: 'checkbox', label: 'Caixa de seleção' },
   { value: 'file', label: 'Arquivo' },
-]
-
-/** Conectores de domínio de uma atividade de serviço (ação automática). O valor
- *  deve casar com o switch do backend (InstancesService.runConnector). "" = nenhum
- *  (passo automático de passagem). */
-const CONNECTORS: Array<{ value: string; label: string }> = [
-  { value: '', label: 'Nenhuma (só passa)' },
-  { value: 'contracts.create', label: 'Criar contrato' },
-  { value: 'contracts.aditivo', label: 'Registrar aditivo' },
-  { value: 'contracts.distrato', label: 'Registrar distrato (rescisão)' },
-  { value: 'partners.create', label: 'Criar parceiro' },
-  { value: 'partners.activate', label: 'Ativar parceiro' },
 ]
 
 /** Tipos BPMN que o motor executa como serviceTask (ação automática). */
@@ -277,6 +266,32 @@ export function FormBuilder({ selectedElement, stepForms, onStepFormsChange }: F
   const isServiceTask = SERVICE_TASK_TYPES.includes(selectedElement.type)
   const slaHours = currentForm.slaMinutes ? Math.round((currentForm.slaMinutes / 60) * 10) / 10 : ''
 
+  // Manifesto do conector selecionado (entradas a mapear + saídas que produz).
+  const manifest = CONNECTORS.find((c) => c.value === currentForm.connector)
+
+  // Variáveis disponíveis para alimentar as entradas do conector: os campos
+  // coletados nas OUTRAS atividades (name → rótulo) + as saídas de conectores de
+  // outras atividades de serviço. A própria serviceTask não coleta campos.
+  const availableVars: Array<{ name: string; label: string }> = []
+  {
+    const seen = new Set<string>()
+    for (const [sid, sf] of Object.entries(stepForms)) {
+      if (sid === selectedElement.id) continue
+      for (const f of sf.fields ?? []) {
+        if (f.name && !seen.has(f.name)) { seen.add(f.name); availableVars.push({ name: f.name, label: `${f.label || f.name} · ${sf.stepName}` }) }
+      }
+      const m = CONNECTORS.find((c) => c.value === sf.connector)
+      if (m) for (const o of m.outputs) if (!seen.has(o)) { seen.add(o); availableVars.push({ name: o, label: `${o} · saída de ${m.label}` }) }
+    }
+  }
+
+  const setInputMap = (key: string, variable: string | undefined) => {
+    const next = { ...(currentForm.connectorInputs ?? {}) }
+    if (variable) next[key] = variable
+    else delete next[key]
+    updateForm({ ...currentForm, connectorInputs: Object.keys(next).length ? next : undefined })
+  }
+
   return (
     <div className="flex flex-col h-full">
       <div className="px-4 py-3 border-b shrink-0">
@@ -294,26 +309,65 @@ export function FormBuilder({ selectedElement, stepForms, onStepFormsChange }: F
       </div>
 
       {isServiceTask && (
-        <div className="px-4 py-3 border-b shrink-0 bg-muted/20">
-          <label className="text-xs text-muted-foreground mb-1 block">Ação automática (conector)</label>
-          <Select
-            value={currentForm.connector || 'none'}
-            onValueChange={(v) => updateForm({ ...currentForm, connector: v && v !== 'none' ? v : undefined })}
-          >
-            <SelectTrigger className="h-7 text-sm">
-              <SelectValue placeholder="Nenhuma (só passa)" />
-            </SelectTrigger>
-            <SelectContent>
-              {CONNECTORS.map((c) => (
-                <SelectItem key={c.value || 'none'} value={c.value || 'none'}>
-                  {c.label}
-                </SelectItem>
+        <div className="px-4 py-3 border-b shrink-0 bg-muted/20 space-y-2">
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Ação automática (conector)</label>
+            <Select
+              value={currentForm.connector || 'none'}
+              onValueChange={(v) =>
+                updateForm({ ...currentForm, connector: v && v !== 'none' ? v : undefined, connectorInputs: undefined })
+              }
+            >
+              <SelectTrigger className="h-7 text-sm">
+                <SelectValue placeholder="Nenhuma (só passa)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Nenhuma (só passa)</SelectItem>
+                {CONNECTORS.map((c) => (
+                  <SelectItem key={c.value} value={c.value}>
+                    {c.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {manifest && (
+            <div className="space-y-2 pt-1">
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                Liga cada entrada da ação a uma variável coletada nas atividades anteriores. Sem ligar, o motor tenta pela convenção de nome.
+              </p>
+              {manifest.inputs.map((input) => (
+                <div key={input.key}>
+                  <label className="text-[11px] text-muted-foreground mb-0.5 flex items-center gap-1">
+                    <span className={input.required ? 'font-medium text-foreground' : ''}>{input.label}</span>
+                    {input.required && <span className="text-destructive">*</span>}
+                  </label>
+                  <Select
+                    value={currentForm.connectorInputs?.[input.key] || 'none'}
+                    onValueChange={(v) => setInputMap(input.key, v && v !== 'none' ? v : undefined)}
+                  >
+                    <SelectTrigger className="h-7 text-xs">
+                      <SelectValue placeholder="— pela convenção —" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">— pela convenção —</SelectItem>
+                      {availableVars.map((v) => (
+                        <SelectItem key={v.name} value={v.name} className="text-xs">
+                          {v.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               ))}
-            </SelectContent>
-          </Select>
-          <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
-            Executa sozinha ao chegar aqui, usando as variáveis coletadas nas atividades anteriores.
-          </p>
+              {manifest.outputs.length > 0 && (
+                <p className="text-[11px] text-muted-foreground leading-snug pt-0.5">
+                  Produz: <span className="font-mono">{manifest.outputs.join(', ')}</span> — disponível nas próximas atividades.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
 

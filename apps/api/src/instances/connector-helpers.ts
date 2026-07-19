@@ -14,6 +14,24 @@ export const asNum = (v: unknown): number | undefined => {
   return Number.isFinite(n) ? n : undefined
 }
 
+/** Aplica o mapa entrada→variável do nó sobre as variáveis do processo: para cada
+ *  entrada mapeada, copia o valor da variável de origem PARA o nome que o conector
+ *  espera (a `key` do manifesto = nome de convenção). Entradas não mapeadas seguem
+ *  pela convenção (o valor já está em `vars` sob o nome esperado, se existir).
+ *  Resultado: os helpers/switch a jusante continuam lendo por convenção, sem saber
+ *  do mapeamento — mapear é só re-ligar uma variável ao nome esperado. */
+export function applyInputMap(
+  connectorInputs: Record<string, string> | undefined,
+  vars: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!connectorInputs) return vars
+  const out = { ...vars }
+  for (const [inputKey, srcVar] of Object.entries(connectorInputs)) {
+    if (srcVar && vars[srcVar] !== undefined) out[inputKey] = vars[srcVar]
+  }
+  return out
+}
+
 /** Resolve o id-alvo de um conector que atua sobre uma entidade existente
  *  (aditivo/distrato/ativação). Aceita os nomes de variável mais prováveis vindos
  *  do formulário da atividade OU produzidos por um conector anterior no mesmo fluxo
