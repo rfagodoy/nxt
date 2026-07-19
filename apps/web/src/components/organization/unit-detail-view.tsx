@@ -49,14 +49,13 @@ export function UnitDetailView({ mode, unit, companyId, parentId, parentName, on
   const [nome,        setNome]        = useState(unit?.nome ?? '')
   const [codigo,      setCodigo]      = useState(unit?.codigo ?? '')
   const [natureza,    setNatureza]    = useState(unit?.natureza ?? '')
-  const [responsavel, setResponsavel] = useState(unit?.responsavel ?? '')
   const [status,      setStatus]      = useState(unit?.status ?? 'ATIVA')
   const [usuarios,    setUsuarios]    = useState<UnitUser[]>(unit?.usuarios ?? [])
   const [saving,      setSaving]      = useState(false)
   const [saveError,   setSaveError]   = useState<string | null>(null)
   const cleanRef = useRef('')
 
-  const snap = () => JSON.stringify({ nome, codigo, natureza, responsavel, status, usuarios })
+  const snap = () => JSON.stringify({ nome, codigo, natureza, status, usuarios })
 
   /* tipo default quando a lookup carrega (novo) */
   useEffect(() => { if (!natureza && tipos.active.length) setNatureza(tipos.active[0].id) }, [tipos.active, natureza])
@@ -71,8 +70,8 @@ export function UnitDetailView({ mode, unit, companyId, parentId, parentName, on
         if (!res.ok || cancel) return
         const u = await res.json() as Unit
         setNome(u.nome ?? ''); setCodigo(u.codigo ?? ''); setNatureza(u.natureza ?? '')
-        setResponsavel(u.responsavel ?? ''); setStatus(u.status ?? 'ATIVA'); setUsuarios(u.usuarios ?? [])
-        cleanRef.current = JSON.stringify({ nome: u.nome ?? '', codigo: u.codigo ?? '', natureza: u.natureza ?? '', responsavel: u.responsavel ?? '', status: u.status ?? 'ATIVA', usuarios: u.usuarios ?? [] })
+        setStatus(u.status ?? 'ATIVA'); setUsuarios(u.usuarios ?? [])
+        cleanRef.current = JSON.stringify({ nome: u.nome ?? '', codigo: u.codigo ?? '', natureza: u.natureza ?? '', status: u.status ?? 'ATIVA', usuarios: u.usuarios ?? [] })
       } catch { /* mantém o resumo da árvore */ }
     })()
     return () => { cancel = true }
@@ -82,7 +81,7 @@ export function UnitDetailView({ mode, unit, companyId, parentId, parentName, on
   useEffect(() => {
     if (cleanRef.current === '') { if (mode === 'new') cleanRef.current = snap(); else return }
     onDirtyChange?.(snap() !== cleanRef.current)
-  }, [nome, codigo, natureza, responsavel, status, usuarios, onDirtyChange]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [nome, codigo, natureza, status, usuarios, onDirtyChange]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const addUser = () => setUsuarios(p => [...p, newUser()])
   const updUser = (id: string, k: keyof Omit<UnitUser, 'id'>, v: string) => setUsuarios(p => p.map(u => u.id === id ? { ...u, [k]: v } : u))
@@ -93,7 +92,7 @@ export function UnitDetailView({ mode, unit, companyId, parentId, parentName, on
     setSaving(true); setSaveError(null)
     const body = {
       nome: nome.trim(), codigo: codigo?.trim() || undefined, natureza,
-      responsavel: responsavel?.trim() || undefined, status,
+      status,
       usuarios: usuarios.filter(u => u.nome.trim() || u.email.trim() || u.papel.trim()),
       user: getLogUser(),
     }
@@ -169,7 +168,6 @@ export function UnitDetailView({ mode, unit, companyId, parentId, parentName, on
                 {tipos.active.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
               </select>
             </Field>
-            <Field label="Responsável"><input value={responsavel ?? ''} onChange={e => setResponsavel(e.target.value)} placeholder="Responsável pela unidade" className={inputCls} /></Field>
             <Field label="Status"><select value={status} onChange={e => setStatus(e.target.value)} className={inputCls}>{STATUS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}</select></Field>
           </div>
         </div>
