@@ -15,10 +15,10 @@ export const EMPTY_BPMN = `<?xml version="1.0" encoding="UTF-8"?>
     <bpmn:startEvent id="StartEvent_1" name="Início">
       <bpmn:outgoing>Flow_1</bpmn:outgoing>
     </bpmn:startEvent>
-    <bpmn:task id="Task_1" name="Nova Tarefa">
+    <bpmn:userTask id="Task_1" name="Nova tarefa">
       <bpmn:incoming>Flow_1</bpmn:incoming>
       <bpmn:outgoing>Flow_2</bpmn:outgoing>
-    </bpmn:task>
+    </bpmn:userTask>
     <bpmn:endEvent id="EndEvent_1" name="Fim">
       <bpmn:incoming>Flow_2</bpmn:incoming>
     </bpmn:endEvent>
@@ -106,11 +106,14 @@ export const BpmnEditor = forwardRef<BpmnEditorRef, BpmnEditorProps>(
       let mounted = true
 
       const init = async () => {
-        const [{ default: BpmnModeler }] = await Promise.all([
+        const [{ default: BpmnModeler }, { default: translatePT }, nxtMods] = await Promise.all([
           import('bpmn-js/lib/Modeler'),
+          import('./translate-pt'),
+          import('./nxt-modules'),
           import('bpmn-js/dist/assets/diagram-js.css' as never),
           import('bpmn-js/dist/assets/bpmn-js.css' as never),
           import('bpmn-js/dist/assets/bpmn-font/css/bpmn.css' as never),
+          import('./bpmn-theme.css' as never),
         ])
 
         if (!mounted || !containerRef.current) return
@@ -118,6 +121,9 @@ export const BpmnEditor = forwardRef<BpmnEditorRef, BpmnEditorProps>(
         modeler = new BpmnModeler({
           container: containerRef.current,
           keyboard: { bindTo: containerRef.current },
+          // pt-BR + paleta enxuta + menu "Trocar tipo" restrito aos tipos que o
+          // motor executa. Ver translate-pt.ts e nxt-modules.ts.
+          additionalModules: [translatePT, nxtMods.paletteModulePT, nxtMods.replaceMenuModulePT],
         })
         modelerRef.current = modeler
 
@@ -161,7 +167,7 @@ export const BpmnEditor = forwardRef<BpmnEditorRef, BpmnEditorProps>(
     }, [])
 
     return (
-      <div className="relative w-full h-full bg-[#f8f9fb]">
+      <div className="nxt-bpmn relative w-full h-full">
         <div ref={containerRef} className="w-full h-full" />
       </div>
     )

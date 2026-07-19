@@ -1,0 +1,129 @@
+/* Tema Nxt para o bpmn-js — escopado em .nxt-bpmn para não vazar.
+   Usa os tokens do design system (hsl(var(--...))), então adapta claro/escuro. */
+
+.nxt-bpmn .djs-container {
+  background-color: hsl(var(--background));
+  /* grid de pontos sutil, dá profundidade sem poluir */
+  background-image: radial-gradient(hsl(var(--border) / 0.7) 1px, transparent 1px);
+  background-size: 22px 22px;
+  background-position: -1px -1px;
+}
+
+/* Esconde a marca d'água "Powered by bpmn.io" */
+.nxt-bpmn .bjs-powered-by {
+  display: none !important;
+}
+
+/* ── Paleta: card arredondado, sombra, espaçamento ── */
+.nxt-bpmn .djs-palette {
+  top: 16px;
+  left: 16px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  background: hsl(var(--card));
+  box-shadow: 0 4px 16px -4px hsl(var(--foreground) / 0.12), 0 2px 4px -2px hsl(var(--foreground) / 0.08);
+  padding: 6px;
+  overflow: hidden;
+}
+.nxt-bpmn .djs-palette .djs-palette-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nxt-bpmn .djs-palette .entry {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  color: hsl(var(--muted-foreground));
+  font-size: 22px;
+  line-height: 40px;
+  transition: background-color 0.12s ease, color 0.12s ease, transform 0.06s ease;
+}
+.nxt-bpmn .djs-palette .entry:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--primary));
+}
+.nxt-bpmn .djs-palette .entry:active {
+  transform: scale(0.94);
+}
+/* separador entre ferramentas e elementos */
+.nxt-bpmn .djs-palette .separator {
+  margin: 5px 6px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+/* deixa os "elementos" (start/task/gateway/end) com um leve destaque de grupo */
+.nxt-bpmn .djs-palette .group[data-group="nxt"] .entry {
+  color: hsl(var(--foreground));
+}
+.nxt-bpmn .djs-palette .group[data-group="nxt"] .entry:hover {
+  color: hsl(var(--primary));
+}
+
+/* ── Context pad: pílulas arredondadas ── */
+.nxt-bpmn .djs-context-pad .entry {
+  border-radius: 7px;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+  box-shadow: 0 2px 6px -2px hsl(var(--foreground) / 0.15);
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.nxt-bpmn .djs-context-pad .entry:hover {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+/* ── Popup "Trocar tipo": card do design system ── */
+.nxt-bpmn .djs-popup,
+.djs-popup.nxt-bpmn-popup {
+  border-radius: 12px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  box-shadow: 0 10px 30px -8px hsl(var(--foreground) / 0.25);
+  overflow: hidden;
+}
+.nxt-bpmn .djs-popup .djs-popup-header,
+.djs-popup .djs-popup-header {
+  padding: 10px 12px;
+  font-weight: 600;
+  font-size: 13px;
+  border-bottom: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+}
+.djs-popup .entry {
+  border-radius: 7px;
+  color: hsl(var(--popover-foreground));
+}
+.djs-popup .entry:hover {
+  background: hsl(var(--accent)) !important;
+  color: hsl(var(--primary)) !important;
+}
+
+/* ── Seleção e hover dos elementos: verde da marca ── */
+.nxt-bpmn .djs-element.selected .djs-outline {
+  stroke: hsl(var(--primary));
+  stroke-width: 2px;
+  stroke-dasharray: none;
+  rx: 6px;
+  ry: 6px;
+}
+.nxt-bpmn .djs-shape.hover .djs-outline,
+.nxt-bpmn .djs-connection.hover .djs-outline {
+  stroke: hsl(var(--primary) / 0.5);
+  stroke-width: 1.5px;
+  rx: 6px;
+  ry: 6px;
+}
+
+/* alças de conexão/redimensionamento na cor da marca */
+.nxt-bpmn .djs-bendpoint .djs-visual circle,
+.nxt-bpmn .djs-segment-dragger .djs-visual rect {
+  fill: hsl(var(--primary) / 0.85);
+  stroke: hsl(var(--primary));
+}
+
+/* dica de "arraste" quando cria elemento */
+.nxt-bpmn .djs-dragger .djs-visual > :where(rect, circle, path, polygon) {
+  stroke: hsl(var(--primary)) !important;
+}
