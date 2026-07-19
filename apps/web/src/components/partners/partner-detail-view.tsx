@@ -271,21 +271,21 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
 
   /* abas: dirigidas pela tela quando há tela padrão (o Histórico é uma seção da tela, quando visível);
      senão, seções nativas (sem a antiga aba "Telas"). */
-  const sectionTabs = [
-    ...(screenDriven
-      ? screenSections.map(s => ({ id: s.key, label: s.label, icon: s.icon }))
-      : [
-          { id: 'identificacao', label: 'Identificação',   icon: Building2 },
-          ...(isPJBR ? [{ id: 'cnae', label: 'CNAE', icon: Briefcase }] : []),
-          { id: 'contato',       label: 'Contato',          icon: Phone },
-          { id: 'endereco',      label: 'Endereço',         icon: MapPin },
-          { id: 'bancario',      label: 'Dados Bancários',  icon: CreditCard },
-          ...(isPJ ? [{ id: 'socios', label: 'Sócios', icon: Users }] : []),
-          { id: 'historico',     label: 'Histórico',        icon: Clock },
-        ]),
-    // Partes envolvidas (pessoas por papel) — seção fixa, fora da tela customizável.
-    { id: 'responsaveis', label: 'Partes envolvidas', icon: UserCog },
-  ]
+  const baseTabs = screenDriven
+    ? screenSections.map(s => ({ id: s.key, label: s.label, icon: s.icon }))
+    : [
+        { id: 'identificacao', label: 'Identificação',   icon: Building2 },
+        ...(isPJBR ? [{ id: 'cnae', label: 'CNAE', icon: Briefcase }] : []),
+        { id: 'contato',       label: 'Contato',          icon: Phone },
+        { id: 'endereco',      label: 'Endereço',         icon: MapPin },
+        { id: 'bancario',      label: 'Dados Bancários',  icon: CreditCard },
+        ...(isPJ ? [{ id: 'socios', label: 'Sócios', icon: Users }] : []),
+        { id: 'historico',     label: 'Histórico',        icon: Clock },
+      ]
+  // "Partes envolvidas" (pessoas por papel) = 2ª posição, logo após Identificação
+  // (consistente com o Contrato). Seção fixa, fora da tela customizável.
+  const responsaveisTab = { id: 'responsaveis', label: 'Partes envolvidas', icon: UserCog }
+  const sectionTabs = baseTabs.length ? [baseTabs[0], responsaveisTab, ...baseTabs.slice(1)] : [responsaveisTab]
 
   /* se a aba ativa deixar de existir (ex.: trocar PJ→PF, ou CNAE ao sair de PJ_BR), volta para a primeira. */
   useEffect(() => {
