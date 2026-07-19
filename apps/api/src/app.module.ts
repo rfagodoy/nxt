@@ -22,6 +22,7 @@ import { ScreensModule } from './screens/screens.module'
 import { CepModule } from './cep/cep.module'
 import { CnpjModule } from './cnpj/cnpj.module'
 import { WorkflowRolesModule } from './workflow-roles/workflow-roles.module'
+import { RoleAssignmentsModule } from './role-assignments/role-assignments.module'
 
 // Rede de segurança global contra abuso/força-bruta em toda a API. É intencionalmente
 // generoso: o login já tem throttle por IP + lockout de conta; aqui o objetivo é só
@@ -52,6 +53,7 @@ const throttleLimit = Number(process.env.THROTTLE_LIMIT ?? 300)
     CepModule,
     CnpjModule,
     WorkflowRolesModule,
+    RoleAssignmentsModule,
   ],
   controllers: [HealthController],
   providers: [

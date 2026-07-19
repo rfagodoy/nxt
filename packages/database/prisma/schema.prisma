@@ -186,6 +186,26 @@ model WorkflowRole {
   @@map("workflow_roles")
 }
 
+// Atribuição de uma PESSOA (User) a um PAPEL de referência PESSOA dentro de uma
+// entidade (empresa/parceiro/unidade/contrato) ou global (ORG). É o "Responsável".
+// Relacional (não JSON) para consultar dos dois lados: quem é o papel X da entidade
+// Y, e onde o usuário U tem papel. Sem FK de propósito (como WorkflowRole/auditoria):
+// userId/entityId são scalars; a limpeza ao excluir usuário/entidade é da aplicação.
+model RoleAssignment {
+  id             String   @id @default(cuid())
+  organizationId String
+  papelId        String   // id do papel no catálogo (AppSetting nxt:settings:contratos:papeis:v2)
+  entityType     String   // EMPRESA | PARCEIRO | UNIDADE | CONTRATO | ORG
+  entityId       String?  // id da entidade-anfitriã; null para ORG (papel global)
+  userId         String   // id do User responsável
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, entityType, entityId])
+  @@index([organizationId, papelId])
+  @@index([organizationId, userId])
+  @@map("role_assignments")
+}
+
 // ─── Módulos gerados ─────────────────────────────────────────────────────────
 
 model Module {

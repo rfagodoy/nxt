@@ -36,6 +36,16 @@ export class UsersService {
     })
   }
 
+  /** Lista mínima para SELETORES (qualquer autenticado): usuários ATIVOS, só id/nome/email.
+   *  Não expõe papel de acesso, datas nem nada sensível — é só para escolher uma pessoa. */
+  selectable(organizationId: string) {
+    return this.prisma.user.findMany({
+      where: { organizationId, status: 'ATIVO' },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, email: true },
+    })
+  }
+
   private async getOwned(organizationId: string, id: string) {
     const user = await this.prisma.user.findFirst({ where: { id, organizationId } })
     if (!user) throw new NotFoundException('Usuário não encontrado')
