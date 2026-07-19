@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { Building2, Phone, MapPin, CreditCard, Users, Briefcase, Clock, Plus, X, SlidersHorizontal, CheckCircle2, RotateCcw, Pencil, Ban, type LucideIcon } from 'lucide-react'
+import { Building2, Phone, MapPin, CreditCard, Users, Briefcase, Clock, Plus, X, SlidersHorizontal, CheckCircle2, RotateCcw, Pencil, Ban, UserCog, type LucideIcon } from 'lucide-react'
+import { ResponsaveisSection } from '@/components/responsaveis/responsaveis-section'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { usePartnerFields, useFieldVisibility } from '@/hooks/use-partner-fields'
@@ -269,17 +270,21 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
 
   /* abas: dirigidas pela tela quando há tela padrão (o Histórico é uma seção da tela, quando visível);
      senão, seções nativas (sem a antiga aba "Telas"). */
-  const sectionTabs = screenDriven
-    ? screenSections.map(s => ({ id: s.key, label: s.label, icon: s.icon }))
-    : [
-        { id: 'identificacao', label: 'Identificação',   icon: Building2 },
-        ...(isPJBR ? [{ id: 'cnae', label: 'CNAE', icon: Briefcase }] : []),
-        { id: 'contato',       label: 'Contato',          icon: Phone },
-        { id: 'endereco',      label: 'Endereço',         icon: MapPin },
-        { id: 'bancario',      label: 'Dados Bancários',  icon: CreditCard },
-        ...(isPJ ? [{ id: 'socios', label: 'Sócios', icon: Users }] : []),
-        { id: 'historico',     label: 'Histórico',        icon: Clock },
-      ]
+  const sectionTabs = [
+    ...(screenDriven
+      ? screenSections.map(s => ({ id: s.key, label: s.label, icon: s.icon }))
+      : [
+          { id: 'identificacao', label: 'Identificação',   icon: Building2 },
+          ...(isPJBR ? [{ id: 'cnae', label: 'CNAE', icon: Briefcase }] : []),
+          { id: 'contato',       label: 'Contato',          icon: Phone },
+          { id: 'endereco',      label: 'Endereço',         icon: MapPin },
+          { id: 'bancario',      label: 'Dados Bancários',  icon: CreditCard },
+          ...(isPJ ? [{ id: 'socios', label: 'Sócios', icon: Users }] : []),
+          { id: 'historico',     label: 'Histórico',        icon: Clock },
+        ]),
+    // Responsáveis (pessoas por papel) — seção fixa, fora da tela customizável.
+    { id: 'responsaveis', label: 'Responsáveis', icon: UserCog },
+  ]
 
   /* se a aba ativa deixar de existir (ex.: trocar PJ→PF, ou CNAE ao sair de PJ_BR), volta para a primeira. */
   useEffect(() => {
@@ -510,6 +515,11 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
             )}
           </>
         )}
+
+        {/* Responsáveis — pessoas por papel (relacional; seção fixa) */}
+        <DSection active={tab === 'responsaveis'}>
+          <ResponsaveisSection entityType="PARCEIRO" entityId={partner.id} readOnly={locked} />
+        </DSection>
 
         {/* Histórico — controle de alterações (auditoria) */}
         <DSection active={tab === 'historico'}>
