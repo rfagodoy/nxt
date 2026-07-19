@@ -75,8 +75,8 @@ const TABLES = [
   {
     href:        '/settings/contratos/papeis',
     icon:        UserCheck,
-    label:       'Papéis no contrato',
-    description: 'Funções que as partes exercem: contratante, contratada, garantidor...',
+    label:       'Papéis',
+    description: 'Funções de entidades (partes do contrato) e de pessoas (responsáveis por empresa, parceiro, unidade ou contrato).',
     color:       'bg-slate-500/10 text-slate-600 dark:text-slate-400',
   },
   {

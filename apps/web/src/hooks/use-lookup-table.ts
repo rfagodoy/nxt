@@ -8,7 +8,8 @@ export interface LookupEntry {
   code?: string
   label: string
   active: boolean
-  origem?: string         // papéis: origem da parte no contrato
+  referencia?: string     // papéis: ENTIDADE (parte do contrato) | PESSOA (responsável)
+  origem?: string         // papéis: contexto (entidade: de onde vem · pessoa: onde é atribuído)
   classificacao?: string  // tipos de unidade: Custo | Lucro | Neutro
   efeito?: string         // tipos de aditivo: termino | valor | objeto | partes | nenhum
 }

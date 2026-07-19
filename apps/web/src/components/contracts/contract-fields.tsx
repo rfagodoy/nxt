@@ -13,7 +13,7 @@ import { apiFetch } from '@/lib/http'
 import { exportExcel } from '@/lib/export-excel'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { useIndiceValores } from '@/hooks/use-indice-valores'
-import { INIT_PAPEIS, PAPEIS_KEY, ORIGEM, origemDoPapel, ladoDoPapel } from '@/lib/contract-roles'
+import { INIT_PAPEIS, PAPEIS_KEY, ORIGEM, REFERENCIA, origemDoPapel, ladoDoPapel, referenciaDoPapelEntry } from '@/lib/contract-roles'
 import {
   TIPOS_KEY, OBJETOS_KEY, MOEDAS_KEY, CONDICOES_KEY, INDICES_KEY, TIPOS_ADITIVO_KEY, FORMAS_PGTO_KEY,
   INIT_TIPOS, INIT_OBJETOS, INIT_MOEDAS, INIT_CONDICOES, INIT_INDICES, INIT_TIPOS_ADITIVO, INIT_FORMAS_PGTO,
@@ -2096,6 +2096,9 @@ export function PartesFields({ form, ro, onOpenSearch, onNewPartner }: {
   onNewPartner: () => void
 }) {
   const papeis = useLookupTable(PAPEIS_KEY, INIT_PAPEIS)
+  /* As Partes do contrato são ENTIDADES — papéis de PESSOA (responsáveis) ficam de
+     fora deste seletor (eles vivem na seção "Responsáveis" de cada cadastro). */
+  const papeisEntidade = papeis.active.filter(p => referenciaDoPapelEntry(p) === REFERENCIA.ENTIDADE)
   const v = form.values
   /* em leitura, exibe as partes VIGENTES (com cessões dos aditivos aplicadas) */
   const partesList = ro ? partesVigentes(v) : v.partes
@@ -2137,8 +2140,8 @@ export function PartesFields({ form, ro, onOpenSearch, onNewPartner }: {
                   ) : (
                     <select value={p.papel} onChange={e => onPapel(e.target.value)} className={cn(inputCls, 'h-7')}>
                       <option value="">Selecione...</option>
-                      {p.papel && !papeis.active.some(pp => pp.id === p.papel) && <option value={p.papel}>{labelOf(papeis.entries, p.papel)}</option>}
-                      {papeis.active.map(pp => <option key={pp.id} value={pp.id}>{pp.label}</option>)}
+                      {p.papel && !papeisEntidade.some(pp => pp.id === p.papel) && <option value={p.papel}>{labelOf(papeis.entries, p.papel)}</option>}
+                      {papeisEntidade.map(pp => <option key={pp.id} value={pp.id}>{pp.label}</option>)}
                     </select>
                   )}
                   {ro ? (
@@ -2183,7 +2186,7 @@ export function PartesFields({ form, ro, onOpenSearch, onNewPartner }: {
 
       {!ro && (
         <div className="flex items-center gap-3">
-          <button type="button" onClick={() => form.addParte(papeis.active[0]?.id ?? '')} className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar parte</button>
+          <button type="button" onClick={() => form.addParte(papeisEntidade[0]?.id ?? '')} className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar parte</button>
           <button type="button" onClick={onNewPartner} className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"><Plus className="h-3 w-3" />Cadastrar novo parceiro</button>
         </div>
       )}

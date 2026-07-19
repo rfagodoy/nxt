@@ -1,33 +1,75 @@
 import type { LookupEntry } from '@/hooks/use-lookup-table'
 
 /**
- * Origem da parte: define, a partir do PAPEL, de onde o usuário escolhe a entidade
- * na tela de Partes do contrato.
- * - EMPRESA_PARCEIRO: empresas do grupo + parceiros externos
- * - UNIDADE: unidades da estrutura organizacional (que não são empresas do grupo)
+ * Referência do papel: o que o papel aponta no fim.
+ * - ENTIDADE: uma organização (empresa do grupo / parceiro / unidade) — é o que já
+ *   existia; alimenta as "Partes envolvidas" (entidades) do CONTRATO.
+ * - PESSOA: um usuário do sistema — o novo; alimenta os "Responsáveis" (pessoas) de
+ *   uma entidade (empresa/parceiro/unidade/contrato) e roteia tarefas do workflow.
+ * Papel legado sem `referencia` é tratado como ENTIDADE (back-compat do contrato).
  */
-export const ORIGEM = {
-  EMPRESA_PARCEIRO: 'EMPRESA_PARCEIRO',
-  UNIDADE:          'UNIDADE',
+export const REFERENCIA = {
+  ENTIDADE: 'ENTIDADE',
+  PESSOA:   'PESSOA',
 } as const
 
-export const ORIGEM_OPTIONS = [
+/**
+ * Origem: o CONTEXTO do papel. O sentido depende da referência (por isso a UI
+ * rotula diferente), mas o valor é um só campo — sem colidir:
+ * - Referência ENTIDADE (partes do contrato) → de ONDE a entidade é escolhida:
+ *   EMPRESA_PARCEIRO (empresas do grupo + parceiros) ou UNIDADE (comportamento atual).
+ * - Referência PESSOA (responsáveis) → em QUAL cadastro o papel é atribuído:
+ *   EMPRESA, PARCEIRO, UNIDADE, CONTRATO, ou ORG (organização — papel global).
+ */
+export const ORIGEM = {
+  // entidade (partes do contrato) — preserva os valores atuais
+  EMPRESA_PARCEIRO: 'EMPRESA_PARCEIRO',
+  UNIDADE:          'UNIDADE',
+  // pessoa (responsáveis) — cadastros-anfitriões
+  EMPRESA:          'EMPRESA',
+  PARCEIRO:         'PARCEIRO',
+  CONTRATO:         'CONTRATO',
+  ORG:              'ORG',
+} as const
+
+/** Opções de origem quando o papel referencia uma ENTIDADE (partes do contrato). */
+export const ORIGEM_OPTIONS_ENTIDADE = [
   { value: ORIGEM.EMPRESA_PARCEIRO, label: 'Empresas do grupo + Parceiros' },
   { value: ORIGEM.UNIDADE,          label: 'Unidades da estrutura' },
 ]
 
-/** Chave versionada para forçar o re-seed com o campo `origem`. */
+/** Opções de origem quando o papel referencia uma PESSOA (responsáveis). */
+export const ORIGEM_OPTIONS_PESSOA = [
+  { value: ORIGEM.EMPRESA,  label: 'Empresas do grupo' },
+  { value: ORIGEM.PARCEIRO, label: 'Parceiros' },
+  { value: ORIGEM.UNIDADE,  label: 'Unidades da estrutura' },
+  { value: ORIGEM.CONTRATO, label: 'Contratos' },
+  { value: ORIGEM.ORG,      label: 'Organização (papel global)' },
+]
+
+/** Todas as origens, para resolver rótulo em qualquer contexto. */
+export const ORIGEM_OPTIONS = [...ORIGEM_OPTIONS_ENTIDADE, ...ORIGEM_OPTIONS_PESSOA]
+
+/** Referência efetiva de um papel (legado sem o campo → ENTIDADE). */
+export function referenciaDoPapelEntry(e: Pick<LookupEntry, 'referencia'>): string {
+  return e.referencia ?? REFERENCIA.ENTIDADE
+}
+
+/** Chave do AppSetting dos papéis (mantida em v2 — dados legados = ENTIDADE). */
 export const PAPEIS_KEY = 'nxt:settings:contratos:papeis:v2'
 
-/** Fonte única dos papéis (usada pela tela de configuração e pelo formulário). */
+/** Fonte única dos papéis (semente para instalações novas). */
 export const INIT_PAPEIS: LookupEntry[] = [
-  { id: '1', label: 'Contratante',          origem: ORIGEM.EMPRESA_PARCEIRO, active: true  },
-  { id: '2', label: 'Contratada',           origem: ORIGEM.EMPRESA_PARCEIRO, active: true  },
-  { id: '3', label: 'Unidade contratante',  origem: ORIGEM.UNIDADE,           active: true  },
-  { id: '4', label: 'Unidade negociadora',  origem: ORIGEM.UNIDADE,           active: true  },
-  { id: '5', label: 'Unidade de aplicação', origem: ORIGEM.UNIDADE,           active: true  },
-  { id: '6', label: 'Interveniente',        origem: ORIGEM.EMPRESA_PARCEIRO, active: true  },
-  { id: '7', label: 'Garantidor',           origem: ORIGEM.EMPRESA_PARCEIRO, active: false },
+  { id: '1', label: 'Contratante',          referencia: REFERENCIA.ENTIDADE, origem: ORIGEM.EMPRESA_PARCEIRO, active: true  },
+  { id: '2', label: 'Contratada',           referencia: REFERENCIA.ENTIDADE, origem: ORIGEM.EMPRESA_PARCEIRO, active: true  },
+  { id: '3', label: 'Unidade contratante',  referencia: REFERENCIA.ENTIDADE, origem: ORIGEM.UNIDADE,           active: true  },
+  { id: '4', label: 'Unidade negociadora',  referencia: REFERENCIA.ENTIDADE, origem: ORIGEM.UNIDADE,           active: true  },
+  { id: '5', label: 'Unidade de aplicação', referencia: REFERENCIA.ENTIDADE, origem: ORIGEM.UNIDADE,           active: true  },
+  { id: '6', label: 'Interveniente',        referencia: REFERENCIA.ENTIDADE, origem: ORIGEM.EMPRESA_PARCEIRO, active: true  },
+  { id: '7', label: 'Garantidor',           referencia: REFERENCIA.ENTIDADE, origem: ORIGEM.EMPRESA_PARCEIRO, active: false },
+  // Exemplos de papéis de PESSOA (responsáveis) — só semeados em instalações novas.
+  { id: '8', label: 'Gestor do contrato',   referencia: REFERENCIA.PESSOA,   origem: ORIGEM.CONTRATO,          active: true  },
+  { id: '9', label: 'Responsável da unidade', referencia: REFERENCIA.PESSOA, origem: ORIGEM.UNIDADE,           active: true  },
 ]
 
 /** Descobre a origem de um papel pelo seu id (com fallback por rótulo para dados legados). */
