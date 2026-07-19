@@ -44,6 +44,19 @@ export interface WfNode {
    *  ausente para uma entrada, o backend cai na convenção de nome. (F5 estendida) */
   connectorInputs?: Record<string, string>
 
+  /** Executor da atividade por PAPEL (referência PESSOA) + ENTIDADE. O motor resolve
+   *  (papel + entidade) → usuário(s) responsável(is) e roteia a tarefa. A entidade
+   *  pode ser FIXA (id escolhido no desenho) ou por VARIAVEL (id lido de uma variável
+   *  do processo em runtime). ORG = papel global (sem entidade). Alternativa ao `role`
+   *  de texto livre. Mesclado ao grafo na ativação. (Papéis/Responsáveis) */
+  executor?: {
+    papelId: string
+    entityType: string          // EMPRESA | PARCEIRO | UNIDADE | CONTRATO | ORG
+    mode: 'FIXA' | 'VARIAVEL'    // ignorado quando entityType === ORG
+    entityId?: string           // quando FIXA
+    entityVar?: string          // nome da variável quando VARIAVEL
+  }
+
   /** Metadados livres preservados do diagrama (para o designer/UX). */
   meta?: Record<string, unknown>
 }

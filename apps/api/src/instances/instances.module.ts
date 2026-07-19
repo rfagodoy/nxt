@@ -6,9 +6,10 @@ import { PrismaService } from '../prisma.service'
 import { WorkflowRolesModule } from '../workflow-roles/workflow-roles.module'
 import { ContractsModule } from '../contracts/contracts.module'
 import { PartnersModule } from '../partners/partners.module'
+import { RoleAssignmentsModule } from '../role-assignments/role-assignments.module'
 
 @Module({
-  imports: [WorkflowRolesModule, ContractsModule, PartnersModule],
+  imports: [WorkflowRolesModule, ContractsModule, PartnersModule, RoleAssignmentsModule],
   controllers: [InstancesController],
   providers: [InstancesService, WorkflowSchedulerService, PrismaService],
   exports: [InstancesService],

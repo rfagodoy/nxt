@@ -15,6 +15,10 @@ import { Badge } from '@/components/ui/badge'
 import type { FormField, FieldType, StepFormSchema } from '@nxt/types'
 import { CONNECTORS } from '@nxt/types'
 import { BpmnElement } from './bpmn-editor'
+import { cn } from '@/lib/utils'
+import { useLookupTable } from '@/hooks/use-lookup-table'
+import { PAPEIS_KEY, INIT_PAPEIS, REFERENCIA, ORIGEM, referenciaDoPapelEntry } from '@/lib/contract-roles'
+import { EntitySelect, type EntityKind } from '@/components/ui/entity-select'
 
 const FIELD_TYPES: Array<{ value: FieldType; label: string }> = [
   { value: 'text', label: 'Texto curto' },
@@ -29,6 +33,12 @@ const FIELD_TYPES: Array<{ value: FieldType; label: string }> = [
   { value: 'checkbox', label: 'Caixa de seleção' },
   { value: 'file', label: 'Arquivo' },
 ]
+
+/** Rótulo amigável do tipo de entidade-anfitriã do papel (para textos da UI). */
+const ENTITY_KIND_LABEL: Record<string, string> = {
+  EMPRESA: 'empresa do grupo', PARCEIRO: 'parceiro', UNIDADE: 'unidade', CONTRATO: 'contrato',
+}
+const entityKindLabel = (k?: string) => ENTITY_KIND_LABEL[k ?? ''] ?? 'entidade'
 
 /** Tipos BPMN que o motor executa como serviceTask (ação automática). */
 const SERVICE_TASK_TYPES = ['bpmn:ServiceTask', 'bpmn:ScriptTask', 'bpmn:SendTask', 'bpmn:BusinessRuleTask']
@@ -214,6 +224,9 @@ interface FormBuilderProps {
 }
 
 export function FormBuilder({ selectedElement, stepForms, onStepFormsChange }: FormBuilderProps) {
+  // Hook no topo (antes de qualquer early return) — regra dos hooks.
+  const papeis = useLookupTable(PAPEIS_KEY, INIT_PAPEIS)
+
   if (!selectedElement) {
     const legend: Array<{ icon: typeof CircleDot; label: string; hint: string; color: string }> = [
       { icon: CircleDot, label: 'Início / Fim', hint: 'onde o processo começa e termina', color: 'text-emerald-600 dark:text-emerald-400' },
@@ -316,6 +329,22 @@ export function FormBuilder({ selectedElement, stepForms, onStepFormsChange }: F
     updateForm({ ...currentForm, connectorInputs: Object.keys(next).length ? next : undefined })
   }
 
+  // ── Executor por papel de PESSOA + entidade (roteia a tarefa para o responsável) ──
+  const papeisPessoa = papeis.active.filter((p) => referenciaDoPapelEntry(p) === REFERENCIA.PESSOA)
+  const executor = currentForm.executor
+  const papelSel = executor?.papelId ? papeis.entries.find((p) => p.id === executor!.papelId) : undefined
+  const execOrigem = papelSel?.origem // = entityType do executor (EMPRESA/PARCEIRO/UNIDADE/CONTRATO/ORG)
+
+  const pickPapel = (papelId: string) => {
+    if (!papelId) { updateForm({ ...currentForm, executor: undefined }); return }
+    const p = papeis.entries.find((pp) => pp.id === papelId)
+    const entityType = p?.origem ?? 'CONTRATO'
+    // Papel global (ORG) não tem entidade; senão nasce em FIXA (o usuário troca p/ variável).
+    updateForm({ ...currentForm, role: undefined, executor: { papelId, entityType, mode: 'FIXA', entityId: undefined, entityVar: undefined } })
+  }
+  const setExec = (patch: Partial<NonNullable<StepFormSchema['executor']>>) =>
+    executor && updateForm({ ...currentForm, executor: { ...executor, ...patch } })
+
   return (
     <div className="flex flex-col h-full">
       <div className="px-4 py-3 border-b shrink-0">
@@ -399,13 +428,58 @@ export function FormBuilder({ selectedElement, stepForms, onStepFormsChange }: F
         <div className="px-4 py-3 border-b shrink-0 space-y-2 bg-muted/20">
           <div>
             <label className="text-xs text-muted-foreground mb-1 block">Executor (papel)</label>
-            <Input
-              className="h-7 text-sm"
-              placeholder="Ex.: Gestor, Diretor…"
-              value={currentForm.role || ''}
-              onChange={(e) => updateForm({ ...currentForm, role: e.target.value || undefined })}
-            />
+            <Select value={executor?.papelId || 'none'} onValueChange={(v) => pickPapel(v === 'none' ? '' : v)}>
+              <SelectTrigger className="h-7 text-sm"><SelectValue placeholder="Sem papel definido" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Sem papel definido</SelectItem>
+                {papeisPessoa.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {papeisPessoa.length === 0 && (
+              <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
+                Nenhum papel de pessoa cadastrado. Crie em Configurações → Papéis (referência “Pessoa”).
+              </p>
+            )}
           </div>
+
+          {/* Vínculo da entidade: papel de PESSOA precisa saber DE QUAL entidade pegar o responsável */}
+          {executor && execOrigem && execOrigem !== ORIGEM.ORG && (
+            <div className="rounded-md border bg-background/60 p-2 space-y-1.5">
+              <label className="text-[11px] text-muted-foreground block">Responsável de qual {entityKindLabel(execOrigem)}?</label>
+              <div className="flex gap-1 text-[11px]">
+                {(['FIXA', 'VARIAVEL'] as const).map((m) => (
+                  <button key={m} type="button" onClick={() => setExec({ mode: m })}
+                    className={cn('rounded px-2 py-0.5 border transition-colors', executor.mode === m ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted text-muted-foreground')}>
+                    {m === 'FIXA' ? 'Entidade fixa' : 'Da variável'}
+                  </button>
+                ))}
+              </div>
+              {executor.mode === 'FIXA' ? (
+                <EntitySelect entityType={execOrigem as EntityKind} value={executor.entityId}
+                  onChange={(id) => setExec({ entityId: id, entityVar: undefined })}
+                  placeholder={`Selecionar ${entityKindLabel(execOrigem)}…`} />
+              ) : (
+                <Select value={executor.entityVar || 'none'} onValueChange={(v) => setExec({ entityVar: v === 'none' ? undefined : v, entityId: undefined })}>
+                  <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Variável com o id da entidade…" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">— escolha a variável —</SelectItem>
+                    {availableVars.map((v) => <SelectItem key={v.name} value={v.name} className="text-xs">{v.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              )}
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                {executor.mode === 'FIXA'
+                  ? 'Sempre a mesma entidade, escolhida agora.'
+                  : `Em execução, pega o id da ${entityKindLabel(execOrigem)} desta variável (ex.: o contrato deste processo).`}
+              </p>
+            </div>
+          )}
+          {executor && execOrigem === ORIGEM.ORG && (
+            <p className="text-[11px] text-muted-foreground leading-snug">Papel global (organização) — roteia para o responsável definido no nível da organização.</p>
+          )}
+
           <div>
             <label className="text-xs text-muted-foreground mb-1 block">Prazo (SLA) em horas</label>
             <Input

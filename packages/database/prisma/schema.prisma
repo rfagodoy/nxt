@@ -150,6 +150,7 @@ model WorkflowTask {
   name        String?
   role        String? // executor por papel/lane (F2)
   assignee    String? // executor por usuário direto (F2)
+  assignees   String  @default("[]") @db.NVarChar(Max) // [JSON] userId[] resolvidos do executor papel+entidade (Papéis/Responsáveis)
   formRef     String? // tela/formulário associado à atividade (F3)
   status      String    @default("PENDING") // PENDING | DONE | CANCELED
   dueAt       DateTime? // prazo/SLA (F4)
