@@ -9,6 +9,7 @@ import { randomUUID } from 'crypto'
 import { PrismaService } from '../prisma.service'
 import { WorkflowRolesService } from '../workflow-roles/workflow-roles.service'
 import { canActOnTask } from './task-access'
+import { resolveContractId, resolvePartnerId, aditivoFromVars } from './connector-helpers'
 import {
   startProcess,
   completeToken,
@@ -495,6 +496,62 @@ export class InstancesService {
           actorId,
         )
         return { contratoId: created.id, contratoNumero: created.numero }
+      }
+
+      case 'contracts.aditivo': {
+        // Registra um termo aditivo NO contrato-alvo (prorrogação/reajuste). O alvo
+        // vem de uma variável (contratoId), tipicamente selecionada numa atividade
+        // anterior ou produzida por um contracts.create do mesmo fluxo.
+        const contratoId = resolveContractId(vars)
+        if (!contratoId) throw new BadRequestException('Aditivo sem contrato-alvo (defina a variável contratoId)')
+        const atual = await this.prisma.contract.findFirst({
+          where: { id: contratoId, organizationId: ctx.organizationId },
+          select: { aditivos: true },
+        })
+        if (!atual) throw new NotFoundException('Contrato-alvo do aditivo não encontrado')
+        const existentes = Array.isArray(atual.aditivos) ? (atual.aditivos as unknown[]) : []
+        const hoje = new Date().toISOString().slice(0, 10)
+        const novo = aditivoFromVars(vars, randomUUID(), hoje)
+        // ATIVO por padrão → applyAditivos passa a refletir término/valor na vigência.
+        const updated = await this.contracts.update(
+          contratoId,
+          { aditivos: [...existentes, novo], motivo: str(vars.motivo) } as unknown as Parameters<ContractsService['update']>[1],
+          ctx.organizationId,
+          actorName,
+          actorId,
+        )
+        return { contratoId, aditivoId: novo.id, contratoSituacao: updated.situacao }
+      }
+
+      case 'contracts.distrato': {
+        // Rescinde o contrato-alvo: transição de situação → RESCINDIDO (o motivo
+        // acompanha a auditoria da transição). É o mesmo update() do domínio.
+        const contratoId = resolveContractId(vars)
+        if (!contratoId) throw new BadRequestException('Distrato sem contrato-alvo (defina a variável contratoId)')
+        const motivo = str(vars.motivo) ?? str(vars.motivoDistrato) ?? str(vars.justificativa)
+        const updated = await this.contracts.update(
+          contratoId,
+          { situacao: 'RESCINDIDO', motivo } as unknown as Parameters<ContractsService['update']>[1],
+          ctx.organizationId,
+          actorName,
+          actorId,
+        )
+        return { contratoId, contratoSituacao: updated.situacao }
+      }
+
+      case 'partners.activate': {
+        // Aprova/ativa o parceiro-alvo (onboarding): status → ATIVO. Alvo por variável
+        // (partnerId), normalmente produzida por um partners.create anterior no fluxo.
+        const partnerId = resolvePartnerId(vars)
+        if (!partnerId) throw new BadRequestException('Ativação sem parceiro-alvo (defina a variável partnerId)')
+        const updated = await this.partners.update(
+          partnerId,
+          { status: 'ATIVO', motivo: str(vars.motivo) } as unknown as Parameters<PartnersService['update']>[1],
+          ctx.organizationId,
+          actorName,
+          actorId,
+        )
+        return { partnerId, partnerStatus: updated.status }
       }
 
       default:

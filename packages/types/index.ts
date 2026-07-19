@@ -37,6 +37,11 @@ export interface StepFormSchema {
   role?: string
   /** Prazo/SLA da atividade em MINUTOS. O designer coleta em horas e converte. */
   slaMinutes?: number
+  /** Conector de domínio de uma atividade de serviço (ação automática). Ex.:
+   *  'contracts.create', 'contracts.aditivo', 'contracts.distrato',
+   *  'partners.create', 'partners.activate'. Mesclado ao grafo na ativação
+   *  (vira node.connector, executado pelo motor no serviceTask). */
+  connector?: string
 }
 
 export interface ProcessFormSchema {
