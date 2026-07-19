@@ -64,6 +64,7 @@ const EVENT_META: Record<string, { label: string; color: string; icon: LucideIco
   INATIVADO:        { label: 'Inativado',  color: 'gray',    icon: Ban },
   REATIVADO:        { label: 'Reativado',  color: 'teal',    icon: RotateCcw },
   ALTERADO:         { label: 'Atualização', color: 'blue',   icon: Pencil },
+  RESPONSAVEL:      { label: 'Responsável', color: 'blue',   icon: UserCog },
 }
 const EVENT_FALLBACK = { label: 'Alteração', color: 'blue', icon: Pencil }
 const DOT_CLS: Record<string, string> = {

@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger'
 import { RoleAssignmentsService } from './role-assignments.service'
 import { SetAssignmentsDto } from './dto/set-assignments.dto'
 import { CurrentOrg } from '../auth/current-org.decorator'
+import { CurrentUser, CurrentUserData } from '../auth/current-user.decorator'
 
 // Responsáveis (papel de PESSOA → usuário) por entidade. Liberado a qualquer
 // autenticado (como contratos/parceiros) — quem edita o cadastro gerencia a lista.
@@ -24,7 +25,7 @@ export class RoleAssignmentsController {
 
   @Put()
   @ApiOperation({ summary: 'Substitui em bloco os responsáveis de uma entidade' })
-  set(@CurrentOrg() organizationId: string, @Body() dto: SetAssignmentsDto) {
-    return this.svc.setForEntity(organizationId, dto.entityType, dto.entityId, dto.items)
+  set(@CurrentOrg() organizationId: string, @Body() dto: SetAssignmentsDto, @CurrentUser() actor: CurrentUserData) {
+    return this.svc.setForEntity(organizationId, dto.entityType, dto.entityId, dto.items, actor)
   }
 }
