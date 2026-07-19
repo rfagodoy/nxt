@@ -7,6 +7,8 @@ import { apiFetch } from '@/lib/http'
 import { getLogUser } from '@/hooks/use-partner-logs'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { TIPOS_UNIDADE_KEY, INIT_TIPOS_UNIDADE, CLASS_COLOR } from '@/lib/unit-types'
+import { ResponsaveisSection } from '@/components/responsaveis/responsaveis-section'
+import { UserCog } from 'lucide-react'
 
 export interface UnitUser { id: string; nome: string; email: string; papel: string }
 export interface Unit {
@@ -42,7 +44,7 @@ export function UnitDetailView({ mode, unit, companyId, parentId, parentName, on
   onDirtyChange?: (dirty: boolean) => void
 }) {
   const tipos = useLookupTable(TIPOS_UNIDADE_KEY, INIT_TIPOS_UNIDADE)
-  const [tab, setTab] = useState<'dados' | 'usuarios'>('dados')
+  const [tab, setTab] = useState<'dados' | 'responsaveis' | 'usuarios'>('dados')
 
   const [nome,        setNome]        = useState(unit?.nome ?? '')
   const [codigo,      setCodigo]      = useState(unit?.codigo ?? '')
@@ -145,7 +147,7 @@ export function UnitDetailView({ mode, unit, companyId, parentId, parentName, on
 
       {/* sub-abas */}
       <div className="flex items-center gap-1 flex-wrap border-b pb-2">
-        {([{ id: 'dados', label: 'Dados', icon: Building2 }, { id: 'usuarios', label: 'Usuários', icon: UsersIcon }] as const).map(t => (
+        {([{ id: 'dados', label: 'Dados', icon: Building2 }, { id: 'responsaveis', label: 'Responsáveis', icon: UserCog }, { id: 'usuarios', label: 'Usuários (legado)', icon: UsersIcon }] as const).map(t => (
           <button key={t.id} type="button" onClick={() => setTab(t.id)}
             className={cn('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
               tab === t.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-muted')}>
@@ -173,7 +175,14 @@ export function UnitDetailView({ mode, unit, companyId, parentId, parentName, on
         </div>
       )}
 
-      {/* Usuários (lista livre) */}
+      {/* Responsáveis (papel de pessoa → usuário; relacional) */}
+      {tab === 'responsaveis' && (
+        <div className="rounded-xl border bg-card p-4 shadow-sm">
+          <ResponsaveisSection entityType="UNIDADE" entityId={mode === 'detail' ? unit?.id : undefined} />
+        </div>
+      )}
+
+      {/* Usuários (lista livre — legado, será migrado para Responsáveis) */}
       {tab === 'usuarios' && (
         <div className="rounded-xl border bg-card p-4 shadow-sm space-y-2">
           {usuarios.length === 0 ? (

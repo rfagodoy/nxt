@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { FileText, Users, Calendar, Banknote, TrendingUp, TrendingDown, RefreshCw, Paperclip, FilePlus2, Clock } from 'lucide-react'
+import { FileText, Users, Calendar, Banknote, TrendingUp, TrendingDown, RefreshCw, Paperclip, FilePlus2, Clock, UserCog } from 'lucide-react'
+import { ResponsaveisSection } from '@/components/responsaveis/responsaveis-section'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { CONTRACTS_CHANGED_EVENT } from '@/lib/contract-events'
@@ -195,8 +196,12 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
     { id: 'documentos',   label: 'Documentos',        icon: Paperclip },
     { id: 'historico',    label: 'Histórico',         icon: Clock },
   ]
-  /* abas: a tela padrão manda (ordem/rótulos/quais aparecem); sem tela → abas nativas */
-  const tabs = screenDriven ? screenSections.map(s => ({ id: s.key, label: s.label, icon: s.icon })) : sectionTabs
+  /* abas: a tela padrão manda (ordem/rótulos/quais aparecem); sem tela → abas nativas.
+     "Responsáveis" (pessoas por papel) é aba fixa, fora da tela customizável. */
+  const tabs = [
+    ...(screenDriven ? screenSections.map(s => ({ id: s.key, label: s.label, icon: s.icon })) : sectionTabs),
+    { id: 'responsaveis', label: 'Responsáveis', icon: UserCog },
+  ]
 
   const handleSave = async (statusOverride?: string, motivoTexto?: string, aditivosOverride?: CAditivo[]) => {
     /* A obrigatoriedade da data de assinatura é validada na ATIVAÇÃO de cada aditivo
@@ -406,6 +411,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
         <DSection active={tab === 'reajuste'}><ReajustesFields form={form} ro={locked} /></DSection>
         <DSection active={tab === 'aditivos'}><AditivosFields form={form} onOpenCessaoSearch={(aditivoId, cessaoId, origem) => setCessaoSearch({ aditivoId, cessaoId, origem })} onActivate={activateAditivo} onRevise={reviseAditivo} /></DSection>
         <DSection active={tab === 'documentos'}><DocumentosFields form={form} ro={locked} /></DSection>
+        <DSection active={tab === 'responsaveis'}><ResponsaveisSection entityType="CONTRATO" entityId={row.id} readOnly={locked} /></DSection>
         <DSection active={tab === 'historico'}><ContractHistory contractId={row.id} reloadKey={auditVersion} /></DSection>
         </>)}
       </form>

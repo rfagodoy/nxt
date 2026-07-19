@@ -3,10 +3,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Building2, Plus, Pencil, Trash2, X, ChevronRight, ChevronDown,
-  Network, Search, Phone, MapPin, CreditCard, Users,
+  Network, Search, Phone, MapPin, CreditCard, Users, UserCog,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
+import { ResponsaveisSection } from '@/components/responsaveis/responsaveis-section'
 import { useLookupTable, type LookupEntry } from '@/hooks/use-lookup-table'
 import { TIPOS_UNIDADE_KEY, INIT_TIPOS_UNIDADE, CLASS_COLOR } from '@/lib/unit-types'
 import { useWorkspace } from '@/contexts/workspace-context'
@@ -217,6 +218,9 @@ function CompanyModal({ editId, initial, onSave, onClose }: {
             </Section>
             <Section icon={Users} title="Quadro de Sócios" isOpen={open.has('socios')} onToggle={() => toggle('socios')} hasError={!!err && !!validateSociosParticipacao(v.socios)}>
               <SociosFields form={form} />
+            </Section>
+            <Section icon={UserCog} title="Responsáveis" isOpen={open.has('responsaveis')} onToggle={() => toggle('responsaveis')}>
+              <ResponsaveisSection entityType="EMPRESA" entityId={editId} />
             </Section>
           </div>
 
