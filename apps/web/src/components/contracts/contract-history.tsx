@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Plus, Pencil, CheckCircle2, RotateCcw, RotateCw, Lock, XCircle,
   FilePlus2, Banknote, Paperclip, RefreshCw, Loader2, Clock,
-  SlidersHorizontal, X, type LucideIcon,
+  SlidersHorizontal, X, UserCog, type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
@@ -25,6 +25,7 @@ const EVENT_META: Record<string, { label: string; color: string; icon: LucideIco
   REAJUSTE:   { label: 'Reajuste aplicado',     color: 'amber',   icon: RefreshCw },
   LANCAMENTO: { label: 'Lançamento financeiro', color: 'teal',    icon: Banknote },
   DOCUMENTO:  { label: 'Documento',             color: 'slate',   icon: Paperclip },
+  RESPONSAVEL:{ label: 'Responsável',           color: 'blue',    icon: UserCog },
 }
 const FALLBACK = { label: 'Alteração', color: 'blue', icon: Pencil }
 const DOT_CLS: Record<string, string> = {
