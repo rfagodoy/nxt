@@ -5,9 +5,10 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft, Building2, Phone, MapPin, CreditCard, Users,
-  ChevronDown, Layers, FileText, Briefcase,
+  ChevronDown, Layers, FileText, Briefcase, UserCog,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { ResponsaveisSection } from '@/components/responsaveis/responsaveis-section'
 import { apiFetch } from '@/lib/http'
 import { usePartnerFields, useFieldVisibility, type CustomField } from '@/hooks/use-partner-fields'
 import { usePartnerSections } from '@/hooks/use-partner-sections'
@@ -349,14 +350,27 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
 
       <form className="space-y-2" onSubmit={handleSubmit}>
 
-        {screenDriven
-          ? screenSections.map(s => (
-              <Section key={s.id} icon={s.icon} title={s.label}
-                isOpen={open.has(s.key)} onToggle={() => toggle(s.key)} hasError={errors.has(s.key)}>
-                <PartnerSectionBody section={s} form={form} screenValues={screenValues} onScreenChange={onScreenChange} />
-              </Section>
-            ))
-          : resolvedOrder.map(key => renderSection(key))}
+        {(() => {
+          const nodes = screenDriven
+            ? screenSections.map(s => (
+                <Section key={s.id} icon={s.icon} title={s.label}
+                  isOpen={open.has(s.key)} onToggle={() => toggle(s.key)} hasError={errors.has(s.key)}>
+                  <PartnerSectionBody section={s} form={form} screenValues={screenValues} onScreenChange={onScreenChange} />
+                </Section>
+              ))
+            : resolvedOrder.map(key => renderSection(key))
+          // "Partes envolvidas" = 2ª posição (após Identificação). No cadastro novo ainda
+          // não há id → a seção orienta a salvar antes de atribuir pessoas.
+          const partes = (
+            <Section key="responsaveis" icon={UserCog} title="Partes envolvidas"
+              isOpen={open.has('responsaveis')} onToggle={() => toggle('responsaveis')}>
+              <ResponsaveisSection entityType="PARCEIRO" entityId={undefined} />
+            </Section>
+          )
+          const out = [...nodes]
+          out.splice(1, 0, partes)
+          return out
+        })()}
 
         {saveError && (
           <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">
