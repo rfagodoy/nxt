@@ -19,6 +19,14 @@ export class UsersController {
     return this.users.list(organizationId)
   }
 
+  // Lista mínima para seletores de usuário (Responsáveis etc.). Liberada a qualquer
+  // autenticado — o @Roles do método SOBRESCREVE o 'admin' da classe (getAllAndOverride).
+  @Get('selectable')
+  @Roles('admin', 'user')
+  selectable(@CurrentOrg() organizationId: string) {
+    return this.users.selectable(organizationId)
+  }
+
   @Post()
   create(@CurrentOrg() organizationId: string, @Body() dto: CreateUserDto) {
     return this.users.create(organizationId, dto)
