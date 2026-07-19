@@ -5,6 +5,7 @@ import {
   resolveContractId,
   resolvePartnerId,
   aditivoFromVars,
+  applyInputMap,
 } from './connector-helpers'
 
 describe('coerções de variável', () => {
@@ -37,6 +38,36 @@ describe('resolução do id-alvo', () => {
     expect(resolvePartnerId({ partnerId: 'p1' })).toBe('p1')
     expect(resolvePartnerId({ parceiroId: 'p2' })).toBe('p2')
     expect(resolvePartnerId({})).toBeUndefined()
+  })
+})
+
+describe('applyInputMap (re-liga variável → nome esperado)', () => {
+  it('sem mapa, devolve as variáveis inalteradas', () => {
+    const vars = { contrato_escolhido: 'c1' }
+    expect(applyInputMap(undefined, vars)).toBe(vars)
+  })
+
+  it('copia a variável de origem para o nome de convenção do conector', () => {
+    const vars = { contrato_escolhido: 'c1', valor_extra: 5000 }
+    const out = applyInputMap({ contratoId: 'contrato_escolhido', aditivoAcrescimoValor: 'valor_extra' }, vars)
+    expect(out.contratoId).toBe('c1')
+    expect(out.aditivoAcrescimoValor).toBe(5000)
+    // e a resolução por convenção passa a enxergar o alvo
+    expect(resolveContractId(out)).toBe('c1')
+    expect(aditivoFromVars(out, 'x', '2026-07-19').novoValor).toBe(5000)
+  })
+
+  it('entrada mapeada para variável inexistente é ignorada (não sobrescreve com undefined)', () => {
+    const out = applyInputMap({ contratoId: 'nao_existe' }, { contratoId: 'ja_tenho' })
+    expect(out.contratoId).toBe('ja_tenho')
+  })
+
+  it('não muta o objeto original', () => {
+    const vars: Record<string, unknown> = { v: '1' }
+    const out = applyInputMap({ contratoId: 'v' }, vars)
+    expect(out).not.toBe(vars)
+    expect(out.contratoId).toBe('1')
+    expect('contratoId' in vars).toBe(false)
   })
 })
 

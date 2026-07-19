@@ -68,6 +68,10 @@ export class ProcessesService {
       // Conector de domínio da atividade de serviço (ação automática). Definido no
       // painel "Ação automática" do designer; tem precedência sobre nxt:connector do XML.
       if (step.connector) node.connector = step.connector
+      // Mapa entrada-do-conector → variável-do-processo (re-liga nomes no designer).
+      if (step.connectorInputs && Object.keys(step.connectorInputs).length) {
+        node.connectorInputs = step.connectorInputs
+      }
     }
 
     const updatedProcess = await this.prisma.processDefinition.update({

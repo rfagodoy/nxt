@@ -39,6 +39,10 @@ export interface WfNode {
   /** Conector de domínio a executar, ex.: 'contracts.create'. O backend resolve
    *  o conector e roda ContractsService/PartnersService. (F5) */
   connector?: string
+  /** Mapa entrada-do-conector → variável-do-processo. Re-liga uma variável (o
+   *  nome do campo coletado numa atividade) ao nome que o conector espera. Quando
+   *  ausente para uma entrada, o backend cai na convenção de nome. (F5 estendida) */
+  connectorInputs?: Record<string, string>
 
   /** Metadados livres preservados do diagrama (para o designer/UX). */
   meta?: Record<string, unknown>
