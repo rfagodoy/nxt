@@ -147,7 +147,7 @@ export function UnitDetailView({ mode, unit, companyId, parentId, parentName, on
 
       {/* sub-abas */}
       <div className="flex items-center gap-1 flex-wrap border-b pb-2">
-        {([{ id: 'dados', label: 'Dados', icon: Building2 }, { id: 'responsaveis', label: 'Responsáveis', icon: UserCog }, { id: 'usuarios', label: 'Usuários (legado)', icon: UsersIcon }] as const).map(t => (
+        {([{ id: 'dados', label: 'Dados', icon: Building2 }, { id: 'responsaveis', label: 'Partes envolvidas', icon: UserCog }, { id: 'usuarios', label: 'Usuários (legado)', icon: UsersIcon }] as const).map(t => (
           <button key={t.id} type="button" onClick={() => setTab(t.id)}
             className={cn('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
               tab === t.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-muted')}>
