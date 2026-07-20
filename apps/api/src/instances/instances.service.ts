@@ -224,10 +224,15 @@ export class InstancesService {
 
     const instances = await this.prisma.processInstance.findMany({
       where,
-      include: { processDefinition: { select: { name: true } } },
+      include: {
+        processDefinition: { select: { name: true } },
+        tasks: { orderBy: { createdAt: 'asc' } },
+      },
       orderBy: { updatedAt: 'desc' },
     })
 
+    const now = Date.now()
+    const ms = (d: Date | string | null | undefined) => (d ? new Date(d).getTime() : null)
     return instances.map((inst) => {
       const state = inst.state as unknown as WfState | null
       const graph = inst.graphSnapshot as unknown as WfGraph | null
@@ -235,6 +240,19 @@ export class InstancesService {
       const error = (vars.__connectorError ?? vars.__engineError) as string | undefined
       // Etapa parada = token de serviceTask (o conector automático que falhou).
       const stuck = state?.tokens?.map((t) => graph?.nodes?.[t.nodeId]).find((n) => n?.type === 'serviceTask')
+
+      const tasks = inst.tasks ?? []
+      const pending = tasks.filter((t) => t.status === 'PENDING')
+      const done = tasks.filter((t) => t.status === 'DONE')
+      const current = pending[0] // etapa atual (1ª pendente)
+      const currentDueMs = ms(current?.dueAt)
+      const currentOverdue = currentDueMs != null && currentDueMs < now
+      // pontualidade: nenhuma concluída fora do prazo e nenhuma pendente vencida
+      const anyLate = done.some((t) => t.dueAt && t.completedAt && ms(t.completedAt)! > ms(t.dueAt)!)
+      const hasSla = tasks.some((t) => t.dueAt)
+      const startMs = ms(inst.startedAt)
+      const endMs = ms(inst.completedAt)
+
       return {
         id: inst.id,
         processName: inst.processDefinition?.name ?? 'Processo',
@@ -244,7 +262,17 @@ export class InstancesService {
         stepName: stuck?.name ?? stuck?.id ?? null,
         startedBy: inst.startedBy ?? null,
         startedAt: inst.startedAt,
+        completedAt: inst.completedAt ?? null,
         updatedAt: inst.updatedAt,
+        // acompanhamento
+        currentStep: current?.name ?? current?.nodeId ?? null,
+        currentDueAt: current?.dueAt ?? null,
+        currentOverdue,
+        totalSteps: tasks.length,
+        doneSteps: done.length,
+        hasSla,
+        onTime: !anyLate && !currentOverdue,
+        durationMs: startMs != null && endMs != null ? endMs - startMs : null,
       }
     })
   }
