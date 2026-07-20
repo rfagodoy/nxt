@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { CheckCircle2, Loader2, ListChecks, XCircle, AlertTriangle, RefreshCw } from 'lucide-react'
 import { DynamicForm } from '@/components/modules/dynamic-form'
-import { apiFetch } from '@/lib/http'
+import { WorkflowScreenTask } from '@/components/processes/workflow-screen-task'
+import { apiFetch, apiJson } from '@/lib/http'
 import type { StepFormSchema, ProcessFormSchema } from '@nxt/types'
 
 interface Task {
@@ -28,6 +29,7 @@ interface Props {
 export function InstanceRunner({ processDefinitionId, processName, formSchema, onFinished, onClose }: Props) {
   const [instanceId, setInstanceId] = useState<string | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
+  const [variables, setVariables] = useState<Record<string, unknown>>({})
   const [completed, setCompleted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -56,10 +58,18 @@ export function InstanceRunner({ processDefinitionId, processName, formSchema, o
     const data = await res.json()
     setInstanceId(data.instance.id)
     setTasks(data.tasks ?? [])
+    setVariables(data.instance?.state?.variables ?? {})
     setCompleted(!!data.completed)
     if (data.errored) setErrored(data.errored)
     if (data.completed) onFinished?.()
   }, [processDefinitionId, onFinished])
+
+  // Recarrega as variáveis da instância (para atividades-tela em modo EDIT que dependem
+  // de um id produzido por um passo anterior).
+  const refreshVariables = useCallback(async (id: string) => {
+    const ctx = await apiJson<{ state?: { variables?: Record<string, unknown> } }>(`/api/instances/${id}`)
+    setVariables(ctx?.state?.variables ?? {})
+  }, [])
 
   // Inicia UMA vez (guard contra re-execução do efeito — ex.: StrictMode).
   useEffect(() => {
@@ -111,6 +121,7 @@ export function InstanceRunner({ processDefinitionId, processName, formSchema, o
       setCompleted(!!result.completed)
       if (result.errored) setErrored(result.errored)
       if (result.completed || result.errored) onFinished?.()
+      else if (instanceId) await refreshVariables(instanceId) // variáveis frescas p/ a próxima etapa
     } finally {
       setSubmitting(false)
     }
@@ -198,17 +209,23 @@ export function InstanceRunner({ processDefinitionId, processName, formSchema, o
 
       <div className="p-4">
         {error && <p className="text-[11px] text-destructive mb-2">{error}</p>}
-        {active && (
-          <DynamicForm
-            key={active.id}
-            step={stepFor(active.nodeId)}
-            stepIndex={0}
-            totalSteps={1}
-            submitting={submitting}
-            onSubmit={complete}
-            onCancel={onClose}
-          />
-        )}
+        {active && (() => {
+          const step = stepFor(active.nodeId)
+          // Atividade com TELA → renderiza o cadastro real (cria/edita a entidade).
+          return step.screenRef ? (
+            <WorkflowScreenTask key={active.id} step={step} variables={variables} onComplete={complete} onCancel={onClose} />
+          ) : (
+            <DynamicForm
+              key={active.id}
+              step={step}
+              stepIndex={0}
+              totalSteps={1}
+              submitting={submitting}
+              onSubmit={complete}
+              onCancel={onClose}
+            />
+          )
+        })()}
       </div>
     </div>
   )

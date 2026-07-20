@@ -15,6 +15,8 @@ import { usePartnerSections } from '@/hooks/use-partner-sections'
 import { getLogUser } from '@/hooks/use-partner-logs'
 import { useScreens, putScreenValues } from '@/hooks/use-screens'
 import { pickDefaultScreen, resolvePartnerSections } from '@/lib/screen-partner-layout'
+import { reconcileNative } from '@/lib/screen-native-structure'
+import type { Screen } from '@/lib/screen-types'
 import { isDocumentoValido } from '@/lib/doc-validation'
 import { PartnerSectionBody } from './partner-screen-body'
 import {
@@ -54,11 +56,13 @@ interface PartnerNewFormProps {
   embedded?: boolean
   onSaved?:  (result?: PartnerSaveResult) => void
   onCancel?: () => void
+  /** Override: renderiza dirigido por ESTA tela (runtime de workflow). Ausente = padrão. */
+  screen?: Screen
 }
 
 /* ─── componente principal ───────────────────────────────── */
 
-export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: PartnerNewFormProps) {
+export default function PartnerNewForm({ embedded = false, onSaved, onCancel, screen }: PartnerNewFormProps) {
   const router               = useRouter()
   const form                 = usePartnerForm(emptyPartnerForm('PJ_BR'))
   const v                    = form.values
@@ -80,7 +84,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
   /* R2 — a tela padrão (isDefault/ACTIVE) desenha o cadastro: seções, ordem, rótulos e
      campos personalizados capturados nas seções. Sem tela padrão → form nativo (fallback). */
   const { screens, loading: screensLoading } = useScreens('FORNECEDOR')
-  const defaultScreen  = useMemo(() => pickDefaultScreen(screens), [screens])
+  const defaultScreen  = useMemo(() => screen ? reconcileNative(screen) : pickDefaultScreen(screens), [screen, screens])
   const screenDriven   = !!defaultScreen
   const screenSections = useMemo(
     () => defaultScreen ? resolvePartnerSections(defaultScreen, v.category, 'new') : [],

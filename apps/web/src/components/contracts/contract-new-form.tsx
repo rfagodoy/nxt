@@ -9,6 +9,8 @@ import { apiFetch } from '@/lib/http'
 import { getLogUser } from '@/hooks/use-partner-logs'
 import { useScreens, putScreenValues } from '@/hooks/use-screens'
 import { pickDefaultScreen, resolveContractSections } from '@/lib/screen-contract-layout'
+import { reconcileNative } from '@/lib/screen-native-structure'
+import type { Screen } from '@/lib/screen-types'
 import { ContractSectionNative, ContractCustomFields } from './contract-screen-body'
 import { EntitySearchModal } from './entity-search-modal'
 import {
@@ -45,9 +47,12 @@ interface ContractNewFormProps {
   embedded?: boolean
   onSaved?:  (result?: { id?: string }) => void
   onCancel?: () => void
+  /** Override: renderiza o cadastro dirigido por ESTA tela (uso no runtime de workflow).
+   *  Ausente = tela padrão do sistema (comportamento normal do módulo). */
+  screen?: Screen
 }
 
-export default function ContractNewForm({ embedded = false, onSaved, onCancel }: ContractNewFormProps) {
+export default function ContractNewForm({ embedded = false, onSaved, onCancel, screen }: ContractNewFormProps) {
   const form = useContractForm({ ...emptyContractForm(), partes: [newCParte('')] })
   const v = form.values
   const router = useRouter()
@@ -64,7 +69,7 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
   /* R3 — a tela padrão (isDefault/ACTIVE) desenha o cadastro: seções, ordem, rótulos e
      campos personalizados capturados nas seções. Sem tela padrão → form nativo (fallback). */
   const { screens, loading: screensLoading } = useScreens('CONTRATO')
-  const defaultScreen  = useMemo(() => pickDefaultScreen(screens), [screens])
+  const defaultScreen  = useMemo(() => screen ? reconcileNative(screen) : pickDefaultScreen(screens), [screen, screens])
   const screenDriven   = !!defaultScreen
   const screenSections = useMemo(
     () => defaultScreen ? resolveContractSections(defaultScreen, v.natureza, 'new') : [],

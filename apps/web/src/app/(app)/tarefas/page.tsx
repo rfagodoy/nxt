@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { ListChecks, Loader2, Inbox, RefreshCw, ChevronRight, Clock, AlertTriangle, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DynamicForm } from '@/components/modules/dynamic-form'
+import { WorkflowScreenTask } from '@/components/processes/workflow-screen-task'
 import { apiFetch, apiJson } from '@/lib/http'
 import type { StepFormSchema, ProcessFormSchema } from '@nxt/types'
 
@@ -20,12 +21,14 @@ interface Task {
 
 interface InstanceContext {
   instance: { processDefinition: { name: string; formSchema: ProcessFormSchema } }
+  state?: { variables?: Record<string, unknown> }
 }
 
 export default function TarefasPage() {
   const [tasks, setTasks] = useState<Task[] | null>(null)
   const [active, setActive] = useState<Task | null>(null)
   const [step, setStep] = useState<StepFormSchema | null>(null)
+  const [variables, setVariables] = useState<Record<string, unknown>>({})
   const [loadingStep, setLoadingStep] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -49,6 +52,7 @@ export default function TarefasPage() {
       const ctx = await apiJson<InstanceContext>(`/api/instances/${t.instanceId}`)
       const fs = ctx?.instance?.processDefinition?.formSchema
       const found = fs?.steps?.find((s) => s.stepId === t.nodeId)
+      setVariables(ctx?.state?.variables ?? {})
       setStep(found ?? { stepId: t.nodeId, stepName: t.name || t.nodeId, fields: [] })
     } finally {
       setLoadingStep(false)
@@ -177,6 +181,14 @@ export default function TarefasPage() {
                   <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin mr-2" /> Carregando formulário…
                   </div>
+                ) : step.screenRef ? (
+                  <WorkflowScreenTask
+                    key={active.id}
+                    step={step}
+                    variables={variables}
+                    onComplete={complete}
+                    onCancel={() => { setActive(null); setStep(null) }}
+                  />
                 ) : (
                   <DynamicForm
                     key={active.id}

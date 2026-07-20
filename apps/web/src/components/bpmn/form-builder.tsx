@@ -1,44 +1,32 @@
 'use client'
 
-import { useState } from 'react'
-import { Plus, Trash2, GripVertical, ChevronDown, ChevronUp, MousePointerClick, CircleDot, UserSquare, Zap, GitBranch, GitMerge, Square } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import {
+  MousePointerClick, CircleDot, UserSquare, Zap, GitBranch, GitMerge, Square, LayoutTemplate,
+} from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import type { FormField, FieldType, StepFormSchema } from '@nxt/types'
+import type { StepFormSchema } from '@nxt/types'
 import { CONNECTORS } from '@nxt/types'
 import { BpmnElement } from './bpmn-editor'
 import { cn } from '@/lib/utils'
 import { useLookupTable } from '@/hooks/use-lookup-table'
+import { useScreens } from '@/hooks/use-screens'
+import type { ScreenSubject } from '@/lib/screen-types'
 import { PAPEIS_KEY, INIT_PAPEIS, REFERENCIA, ORIGEM, referenciaDoPapelEntry } from '@/lib/contract-roles'
 import { EntitySelect, type EntityKind } from '@/components/ui/entity-select'
-
-const FIELD_TYPES: Array<{ value: FieldType; label: string }> = [
-  { value: 'text', label: 'Texto curto' },
-  { value: 'textarea', label: 'Texto longo' },
-  { value: 'number', label: 'Número' },
-  { value: 'currency', label: 'Valor monetário' },
-  { value: 'date', label: 'Data' },
-  { value: 'select', label: 'Seleção única' },
-  { value: 'multiselect', label: 'Seleção múltipla' },
-  { value: 'email', label: 'E-mail' },
-  { value: 'phone', label: 'Telefone' },
-  { value: 'checkbox', label: 'Caixa de seleção' },
-  { value: 'file', label: 'Arquivo' },
-]
 
 /** Rótulo amigável do tipo de entidade-anfitriã do papel (para textos da UI). */
 const ENTITY_KIND_LABEL: Record<string, string> = {
   EMPRESA: 'empresa do grupo', PARCEIRO: 'parceiro', UNIDADE: 'unidade', CONTRATO: 'contrato',
 }
 const entityKindLabel = (k?: string) => ENTITY_KIND_LABEL[k ?? ''] ?? 'entidade'
+
+/** Entidade que a atividade cria/edita, derivada do assunto da Tela. */
+const SUBJECT_ENTITY: Record<string, string> = { CONTRATO: 'contrato', FORNECEDOR: 'parceiro' }
+const SUBJECT_LABEL: Record<string, string> = { CONTRATO: 'Contrato', FORNECEDOR: 'Parceiro' }
 
 /** Tipos BPMN que o motor executa como serviceTask (ação automática). */
 const SERVICE_TASK_TYPES = ['bpmn:ServiceTask', 'bpmn:ScriptTask', 'bpmn:SendTask', 'bpmn:BusinessRuleTask']
@@ -54,169 +42,6 @@ const ELEMENT_TYPE_LABEL: Record<string, string> = {
   'bpmn:ReceiveTask': 'Receber',
 }
 
-function generateId() {
-  return `field_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
-}
-
-/** Nome da variável derivado do rótulo (chave usada nos dados e nas condições
- *  dos gateways). Ex.: "Valor do contrato" → "valor_do_contrato". */
-function deriveName(label: string) {
-  return label.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
-}
-
-interface FieldRowProps {
-  field: FormField
-  onChange: (updated: FormField) => void
-  onRemove: () => void
-}
-
-function FieldRow({ field, onChange, onRemove }: FieldRowProps) {
-  const [expanded, setExpanded] = useState(false)
-
-  return (
-    <div className="border rounded-md bg-background">
-      <div className="flex items-center gap-2 p-2">
-        <GripVertical className="h-4 w-4 text-muted-foreground shrink-0 cursor-grab" />
-
-        <Input
-          className="h-7 text-sm flex-1"
-          placeholder="Nome do campo"
-          value={field.label}
-          onChange={(e) => {
-            // Só re-deriva o nome se ele ainda era automático (não foi customizado).
-            const wasAuto = field.name === deriveName(field.label)
-            onChange({ ...field, label: e.target.value, name: wasAuto ? deriveName(e.target.value) : field.name })
-          }}
-        />
-
-        <Select
-          value={field.type}
-          onValueChange={(val) => onChange({ ...field, type: val as FieldType })}
-        >
-          <SelectTrigger className="h-7 w-36 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {FIELD_TYPES.map((t) => (
-              <SelectItem key={t.value} value={t.value} className="text-xs">
-                {t.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <button
-          onClick={() => setExpanded((v) => !v)}
-          className="text-muted-foreground hover:text-foreground transition-colors"
-          title="Expandir opções"
-        >
-          {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-        </button>
-
-        <button
-          onClick={onRemove}
-          className="text-muted-foreground hover:text-destructive transition-colors"
-          title="Remover campo"
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
-      </div>
-
-      {expanded && (
-        <div className="px-3 pb-3 pt-1 border-t space-y-3">
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id={`req-${field.id}`}
-              checked={field.required}
-              onChange={(e) => onChange({ ...field, required: e.target.checked })}
-              className="h-4 w-4 rounded border-gray-300"
-            />
-            <label htmlFor={`req-${field.id}`} className="text-xs text-muted-foreground">
-              Campo obrigatório
-            </label>
-          </div>
-
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">
-              Variável <span className="text-muted-foreground/60">(usada nas condições dos gateways)</span>
-            </label>
-            <Input
-              className="h-7 text-xs font-mono"
-              placeholder="ex.: valor"
-              value={field.name}
-              onChange={(e) => onChange({ ...field, name: e.target.value.replace(/[^a-zA-Z0-9_]/g, '') })}
-            />
-          </div>
-
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Placeholder</label>
-            <Input
-              className="h-7 text-xs"
-              placeholder="Texto de exemplo..."
-              value={field.placeholder || ''}
-              onChange={(e) => onChange({ ...field, placeholder: e.target.value })}
-            />
-          </div>
-
-          {(field.type === 'select' || field.type === 'multiselect') && (
-            <OptionsEditor
-              options={field.options || []}
-              onChange={(options) => onChange({ ...field, options })}
-            />
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function OptionsEditor({
-  options,
-  onChange,
-}: {
-  options: Array<{ label: string; value: string }>
-  onChange: (opts: Array<{ label: string; value: string }>) => void
-}) {
-  const addOption = () =>
-    onChange([...options, { label: '', value: `opt_${Date.now()}` }])
-
-  const updateOption = (idx: number, label: string) => {
-    const updated = [...options]
-    updated[idx] = { label, value: label.toLowerCase().replace(/\s+/g, '_') }
-    onChange(updated)
-  }
-
-  const removeOption = (idx: number) => onChange(options.filter((_, i) => i !== idx))
-
-  return (
-    <div>
-      <label className="text-xs text-muted-foreground mb-2 block">Opções</label>
-      <div className="space-y-1">
-        {options.map((opt, idx) => (
-          <div key={idx} className="flex gap-1">
-            <Input
-              className="h-7 text-xs"
-              placeholder={`Opção ${idx + 1}`}
-              value={opt.label}
-              onChange={(e) => updateOption(idx, e.target.value)}
-            />
-            <button
-              onClick={() => removeOption(idx)}
-              className="text-muted-foreground hover:text-destructive"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        ))}
-      </div>
-      <Button variant="ghost" size="sm" className="mt-1 h-6 text-xs" onClick={addOption}>
-        <Plus className="h-3 w-3" /> Adicionar opção
-      </Button>
-    </div>
-  )
-}
-
 interface FormBuilderProps {
   selectedElement: BpmnElement | null
   stepForms: Record<string, StepFormSchema>
@@ -224,13 +49,14 @@ interface FormBuilderProps {
 }
 
 export function FormBuilder({ selectedElement, stepForms, onStepFormsChange }: FormBuilderProps) {
-  // Hook no topo (antes de qualquer early return) — regra dos hooks.
+  // Hooks no topo (antes de qualquer early return) — regra dos hooks.
   const papeis = useLookupTable(PAPEIS_KEY, INIT_PAPEIS)
+  const { screens } = useScreens()
 
   if (!selectedElement) {
     const legend: Array<{ icon: typeof CircleDot; label: string; hint: string; color: string }> = [
       { icon: CircleDot, label: 'Início / Fim', hint: 'onde o processo começa e termina', color: 'text-emerald-600 dark:text-emerald-400' },
-      { icon: UserSquare, label: 'Tarefa do usuário', hint: 'uma pessoa preenche um formulário', color: 'text-sky-600 dark:text-sky-400' },
+      { icon: UserSquare, label: 'Tarefa do usuário', hint: 'uma pessoa preenche uma tela (cria/edita contrato ou parceiro)', color: 'text-sky-600 dark:text-sky-400' },
       { icon: Zap, label: 'Ação automática', hint: 'o sistema executa sozinho (criar contrato, aditivo…)', color: 'text-amber-600 dark:text-amber-400' },
       { icon: GitBranch, label: 'Decisão (ou/ou)', hint: 'segue por um caminho conforme a condição', color: 'text-violet-600 dark:text-violet-400' },
       { icon: GitMerge, label: 'Paralelo (e/e)', hint: 'divide e junta caminhos simultâneos', color: 'text-rose-600 dark:text-rose-400' },
@@ -243,7 +69,7 @@ export function FormBuilder({ selectedElement, stepForms, onStepFormsChange }: F
           </div>
           <p className="text-sm font-semibold">Selecione uma etapa</p>
           <p className="text-xs text-muted-foreground mt-1 leading-snug">
-            Clique numa atividade do diagrama para configurar os campos e ações dela.
+            Clique numa atividade do diagrama para configurar a tela e as ações dela.
           </p>
         </div>
         <div className="rounded-xl border bg-muted/30 p-3">
@@ -277,48 +103,31 @@ export function FormBuilder({ selectedElement, stepForms, onStepFormsChange }: F
     onStepFormsChange({ ...stepForms, [selectedElement.id]: updated })
   }
 
-  const addField = () => {
-    const newField: FormField = {
-      id: generateId(),
-      name: '',
-      label: '',
-      type: 'text',
-      required: false,
-    }
-    updateForm({ ...currentForm, fields: [...currentForm.fields, newField] })
-  }
-
-  const updateField = (idx: number, updated: FormField) => {
-    const fields = [...currentForm.fields]
-    fields[idx] = updated
-    updateForm({ ...currentForm, fields })
-  }
-
-  const removeField = (idx: number) => {
-    updateForm({ ...currentForm, fields: currentForm.fields.filter((_, i) => i !== idx) })
-  }
-
-  // Painel de executor/prazo só faz sentido para atividades (tarefas).
+  // Painel de executor/prazo/tela só faz sentido para atividades (tarefas).
   const isActivity = selectedElement.type.includes('Task')
   const isServiceTask = SERVICE_TASK_TYPES.includes(selectedElement.type)
+  const isUserTask = isActivity && !isServiceTask
   const slaHours = currentForm.slaMinutes ? Math.round((currentForm.slaMinutes / 60) * 10) / 10 : ''
 
   // Manifesto do conector selecionado (entradas a mapear + saídas que produz).
   const manifest = CONNECTORS.find((c) => c.value === currentForm.connector)
 
-  // Variáveis disponíveis para alimentar as entradas do conector: os campos
-  // coletados nas OUTRAS atividades (name → rótulo) + as saídas de conectores de
-  // outras atividades de serviço. A própria serviceTask não coleta campos.
+  // Variáveis disponíveis: campos de OUTRAS atividades + saídas de conectores +
+  // ids de entidade (contratoId/partnerId) que atividades-tela CRIAM.
   const availableVars: Array<{ name: string; label: string }> = []
   {
     const seen = new Set<string>()
+    const add = (name: string, label: string) => { if (name && !seen.has(name)) { seen.add(name); availableVars.push({ name, label }) } }
     for (const [sid, sf] of Object.entries(stepForms)) {
       if (sid === selectedElement.id) continue
-      for (const f of sf.fields ?? []) {
-        if (f.name && !seen.has(f.name)) { seen.add(f.name); availableVars.push({ name: f.name, label: `${f.label || f.name} · ${sf.stepName}` }) }
-      }
+      for (const f of sf.fields ?? []) add(f.name, `${f.label || f.name} · ${sf.stepName}`)
       const m = CONNECTORS.find((c) => c.value === sf.connector)
-      if (m) for (const o of m.outputs) if (!seen.has(o)) { seen.add(o); availableVars.push({ name: o, label: `${o} · saída de ${m.label}` }) }
+      if (m) for (const o of m.outputs) add(o, `${o} · saída de ${m.label}`)
+      // atividade-tela em modo CRIAR expõe o id da entidade criada
+      if (sf.screenRef && sf.entityMode === 'CREATE' && sf.screenSubject) {
+        const idVar = sf.screenSubject === 'CONTRATO' ? 'contratoId' : 'partnerId'
+        add(idVar, `${idVar} · criado em ${sf.stepName}`)
+      }
     }
   }
 
@@ -328,6 +137,28 @@ export function FormBuilder({ selectedElement, stepForms, onStepFormsChange }: F
     else delete next[key]
     updateForm({ ...currentForm, connectorInputs: Object.keys(next).length ? next : undefined })
   }
+
+  // ── Tela do formulário da atividade (cria/edita a entidade real) ──
+  const entityScreens = screens.filter((s) => s.subjectType === 'CONTRATO' || s.subjectType === 'FORNECEDOR')
+  const selectedScreen = currentForm.screenRef ? entityScreens.find((s) => s.id === currentForm.screenRef) : undefined
+  const entityWord = SUBJECT_ENTITY[currentForm.screenSubject ?? ''] ?? 'entidade'
+
+  const pickScreen = (id: string) => {
+    if (!id || id === 'none') {
+      updateForm({ ...currentForm, screenRef: undefined, screenSubject: undefined, entityMode: undefined, entityVar: undefined })
+      return
+    }
+    const sc = entityScreens.find((s) => s.id === id)
+    updateForm({
+      ...currentForm,
+      screenRef: id,
+      screenSubject: sc?.subjectType as ScreenSubject as 'CONTRATO' | 'FORNECEDOR' | undefined,
+      entityMode: currentForm.entityMode ?? 'CREATE',
+      entityVar: currentForm.entityMode === 'EDIT' ? currentForm.entityVar : undefined,
+    })
+  }
+  const setMode = (mode: 'CREATE' | 'EDIT') =>
+    updateForm({ ...currentForm, entityMode: mode, entityVar: mode === 'EDIT' ? currentForm.entityVar : undefined })
 
   // ── Executor por papel de PESSOA + entidade (roteia a tarefa para o responsável) ──
   const papeisPessoa = papeis.active.filter((p) => referenciaDoPapelEntry(p) === REFERENCIA.PESSOA)
@@ -339,11 +170,16 @@ export function FormBuilder({ selectedElement, stepForms, onStepFormsChange }: F
     if (!papelId) { updateForm({ ...currentForm, executor: undefined }); return }
     const p = papeis.entries.find((pp) => pp.id === papelId)
     const entityType = p?.origem ?? 'CONTRATO'
-    // Papel global (ORG) não tem entidade; senão nasce em FIXA (o usuário troca p/ variável).
     updateForm({ ...currentForm, role: undefined, executor: { papelId, entityType, mode: 'FIXA', entityId: undefined, entityVar: undefined } })
   }
   const setExec = (patch: Partial<NonNullable<StepFormSchema['executor']>>) =>
     executor && updateForm({ ...currentForm, executor: { ...executor, ...patch } })
+
+  const subtitle = isUserTask
+    ? (selectedScreen ? `Tela: ${selectedScreen.name}` : 'Sem tela definida')
+    : isServiceTask
+      ? (manifest ? manifest.label : 'Sem ação automática')
+      : ELEMENT_TYPE_LABEL[selectedElement.type] || selectedElement.type
 
   return (
     <div className="flex flex-col h-full">
@@ -356,9 +192,7 @@ export function FormBuilder({ selectedElement, stepForms, onStepFormsChange }: F
         <p className="font-semibold text-sm truncate">
           {selectedElement.name || <span className="text-muted-foreground italic">Sem nome</span>}
         </p>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          {currentForm.fields.length} campo{currentForm.fields.length !== 1 ? 's' : ''} configurado{currentForm.fields.length !== 1 ? 's' : ''}
-        </p>
+        <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
       </div>
 
       {isServiceTask && (
@@ -377,9 +211,7 @@ export function FormBuilder({ selectedElement, stepForms, onStepFormsChange }: F
               <SelectContent>
                 <SelectItem value="none">Nenhuma (só passa)</SelectItem>
                 {CONNECTORS.map((c) => (
-                  <SelectItem key={c.value} value={c.value}>
-                    {c.label}
-                  </SelectItem>
+                  <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -406,9 +238,7 @@ export function FormBuilder({ selectedElement, stepForms, onStepFormsChange }: F
                     <SelectContent>
                       <SelectItem value="none">— pela convenção —</SelectItem>
                       {availableVars.map((v) => (
-                        <SelectItem key={v.name} value={v.name} className="text-xs">
-                          {v.label}
-                        </SelectItem>
+                        <SelectItem key={v.name} value={v.name} className="text-xs">{v.label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -424,7 +254,7 @@ export function FormBuilder({ selectedElement, stepForms, onStepFormsChange }: F
         </div>
       )}
 
-      {isActivity && !isServiceTask && (
+      {isUserTask && (
         <div className="px-4 py-3 border-b shrink-0 space-y-2 bg-muted/20">
           <div>
             <label className="text-xs text-muted-foreground mb-1 block">Executor (papel)</label>
@@ -444,7 +274,6 @@ export function FormBuilder({ selectedElement, stepForms, onStepFormsChange }: F
             )}
           </div>
 
-          {/* Vínculo da entidade: papel de PESSOA precisa saber DE QUAL entidade pegar o responsável */}
           {executor && execOrigem && execOrigem !== ORIGEM.ORG && (
             <div className="rounded-md border bg-background/60 p-2 space-y-1.5">
               <label className="text-[11px] text-muted-foreground block">Responsável de qual {entityKindLabel(execOrigem)}?</label>
@@ -497,29 +326,80 @@ export function FormBuilder({ selectedElement, stepForms, onStepFormsChange }: F
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
-        {currentForm.fields.length === 0 ? (
-          <div className="text-center py-8 text-sm text-muted-foreground">
-            <p>Nenhum campo configurado.</p>
-            <p>Adicione campos para coletar dados nesta etapa.</p>
-          </div>
-        ) : (
-          currentForm.fields.map((field, idx) => (
-            <FieldRow
-              key={field.id}
-              field={field}
-              onChange={(updated) => updateField(idx, updated)}
-              onRemove={() => removeField(idx)}
-            />
-          ))
-        )}
-      </div>
+      {/* Corpo: tela do formulário (tarefa do usuário) */}
+      <div className="flex-1 overflow-y-auto p-4">
+        {isUserTask ? (
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-medium mb-1 flex items-center gap-1.5">
+                <LayoutTemplate className="h-3.5 w-3.5 text-primary" /> Tela do formulário
+              </label>
+              <Select value={currentForm.screenRef || 'none'} onValueChange={pickScreen}>
+                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Selecione uma tela…" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sem tela</SelectItem>
+                  {entityScreens.map((s) => (
+                    <SelectItem key={s.id} value={s.id} className="text-xs">
+                      {SUBJECT_LABEL[s.subjectType] ?? s.subjectType} · {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
+                A atividade mostra o cadastro completo dessa tela; ao concluir, {currentForm.screenRef ? <>cria/edita o <span className="font-medium">{entityWord}</span> de verdade.</> : 'cria/edita a entidade de verdade.'}
+              </p>
+              {entityScreens.length === 0 && (
+                <p className="text-[11px] text-muted-foreground mt-1">Nenhuma tela de Contrato/Parceiro. Crie em Configurações → Telas.</p>
+              )}
+            </div>
 
-      <div className="p-4 border-t shrink-0">
-        <Button variant="outline" size="sm" className="w-full" onClick={addField}>
-          <Plus className="h-4 w-4" />
-          Adicionar campo
-        </Button>
+            {currentForm.screenRef && (
+              <>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Ação da atividade</label>
+                  <div className="flex gap-1 text-xs">
+                    {([['CREATE', `Criar ${entityWord}`], ['EDIT', `Editar ${entityWord}`]] as const).map(([m, lbl]) => (
+                      <button key={m} type="button" onClick={() => setMode(m)}
+                        className={cn('rounded px-2.5 py-1 border transition-colors', (currentForm.entityMode ?? 'CREATE') === m ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted text-muted-foreground')}>
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {currentForm.entityMode === 'EDIT' && (
+                  <div className="rounded-md border bg-background/60 p-2 space-y-1.5">
+                    <label className="text-[11px] text-muted-foreground block">Qual {entityWord} editar? (variável com o id)</label>
+                    <Select value={currentForm.entityVar || 'none'} onValueChange={(v) => updateForm({ ...currentForm, entityVar: v === 'none' ? undefined : v })}>
+                      <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Variável com o id…" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">— escolha a variável —</SelectItem>
+                        {availableVars.map((v) => <SelectItem key={v.name} value={v.name} className="text-xs">{v.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[11px] text-muted-foreground leading-snug">
+                      Em execução, carrega o {entityWord} desse id (ex.: o {entityWord} criado numa atividade anterior).
+                    </p>
+                  </div>
+                )}
+
+                {currentForm.entityMode === 'CREATE' && (
+                  <p className="text-[11px] text-muted-foreground leading-snug">
+                    Cria um {entityWord} novo e disponibiliza <span className="font-mono">{currentForm.screenSubject === 'CONTRATO' ? 'contratoId' : 'partnerId'}</span> para as próximas atividades.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        ) : isServiceTask ? (
+          <p className="text-xs text-muted-foreground text-center py-6">
+            Ação automática — configure o conector acima.
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground text-center py-6">
+            Esta etapa não tem formulário. Decisões usam condições nas setas.
+          </p>
+        )}
       </div>
     </div>
   )

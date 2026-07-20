@@ -58,6 +58,19 @@ export interface StepFormSchema {
     entityId?: string
     entityVar?: string
   }
+
+  /** Tela (Personalização de Telas) que serve de FORMULÁRIO desta atividade. Em vez de
+   *  campos avulsos, o usuário preenche o cadastro completo DIRIGIDO por esta tela e a
+   *  atividade CRIA ou EDITA a entidade real (Contrato/Parceiro). id de uma Screen.
+   *  Mesclado ao grafo na ativação (vira node.formRef). */
+  screenRef?: string
+  /** Assunto da tela escolhida — deriva a entidade que a atividade cria/edita. */
+  screenSubject?: 'CONTRATO' | 'FORNECEDOR'
+  /** A atividade cria uma entidade NOVA ou edita uma EXISTENTE (alvo por variável). */
+  entityMode?: 'CREATE' | 'EDIT'
+  /** No modo EDIT, a variável do processo que carrega o id da entidade a editar
+   *  (ex.: `contratoId`/`partnerId` produzido por uma atividade anterior). */
+  entityVar?: string
 }
 
 // ─── Manifesto dos conectores de domínio (F5) ────────────────────────────────

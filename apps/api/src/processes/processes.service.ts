@@ -75,6 +75,9 @@ export class ProcessesService {
       }
       // Executor por papel+entidade (resolve para usuário(s) responsável(is) em runtime).
       if (step.executor?.papelId) node.executor = step.executor
+      // Tela (Personalização de Telas) que serve de formulário da atividade — o runtime
+      // renderiza o cadastro dirigido por ela e cria/edita a entidade real. (F3e)
+      if (step.screenRef) node.formRef = step.screenRef
     }
 
     const updatedProcess = await this.prisma.processDefinition.update({
