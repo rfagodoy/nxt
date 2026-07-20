@@ -1,9 +1,8 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Plus, GitBranch, Zap, Play, Loader2, RefreshCw, AlertTriangle } from 'lucide-react'
+import { Plus, GitBranch, Zap, Pencil, Trash2, Loader2, RefreshCw, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { apiFetch, apiJson } from '@/lib/http'
@@ -24,7 +23,6 @@ const STATUS: Record<string, { label: string; variant: 'secondary' | 'default' |
 }
 
 export default function ProcessesPage() {
-  const router = useRouter()
   const [rows, setRows] = useState<ProcessRow[] | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [errCount, setErrCount] = useState(0)
@@ -50,6 +48,25 @@ export default function ProcessesPage() {
         const err = await res.json().catch(() => null)
         alert(err?.message || 'Não foi possível ativar o processo.')
         return
+      }
+      await load()
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const remove = async (p: ProcessRow) => {
+    if (!confirm(`Excluir o processo "${p.name}"? Se houver execuções, ele será apenas arquivado (o histórico é preservado).`)) return
+    setBusy(p.id)
+    try {
+      const res = await apiFetch(`/api/processes/${p.id}`, { method: 'DELETE' })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) {
+        alert(body?.message || 'Não foi possível excluir o processo.')
+        return
+      }
+      if (body?.action === 'archived') {
+        alert('Este processo tem histórico de execuções, então foi ARQUIVADO (não excluído) — as instâncias e a auditoria foram preservadas.')
       }
       await load()
     } finally {
@@ -152,12 +169,21 @@ export default function ProcessesPage() {
                           Ativar
                         </Button>
                       )}
-                      {p.status === 'ACTIVE' && (
-                        <Button size="sm" onClick={() => router.push(`/processes/${p.id}?iniciar=1`)}>
-                          <Play className="h-3.5 w-3.5" />
-                          Iniciar
-                        </Button>
-                      )}
+                      <Link
+                        href={`/processes/${p.id}/edit`}
+                        className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs hover:bg-muted transition-colors"
+                        title="Editar o diagrama e os campos"
+                      >
+                        <Pencil className="h-3.5 w-3.5" /> Editar
+                      </Link>
+                      <button
+                        onClick={() => remove(p)}
+                        disabled={busy === p.id}
+                        className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+                        title="Excluir (ou arquivar se houver execuções)"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> Excluir
+                      </button>
                       <Link
                         href={`/processes/${p.id}`}
                         className="inline-flex items-center rounded-md border px-2.5 py-1 text-xs hover:bg-muted transition-colors"

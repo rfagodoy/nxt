@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
+import { StartProcessButton } from '@/components/processes/start-process-button'
 import { useViews, type ViewState } from '@/hooks/use-views'
 import { cacheRead, pushSetting, pullSetting } from '@/lib/settings-store'
 import { exportExcel } from '@/lib/export-excel'
@@ -546,13 +547,16 @@ export default function ParceirosPage() {
             }
           </p>
         </div>
-        <button
-          type="button"
-          onClick={openNewPartner}
-          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-        >
-          <Plus className="h-3.5 w-3.5" />Novo parceiro
-        </button>
+        <div className="flex items-center gap-2">
+          <StartProcessButton />
+          <button
+            type="button"
+            onClick={openNewPartner}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            <Plus className="h-3.5 w-3.5" />Novo parceiro
+          </button>
+        </div>
       </div>
 
       {/* cards */}

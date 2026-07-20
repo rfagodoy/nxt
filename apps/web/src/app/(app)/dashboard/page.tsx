@@ -12,6 +12,7 @@ import { Area, AreaChart, ResponsiveContainer } from 'recharts'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { useWorkspace } from '@/contexts/workspace-context'
+import { StartProcessButton } from '@/components/processes/start-process-button'
 
 /* ─────────────────────────── tipos (espelham o DashboardService) ─────────── */
 interface Summary {
@@ -204,6 +205,7 @@ export default function DashboardPage() {
                 className="inline-flex items-center gap-1.5 rounded-md bg-white/15 px-3 py-1.5 text-xs font-medium text-white ring-1 ring-inset ring-white/25 hover:bg-white/25 transition-colors">
                 <Plus className="h-3.5 w-3.5" />Novo parceiro
               </button>
+              <StartProcessButton variant="hero" />
             </div>
           </div>
         </div>
