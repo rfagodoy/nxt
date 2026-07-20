@@ -107,13 +107,23 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
     const err = new Set<string>()
     /* no modo automático o número é gerado no backend ao salvar (não exigir aqui) */
     if ((!autoNumero && !v.numero.trim()) || !v.titulo.trim()) err.add('dados_gerais')
+    let customMissing = false
     if (status === 'VIGENTE') {
       if (!v.tipo) err.add('dados_gerais')
       if (!v.inicioVigencia) err.add('vigencia')
       if (!v.partes[0]?.nome.trim()) err.add('partes')
+      // campos personalizados obrigatórios da tela, vazios → bloqueia ATIVAR
+      if (screenDriven)
+        for (const s of screenSections)
+          for (const cf of s.customFields)
+            if (cf.required && !(screenValues[cf.id] ?? '').trim()) { err.add(s.key); customMissing = true }
     }
     setErrors(err)
-    if (err.size > 0) { setOpen(prev => new Set([...prev, ...err])); return }
+    if (err.size > 0) {
+      setOpen(prev => new Set([...prev, ...err]))
+      if (customMissing) setSaveError('Preencha os campos obrigatórios destacados.')
+      return
+    }
 
     /* lançamentos: Data/Valor/Forma obrigatórios em cada pagamento/recebimento */
     const lErr = validateLancamentos(v)

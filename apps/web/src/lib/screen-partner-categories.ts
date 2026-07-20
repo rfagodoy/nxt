@@ -63,3 +63,16 @@ export function fieldVisibleFor(f: ScreenField, category: PartnerCategory): bool
   if (f.visible === false) return false
   return !(f.hiddenCategories ?? []).includes(category)
 }
+
+/**
+ * Obrigatoriedade EFETIVA do campo para um tipo. Um campo invisível para o tipo
+ * NUNCA é exigido nele. Quando `requiredCategories` está definido (mesmo vazio),
+ * é a fonte por tipo; ausente/null cai no `required` global (retrocompatível com
+ * campos antigos que só tinham o booleano).
+ */
+export function requiredFor(f: ScreenField, category: PartnerCategory): boolean {
+  if (!fieldVisibleFor(f, category)) return false
+  const rc = f.requiredCategories
+  if (rc != null) return rc.includes(category)
+  return !!f.required
+}

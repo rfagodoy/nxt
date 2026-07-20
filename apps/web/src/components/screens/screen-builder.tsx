@@ -13,7 +13,7 @@ import {
   type Screen, type ScreenField, type ScreenSubject, type ScreenStatus, type PartnerCategory,
 } from '@/lib/screen-types'
 import { buildNativeSeed, reconcileNative } from '@/lib/screen-native-structure'
-import { fieldAppliesTo, fieldVisibleFor } from '@/lib/screen-partner-categories'
+import { fieldAppliesTo, fieldVisibleFor, requiredFor } from '@/lib/screen-partner-categories'
 import { PARTNER_BLOCK_SECTIONS } from '@/lib/screen-partner-layout'
 import { ScreenRenderer } from './screen-renderer'
 import { ScreenFieldEditor } from './screen-field-editor'
@@ -173,7 +173,7 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
     if (!screen.name.trim()) { setErr('Dê um nome à tela'); return }
     setSaving(true); setErr('')
     const sortedSections = sections.map((s, i) => ({ id: s.id, label: s.label, name: s.name, source: s.source ?? 'CUSTOM', nativeKey: s.nativeKey, visible: s.visible !== false, order: i, defaultOpen: s.defaultOpen }))
-    const normFields = sortedSections.flatMap(s => fieldsOf(s.id).map((f, i) => ({ id: f.id, sectionId: s.id, name: f.name, label: f.label, type: f.type, source: f.source, nativeKey: f.nativeKey, mode: f.mode, visible: f.visible !== false, required: f.required, placeholder: f.placeholder, options: f.options, validation: f.validation, hiddenCategories: f.hiddenCategories ?? [], order: i })))
+    const normFields = sortedSections.flatMap(s => fieldsOf(s.id).map((f, i) => ({ id: f.id, sectionId: s.id, name: f.name, label: f.label, type: f.type, source: f.source, nativeKey: f.nativeKey, mode: f.mode, visible: f.visible !== false, required: f.required, placeholder: f.placeholder, options: f.options, validation: f.validation, hiddenCategories: f.hiddenCategories ?? [], requiredCategories: f.requiredCategories ?? undefined, order: i })))
     const saved = await saveScreen(screen.id || null, { name: screen.name.trim(), description: screen.description ?? '', subjectType: screen.subjectType, status: screen.status, isDefault: screen.isDefault ?? false, isSystem: screen.isSystem ?? false, sections: sortedSections, fields: normFields })
     setSaving(false)
     if (!saved) { setErr('Falha ao salvar. Tente novamente.'); return }
@@ -419,7 +419,7 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
                               <div key={f.id} className={cn('group relative flex flex-col gap-1', isFullWidth(f) && 'sm:col-span-2')}>
                                 <label className="text-[10px] font-medium text-muted-foreground flex items-center gap-1.5">
                                   {native ? <Lock className="h-2.5 w-2.5 text-blue-500" /> : <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
-                                  {f.label}{f.required && <span className="text-red-500">*</span>}
+                                  {f.label}{(isPartner ? requiredFor(f, cat) : f.required) && <span className="text-red-500">*</span>}
                                   {!native && <span className="text-[9px] font-normal text-muted-foreground/60 normal-case">· {FIELD_TYPE_LABELS[f.type]}</span>}
                                 </label>
                                 {native ? (
@@ -468,7 +468,7 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
       </div>
 
       {(editingField || addingToSection) && (
-        <ScreenFieldEditor sections={sections} initial={editingField ?? undefined} defaultSectionId={addingToSection ?? undefined}
+        <ScreenFieldEditor sections={sections} subjectType={screen.subjectType} initial={editingField ?? undefined} defaultSectionId={addingToSection ?? undefined}
           onClose={() => { setEditingField(null); setAddingToSection(null) }} onSave={upsertField} />
       )}
     </div>

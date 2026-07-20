@@ -8,7 +8,7 @@
 import { Building2, Briefcase, Phone, MapPin, CreditCard, Users, Clock, Layers, type LucideIcon } from 'lucide-react'
 import type { Screen, ScreenField, PartnerCategory } from './screen-types'
 import { reconcileNative } from './screen-native-structure'
-import { fieldVisibleFor, nativeAppliesTo } from './screen-partner-categories'
+import { fieldVisibleFor, nativeAppliesTo, requiredFor } from './screen-partner-categories'
 
 export type PartnerVisFn = (key: string) => boolean
 
@@ -68,7 +68,8 @@ export function resolvePartnerSections(
     .forEach(f => {
       const k = f.sectionId ?? '__loose__'
       const arr = customBySection.get(k) ?? []
-      arr.push(f)
+      // bakeia a obrigatoriedade EFETIVA para o tipo → downstream (marcador * e enforcement) lê `required`
+      arr.push({ ...f, required: requiredFor(f, category) })
       customBySection.set(k, arr)
     })
 

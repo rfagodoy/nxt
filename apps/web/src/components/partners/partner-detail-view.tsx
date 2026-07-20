@@ -311,6 +311,15 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
       setSaveError('CPF/CNPJ inválido — confira o número digitado.')
       return
     }
+    // campos personalizados obrigatórios (efetivo por tipo) vazios → bloqueia ATIVAR/reativar
+    if (statusOverride === 'ATIVO' && screenDriven) {
+      const missing = screenSections.find(s => s.customFields.some(cf => cf.required && !(screenValues[cf.id] ?? '').trim()))
+      if (missing) {
+        setTab(missing.key)
+        setSaveError('Preencha os campos obrigatórios destacados.')
+        return
+      }
+    }
     setSaving(true)
     setSaveError(null)
     try {
