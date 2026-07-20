@@ -198,7 +198,7 @@ export default function TarefasPage() {
           {COLUMNS.map((col) => {
             const items = byGroup[col.key]
             return (
-              <div key={col.key} className="rounded-2xl border bg-muted/30 p-2.5 flex flex-col gap-2 min-h-[120px]">
+              <div key={col.key} className="rounded-xl border bg-muted/30 p-2.5 flex flex-col gap-2 min-h-[120px]">
                 <div className="flex items-center gap-2 px-1 pt-1 pb-0.5">
                   <span className={cn('h-2 w-2 rounded-full', col.dot)} />
                   <span className="text-sm font-semibold">{col.label}</span>
