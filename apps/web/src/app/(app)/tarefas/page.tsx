@@ -205,11 +205,11 @@ export default function TarefasPage() {
               <div key={col.key} className="rounded-2xl border bg-muted/30 p-2.5 flex flex-col gap-2 min-h-[120px]">
                 <div className="flex items-center gap-2 px-1 pt-1 pb-0.5">
                   <span className={cn('h-2 w-2 rounded-full', col.dot)} />
-                  <span className="text-[12.5px] font-semibold">{col.label}</span>
-                  <span className="ml-auto font-mono text-[11px] text-muted-foreground bg-card border rounded-md px-1.5 tabular-nums">{items.length}</span>
+                  <span className="text-sm font-semibold">{col.label}</span>
+                  <span className="ml-auto text-[11px] text-muted-foreground bg-card border rounded-md px-1.5 py-0.5 tabular-nums">{items.length}</span>
                 </div>
                 {items.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground/70 text-center py-3 font-mono">vazio</p>
+                  <p className="text-[11px] text-muted-foreground/60 text-center py-3">vazio</p>
                 ) : items.map((t) => {
                   const info = dueInfo(t.dueAt)
                   const m = kindMeta(t.instance?.processDefinition?.kind)
@@ -226,11 +226,11 @@ export default function TarefasPage() {
                       <span className={cn('absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-full', col.rail)} />
                       <div className="flex items-center gap-2.5 mb-2">
                         <span className={cn('flex h-8 w-8 items-center justify-center rounded-lg shrink-0', m.cls)}><m.Icon className="h-4 w-4" /></span>
-                        <span className="text-[13px] font-medium leading-tight tracking-tight line-clamp-2">{t.name || t.nodeId}</span>
+                        <span className="text-sm font-medium leading-tight line-clamp-2">{t.name || t.nodeId}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className={cn('font-mono text-[9.5px] font-semibold px-1.5 py-0.5 rounded-md whitespace-nowrap tabular-nums', DUE_CHIP[info.grp])}>{info.label}</span>
-                        <span className="font-mono text-[10px] text-muted-foreground truncate">{t.instance?.processDefinition?.name || 'Processo'}</span>
+                        <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded-md whitespace-nowrap tabular-nums', DUE_CHIP[info.grp])}>{info.label}</span>
+                        <span className="text-[11px] text-muted-foreground truncate">{t.instance?.processDefinition?.name || 'Processo'}</span>
                         <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 ml-auto shrink-0 group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
                       </div>
                     </button>
@@ -250,19 +250,19 @@ export default function TarefasPage() {
             <div className="flex items-start gap-3 px-5 py-4 border-b">
               <span className={cn('flex h-11 w-11 items-center justify-center rounded-xl shrink-0', km.cls)}><km.Icon className="h-5 w-5" /></span>
               <div className="flex-1 min-w-0">
-                <h2 className="text-[16px] font-semibold tracking-tight leading-snug">{active.name || active.nodeId}</h2>
-                <p className="font-mono text-[11px] text-muted-foreground mt-0.5">
+                <h2 className="text-base font-semibold tracking-tight leading-snug">{active.name || active.nodeId}</h2>
+                <p className="text-[11.5px] text-muted-foreground mt-0.5">
                   {km.label} · {active.instance?.processDefinition?.name}{active.role ? ` · ${active.role}` : ''}
                 </p>
               </div>
-              <span className={cn('font-mono text-[10px] font-semibold px-2 py-1 rounded-md whitespace-nowrap', DUE_CHIP[dueInfo(active.dueAt).grp])}>{dueInfo(active.dueAt).label}</span>
+              <span className={cn('text-[10px] font-semibold px-2 py-1 rounded-md whitespace-nowrap', DUE_CHIP[dueInfo(active.dueAt).grp])}>{dueInfo(active.dueAt).label}</span>
               <button onClick={closeDrawer} className="ml-1 h-8 w-8 grid place-items-center rounded-lg bg-muted/60 text-muted-foreground hover:text-foreground shrink-0"><X className="h-4 w-4" /></button>
             </div>
 
             {/* contexto: o que já andou no processo */}
             {timeline.length > 1 && (
               <div className="px-5 py-3 border-b bg-muted/30">
-                <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold mb-2">Onde você está</p>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold mb-2">Onde você está</p>
                 <div className="flex flex-col gap-1.5">
                   {timeline.map((tl) => {
                     const done = tl.status === 'DONE'
@@ -270,10 +270,10 @@ export default function TarefasPage() {
                     return (
                       <div key={tl.id} className="flex items-center gap-2.5">
                         <span className={cn('h-2 w-2 rounded-full shrink-0', done ? 'bg-primary' : cur ? 'bg-primary ring-4 ring-primary/20' : 'bg-muted-foreground/30')} />
-                        <span className={cn('text-[12px]', cur ? 'font-semibold' : done ? 'text-muted-foreground' : 'text-muted-foreground/70')}>{tl.name || 'Etapa'}</span>
-                        {done && tl.completedBy && <span className="font-mono text-[10px] text-muted-foreground/70">· {tl.completedBy}</span>}
-                        {cur && <span className="ml-auto font-mono text-[10px] text-primary font-semibold">sua vez</span>}
-                        {!cur && <span className="ml-auto font-mono text-[10px] text-muted-foreground/60">{TASK_STATUS[tl.status] ?? ''}</span>}
+                        <span className={cn('text-[12.5px]', cur ? 'font-semibold' : done ? 'text-muted-foreground' : 'text-muted-foreground/70')}>{tl.name || 'Etapa'}</span>
+                        {done && tl.completedBy && <span className="text-[11px] text-muted-foreground/70">· {tl.completedBy}</span>}
+                        {cur && <span className="ml-auto text-[10px] uppercase tracking-wide text-primary font-semibold">sua vez</span>}
+                        {!cur && <span className="ml-auto text-[10px] text-muted-foreground/60">{TASK_STATUS[tl.status] ?? ''}</span>}
                       </div>
                     )
                   })}
