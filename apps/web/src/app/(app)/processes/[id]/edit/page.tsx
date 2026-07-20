@@ -13,6 +13,7 @@ interface Proc {
   name: string
   description?: string | null
   bpmnXml: string
+  kind?: string | null
   formSchema: ProcessFormSchema
 }
 
@@ -28,7 +29,7 @@ export default function EditProcessPage() {
       // formSchema.steps (array) → record por stepId, como o designer espera.
       const stepForms: Record<string, StepFormSchema> = {}
       for (const s of p.formSchema?.steps ?? []) stepForms[s.stepId] = s
-      setInitial({ id: p.id, name: p.name, description: p.description, bpmnXml: p.bpmnXml, stepForms })
+      setInitial({ id: p.id, name: p.name, description: p.description, bpmnXml: p.bpmnXml, kind: p.kind, stepForms })
     })()
   }, [id])
 

@@ -13,8 +13,11 @@ interface ProcessRow {
   description?: string | null
   status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED'
   version: number
+  kind?: string | null
   updatedAt: string
 }
+
+const KIND_LABEL: Record<string, string> = { CONTRATO: 'Contrato', ADITIVO: 'Aditivo', PARCEIRO: 'Parceiro' }
 
 const STATUS: Record<string, { label: string; variant: 'secondary' | 'default' | 'outline' }> = {
   DRAFT: { label: 'Rascunho', variant: 'secondary' },
@@ -78,8 +81,8 @@ export default function ProcessesPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-base font-semibold tracking-tight">Processos</h1>
-          <p className="text-[11px] text-muted-foreground">Desenhe fluxos BPMN e execute-os</p>
+          <h1 className="text-base font-semibold tracking-tight">Workflows</h1>
+          <p className="text-[11px] text-muted-foreground">Desenhe e configure os fluxos BPMN</p>
         </div>
         <div className="flex items-center gap-2">
           <Link
@@ -148,6 +151,9 @@ export default function ProcessesPage() {
                     <Link href={`/processes/${p.id}`} className="font-medium hover:underline">
                       {p.name}
                     </Link>
+                    {p.kind && KIND_LABEL[p.kind] && (
+                      <Badge variant="outline" className="ml-2 text-[10px]">{KIND_LABEL[p.kind]}</Badge>
+                    )}
                     {p.description && (
                       <span className="block text-[11px] text-muted-foreground truncate max-w-md">{p.description}</span>
                     )}

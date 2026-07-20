@@ -548,7 +548,7 @@ export default function ParceirosPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <StartProcessButton />
+          <StartProcessButton kinds={['PARCEIRO']} />
           <button
             type="button"
             onClick={openNewPartner}

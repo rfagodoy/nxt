@@ -37,7 +37,7 @@ const sections: NavSection[] = [
   {
     label: 'Configurações',
     items: [
-      { href: '/processes',           label: 'Modelagem de processos', icon: GitBranch },
+      { href: '/processes',           label: 'Workflows',    icon: GitBranch },
       { href: '/settings/telas',      label: 'Telas',        icon: LayoutTemplate },
       { href: '/settings/tabelas',    label: 'Tabelas',      icon: Table2    },
       { href: '/settings/notificacoes', label: 'Notificações', icon: BellRing },

@@ -30,12 +30,20 @@ function BpmnLoading() {
   )
 }
 
+/** Tipos de workflow — determinam onde ele aparece em "Novo processo". */
+export const WORKFLOW_KINDS = [
+  { value: 'CONTRATO', label: 'Contrato' },
+  { value: 'ADITIVO', label: 'Aditivo' },
+  { value: 'PARCEIRO', label: 'Parceiro' },
+] as const
+
 /** Dados iniciais para editar um processo existente. Ausente = criação. */
 export interface ProcessDesignerInitial {
   id: string
   name: string
   description?: string | null
   bpmnXml: string
+  kind?: string | null
   stepForms: Record<string, StepFormSchema>
 }
 
@@ -46,6 +54,7 @@ export function ProcessDesigner({ initial }: { initial?: ProcessDesignerInitial 
 
   const [name, setName] = useState(initial?.name ?? '')
   const [description, setDescription] = useState(initial?.description ?? '')
+  const [kind, setKind] = useState(initial?.kind ?? '')
   const [bpmnXml, setBpmnXml] = useState(initial?.bpmnXml ?? '')
   const [stepForms, setStepForms] = useState<Record<string, StepFormSchema>>(initial?.stepForms ?? {})
   const [selectedElement, setSelectedElement] = useState<BpmnElement | null>(null)
@@ -62,6 +71,7 @@ export function ProcessDesigner({ initial }: { initial?: ProcessDesignerInitial 
       description: description.trim() || undefined,
       bpmnXml: xml,
       formSchema,
+      kind: kind || undefined,
     })
     if (editing) {
       const res = await apiFetch(`/api/processes/${initial!.id}`, { method: 'PATCH', body })
@@ -72,7 +82,7 @@ export function ProcessDesigner({ initial }: { initial?: ProcessDesignerInitial 
     if (!res.ok) throw new Error('Erro ao salvar')
     const data = await res.json()
     return data.id as string
-  }, [editing, initial, name, description, bpmnXml, stepForms])
+  }, [editing, initial, name, description, kind, bpmnXml, stepForms])
 
   const handleSaveDraft = useCallback(async () => {
     if (!name.trim()) {
@@ -180,6 +190,16 @@ export function ProcessDesigner({ initial }: { initial?: ProcessDesignerInitial 
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
+            <Label className="text-xs text-muted-foreground shrink-0">Tipo</Label>
+            <select
+              value={kind}
+              onChange={(e) => setKind(e.target.value)}
+              title="Onde este workflow aparece em Novo processo"
+              className="h-7 rounded-md border border-input bg-background px-2 text-xs shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <option value="">— não especificado</option>
+              {WORKFLOW_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
+            </select>
             <button
               onClick={() => setShowMeta(false)}
               className="text-xs text-muted-foreground hover:text-foreground shrink-0"

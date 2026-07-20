@@ -36,6 +36,7 @@ export class ProcessesService {
         description: dto.description,
         bpmnXml: dto.bpmnXml,
         formSchema: dto.formSchema as never,
+        kind: dto.kind ?? null,
         organizationId,
         status: 'DRAFT',
       },
@@ -124,6 +125,7 @@ export class ProcessesService {
     if (dto.description !== undefined) data.description = dto.description
     if (dto.bpmnXml !== undefined) data.bpmnXml = dto.bpmnXml
     if (dto.formSchema !== undefined) data.formSchema = dto.formSchema as never
+    if (dto.kind !== undefined) data.kind = dto.kind || null
     if (dto.bpmnXml !== undefined || dto.formSchema !== undefined) data.status = 'DRAFT'
     return this.prisma.processDefinition.update({ where: { id }, data: data as never })
   }
