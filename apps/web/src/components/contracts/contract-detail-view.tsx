@@ -185,6 +185,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
 
   const sectionTabs = [
     { id: 'dados_gerais', label: 'Dados Gerais',      icon: FileText },
+    { id: 'partes',       label: 'Partes envolvidas', icon: Users },
     { id: 'vigencia',     label: 'Vigência',          icon: Calendar },
     { id: 'valor',        label: 'Valor e Pagamento', icon: Banknote },
     ...(temPagamentos(v.natureza)   ? [{ id: 'pagamentos',   label: 'Pagamentos',   icon: TrendingDown }] : []),
@@ -192,7 +193,6 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
     { id: 'reajuste',     label: 'Reajuste',          icon: RefreshCw },
     { id: 'aditivos',     label: 'Aditivos',          icon: FilePlus2 },
     { id: 'documentos',   label: 'Documentos',        icon: Paperclip },
-    { id: 'partes',       label: 'Partes envolvidas', icon: Users },
     { id: 'historico',    label: 'Histórico',         icon: Clock },
   ]
   /* abas: a tela padrão manda (ordem/rótulos/quais aparecem); sem tela → abas nativas.

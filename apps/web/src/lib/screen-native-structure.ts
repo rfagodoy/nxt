@@ -32,6 +32,7 @@ const FORN_FIELDS: NativeStructure['fieldsBySection'] = FORN_SECTIONS.reduce((ac
    aparece; não há toggle campo a campo (ver CONTRACT_BLOCK_SECTIONS na layout). */
 const CONTR_SECTIONS: NativeSectionDef[] = [
   { key: 'dados_gerais', label: 'Dados Gerais', defaultOpen: true },
+  { key: 'partes',       label: 'Partes Envolvidas' }, // logo após Dados Gerais (decisão do PO, só no Contrato)
   { key: 'vigencia',     label: 'Vigência' },
   { key: 'valor',        label: 'Valor e Pagamento' },
   { key: 'pagamentos',   label: 'Pagamentos realizados' },
@@ -39,7 +40,6 @@ const CONTR_SECTIONS: NativeSectionDef[] = [
   { key: 'reajuste',     label: 'Reajuste' },
   { key: 'aditivos',     label: 'Aditivos' },
   { key: 'documentos',   label: 'Documentos do contrato' },
-  { key: 'partes',       label: 'Partes Envolvidas' }, // logo antes do Histórico (convenção)
   { key: 'historico',    label: 'Histórico' },
 ]
 const CONTR_FIELDS: NativeStructure['fieldsBySection'] = {

@@ -195,6 +195,12 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
           <IdentificacaoFields form={form} autoNumero={autoNumero} numeroPreview={numeroPreview} />
         </Section>
 
+        <Section icon={Users} title="Partes Envolvidas" isOpen={open.has('partes')} onToggle={() => toggleSection('partes')} hasError={errors.has('partes')}>
+          <PartesFields form={form}
+            onOpenSearch={(parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds })}
+            onNewPartner={() => router.push('/modules/parceiros/new?from=contratos')} />
+        </Section>
+
         <Section icon={Calendar} title="Vigência" isOpen={open.has('vigencia')} onToggle={() => toggleSection('vigencia')} hasError={errors.has('vigencia')}>
           <VigenciaFields form={form} />
         </Section>
@@ -221,12 +227,6 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel }:
 
         <Section icon={Paperclip} title="Documentos do contrato" isOpen={open.has('documentos')} onToggle={() => toggleSection('documentos')}>
           <DocumentosFields form={form} />
-        </Section>
-
-        <Section icon={Users} title="Partes Envolvidas" isOpen={open.has('partes')} onToggle={() => toggleSection('partes')} hasError={errors.has('partes')}>
-          <PartesFields form={form}
-            onOpenSearch={(parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds })}
-            onNewPartner={() => router.push('/modules/parceiros/new?from=contratos')} />
         </Section>
         </>)}
 
