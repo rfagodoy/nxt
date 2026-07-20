@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Plus, GitBranch, Zap, Play, Loader2, RefreshCw } from 'lucide-react'
+import { Plus, GitBranch, Zap, Play, Loader2, RefreshCw, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { apiFetch, apiJson } from '@/lib/http'
@@ -27,10 +27,15 @@ export default function ProcessesPage() {
   const router = useRouter()
   const [rows, setRows] = useState<ProcessRow[] | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [errCount, setErrCount] = useState(0)
 
   const load = useCallback(async () => {
-    const data = await apiJson<ProcessRow[]>('/api/processes')
+    const [data, errs] = await Promise.all([
+      apiJson<ProcessRow[]>('/api/processes'),
+      apiJson<unknown[]>('/api/instances?status=ERROR'),
+    ])
     setRows(data ?? [])
+    setErrCount(errs?.length ?? 0)
   }, [])
 
   useEffect(() => {
@@ -60,6 +65,23 @@ export default function ProcessesPage() {
           <p className="text-[11px] text-muted-foreground">Desenhe fluxos BPMN e execute-os</p>
         </div>
         <div className="flex items-center gap-2">
+          <Link
+            href="/processes/instancias"
+            className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+              errCount > 0
+                ? 'border-red-300 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'
+                : 'hover:bg-muted'
+            }`}
+            title="Painel de instâncias com erro"
+          >
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Instâncias com erro
+            {errCount > 0 && (
+              <span className="ml-0.5 inline-flex items-center justify-center rounded-full bg-red-600 px-1.5 text-[10px] font-semibold text-white min-w-[16px]">
+                {errCount}
+              </span>
+            )}
+          </Link>
           <Button variant="outline" size="sm" onClick={load} title="Recarregar">
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
