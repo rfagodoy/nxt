@@ -5,6 +5,7 @@ import {
   Loader2, RefreshCw, AlertTriangle, X, CheckCircle2, FileText, Users, GitBranch, ChevronRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
 import { DynamicForm } from '@/components/modules/dynamic-form'
 import { WorkflowScreenTask } from '@/components/processes/workflow-screen-task'
 import { apiFetch, apiJson } from '@/lib/http'
@@ -188,10 +189,8 @@ export default function TarefasPage() {
       {tasks === null ? (
         <div className="flex items-center justify-center py-16 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin mr-2" /> Carregando…</div>
       ) : tasks.length === 0 ? (
-        <div className="rounded-xl border bg-card shadow-sm flex flex-col items-center justify-center py-16 text-center">
-          <CheckCircle2 className="h-11 w-11 text-emerald-500/70 mb-3" />
-          <h3 className="text-base font-semibold tracking-tight">Tudo em dia! 🎉</h3>
-          <p className="text-xs text-muted-foreground mt-1">Nenhuma tarefa aguardando você.</p>
+        <div className="rounded-xl border bg-card shadow-sm">
+          <EmptyState icon={CheckCircle2} tone="success" size="lg" title="Tudo em dia! 🎉" description="Nenhuma tarefa aguardando você." />
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 items-start">

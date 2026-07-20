@@ -6,6 +6,7 @@ import {
   AlertTriangle, Loader2, RefreshCw, RotateCw, XCircle, CheckCircle2, ArrowLeft, ChevronRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
 import { apiFetch, apiJson } from '@/lib/http'
 
 interface ErrInstance {
@@ -112,11 +113,7 @@ export default function InstanciasErroPage() {
             <Loader2 className="h-4 w-4 animate-spin mr-2" /> Carregando…
           </div>
         ) : rows.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <CheckCircle2 className="h-10 w-10 text-emerald-500/60 mb-3" />
-            <h3 className="text-sm font-semibold">Nenhuma instância com erro 🎉</h3>
-            <p className="text-xs text-muted-foreground mt-1">Todos os processos em andamento estão saudáveis</p>
-          </div>
+          <EmptyState icon={CheckCircle2} tone="success" title="Nenhuma instância com erro 🎉" description="Todos os processos em andamento estão saudáveis" />
         ) : (
           <table className="w-full text-sm">
             <thead>

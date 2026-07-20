@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Plus, GitBranch, Loader2, X, Play } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiJson } from '@/lib/http'
+import { EmptyState } from '@/components/ui/empty-state'
 
 interface ProcRow {
   id: string
@@ -71,17 +72,13 @@ export function StartProcessButton({ variant = 'outline', className, kinds }: {
                   <Loader2 className="h-4 w-4 animate-spin mr-2" /> Carregando…
                 </div>
               ) : procs.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-10 text-center px-6">
-                  <GitBranch className="h-8 w-8 text-muted-foreground/40 mb-2" />
-                  <p className="text-sm font-medium">Nenhum processo ativo</p>
-                  <p className="text-xs text-muted-foreground mt-1">Crie e ative um processo em Configurações › Processos.</p>
-                  <button
-                    onClick={() => { setOpen(false); router.push('/processes/new') }}
-                    className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-                  >
-                    <Plus className="h-3.5 w-3.5" /> Criar processo
-                  </button>
-                </div>
+                <EmptyState icon={GitBranch} size="sm" title="Nenhum processo ativo" description="Crie e ative um workflow em Configurações › Workflows."
+                  action={
+                    <button onClick={() => { setOpen(false); router.push('/processes/new') }}
+                      className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
+                      <Plus className="h-3.5 w-3.5" /> Criar workflow
+                    </button>
+                  } />
               ) : (
                 <ul className="divide-y">
                   {procs.map((p) => (
