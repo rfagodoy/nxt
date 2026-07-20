@@ -151,6 +151,7 @@ export class ScreensService {
         options:     (f.options ?? null) as never,      // JSON serializado no middleware
         validation:  (f.validation ?? null) as never,   // JSON serializado no middleware
         hiddenCategories: (f.hiddenCategories ?? null) as never, // JSON serializado no middleware
+        requiredCategories: (f.requiredCategories ?? null) as never, // JSON serializado no middleware
         order:       f.order,
       }
       await this.prisma.screenField.upsert({

@@ -501,6 +501,7 @@ model ScreenField {
   options          String? @db.NVarChar(Max) // [JSON] [{ value, label }] (select/multiselect)
   validation       String? @db.NVarChar(Max) // [JSON] { maxLength?, min?, max?, pattern? }
   hiddenCategories String? @db.NVarChar(Max) // [JSON] string[] — tipos de parceiro onde o campo é oculto (visibilidade por tipo; vazio = visível em todos)
+  requiredCategories String? @db.NVarChar(Max) // [JSON] string[] — tipos de parceiro onde o campo é obrigatório (por tipo; ausente = cai no required global)
   order       Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

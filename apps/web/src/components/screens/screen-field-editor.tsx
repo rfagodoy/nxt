@@ -4,29 +4,40 @@ import { useState } from 'react'
 import { Plus, Trash2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
-  CUSTOM_FIELD_TYPES, FIELD_TYPE_LABELS, slug,
+  CUSTOM_FIELD_TYPES, FIELD_TYPE_LABELS, PARTNER_CATEGORIES, slug,
   type ScreenField, type ScreenFieldType, type ScreenFieldOption, type ScreenSection,
+  type ScreenSubject, type PartnerCategory,
 } from '@/lib/screen-types'
+
+const ALL_CATS: PartnerCategory[] = ['PJ_BR', 'PJ_EST', 'PF_BR', 'PF_EST']
 
 const inputCls = 'flex h-7 w-full rounded-md border border-input bg-background px-2.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
 const labelCls = 'text-xs font-medium'
 
 /** Editor de um campo PERSONALIZADO (captura). Campos nativos não passam por aqui —
  *  são pré-carregados e só têm toggle de visibilidade no construtor. */
-export function ScreenFieldEditor({ sections, initial, defaultSectionId, onClose, onSave }: {
+export function ScreenFieldEditor({ sections, subjectType, initial, defaultSectionId, onClose, onSave }: {
   sections: ScreenSection[]
+  subjectType?: ScreenSubject
   initial?: ScreenField
   defaultSectionId?: string
   onClose: () => void
   onSave: (field: ScreenField) => void
 }) {
   const isEdit = !!initial
+  // "Obrigatório por tipo" só existe no Fornecedor (as 4 categorias são dimensão de Parceiro).
+  const perType = subjectType === 'FORNECEDOR'
 
   const [sectionId, setSectionId] = useState(initial?.sectionId ?? defaultSectionId ?? sections[0]?.id ?? '')
   const [type,      setType]      = useState<ScreenFieldType>(initial?.type ?? 'text')
   const [name,      setName]      = useState(initial?.name ?? '')
   const [label,     setLabel]     = useState(initial?.label ?? '')
   const [required,  setRequired]  = useState(initial?.required ?? false)
+  // seed dos tipos onde é obrigatório: usa requiredCategories se definido; senão, retrocompat do required global
+  const [reqCats,   setReqCats]   = useState<PartnerCategory[]>(
+    initial?.requiredCategories ?? (initial?.required ? ALL_CATS : []))
+  const toggleReqCat = (c: PartnerCategory) =>
+    setReqCats(p => p.includes(c) ? p.filter(x => x !== c) : [...p, c])
   const [placeholder, setPlaceholder] = useState(initial?.placeholder ?? '')
   const [maxLength, setMaxLength] = useState(initial?.validation?.maxLength != null ? String(initial.validation.maxLength) : '')
   const [minV,      setMinV]      = useState(initial?.validation?.min != null ? String(initial.validation.min) : '')
@@ -50,7 +61,10 @@ export function ScreenFieldEditor({ sections, initial, defaultSectionId, onClose
     onSave({
       id: initial?.id ?? `sf_${Date.now()}`,
       sectionId, name: nm, label: label.trim(), type, source: 'CUSTOM', mode: 'EDIT', visible: true,
-      required, placeholder: placeholder.trim() || undefined, order: initial?.order ?? 0,
+      // Fornecedor: obrigatório por tipo (reqCats). Demais: booleano global. `required` fica coerente com o efetivo.
+      required: perType ? reqCats.length > 0 : required,
+      requiredCategories: perType ? reqCats : undefined,
+      placeholder: placeholder.trim() || undefined, order: initial?.order ?? 0,
       options: needsOptions ? options.filter(o => o.value && o.label) : undefined,
       validation: {
         ...(needsMaxLen && maxLength ? { maxLength: Number(maxLength) } : {}),
@@ -137,10 +151,30 @@ export function ScreenFieldEditor({ sections, initial, defaultSectionId, onClose
             </div>
           )}
 
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={required} onChange={e => setRequired(e.target.checked)} className="h-3.5 w-3.5 accent-primary" />
-            <span className="text-xs">Preenchimento obrigatório</span>
-          </label>
+          {perType ? (
+            <div className="space-y-1.5">
+              <label className={labelCls}>Preenchimento obrigatório em</label>
+              <div className="flex flex-wrap gap-1.5">
+                {PARTNER_CATEGORIES.map(c => {
+                  const on = reqCats.includes(c.value)
+                  return (
+                    <button key={c.value} type="button" onClick={() => toggleReqCat(c.value)}
+                      className={cn('h-7 rounded-full border px-2.5 text-[11px] font-medium transition-colors',
+                        on ? 'border-primary bg-primary text-primary-foreground'
+                           : 'border-input bg-background text-muted-foreground hover:border-primary/50')}>
+                      {c.short}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-[11px] text-muted-foreground">Nenhum selecionado = nunca obrigatório.</p>
+            </div>
+          ) : (
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={required} onChange={e => setRequired(e.target.checked)} className="h-3.5 w-3.5 accent-primary" />
+              <span className="text-xs">Preenchimento obrigatório</span>
+            </label>
+          )}
 
           {err && <p className="text-[11px] text-red-500">{err}</p>}
         </div>

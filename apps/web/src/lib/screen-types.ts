@@ -35,6 +35,8 @@ export interface ScreenField {
   validation?: ScreenFieldValidation
   /** Tipos de parceiro onde o campo é oculto (visibilidade por tipo). Vazio/ausente = visível em todos. */
   hiddenCategories?: PartnerCategory[]
+  /** Tipos de parceiro onde o campo é obrigatório (por tipo). Ausente = cai no `required` global. */
+  requiredCategories?: PartnerCategory[]
   order: number
 }
 

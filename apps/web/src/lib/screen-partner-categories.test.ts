@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { nativeAppliesTo, fieldAppliesTo, fieldVisibleFor } from './screen-partner-categories'
+import { nativeAppliesTo, fieldAppliesTo, fieldVisibleFor, requiredFor } from './screen-partner-categories'
 import type { ScreenField } from './screen-types'
 
 /** Helper: monta um ScreenField mínimo para os testes. */
@@ -99,5 +99,34 @@ describe('fieldVisibleFor — visibilidade EFETIVA por tipo', () => {
   it('hiddenCategories ausente/vazio = visível onde aplica', () => {
     expect(fieldVisibleFor(field({ nativeKey: 'razao_social', visible: true }), 'PF_EST')).toBe(true)
     expect(fieldVisibleFor(field({ nativeKey: 'razao_social', visible: true, hiddenCategories: [] }), 'PF_EST')).toBe(true)
+  })
+})
+
+describe('requiredFor — obrigatoriedade EFETIVA por tipo', () => {
+  const custom = (over: Partial<ScreenField>) => field({ source: 'CUSTOM', nativeKey: undefined, ...over })
+
+  it('requiredCategories exige APENAS nos tipos listados', () => {
+    const f = custom({ requiredCategories: ['PJ_BR', 'PF_BR'] })
+    expect(requiredFor(f, 'PJ_BR')).toBe(true)
+    expect(requiredFor(f, 'PF_BR')).toBe(true)
+    expect(requiredFor(f, 'PJ_EST')).toBe(false)
+    expect(requiredFor(f, 'PF_EST')).toBe(false)
+  })
+  it('requiredCategories vazio = nunca obrigatório (mesmo com required global true)', () => {
+    const f = custom({ required: true, requiredCategories: [] })
+    for (const c of ['PJ_BR', 'PJ_EST', 'PF_BR', 'PF_EST'] as const) expect(requiredFor(f, c)).toBe(false)
+  })
+  it('retrocompat: sem requiredCategories, cai no required global (todos os tipos)', () => {
+    expect(requiredFor(custom({ required: true }), 'PJ_BR')).toBe(true)
+    expect(requiredFor(custom({ required: true }), 'PF_EST')).toBe(true)
+    expect(requiredFor(custom({ required: false }), 'PJ_BR')).toBe(false)
+  })
+  it('campo oculto no tipo NUNCA é exigido nele', () => {
+    const f = custom({ requiredCategories: ['PJ_BR', 'PJ_EST'], hiddenCategories: ['PJ_EST'] })
+    expect(requiredFor(f, 'PJ_BR')).toBe(true)
+    expect(requiredFor(f, 'PJ_EST')).toBe(false)  // exigido na lista, mas oculto → não obriga
+  })
+  it('campo nativo que não aplica ao tipo não é exigido', () => {
+    expect(requiredFor(field({ nativeKey: 'cnpj', required: true }), 'PF_BR')).toBe(false)
   })
 })

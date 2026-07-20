@@ -233,10 +233,20 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel }: 
     const socErr = isPJ ? validateSociosParticipacao(v.socios) : null
     if (socErr) err.add('socios')
 
+    // campos personalizados obrigatórios (efetivo por tipo) da tela, vazios → bloqueia ATIVAR
+    let customMissing = false
+    if (screenDriven) {
+      for (const s of screenSections)
+        for (const cf of s.customFields)
+          if (cf.required && !(screenValues[cf.id] ?? '').trim()) { err.add(s.key); customMissing = true }
+    }
+
     setErrors(err)
     if (err.size > 0) {
       setOpen(prev => { const n = new Set(prev); err.forEach(k => n.add(k)); return n })
-      setSaveError(socErr ?? (docInvalido ? 'CPF/CNPJ inválido — confira o número digitado.' : null))
+      setSaveError(socErr
+        ?? (docInvalido ? 'CPF/CNPJ inválido — confira o número digitado.'
+        : customMissing ? 'Preencha os campos obrigatórios destacados.' : null))
       return
     }
 

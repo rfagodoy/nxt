@@ -221,6 +221,11 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
       const bizErr = validateContract(v)
       if (bizErr) { setSaveError(bizErr); return }
     }
+    // campos personalizados obrigatórios da tela, vazios → bloqueia ATIVAR
+    if (isActivation && screenDriven) {
+      const missing = screenSections.find(s => s.customFields.some(cf => cf.required && !(screenValues[cf.id] ?? '').trim()))
+      if (missing) { setTab(missing.key); setSaveError('Preencha os campos obrigatórios destacados.'); return }
+    }
     setSaving(true); setSaveError(null)
     const nextSit = statusOverride ?? v.situacao
     const vals = { ...v, situacao: nextSit, ...(aditivosOverride ? { aditivos: aditivosOverride } : {}) }
