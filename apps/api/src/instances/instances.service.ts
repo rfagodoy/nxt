@@ -312,7 +312,7 @@ export class InstancesService {
 
     const tasks = await this.prisma.workflowTask.findMany({
       where: { status, instance: { processDefinition: { organizationId } } },
-      include: { instance: { include: { processDefinition: { select: { name: true } } } } },
+      include: { instance: { include: { processDefinition: { select: { name: true, kind: true } } } } },
       orderBy: { createdAt: 'asc' },
     })
 
