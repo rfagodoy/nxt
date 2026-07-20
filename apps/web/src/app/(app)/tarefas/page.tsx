@@ -154,12 +154,10 @@ export default function TarefasPage() {
         @keyframes drawerIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
         @keyframes scrimIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes cardOut { 30% { transform: translateX(6px); } 100% { transform: translateX(120%); opacity: 0; } }
-        @keyframes popIn { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.08); } 100% { transform: scale(1); opacity: 1; } }
         .drawer-in { animation: drawerIn .28s cubic-bezier(.4,0,.2,1); }
         .scrim-in { animation: scrimIn .2s ease; }
         .card-out { animation: cardOut .42s cubic-bezier(.4,0,.2,1) forwards; pointer-events: none; }
-        .pop-in { animation: popIn .55s cubic-bezier(.2,1.3,.4,1); }
-        @media (prefers-reduced-motion: reduce) { .drawer-in,.scrim-in,.card-out,.pop-in { animation: none !important; } }
+        @media (prefers-reduced-motion: reduce) { .drawer-in,.scrim-in,.card-out { animation: none !important; } }
       `}</style>
 
       {/* header */}
@@ -190,12 +188,10 @@ export default function TarefasPage() {
       {tasks === null ? (
         <div className="flex items-center justify-center py-16 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin mr-2" /> Carregando…</div>
       ) : tasks.length === 0 ? (
-        <div className="rounded-2xl border bg-card shadow-sm py-16 text-center">
-          <div className="pop-in mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-primary to-lime-500 text-white shadow-lg">
-            <CheckCircle2 className="h-8 w-8" />
-          </div>
-          <h3 className="text-lg font-bold tracking-tight">Tudo em dia! 🎉</h3>
-          <p className="text-sm text-muted-foreground mt-1">Nenhuma tarefa aguardando você. Aproveite o respiro. 🌿</p>
+        <div className="rounded-xl border bg-card shadow-sm flex flex-col items-center justify-center py-16 text-center">
+          <CheckCircle2 className="h-11 w-11 text-emerald-500/70 mb-3" />
+          <h3 className="text-base font-semibold tracking-tight">Tudo em dia! 🎉</h3>
+          <p className="text-xs text-muted-foreground mt-1">Nenhuma tarefa aguardando você.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 items-start">
