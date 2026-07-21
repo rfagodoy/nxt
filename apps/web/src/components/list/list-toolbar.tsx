@@ -13,15 +13,16 @@ import type { SavedView } from '@/hooks/use-views'
  *  liga os dados/estado; a UI e o comportamento vivem aqui. */
 export function ListToolbar({
   search, onSearch,
-  columns,
+  columns, operators = OPERATORS,
   filters, onFiltersChange, logic, onLogicChange,
   views, activeViewId, onSelectView, onSaveView, onDeleteView,
   onExport, exportDisabled,
   configSlot,
-  filteredCount, totalCount,
+  filteredCount, totalCount, busy,
 }: {
   search: string; onSearch: (v: string) => void
   columns: { key: string; label: string }[]
+  operators?: { value: string; label: string }[]
   filters: FilterRow[]; onFiltersChange: (f: FilterRow[]) => void
   logic: 'AND' | 'OR'; onLogicChange: (l: 'AND' | 'OR') => void
   views: SavedView[]; activeViewId: string | null
@@ -30,7 +31,7 @@ export function ListToolbar({
   onDeleteView: (e: React.MouseEvent, id: string) => void
   onExport: () => void; exportDisabled?: boolean
   configSlot?: ReactNode
-  filteredCount: number; totalCount: number
+  filteredCount: number; totalCount: number; busy?: boolean
 }) {
   const [showFilters, setShowFilters] = useState(false)
   const [showViews, setShowViews] = useState(false)
@@ -123,7 +124,7 @@ export function ListToolbar({
         </button>
 
         <p className="text-[11px] text-muted-foreground">
-          {filteredCount === totalCount ? <>{totalCount} registro{totalCount !== 1 ? 's' : ''}</> : <>{filteredCount} de {totalCount} registro{totalCount !== 1 ? 's' : ''}</>}
+          {busy ? '…' : filteredCount === totalCount ? <>{totalCount} registro{totalCount !== 1 ? 's' : ''}</> : <>{filteredCount} de {totalCount} registro{totalCount !== 1 ? 's' : ''}</>}
         </p>
       </div>
 
@@ -145,7 +146,7 @@ export function ListToolbar({
                   {columns.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
                 </select>
                 <select value={f.op} onChange={(e) => updateFilter(f.id, 'op', e.target.value)} className="h-7 w-36 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-                  {OPERATORS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  {operators.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
                 <input value={f.value} onChange={(e) => updateFilter(f.id, 'value', e.target.value)} placeholder="Valor..."
                   className="h-7 flex-1 rounded-md border border-input bg-background px-2.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />

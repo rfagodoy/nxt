@@ -1,16 +1,15 @@
 'use client'
 
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
-import {
-  Plus, Search, ArrowUp, ArrowDown, ChevronsUpDown,
-  SlidersHorizontal, X, Check, Bookmark, ChevronDown, LayoutList,
-  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileDown, Settings2,
-} from 'lucide-react'
+import { Plus, ArrowUp, ArrowDown, ChevronsUpDown, Settings2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { StartProcessButton } from '@/components/processes/start-process-button'
 import { useViews, type ViewState } from '@/hooks/use-views'
 import { exportExcel } from '@/lib/export-excel'
+import { ListToolbar } from '@/components/list/list-toolbar'
+import { TablePagination } from '@/components/ui/table-pagination'
+import { CLIENT_OPERATORS, type FilterRow } from '@/lib/list-filter'
 import { SettingsDrawer } from '@/components/contracts/field-drawer'
 import { effectiveSituacao } from '@/lib/contract-options'
 import { cacheRead, pushSetting, pullSetting } from '@/lib/settings-store'
@@ -35,24 +34,9 @@ const COLUMNS = [
   { key: 'situacao',        label: 'Situação'       },
 ]
 
-const OPERATORS = [
-  { value: 'contains',    label: 'Contém'        },
-  { value: 'notContains', label: 'Não contém'    },
-  { value: 'eq',          label: 'Igual a'       },
-  { value: 'neq',         label: 'Diferente de'  },
-  { value: 'startsWith',  label: 'Começa com'    },
-  { value: 'endsWith',    label: 'Termina com'   },
-  { value: 'gt',          label: 'Maior que'     },
-  { value: 'gte',         label: 'Maior ou igual'},
-  { value: 'lt',          label: 'Menor que'     },
-  { value: 'lte',         label: 'Menor ou igual'},
-]
-
-const PAGE_SIZE_OPTIONS = [10, 50, 100, 200, 500]
-const COL_ORDER_KEY     = 'nxt:columns:contratos'
+const COL_ORDER_KEY = 'nxt:columns:contratos'
 
 interface SortState { col: string; dir: 'asc' | 'desc' }
-interface FilterRow { id: string; col: string; op: string; value: string }
 
 
 function fieldValue(r: Row, key: string): string {
@@ -81,19 +65,6 @@ function applyOp(field: string, op: string, val: string): boolean {
 function stateKey(s: ViewState): string {
   return JSON.stringify({ sort: s.sort, filters: s.filters.filter(f => f.value.trim()), logic: s.logic })
 }
-
-function pageWindow(current: number, total: number): (number | '...')[] {
-  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
-  const pages: (number | '...')[] = [1]
-  if (current > 3) pages.push('...')
-  for (let i = Math.max(2, current - 1); i <= Math.min(total - 1, current + 1); i++) pages.push(i)
-  if (current < total - 2) pages.push('...')
-  pages.push(total)
-  return pages
-}
-
-
-
 
 
 /* ══════════════════════════════════════════════════════════════ */
@@ -230,12 +201,8 @@ export default function ContratosPage() {
   const [activeViewId, setActiveViewId] = useState<string | null>(null)
   const [search,       setSearch]       = useState('')
   const [sort,         setSort]         = useState<SortState | null>({ col: 'numero', dir: 'desc' })
-  const [showFilters,  setShowFilters]  = useState(false)
-  const [showViews,    setShowViews]    = useState(false)
   const [logic,        setLogic]        = useState<'AND' | 'OR'>('AND')
   const [filters,      setFilters]      = useState<FilterRow[]>([])
-  const [saving,       setSaving]       = useState(false)
-  const [viewName,     setViewName]     = useState('')
   const [page,         setPage]         = useState(1)
   const [pageSize,     setPageSize]     = useState(10)
   const [showFields,   setShowFields]   = useState(false)
@@ -252,34 +219,19 @@ export default function ContratosPage() {
     return () => window.removeEventListener('nxt:workspace:refresh', h)
   }, [loadContratos])
 
-  const saveInputRef = useRef<HTMLInputElement>(null)
-  const viewsRef     = useRef<HTMLDivElement>(null)
-
-  useEffect(() => { if (saving) saveInputRef.current?.focus() }, [saving])
-  useEffect(() => {
-    if (!showViews) return
-    const h = (e: MouseEvent) => { if (viewsRef.current && !viewsRef.current.contains(e.target as Node)) setShowViews(false) }
-    document.addEventListener('mousedown', h)
-    return () => document.removeEventListener('mousedown', h)
-  }, [showViews])
   useEffect(() => { setPage(1) }, [search, filters, sort, logic, pageSize])
 
   const selectView = (id: string | null) => {
-    setActiveViewId(id); setShowViews(false)
-    if (!id) { setSort({ col: 'numero', dir: 'desc' }); setFilters([]); setLogic('AND'); setShowFilters(false) }
+    setActiveViewId(id)
+    if (!id) { setSort({ col: 'numero', dir: 'desc' }); setFilters([]); setLogic('AND') }
     else { const v = views.find(v => v.id === id); if (!v) return; setSort(v.sort); setFilters(v.filters); setLogic(v.logic) }
   }
 
-  const addFilter    = () => setFilters(p => [...p, { id: `f${Date.now()}`, col: 'numero', op: 'contains', value: '' }])
-  const removeFilter = (id: string) => setFilters(p => p.filter(f => f.id !== id))
-  const updateFilter = (id: string, key: keyof FilterRow, val: string) => setFilters(p => p.map(f => f.id === id ? { ...f, [key]: val } : f))
-  const clearFilters = () => { setFilters([]); setSort(null); setLogic('AND') }
-  const handleSort   = (col: string) => setSort(prev => !prev || prev.col !== col ? { col, dir: 'asc' } : prev.dir === 'asc' ? { col, dir: 'desc' } : null)
+  const handleSort = (col: string) => setSort(prev => !prev || prev.col !== col ? { col, dir: 'asc' } : prev.dir === 'asc' ? { col, dir: 'desc' } : null)
 
-  const handleSaveView = () => {
-    if (!viewName.trim()) return
-    const v = saveView(viewName.trim(), { sort, filters: filters.filter(f => f.value.trim()), logic })
-    setActiveViewId(v.id); setSaving(false); setViewName('')
+  const handleSaveView = (name: string) => {
+    const v = saveView(name, { sort, filters: filters.filter(f => f.value.trim()), logic })
+    setActiveViewId(v.id)
   }
   const handleDeleteView = (e: React.MouseEvent, id: string) => {
     e.stopPropagation(); deleteView(id); if (activeViewId === id) selectView(null)
@@ -332,10 +284,7 @@ export default function ContratosPage() {
   const totalPages         = Math.max(1, Math.ceil(totalFiltered / pageSize))
   const safePage           = Math.min(page, totalPages)
   const pageRows           = filteredRows.slice((safePage - 1) * pageSize, safePage * pageSize)
-  const firstItem          = totalFiltered === 0 ? 0 : (safePage - 1) * pageSize + 1
-  const lastItem           = Math.min(safePage * pageSize, totalFiltered)
   const totalAll           = allContratos.length
-  const activeFiltersCount = filters.filter(f => f.value.trim()).length
   const activeViewName     = activeViewId ? (views.find(v => v.id === activeViewId)?.name ?? 'Todos') : 'Todos'
 
   function renderCell(row: Row, key: string, colIdx: number) {
@@ -395,10 +344,6 @@ export default function ContratosPage() {
     return sort.dir === 'asc' ? <ArrowUp className="h-3 w-3 ml-1 text-primary" /> : <ArrowDown className="h-3 w-3 ml-1 text-primary" />
   }
 
-  function SelFilter({ value, onChange, children, className }: { value: string; onChange: (v: string) => void; children: React.ReactNode; className?: string }) {
-    return <select value={value} onChange={e => onChange(e.target.value)} className={cn('h-7 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring', className)}>{children}</select>
-  }
-
   return (
     <>
     <div className="space-y-3">
@@ -441,113 +386,22 @@ export default function ContratosPage() {
       </div>
 
       {/* toolbar */}
-      <div className="space-y-2">
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <input value={search} onChange={e => setSearch(e.target.value)}
-              className="flex h-7 w-full rounded-md border border-input bg-background pl-7 pr-3 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              placeholder="Buscar em todas as colunas..." />
-          </div>
-
-          <button onClick={() => { setShowFilters(v => !v); setShowViews(false); if (!filters.length) addFilter() }}
-            className={cn('inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium transition-colors',
-              showFilters || activeFiltersCount > 0 ? 'border-primary bg-primary/5 text-primary' : 'hover:bg-muted text-muted-foreground hover:text-foreground')}>
-            <SlidersHorizontal className="h-3.5 w-3.5" />Filtros
-            {activeFiltersCount > 0 && <span className="inline-flex items-center justify-center h-3.5 w-3.5 rounded-full bg-primary text-[9px] font-bold text-primary-foreground">{activeFiltersCount}</span>}
-          </button>
-
-          <div ref={viewsRef} className="relative">
-            <button onClick={() => { setShowViews(v => !v); setShowFilters(false) }}
-              className={cn('inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium transition-colors',
-                activeViewId ? 'border-primary bg-primary/5 text-primary' : 'hover:bg-muted text-muted-foreground hover:text-foreground')}>
-              <LayoutList className="h-3.5 w-3.5" />{activeViewId ? activeViewName : 'Visões'}
-              <ChevronDown className={cn('h-3 w-3 transition-transform', showViews && 'rotate-180')} />
-            </button>
-            {showViews && (
-              <div className="absolute left-0 top-full mt-1.5 z-50 w-56 rounded-lg border bg-card shadow-lg py-1">
-                <button onClick={() => selectView(null)} className={cn('flex w-full items-center gap-3 px-3 py-2 text-xs transition-colors', !activeViewId ? 'text-primary font-medium' : 'text-foreground hover:bg-muted')}>
-                  <Check className={cn('h-3.5 w-3.5 shrink-0', !activeViewId ? 'opacity-100' : 'opacity-0')} /><span>Todos</span>
-                </button>
-                {views.length > 0 && <div className="my-1 h-px bg-border" />}
-                {views.map(v => (
-                  <div key={v.id} className="group/item flex items-center">
-                    <button onClick={() => selectView(v.id)} className={cn('flex flex-1 min-w-0 items-center gap-3 px-3 py-2 text-xs transition-colors', activeViewId === v.id ? 'text-primary font-medium' : 'text-foreground hover:bg-muted')}>
-                      <Check className={cn('h-3.5 w-3.5 shrink-0', activeViewId === v.id ? 'opacity-100' : 'opacity-0')} /><span className="truncate">{v.name}</span>
-                    </button>
-                    <button onClick={e => handleDeleteView(e, v.id)} className="mr-2 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 group-hover/item:opacity-100 hover:text-destructive transition-all"><X className="h-3 w-3" /></button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {saving ? (
-            <div className="flex items-center gap-1">
-              <input ref={saveInputRef} value={viewName} onChange={e => setViewName(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') handleSaveView(); if (e.key === 'Escape') { setSaving(false); setViewName('') } }}
-                placeholder="Nome da visão..."
-                className="h-7 w-40 rounded-md border border-input bg-background px-2.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
-              <button onClick={handleSaveView} disabled={!viewName.trim()} className="inline-flex items-center justify-center h-7 w-7 rounded-md bg-primary text-primary-foreground disabled:opacity-40 hover:bg-primary/90 transition-colors"><Check className="h-3.5 w-3.5" /></button>
-              <button onClick={() => { setSaving(false); setViewName('') }} className="inline-flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"><X className="h-3.5 w-3.5" /></button>
-            </div>
-          ) : (
-            <button onClick={() => { setSaving(true); setShowViews(false) }}
-              className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-dashed border-muted-foreground/40 text-xs text-muted-foreground hover:text-foreground hover:border-muted-foreground transition-colors">
-              <Bookmark className="h-3.5 w-3.5" />Salvar visão
-            </button>
-          )}
-
+      <ListToolbar
+        search={search} onSearch={setSearch}
+        columns={orderedColumns} operators={CLIENT_OPERATORS}
+        filters={filters} onFiltersChange={setFilters}
+        logic={logic} onLogicChange={setLogic}
+        views={views} activeViewId={activeViewId}
+        onSelectView={selectView} onSaveView={handleSaveView} onDeleteView={handleDeleteView}
+        onExport={() => { void handleExport() }} exportDisabled={totalFiltered === 0}
+        configSlot={
           <button onClick={() => setShowFields(true)}
-            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors ml-auto">
+            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
             <Settings2 className="h-3.5 w-3.5" />Configurações
           </button>
-
-          <button onClick={() => { void handleExport() }} disabled={totalFiltered === 0}
-            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-            <FileDown className="h-3.5 w-3.5" />Exportar
-          </button>
-
-          <p className="text-[11px] text-muted-foreground">
-            {totalFiltered === totalAll ? <>{totalAll} registro{totalAll !== 1 ? 's' : ''}</> : <>{totalFiltered} de {totalAll} registro{totalAll !== 1 ? 's' : ''}</>}
-          </p>
-        </div>
-
-        {showFilters && (
-          <div className="rounded-lg border bg-card p-3 space-y-2.5">
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-muted-foreground font-medium">Combinar condições com:</span>
-              <div className="flex rounded-md border overflow-hidden">
-                {(['AND', 'OR'] as const).map(l => (
-                  <button key={l} onClick={() => setLogic(l)} className={cn('px-3 py-1 text-xs font-semibold transition-colors', logic === l ? 'bg-primary text-primary-foreground' : 'hover:bg-muted text-muted-foreground')}>
-                    {l === 'AND' ? 'E' : 'OU'}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              {filters.map((f, idx) => (
-                <div key={f.id} className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground w-6 text-right shrink-0">{idx === 0 ? 'Se' : logic === 'AND' ? 'E' : 'OU'}</span>
-                  <SelFilter value={f.col} onChange={v => updateFilter(f.id, 'col', v)} className="w-36">
-                    {orderedColumns.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
-                  </SelFilter>
-                  <SelFilter value={f.op} onChange={v => updateFilter(f.id, 'op', v)} className="w-36">
-                    {OPERATORS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </SelFilter>
-                  <input value={f.value} onChange={e => updateFilter(f.id, 'value', e.target.value)} placeholder="Valor..."
-                    className="h-7 flex-1 rounded-md border border-input bg-background px-2.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
-                  <button onClick={() => removeFilter(f.id)} className="text-muted-foreground hover:text-destructive transition-colors"><X className="h-3.5 w-3.5" /></button>
-                </div>
-              ))}
-            </div>
-            <div className="flex items-center justify-between">
-              <button onClick={addFilter} className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar condição</button>
-              {activeFiltersCount > 0 && <button onClick={clearFilters} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Limpar filtros</button>}
-            </div>
-          </div>
-        )}
-      </div>
+        }
+        filteredCount={totalFiltered} totalCount={totalAll}
+      />
 
       {/* tabela */}
       <div className="rounded-xl border bg-card shadow-sm">
@@ -588,26 +442,7 @@ export default function ContratosPage() {
         </table>
         </div>
 
-        <div className="flex items-center justify-between border-t px-3 py-2 bg-muted/20">
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-muted-foreground">Linhas por página:</span>
-            <select value={pageSize} onChange={e => setPageSize(Number(e.target.value))}
-              className="h-6 rounded border border-input bg-background px-1.5 text-[11px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-              {PAGE_SIZE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <span className="text-[11px] text-muted-foreground">{totalFiltered === 0 ? '0' : `${firstItem}–${lastItem}`} de {totalFiltered}</span>
-          </div>
-          <div className="flex items-center gap-0.5">
-            <button onClick={() => setPage(1)} disabled={safePage === 1} className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"><ChevronsLeft className="h-3.5 w-3.5" /></button>
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={safePage === 1} className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"><ChevronLeft className="h-3.5 w-3.5" /></button>
-            {pageWindow(safePage, totalPages).map((p, i) =>
-              p === '...' ? <span key={`e${i}`} className="flex h-6 w-6 items-center justify-center text-[11px] text-muted-foreground">…</span>
-              : <button key={p} onClick={() => setPage(p)} className={cn('flex h-6 w-6 items-center justify-center rounded text-[11px] font-medium transition-colors', safePage === p ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>{p}</button>
-            )}
-            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={safePage === totalPages} className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"><ChevronRight className="h-3.5 w-3.5" /></button>
-            <button onClick={() => setPage(totalPages)} disabled={safePage === totalPages} className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"><ChevronsRight className="h-3.5 w-3.5" /></button>
-          </div>
-        </div>
+        <TablePagination page={page} pageSize={pageSize} total={totalFiltered} onPage={setPage} onPageSize={setPageSize} />
       </div>
     </div>
 
