@@ -1,11 +1,11 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Plus, GitBranch, Zap, Play, Loader2, RefreshCw } from 'lucide-react'
+import { Plus, GitBranch, Zap, Pencil, Trash2, Loader2, RefreshCw, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { EmptyState } from '@/components/ui/empty-state'
 import { apiFetch, apiJson } from '@/lib/http'
 
 interface ProcessRow {
@@ -14,8 +14,11 @@ interface ProcessRow {
   description?: string | null
   status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED'
   version: number
+  kind?: string | null
   updatedAt: string
 }
+
+const KIND_LABEL: Record<string, string> = { CONTRATO: 'Contrato', ADITIVO: 'Aditivo', PARCEIRO: 'Parceiro' }
 
 const STATUS: Record<string, { label: string; variant: 'secondary' | 'default' | 'outline' }> = {
   DRAFT: { label: 'Rascunho', variant: 'secondary' },
@@ -24,13 +27,17 @@ const STATUS: Record<string, { label: string; variant: 'secondary' | 'default' |
 }
 
 export default function ProcessesPage() {
-  const router = useRouter()
   const [rows, setRows] = useState<ProcessRow[] | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [errCount, setErrCount] = useState(0)
 
   const load = useCallback(async () => {
-    const data = await apiJson<ProcessRow[]>('/api/processes')
+    const [data, errs] = await Promise.all([
+      apiJson<ProcessRow[]>('/api/processes'),
+      apiJson<unknown[]>('/api/instances?status=ERROR'),
+    ])
     setRows(data ?? [])
+    setErrCount(errs?.length ?? 0)
   }, [])
 
   useEffect(() => {
@@ -52,14 +59,50 @@ export default function ProcessesPage() {
     }
   }
 
+  const remove = async (p: ProcessRow) => {
+    if (!confirm(`Excluir o processo "${p.name}"? Se houver execuções, ele será apenas arquivado (o histórico é preservado).`)) return
+    setBusy(p.id)
+    try {
+      const res = await apiFetch(`/api/processes/${p.id}`, { method: 'DELETE' })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) {
+        alert(body?.message || 'Não foi possível excluir o processo.')
+        return
+      }
+      if (body?.action === 'archived') {
+        alert('Este processo tem histórico de execuções, então foi ARQUIVADO (não excluído) — as instâncias e a auditoria foram preservadas.')
+      }
+      await load()
+    } finally {
+      setBusy(null)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-base font-semibold tracking-tight">Processos</h1>
-          <p className="text-[11px] text-muted-foreground">Desenhe fluxos BPMN e execute-os</p>
+          <h1 className="text-base font-semibold tracking-tight">Workflows</h1>
+          <p className="text-[11px] text-muted-foreground">Desenhe e configure os fluxos BPMN</p>
         </div>
         <div className="flex items-center gap-2">
+          <Link
+            href="/processes/instancias"
+            className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+              errCount > 0
+                ? 'border-red-300 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'
+                : 'hover:bg-muted'
+            }`}
+            title="Painel de instâncias com erro"
+          >
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Instâncias com erro
+            {errCount > 0 && (
+              <span className="ml-0.5 inline-flex items-center justify-center rounded-full bg-red-600 px-1.5 text-[10px] font-semibold text-white min-w-[16px]">
+                {errCount}
+              </span>
+            )}
+          </Link>
           <Button variant="outline" size="sm" onClick={load} title="Recarregar">
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
@@ -79,18 +122,12 @@ export default function ProcessesPage() {
             <Loader2 className="h-4 w-4 animate-spin mr-2" /> Carregando…
           </div>
         ) : rows.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <GitBranch className="h-10 w-10 text-muted-foreground/40 mb-3" />
-            <h3 className="text-sm font-semibold">Nenhum processo criado</h3>
-            <p className="text-xs text-muted-foreground mt-1">Crie seu primeiro processo BPMN para começar</p>
-            <Link
-              href="/processes/new"
-              className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Criar processo
-            </Link>
-          </div>
+          <EmptyState icon={GitBranch} title="Nenhum workflow criado" description="Crie seu primeiro fluxo BPMN para começar"
+            action={
+              <Link href="/processes/new" className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
+                <Plus className="h-3.5 w-3.5" />Criar workflow
+              </Link>
+            } />
         ) : (
           <table className="w-full text-sm">
             <thead>
@@ -109,6 +146,9 @@ export default function ProcessesPage() {
                     <Link href={`/processes/${p.id}`} className="font-medium hover:underline">
                       {p.name}
                     </Link>
+                    {p.kind && KIND_LABEL[p.kind] && (
+                      <Badge variant="outline" className="ml-2 text-[10px]">{KIND_LABEL[p.kind]}</Badge>
+                    )}
                     {p.description && (
                       <span className="block text-[11px] text-muted-foreground truncate max-w-md">{p.description}</span>
                     )}
@@ -130,12 +170,21 @@ export default function ProcessesPage() {
                           Ativar
                         </Button>
                       )}
-                      {p.status === 'ACTIVE' && (
-                        <Button size="sm" onClick={() => router.push(`/processes/${p.id}?iniciar=1`)}>
-                          <Play className="h-3.5 w-3.5" />
-                          Iniciar
-                        </Button>
-                      )}
+                      <Link
+                        href={`/processes/${p.id}/edit`}
+                        className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs hover:bg-muted transition-colors"
+                        title="Editar o diagrama e os campos"
+                      >
+                        <Pencil className="h-3.5 w-3.5" /> Editar
+                      </Link>
+                      <button
+                        onClick={() => remove(p)}
+                        disabled={busy === p.id}
+                        className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+                        title="Excluir (ou arquivar se houver execuções)"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> Excluir
+                      </button>
                       <Link
                         href={`/processes/${p.id}`}
                         className="inline-flex items-center rounded-md border px-2.5 py-1 text-xs hover:bg-muted transition-colors"

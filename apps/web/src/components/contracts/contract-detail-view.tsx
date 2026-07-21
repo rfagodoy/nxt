@@ -8,6 +8,8 @@ import { apiFetch } from '@/lib/http'
 import { CONTRACTS_CHANGED_EVENT } from '@/lib/contract-events'
 import { useScreens, getScreenValues, putScreenValues } from '@/hooks/use-screens'
 import { pickDefaultScreen, resolveContractSections } from '@/lib/screen-contract-layout'
+import { reconcileNative } from '@/lib/screen-native-structure'
+import type { Screen } from '@/lib/screen-types'
 import { ContractSectionNative, ContractCustomFields } from '@/components/contracts/contract-screen-body'
 import { useContractForm, IdentificacaoFields, VigenciaFields, ValoresFields, ReajustesFields, PartesFields, DocumentosFields, LancamentosFields, AditivosFields } from '@/components/contracts/contract-fields'
 import { emptyContractForm, contractFromApi, contractToPayload, effectiveSituacao, normalizeSituacao, temPagamentos, temRecebimentos, terminoVigente, validateContract, validateLancamentos, TIPOS_KEY, INIT_TIPOS, type CAditivo } from '@/lib/contract-options'
@@ -69,7 +71,7 @@ export function DSection({ active, children }: { active: boolean; children: Reac
 }
 
 /* ══════════════════════════════════════════════════════════════ */
-export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { row: Row; onClose: () => void; onSaved?: () => void; onDirtyChange?: (dirty: boolean) => void }) {
+export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, screen }: { row: Row; onClose: () => void; onSaved?: () => void; onDirtyChange?: (dirty: boolean) => void; screen?: Screen }) {
   const form = useContractForm({
     ...emptyContractForm(),
     numero: row.numero, titulo: row.titulo, tipo: row.tipo, situacao: normalizeSituacao(row.situacao),
@@ -107,7 +109,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
   /* R3 — a tela padrão (isDefault/ACTIVE) dirige as abas/seções e captura campos
      personalizados persistidos (via /api/screen-values). Sem tela → abas nativas (fallback). */
   const { screens } = useScreens('CONTRATO')
-  const defaultScreen  = useMemo(() => pickDefaultScreen(screens), [screens])
+  const defaultScreen  = useMemo(() => screen ? reconcileNative(screen) : pickDefaultScreen(screens), [screen, screens])
   const screenDriven   = !!defaultScreen
   const screenSections = useMemo(
     () => defaultScreen ? resolveContractSections(defaultScreen, v.natureza, 'detail') : [],
@@ -185,6 +187,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
 
   const sectionTabs = [
     { id: 'dados_gerais', label: 'Dados Gerais',      icon: FileText },
+    { id: 'partes',       label: 'Partes envolvidas', icon: Users },
     { id: 'vigencia',     label: 'Vigência',          icon: Calendar },
     { id: 'valor',        label: 'Valor e Pagamento', icon: Banknote },
     ...(temPagamentos(v.natureza)   ? [{ id: 'pagamentos',   label: 'Pagamentos',   icon: TrendingDown }] : []),
@@ -192,7 +195,6 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange }: { r
     { id: 'reajuste',     label: 'Reajuste',          icon: RefreshCw },
     { id: 'aditivos',     label: 'Aditivos',          icon: FilePlus2 },
     { id: 'documentos',   label: 'Documentos',        icon: Paperclip },
-    { id: 'partes',       label: 'Partes envolvidas', icon: Users },
     { id: 'historico',    label: 'Histórico',         icon: Clock },
   ]
   /* abas: a tela padrão manda (ordem/rótulos/quais aparecem); sem tela → abas nativas.

@@ -10,6 +10,8 @@ import { getLogUser } from '@/hooks/use-partner-logs'
 import { SaveStatus } from '@/components/save-status'
 import { useScreens, getScreenValues, putScreenValues } from '@/hooks/use-screens'
 import { pickDefaultScreen, resolvePartnerSections } from '@/lib/screen-partner-layout'
+import { reconcileNative } from '@/lib/screen-native-structure'
+import type { Screen } from '@/lib/screen-types'
 import { isDocumentoValido } from '@/lib/doc-validation'
 import { PartnerSectionBody } from './partner-screen-body'
 import {
@@ -134,11 +136,13 @@ function DSection({ active, children }: { active: boolean; children: React.React
   return <div className="rounded-xl border bg-card p-4 space-y-3 shadow-sm">{children}</div>
 }
 
-export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: {
+export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, screen }: {
   partner: PartnerAPI
   onClose: () => void
   onSaved: () => void
   onDirtyChange?: (dirty: boolean) => void
+  /** Override: renderiza dirigido por ESTA tela (runtime de workflow). Ausente = padrão. */
+  screen?: Screen
 }) {
   const formRef = useRef<HTMLFormElement>(null)
   const partnerForm = usePartnerForm({
@@ -190,7 +194,7 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange }: 
 
   /* R2 — a tela padrão (isDefault/ACTIVE) desenha o cadastro; valores custom ligados ao Save. */
   const { screens: allScreens } = useScreens('FORNECEDOR')
-  const defaultScreen = useMemo(() => pickDefaultScreen(allScreens), [allScreens])
+  const defaultScreen = useMemo(() => screen ? reconcileNative(screen) : pickDefaultScreen(allScreens), [screen, allScreens])
   const screenDriven  = !!defaultScreen
   useEffect(() => {
     let alive = true

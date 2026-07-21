@@ -1,7 +1,8 @@
-import { Controller, Get, Post, Patch, Param, Body, UseGuards } from '@nestjs/common'
+import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards } from '@nestjs/common'
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger'
 import { ProcessesService } from './processes.service'
 import { CreateProcessDto } from './dto/create-process.dto'
+import { UpdateProcessDto } from './dto/update-process.dto'
 import { CurrentOrg } from '../auth/current-org.decorator'
 import { Roles } from '../auth/roles.decorator'
 import { RolesGuard } from '../auth/roles.guard'
@@ -38,5 +39,21 @@ export class ProcessesController {
   @ApiOperation({ summary: 'Ativa processo e gera módulo dinâmico — admin' })
   activate(@Param('id') id: string, @CurrentOrg() organizationId: string) {
     return this.processesService.activate(id, organizationId)
+  }
+
+  @Patch(':id')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Edita um processo (diagrama/campos volta a Rascunho) — admin' })
+  update(@Param('id') id: string, @Body() dto: UpdateProcessDto, @CurrentOrg() organizationId: string) {
+    return this.processesService.update(id, organizationId, dto)
+  }
+
+  @Delete(':id')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Exclui um processo sem histórico, ou arquiva se houver instâncias — admin' })
+  remove(@Param('id') id: string, @CurrentOrg() organizationId: string) {
+    return this.processesService.remove(id, organizationId)
   }
 }

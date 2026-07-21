@@ -215,6 +215,68 @@ export class InstancesService {
   }
 
   // ── Consultas ────────────────────────────────────────────────────────────────
+  /** Lista instâncias da org para MONITORAMENTO (visão gerencial — admin). Filtra por
+   *  status quando informado (ex.: ERROR, para o painel de instâncias com erro). Deriva
+   *  a causa do erro (`__connectorError`/`__engineError`) e a etapa automática parada. */
+  async listInstances(organizationId: string, opts: { status?: string } = {}) {
+    const where: Record<string, unknown> = { processDefinition: { organizationId } }
+    if (opts.status) where.status = opts.status
+
+    const instances = await this.prisma.processInstance.findMany({
+      where,
+      include: {
+        processDefinition: { select: { name: true } },
+        tasks: { orderBy: { createdAt: 'asc' } },
+      },
+      orderBy: { updatedAt: 'desc' },
+    })
+
+    const now = Date.now()
+    const ms = (d: Date | string | null | undefined) => (d ? new Date(d).getTime() : null)
+    return instances.map((inst) => {
+      const state = inst.state as unknown as WfState | null
+      const graph = inst.graphSnapshot as unknown as WfGraph | null
+      const vars = state?.variables ?? {}
+      const error = (vars.__connectorError ?? vars.__engineError) as string | undefined
+      // Etapa parada = token de serviceTask (o conector automático que falhou).
+      const stuck = state?.tokens?.map((t) => graph?.nodes?.[t.nodeId]).find((n) => n?.type === 'serviceTask')
+
+      const tasks = inst.tasks ?? []
+      const pending = tasks.filter((t) => t.status === 'PENDING')
+      const done = tasks.filter((t) => t.status === 'DONE')
+      const current = pending[0] // etapa atual (1ª pendente)
+      const currentDueMs = ms(current?.dueAt)
+      const currentOverdue = currentDueMs != null && currentDueMs < now
+      // pontualidade: nenhuma concluída fora do prazo e nenhuma pendente vencida
+      const anyLate = done.some((t) => t.dueAt && t.completedAt && ms(t.completedAt)! > ms(t.dueAt)!)
+      const hasSla = tasks.some((t) => t.dueAt)
+      const startMs = ms(inst.startedAt)
+      const endMs = ms(inst.completedAt)
+
+      return {
+        id: inst.id,
+        processName: inst.processDefinition?.name ?? 'Processo',
+        version: inst.definitionVersion,
+        status: inst.status,
+        error: error ?? null,
+        stepName: stuck?.name ?? stuck?.id ?? null,
+        startedBy: inst.startedBy ?? null,
+        startedAt: inst.startedAt,
+        completedAt: inst.completedAt ?? null,
+        updatedAt: inst.updatedAt,
+        // acompanhamento
+        currentStep: current?.name ?? current?.nodeId ?? null,
+        currentDueAt: current?.dueAt ?? null,
+        currentOverdue,
+        totalSteps: tasks.length,
+        doneSteps: done.length,
+        hasSla,
+        onTime: !anyLate && !currentOverdue,
+        durationMs: startMs != null && endMs != null ? endMs - startMs : null,
+      }
+    })
+  }
+
   async getInstanceWithContext(instanceId: string, organizationId: string) {
     const instance = await this.prisma.processInstance.findFirst({
       where: { id: instanceId, processDefinition: { organizationId } },
@@ -250,7 +312,7 @@ export class InstancesService {
 
     const tasks = await this.prisma.workflowTask.findMany({
       where: { status, instance: { processDefinition: { organizationId } } },
-      include: { instance: { include: { processDefinition: { select: { name: true } } } } },
+      include: { instance: { include: { processDefinition: { select: { name: true, kind: true } } } } },
       orderBy: { createdAt: 'asc' },
     })
 

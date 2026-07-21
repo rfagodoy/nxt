@@ -107,6 +107,7 @@ model ProcessDefinition {
   compiledGraph  String?  @db.NVarChar(Max) // [JSON] grafo normalizado (WfGraph) compilado do BPMN na ativação
   version        Int      @default(1) // versão da definição (incrementa a cada recompilação/ativação)
   status         String   @default("DRAFT") // DRAFT | ACTIVE | ARCHIVED
+  kind           String?  // CONTRATO | ADITIVO | PARCEIRO — filtra onde o workflow aparece em "Novo processo" (Contratos/Parceiros/Dashboard)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

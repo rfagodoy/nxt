@@ -30,18 +30,59 @@ function BpmnLoading() {
   )
 }
 
-export function ProcessDesigner() {
+/** Tipos de workflow — determinam onde ele aparece em "Novo processo". */
+export const WORKFLOW_KINDS = [
+  { value: 'CONTRATO', label: 'Contrato' },
+  { value: 'ADITIVO', label: 'Aditivo' },
+  { value: 'PARCEIRO', label: 'Parceiro' },
+] as const
+
+/** Dados iniciais para editar um processo existente. Ausente = criação. */
+export interface ProcessDesignerInitial {
+  id: string
+  name: string
+  description?: string | null
+  bpmnXml: string
+  kind?: string | null
+  stepForms: Record<string, StepFormSchema>
+}
+
+export function ProcessDesigner({ initial }: { initial?: ProcessDesignerInitial } = {}) {
   const router = useRouter()
   const editorRef = useRef<BpmnEditorRef>(null)
+  const editing = !!initial?.id
 
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [bpmnXml, setBpmnXml] = useState('')
-  const [stepForms, setStepForms] = useState<Record<string, StepFormSchema>>({})
+  const [name, setName] = useState(initial?.name ?? '')
+  const [description, setDescription] = useState(initial?.description ?? '')
+  const [kind, setKind] = useState(initial?.kind ?? '')
+  const [bpmnXml, setBpmnXml] = useState(initial?.bpmnXml ?? '')
+  const [stepForms, setStepForms] = useState<Record<string, StepFormSchema>>(initial?.stepForms ?? {})
   const [selectedElement, setSelectedElement] = useState<BpmnElement | null>(null)
   const [saving, setSaving] = useState(false)
   const [activating, setActivating] = useState(false)
   const [showMeta, setShowMeta] = useState(true)
+
+  // POST (criação) ou PATCH (edição). Devolve o id do processo salvo.
+  const persist = useCallback(async (): Promise<string> => {
+    const xml = await editorRef.current?.getXml() || bpmnXml
+    const formSchema: ProcessFormSchema = { steps: Object.values(stepForms) }
+    const body = JSON.stringify({
+      name: name.trim(),
+      description: description.trim() || undefined,
+      bpmnXml: xml,
+      formSchema,
+      kind: kind || undefined,
+    })
+    if (editing) {
+      const res = await apiFetch(`/api/processes/${initial!.id}`, { method: 'PATCH', body })
+      if (!res.ok) throw new Error('Erro ao salvar')
+      return initial!.id
+    }
+    const res = await apiFetch(`/api/processes`, { method: 'POST', body })
+    if (!res.ok) throw new Error('Erro ao salvar')
+    const data = await res.json()
+    return data.id as string
+  }, [editing, initial, name, description, kind, bpmnXml, stepForms])
 
   const handleSaveDraft = useCallback(async () => {
     if (!name.trim()) {
@@ -50,29 +91,15 @@ export function ProcessDesigner() {
     }
     setSaving(true)
     try {
-      const xml = await editorRef.current?.getXml() || bpmnXml
-      const formSchema: ProcessFormSchema = { steps: Object.values(stepForms) }
-
-      const res = await apiFetch(`/api/processes`, {
-        method: 'POST',
-        body: JSON.stringify({
-          name: name.trim(),
-          description: description.trim() || undefined,
-          bpmnXml: xml,
-          formSchema,
-        }),
-      })
-
-      if (!res.ok) throw new Error('Erro ao salvar')
-      const data = await res.json()
-      router.push(`/processes/${data.id}`)
+      const id = await persist()
+      router.push(`/processes/${id}`)
     } catch (err) {
       alert('Não foi possível salvar o processo.')
       console.error(err)
     } finally {
       setSaving(false)
     }
-  }, [name, description, bpmnXml, stepForms, router])
+  }, [name, persist, router])
 
   const handleActivate = useCallback(async () => {
     if (!name.trim()) {
@@ -81,41 +108,25 @@ export function ProcessDesigner() {
     }
     setActivating(true)
     try {
-      const xml = await editorRef.current?.getXml() || bpmnXml
-      const formSchema: ProcessFormSchema = { steps: Object.values(stepForms) }
-
-      // Cria rascunho e já ativa — o backend COMPILA o BPMN aqui (o motor executa
-      // o diagrama de verdade). Se o desenho for inválido, mostramos a causa.
-      const createRes = await apiFetch(`/api/processes`, {
-        method: 'POST',
-        body: JSON.stringify({
-          name: name.trim(),
-          description: description.trim() || undefined,
-          bpmnXml: xml,
-          formSchema,
-        }),
-      })
-
-      if (!createRes.ok) throw new Error('Erro ao criar processo')
-      const created = await createRes.json()
-
-      const activateRes = await apiFetch(`/api/processes/${created.id}/activate`, { method: 'PATCH' })
-
+      // Salva (cria ou edita) e ativa — o backend COMPILA o BPMN aqui (o motor
+      // executa o diagrama de verdade). Se o desenho for inválido, mostramos a causa.
+      const id = await persist()
+      const activateRes = await apiFetch(`/api/processes/${id}/activate`, { method: 'PATCH' })
       if (!activateRes.ok) {
         const e = await activateRes.json().catch(() => null)
-        // O processo foi criado como rascunho; leva ao detalhe para corrigir/reativar.
+        // Salvo como rascunho; leva ao detalhe para corrigir/reativar.
         alert(e?.message || 'Não foi possível ativar o processo.')
-        router.push(`/processes/${created.id}`)
+        router.push(`/processes/${id}`)
         return
       }
-      router.push(`/processes/${created.id}`)
+      router.push(`/processes/${id}`)
     } catch (err) {
       alert('Não foi possível ativar o processo.')
       console.error(err)
     } finally {
       setActivating(false)
     }
-  }, [name, description, bpmnXml, stepForms, router])
+  }, [name, persist, router])
 
   const configuredStepsCount = Object.values(stepForms).filter((s) => s.fields.length > 0).length
   const totalFields = Object.values(stepForms).reduce((acc, s) => acc + s.fields.length, 0)
@@ -179,6 +190,16 @@ export function ProcessDesigner() {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
+            <Label className="text-xs text-muted-foreground shrink-0">Tipo</Label>
+            <select
+              value={kind}
+              onChange={(e) => setKind(e.target.value)}
+              title="Onde este workflow aparece em Novo processo"
+              className="h-7 rounded-md border border-input bg-background px-2 text-xs shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <option value="">— não especificado</option>
+              {WORKFLOW_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
+            </select>
             <button
               onClick={() => setShowMeta(false)}
               className="text-xs text-muted-foreground hover:text-foreground shrink-0"
@@ -195,7 +216,7 @@ export function ProcessDesigner() {
         <div className="flex-1 overflow-hidden">
           <BpmnEditor
             ref={editorRef}
-            initialXml={undefined}
+            initialXml={initial?.bpmnXml}
             onElementSelect={setSelectedElement}
             onXmlChange={setBpmnXml}
           />

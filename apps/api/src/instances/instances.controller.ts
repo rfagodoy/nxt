@@ -20,6 +20,15 @@ export class InstancesController {
     return this.instancesService.start(dto, organizationId, actor)
   }
 
+  // Monitoramento (visão gerencial) — admin. Filtra por status (ex.: ?status=ERROR).
+  @Get()
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Lista instâncias da org para monitoramento (filtra por status) — admin' })
+  list(@CurrentOrg() organizationId: string, @Query('status') status?: string) {
+    return this.instancesService.listInstances(organizationId, { status })
+  }
+
   // Rota estática ANTES da param `:id` para não colidir com ela.
   @Get('tasks')
   @ApiOperation({ summary: 'Caixa de tarefas: minhas tarefas (padrão) ou todas (mine=false)' })

@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Zap, Play, Loader2, GitBranch, User, Cog, Circle, Diamond } from 'lucide-react'
+import { ArrowLeft, Zap, Play, Pencil, Loader2, GitBranch, User, Cog, Circle, Diamond } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { apiFetch, apiJson } from '@/lib/http'
@@ -113,6 +113,14 @@ export default function ProcessDetailPage() {
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
               Ativar
             </Button>
+          )}
+          {!running && (
+            <Link
+              href={`/processes/${id}/edit`}
+              className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs hover:bg-muted transition-colors"
+            >
+              <Pencil className="h-3.5 w-3.5" /> Editar
+            </Link>
           )}
           {proc.status === 'ACTIVE' && !running && (
             <Button size="sm" onClick={() => setRunning(true)}>

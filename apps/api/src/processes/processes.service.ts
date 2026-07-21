@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma.service'
 import { ModuleGeneratorService } from '../modules/module-generator.service'
 import { CreateProcessDto } from './dto/create-process.dto'
+import { UpdateProcessDto } from './dto/update-process.dto'
 import { ProcessFormSchema } from '@nxt/types'
 import { compileBpmn, CompileError, type WfGraph } from '@nxt/workflow-core'
 
@@ -35,6 +36,7 @@ export class ProcessesService {
         description: dto.description,
         bpmnXml: dto.bpmnXml,
         formSchema: dto.formSchema as never,
+        kind: dto.kind ?? null,
         organizationId,
         status: 'DRAFT',
       },
@@ -74,6 +76,9 @@ export class ProcessesService {
       }
       // Executor por papel+entidade (resolve para usuário(s) responsável(is) em runtime).
       if (step.executor?.papelId) node.executor = step.executor
+      // Tela (Personalização de Telas) que serve de formulário da atividade — o runtime
+      // renderiza o cadastro dirigido por ela e cria/edita a entidade real. (F3e)
+      if (step.screenRef) node.formRef = step.screenRef
     }
 
     const updatedProcess = await this.prisma.processDefinition.update({
@@ -110,11 +115,36 @@ export class ProcessesService {
     return updatedProcess
   }
 
-  async updateBpmn(id: string, organizationId: string, bpmnXml: string, formSchema: ProcessFormSchema) {
+  /** Edição do processo (designer). Alterar diagrama/campos invalida o grafo
+   *  compilado → volta a DRAFT até reativar (recompila). Instâncias em andamento
+   *  seguem no `graphSnapshot`, imunes. Renomear só (sem diagrama) mantém o status. */
+  async update(id: string, organizationId: string, dto: UpdateProcessDto) {
     await this.findOne(id, organizationId)
-    return this.prisma.processDefinition.update({
-      where: { id },
-      data: { bpmnXml, formSchema: formSchema as never },
+    const data: Record<string, unknown> = {}
+    if (dto.name !== undefined) data.name = dto.name
+    if (dto.description !== undefined) data.description = dto.description
+    if (dto.bpmnXml !== undefined) data.bpmnXml = dto.bpmnXml
+    if (dto.formSchema !== undefined) data.formSchema = dto.formSchema as never
+    if (dto.kind !== undefined) data.kind = dto.kind || null
+    if (dto.bpmnXml !== undefined || dto.formSchema !== undefined) data.status = 'DRAFT'
+    return this.prisma.processDefinition.update({ where: { id }, data: data as never })
+  }
+
+  /** Remove um processo. Sem instâncias → exclusão limpa (apaga o módulo gerado).
+   *  Com histórico de execuções → ARQUIVA (preserva instâncias/auditoria), não apaga. */
+  async remove(id: string, organizationId: string) {
+    await this.findOne(id, organizationId)
+    const instances = await this.prisma.processInstance.count({ where: { processDefinitionId: id } })
+    if (instances > 0) {
+      await this.prisma.processDefinition.update({ where: { id }, data: { status: 'ARCHIVED' } })
+      return { action: 'archived' as const, instances }
+    }
+    // Sem instâncias → 0 registros no módulo (ModuleRecord exige instância). Remove o
+    // módulo (gerado na ativação) e a definição atomicamente.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.module.deleteMany({ where: { processDefinitionId: id } })
+      await tx.processDefinition.delete({ where: { id } })
     })
+    return { action: 'deleted' as const }
   }
 }
