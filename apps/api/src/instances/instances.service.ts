@@ -243,6 +243,7 @@ export class InstancesService {
       orderBy: { updatedAt: 'desc' },
     })
 
+    const cal = await this.calendar.get(organizationId)
     const now = Date.now()
     const ms = (d: Date | string | null | undefined) => (d ? new Date(d).getTime() : null)
     return instances.map((inst) => {
@@ -265,6 +266,22 @@ export class InstancesService {
       const startMs = ms(inst.startedAt)
       const endMs = ms(inst.completedAt)
 
+      // SLA DE PROCESSO (derivado): soma dos SLAs das atividades (userTask) do grafo
+      // congelado, aplicada em dias/horas ÚTEIS a partir do início. Ramificação exclusiva
+      // super-estima (soma todos os ramos → prazo mais folgado); documentado como escolha.
+      let slaDays = 0, slaHours = 0
+      for (const n of Object.values(graph?.nodes ?? {})) {
+        if (n?.type === 'userTask') { slaDays += n.slaBusinessDays ?? 0; slaHours += n.slaBusinessHours ?? 0 }
+      }
+      const hasProcessSla = slaDays > 0 || slaHours > 0
+      const processDueAt = hasProcessSla && startMs != null ? this.calendar.computeDue(new Date(startMs), slaDays, slaHours, cal) : null
+      const processDueMs = ms(processDueAt)
+      const processOverdue = processDueMs != null && inst.status === 'RUNNING' && processDueMs < now
+      const processOnTime = !hasProcessSla ? null
+        : inst.status === 'COMPLETED' ? (endMs == null || processDueMs == null || endMs <= processDueMs)
+        : inst.status === 'RUNNING' ? !processOverdue
+        : null
+
       return {
         id: inst.id,
         processName: inst.processDefinition?.name ?? 'Processo',
@@ -285,6 +302,10 @@ export class InstancesService {
         hasSla,
         onTime: !anyLate && !currentOverdue,
         durationMs: startMs != null && endMs != null ? endMs - startMs : null,
+        // SLA de processo (derivado da soma das atividades)
+        processDueAt,
+        processOverdue,
+        processOnTime,
       }
     })
   }
