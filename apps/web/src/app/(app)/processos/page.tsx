@@ -22,6 +22,7 @@ interface Inst {
   startedAt: string; completedAt: string | null; updatedAt: string
   currentStep: string | null; currentDueAt: string | null; currentOverdue: boolean
   totalSteps: number; doneSteps: number; hasSla: boolean; onTime: boolean; durationMs: number | null
+  processDueAt: string | null; processOverdue: boolean; processOnTime: boolean | null
 }
 interface TaskRow {
   id: string; nodeId: string; name?: string | null; role?: string | null; assignee?: string | null
@@ -48,7 +49,7 @@ function humanDuration(ms: number | null): string {
   const d = Math.floor(h / 24), rh = h % 24
   return rh ? `${d}d ${rh}h` : `${d}d`
 }
-function pontualidadeLabel(i: Inst): string { return !i.hasSla ? 'sem prazo' : i.onTime ? 'no prazo' : 'atrasado' }
+function pontualidadeLabel(i: Inst): string { return i.processOnTime == null ? 'sem prazo' : i.processOnTime ? 'no prazo' : 'atrasado' }
 function taskPunctuality(t: TaskRow): { label: string; cls: string } {
   const now = Date.now()
   if (!t.dueAt) return { label: 'sem prazo', cls: 'text-muted-foreground' }
@@ -94,8 +95,8 @@ const COLS: Col[] = [
   },
   {
     key: 'pontualidade', label: 'Pontualidade', text: pontualidadeLabel,
-    node: (i) => !i.hasSla ? <span className="text-muted-foreground">sem prazo</span>
-      : i.onTime ? <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="h-3 w-3" />no prazo</span>
+    node: (i) => i.processOnTime == null ? <span className="text-muted-foreground">sem prazo</span>
+      : i.processOnTime ? <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="h-3 w-3" />no prazo</span>
       : <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400"><AlertTriangle className="h-3 w-3" />atrasado</span>,
   },
 ]
@@ -141,13 +142,21 @@ export default function ProcessosPage() {
 
   const visibleCols = useMemo(() => COLS.filter((c) => !hidden.has(c.key)), [hidden])
   const all = useMemo(() => rows ?? [], [rows])
-  const stats = useMemo(() => ({
-    total: all.length,
-    running: all.filter((i) => i.status === 'RUNNING').length,
-    completed: all.filter((i) => i.status === 'COMPLETED').length,
-    error: all.filter((i) => i.status === 'ERROR').length,
-    overdue: all.filter((i) => i.status === 'RUNNING' && i.currentOverdue).length,
-  }), [all])
+  const stats = useMemo(() => {
+    const completed = all.filter((i) => i.status === 'COMPLETED')
+    const durs = completed.map((i) => i.durationMs).filter((d): d is number => d != null)
+    const withSla = completed.filter((i) => i.processOnTime != null)
+    const onTime = withSla.filter((i) => i.processOnTime === true).length
+    return {
+      total: all.length,
+      running: all.filter((i) => i.status === 'RUNNING').length,
+      completed: completed.length,
+      error: all.filter((i) => i.status === 'ERROR').length,
+      overdue: all.filter((i) => i.processOverdue).length,
+      avgMs: durs.length ? durs.reduce((a, b) => a + b, 0) / durs.length : null,
+      onTimePct: withSla.length ? Math.round((onTime / withSla.length) * 100) : null,
+    }
+  }, [all])
 
   const filtered = useMemo(() => {
     const q = norm(search)
@@ -240,6 +249,24 @@ export default function ProcessosPage() {
         ))}
       </div>
 
+      {/* Métricas agregadas (Fase 2): tempo médio + pontualidade por PROCESSO
+          (prazo derivado da soma dos SLAs das atividades). */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        {[
+          { label: 'Tempo médio de execução', value: humanDuration(stats.avgMs), hint: 'média dos concluídos', cls: 'text-foreground' },
+          { label: 'Pontualidade', value: stats.onTimePct == null ? '—' : `${stats.onTimePct}%`, hint: 'concluídos no prazo do processo', cls: stats.onTimePct == null ? 'text-muted-foreground' : stats.onTimePct >= 80 ? 'text-emerald-600 dark:text-emerald-400' : stats.onTimePct >= 50 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400' },
+          { label: 'Em atraso agora', value: stats.overdue, hint: 'em andamento além do prazo', cls: stats.overdue > 0 ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground' },
+        ].map(({ label, value, hint, cls }) => (
+          <div key={label} className="rounded-xl border bg-card px-3 py-2.5 shadow-sm">
+            <div className="flex items-baseline justify-between gap-2">
+              <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
+              <p className={cn('text-lg font-bold tabular-nums leading-none', cls)}>{value}</p>
+            </div>
+            <p className="text-[10px] text-muted-foreground/70 mt-1">{hint}</p>
+          </div>
+        ))}
+      </div>
+
       <ListToolbar
         search={search} onSearch={setSearch}
         columns={COLS.map((c) => ({ key: c.key, label: c.label }))}
@@ -304,6 +331,12 @@ export default function ProcessosPage() {
               <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium', (STATUS[detail.status] ?? STATUS.RUNNING).cls)}>{STATUS[detail.status]?.label}</span>
               {detail.status === 'COMPLETED' && <span className="text-muted-foreground">Concluído em {fmt(detail.completedAt)} · durou {humanDuration(detail.durationMs)}</span>}
               {detail.status === 'ERROR' && detail.error && <span className="text-red-600 dark:text-red-400 truncate">{detail.error}</span>}
+              {detail.processOnTime != null && (
+                <span className={cn('inline-flex items-center gap-1', detail.processOnTime ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400')}>
+                  {detail.processOnTime ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                  {detail.processOnTime ? 'no prazo do processo' : 'fora do prazo'}{detail.processDueAt ? ` · prazo ${fmt(detail.processDueAt)}` : ''}
+                </span>
+              )}
             </div>
             <div className="flex-1 overflow-y-auto p-4">
               <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Linha do tempo das atividades</p>
