@@ -32,7 +32,7 @@ export function nodeSize(node: FlowNode, _outDeg: number, _inDeg: number): { w: 
       return { w: 60, h: 60 }
     case 'userTask':
     case 'serviceTask':
-      return { w: 190, h: 108 }
+      return { w: 190, h: 122 }
     case 'exclusiveGateway':
     case 'parallelGateway': {
       // com rótulo = pílula (decisão/paralelo); sem rótulo = losango pequeno (junção)
