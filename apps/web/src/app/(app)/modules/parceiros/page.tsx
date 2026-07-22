@@ -236,7 +236,7 @@ export default function ParceirosPage() {
   const [logic,        setLogic]        = useState<'AND' | 'OR'>('AND')
   const [filters,      setFilters]      = useState<FilterRow[]>([])
   const [page,         setPage]         = useState(1)
-  const [pageSize,     setPageSize]     = useState(10)
+  const [pageSize,     setPageSize]     = useState(25)
   const [showFields,   setShowFields]   = useState(false)
 
   /* ── query server-side ── */
@@ -461,7 +461,7 @@ export default function ParceirosPage() {
 
   return (
     <>
-    <div className="space-y-3">
+    <div className="flex h-full flex-col gap-3">
 
       {/* cabeçalho */}
       <div className="flex items-center justify-between">
@@ -527,8 +527,8 @@ export default function ParceirosPage() {
       />
 
       {/* tabela */}
-      <div className="rounded-xl border bg-card shadow-sm">
-        <div className="overflow-auto max-h-[calc(100vh-19rem)]">
+      <div className="rounded-xl border bg-card shadow-sm flex-1 min-h-0 flex flex-col">
+        <div className="overflow-auto flex-1 min-h-0">
         <table className="min-w-full text-xs">
           <thead className="sticky top-0 z-20">
             <tr className="border-b">

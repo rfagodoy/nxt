@@ -6,11 +6,11 @@ import {
   PlayCircle, Ban, X, User, GitBranch, Settings2, ChevronsUpDown, ArrowUp, ArrowDown,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { StartProcessButton } from '@/components/processes/start-process-button'
 import { cn } from '@/lib/utils'
 import { apiJson } from '@/lib/http'
 import { useViews } from '@/hooks/use-views'
 import { exportExcel } from '@/lib/export-excel'
-import { EmptyState } from '@/components/ui/empty-state'
 import { TablePagination } from '@/components/ui/table-pagination'
 import { ListToolbar } from '@/components/list/list-toolbar'
 import { type FilterRow, matchOp, norm } from '@/lib/list-filter'
@@ -113,7 +113,7 @@ export default function ProcessosPage() {
   const [logic, setLogic] = useState<'AND' | 'OR'>('AND')
   const [activeViewId, setActiveViewId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(10)
+  const [pageSize, setPageSize] = useState(25)
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   const [showConfig, setShowConfig] = useState(false)
   const configRef = useRef<HTMLDivElement>(null)
@@ -198,7 +198,7 @@ export default function ProcessosPage() {
         <Settings2 className="h-3.5 w-3.5" />Configurações
       </button>
       {showConfig && (
-        <div className="absolute right-0 top-full mt-1.5 z-50 w-56 rounded-lg border bg-card shadow-lg p-1.5">
+        <div className="glass absolute right-0 top-full mt-1.5 z-50 w-56 rounded-xl p-1.5">
           <p className="px-2 py-1.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Colunas visíveis</p>
           {COLS.map((c) => (
             <label key={c.key} className="flex items-center gap-2.5 px-2 py-1.5 rounded-md hover:bg-muted cursor-pointer">
@@ -213,13 +213,16 @@ export default function ProcessosPage() {
   )
 
   return (
-    <div className="space-y-3">
+    <div className="flex h-full flex-col gap-3">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-base font-semibold tracking-tight">Processos</h1>
           <p className="text-[11px] text-muted-foreground">Acompanhamento das execuções — em andamento e concluídas</p>
         </div>
-        <Button variant="outline" size="sm" onClick={load} title="Recarregar"><RefreshCw className="h-3.5 w-3.5" /></Button>
+        <div className="flex items-center gap-2">
+          <StartProcessButton />
+          <Button variant="outline" size="sm" onClick={load} title="Recarregar"><RefreshCw className="h-3.5 w-3.5" /></Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
@@ -247,8 +250,8 @@ export default function ProcessosPage() {
         filteredCount={sorted.length} totalCount={all.length}
       />
 
-      <div className="rounded-xl border bg-card shadow-sm">
-        <div className="overflow-auto max-h-[calc(100vh-19rem)]">
+      <div className="rounded-xl border bg-card shadow-sm flex-1 min-h-0 flex flex-col">
+        <div className="overflow-auto flex-1 min-h-0">
           <table className="min-w-full text-xs">
             <thead className="sticky top-0 z-20">
               <tr className="border-b">
@@ -268,7 +271,9 @@ export default function ProcessosPage() {
               {rows === null ? (
                 <tr><td colSpan={visibleCols.length} className="px-3 py-10 text-center text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin inline mr-2" />Carregando…</td></tr>
               ) : pageRows.length === 0 ? (
-                <tr><td colSpan={visibleCols.length}><EmptyState icon={Activity} title={all.length === 0 ? 'Nenhum processo iniciado' : 'Nenhum processo encontrado'} description={all.length === 0 ? 'Inicie um processo pelo Dashboard, Contratos ou Parceiros.' : 'Ajuste a busca ou os filtros.'} /></td></tr>
+                <tr><td colSpan={visibleCols.length} className="px-3 py-8 text-center text-xs text-muted-foreground">
+                  {all.length === 0 ? 'Nenhum processo iniciado.' : 'Nenhum processo encontrado com os filtros aplicados.'}
+                </td></tr>
               ) : pageRows.map((i) => (
                 <tr key={i.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => openDetail(i)}>
                   {visibleCols.map((col) => (
@@ -284,7 +289,7 @@ export default function ProcessosPage() {
 
       {detail && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={() => setDetail(null)}>
-          <div className="w-full max-w-2xl max-h-[85vh] flex flex-col rounded-xl border bg-card text-foreground shadow-xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="glass w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl text-foreground overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/40">
               <div className="flex items-center gap-2 min-w-0">
                 <GitBranch className="h-4 w-4 text-primary shrink-0" />

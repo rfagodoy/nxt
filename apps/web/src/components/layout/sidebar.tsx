@@ -29,7 +29,7 @@ const sections: NavSection[] = [
     // "Minhas tarefas" (caixa do workflow) + acompanhamento das execuções +
     // catálogo de módulos (fonte única).
     items: [
-      { href: '/tarefas', label: 'Minhas tarefas', icon: ListChecks },
+      { href: '/tarefas', label: 'Tarefas', icon: ListChecks },
       { href: '/processos', label: 'Processos', icon: Activity },
       ...SYSTEM_MODULES.map((m) => ({ href: m.href, label: m.name, icon: m.icon })),
     ],
@@ -54,7 +54,7 @@ export function Sidebar() {
 
   return (
     <aside className={cn(
-      'relative flex flex-col shrink-0 transition-all duration-300 ease-in-out group/sidebar bg-sidebar border-r border-sidebar-border',
+      'relative flex flex-col shrink-0 transition-all duration-300 ease-in-out group/sidebar glass-panel border-r border-white/25 dark:border-white/10',
       collapsed ? 'w-16' : 'w-60',
     )}>
 

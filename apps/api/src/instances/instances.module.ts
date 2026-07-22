@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common'
 import { InstancesService } from './instances.service'
 import { InstancesController } from './instances.controller'
 import { WorkflowSchedulerService } from './workflow-scheduler.service'
+import { WorkflowCalendarService } from './workflow-calendar.service'
 import { PrismaService } from '../prisma.service'
 import { WorkflowRolesModule } from '../workflow-roles/workflow-roles.module'
 import { ContractsModule } from '../contracts/contracts.module'
@@ -11,7 +12,7 @@ import { RoleAssignmentsModule } from '../role-assignments/role-assignments.modu
 @Module({
   imports: [WorkflowRolesModule, ContractsModule, PartnersModule, RoleAssignmentsModule],
   controllers: [InstancesController],
-  providers: [InstancesService, WorkflowSchedulerService, PrismaService],
-  exports: [InstancesService],
+  providers: [InstancesService, WorkflowSchedulerService, WorkflowCalendarService, PrismaService],
+  exports: [InstancesService, WorkflowCalendarService],
 })
 export class InstancesModule {}

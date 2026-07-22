@@ -45,7 +45,7 @@ const nextConfig: NextConfig = {
   devIndicators: false,
   // Não anunciar o framework (remove o header X-Powered-By: Next.js).
   poweredByHeader: false,
-  transpilePackages: ['@nxt/types', '@nxt/contracts-core'],
+  transpilePackages: ['@nxt/types', '@nxt/contracts-core', '@nxt/workflow-core'],
   webpack: (config) => {
     config.externals = [...(config.externals || []), { canvas: 'canvas' }]
     return config

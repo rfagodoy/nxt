@@ -746,7 +746,7 @@ function CnaeCombo({ onPick, exclude, placeholder }: { onPick: (code: string) =>
         className={inputCls}
       />
       {open && (
-        <div className={cn('absolute z-30 max-h-60 w-full overflow-auto rounded-md border bg-popover text-popover-foreground shadow-lg', up ? 'bottom-full mb-1' : 'mt-1')}>
+        <div className={cn('glass absolute z-30 max-h-60 w-full overflow-auto rounded-xl text-popover-foreground', up ? 'bottom-full mb-1' : 'mt-1')}>
           {loading && <div className="px-3 py-2 text-xs text-muted-foreground">Carregando…</div>}
           {!loading && results.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground">Nenhum CNAE encontrado.</div>}
           {results.map(e => (

@@ -67,6 +67,12 @@ export class ProcessesService {
       if (!node) continue
       if (step.role) node.role = step.role
       if (typeof step.slaMinutes === 'number' && step.slaMinutes > 0) node.slaMinutes = step.slaMinutes
+      // Prazo em dias/horas ÚTEIS (Storyboard) — o dueAt da tarefa é calculado no
+      // calendário comercial da org na criação (persistTasks). Precede o slaMinutes legado.
+      if (typeof step.slaBusinessDays === 'number' && step.slaBusinessDays > 0) node.slaBusinessDays = step.slaBusinessDays
+      if (typeof step.slaBusinessHours === 'number' && step.slaBusinessHours > 0) node.slaBusinessHours = step.slaBusinessHours
+      // Instruções livres exibidas ao executor ao abrir a tarefa.
+      if (step.instructions?.trim()) node.instructions = step.instructions.trim()
       // Conector de domínio da atividade de serviço (ação automática). Definido no
       // painel "Ação automática" do designer; tem precedência sobre nxt:connector do XML.
       if (step.connector) node.connector = step.connector

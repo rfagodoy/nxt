@@ -5,8 +5,8 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { Loader2, ArrowLeft } from 'lucide-react'
 import { apiJson } from '@/lib/http'
-import { ProcessDesigner, type ProcessDesignerInitial } from '../../new/process-designer'
-import type { ProcessFormSchema, StepFormSchema } from '@nxt/types'
+import { ProcessFlow, type FlowInitial } from '@/components/processes/process-flow'
+import type { ProcessFormSchema } from '@nxt/types'
 
 interface Proc {
   id: string
@@ -20,16 +20,13 @@ interface Proc {
 export default function EditProcessPage() {
   const params = useParams<{ id: string }>()
   const id = params.id
-  const [initial, setInitial] = useState<ProcessDesignerInitial | null | undefined>(undefined)
+  const [initial, setInitial] = useState<FlowInitial | null | undefined>(undefined)
 
   useEffect(() => {
     void (async () => {
       const p = await apiJson<Proc>(`/api/processes/${id}`)
       if (!p) { setInitial(null); return }
-      // formSchema.steps (array) → record por stepId, como o designer espera.
-      const stepForms: Record<string, StepFormSchema> = {}
-      for (const s of p.formSchema?.steps ?? []) stepForms[s.stepId] = s
-      setInitial({ id: p.id, name: p.name, description: p.description, bpmnXml: p.bpmnXml, kind: p.kind, stepForms })
+      setInitial({ id: p.id, name: p.name, description: p.description, kind: p.kind, bpmnXml: p.bpmnXml, steps: p.formSchema?.steps ?? [], positions: p.formSchema?.positions, graph: p.formSchema?.graph })
     })()
   }, [id])
 
@@ -44,11 +41,11 @@ export default function EditProcessPage() {
     return (
       <div className="space-y-3">
         <Link href="/processes" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="h-3.5 w-3.5" /> Processos
+          <ArrowLeft className="h-3.5 w-3.5" /> Workflows
         </Link>
         <p className="text-sm">Processo não encontrado.</p>
       </div>
     )
   }
-  return <ProcessDesigner initial={initial} />
+  return <ProcessFlow initial={initial} />
 }

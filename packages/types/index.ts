@@ -32,11 +32,22 @@ export interface StepFormSchema {
   stepId: string
   stepName: string
   fields: FormField[]
+  /** Tipo do quadro no Storyboard: atividade humana ('userTask') ou ação automática
+   *  ('serviceTask'). Define o elemento BPMN gerado. Ausente = userTask (retrocompat). */
+  stepType?: 'userTask' | 'serviceTask'
   /** Executor da atividade (papel). Alternativa às raias do BPMN; definido no
    *  painel "Atividade" do designer. Mesclado ao grafo na ativação. */
   role?: string
-  /** Prazo/SLA da atividade em MINUTOS. O designer coleta em horas e converte. */
+  /** Prazo/SLA da atividade em MINUTOS. LEGADO: designer BPMN coletava em horas.
+   *  Mantido para retrocompat. Novos processos usam slaBusinessDays/Hours. */
   slaMinutes?: number
+  /** Prazo em DIAS ÚTEIS (storyboard). Contado no calendário comercial da
+   *  organização (expediente + feriados). Combinável com slaBusinessHours. */
+  slaBusinessDays?: number
+  /** Prazo em HORAS ÚTEIS (storyboard). Contado dentro do expediente. */
+  slaBusinessHours?: number
+  /** Instruções livres exibidas ao executor ao abrir a tarefa (storyboard). */
+  instructions?: string
   /** Conector de domínio de uma atividade de serviço (ação automática). Ex.:
    *  'contracts.create', 'contracts.aditivo', 'contracts.distrato',
    *  'partners.create', 'partners.activate'. Mesclado ao grafo na ativação
@@ -158,6 +169,17 @@ export const CONNECTORS: ConnectorManifest[] = [
 
 export interface ProcessFormSchema {
   steps: StepFormSchema[]
+  /** Posições MANUAIS por id de nó (editor Storyboard). Quando presente para um nó,
+   *  sobrepõe o auto-layout. Ausente/vazio = totalmente automático. Não afeta o motor
+   *  (é só visual); persiste no formSchema. */
+  positions?: Record<string, { x: number; y: number }>
+  /** Grafo do EDITOR (nós + arestas) preservado para reabrir sem depender do
+   *  compileBpmn (que é estrito e quebra em rascunhos incompletos). É a fonte de
+   *  verdade da AUTORIA; o bpmnXml é derivado dele para o motor. */
+  graph?: {
+    nodes: Array<{ id: string; type: string; name?: string }>
+    edges: Array<{ id: string; from: string; to: string; condition?: string; isDefault?: boolean; label?: string }>
+  }
 }
 
 // ─── Module Schema (estrutura do módulo gerado) ──────────────────────────────

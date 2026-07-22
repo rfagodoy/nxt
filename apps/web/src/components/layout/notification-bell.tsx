@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { Bell, CalendarClock, RefreshCw, Gauge, CheckCheck, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
@@ -40,7 +41,9 @@ export function NotificationBell({ className }: { className?: string }) {
   const ws = useWorkspace()
   const [items, setItems] = useState<Notif[]>([])
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ left: number; bottom: number } | null>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(async () => {
     try { const res = await apiFetch('/api/notifications'); if (res.ok) setItems(await res.json() as Notif[]) } catch { /* ignore */ }
@@ -52,11 +55,30 @@ export function NotificationBell({ className }: { className?: string }) {
     window.addEventListener('nxt:workspace:refresh', onRefresh)         // atualiza após salvar/rodar
     return () => { clearInterval(iv); window.removeEventListener('nxt:workspace:refresh', onRefresh) }
   }, [load])
+
+  // Ancora o painel à direita do sino, alinhado pela base. Painel vai num PORTAL no body
+  // para que o backdrop-filter (Liquid Glass) amostre a página real — se ficasse dentro
+  // da sidebar (que já tem backdrop-filter), o blur não se aplica e o conteúdo vaza.
+  const toggle = () => {
+    setOpen(o => {
+      if (!o && btnRef.current) {
+        const r = btnRef.current.getBoundingClientRect()
+        setPos({ left: r.right + 8, bottom: window.innerHeight - r.bottom })
+      }
+      return !o
+    })
+  }
   useEffect(() => {
     if (!open) return
-    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    const onDoc = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (btnRef.current?.contains(t) || panelRef.current?.contains(t)) return
+      setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
     document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey) }
   }, [open])
 
   const unread = items.filter(i => !i.read).length
@@ -75,8 +97,8 @@ export function NotificationBell({ className }: { className?: string }) {
   }
 
   return (
-    <div ref={ref} className="relative">
-      <button onClick={() => setOpen(o => !o)} title="Notificações"
+    <div className="relative">
+      <button ref={btnRef} onClick={toggle} title="Notificações"
         className={cn('relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-hover transition-colors', className)}>
         <Bell className="h-4 w-4" />
         {unread > 0 && (
@@ -86,8 +108,9 @@ export function NotificationBell({ className }: { className?: string }) {
         )}
       </button>
 
-      {open && (
-        <div className="absolute bottom-0 left-full z-50 ml-2 w-[360px] overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-xl">
+      {open && pos && createPortal(
+        <div ref={panelRef} style={{ position: 'fixed', left: pos.left, bottom: pos.bottom }}
+          className="glass z-50 w-[360px] overflow-hidden rounded-xl text-popover-foreground">
           <div className="flex items-center justify-between border-b px-3 py-2">
             <span className="text-xs font-semibold">Notificações{unread > 0 && <span className="ml-1.5 text-muted-foreground">({unread})</span>}</span>
             {unread > 0 && (
@@ -122,7 +145,8 @@ export function NotificationBell({ className }: { className?: string }) {
               )
             })}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )

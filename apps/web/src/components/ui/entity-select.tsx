@@ -92,7 +92,7 @@ export function EntitySelect({ entityType, value, onChange, placeholder = 'Selec
       {open && (
         <>
           <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div className={cn('absolute z-30 w-full min-w-[16rem] rounded-md border bg-popover text-popover-foreground shadow-lg', up ? 'bottom-full mb-1' : 'mt-1')}>
+          <div className={cn('glass absolute z-30 w-full min-w-[16rem] rounded-xl text-popover-foreground', up ? 'bottom-full mb-1' : 'mt-1')}>
             <div className="flex items-center gap-1.5 border-b px-2.5 py-1.5">
               <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
               <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar…"

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { CheckCircle2, Loader2, ListChecks, XCircle, AlertTriangle, RefreshCw } from 'lucide-react'
+import { CheckCircle2, Loader2, ListChecks, XCircle, AlertTriangle, RefreshCw, Info } from 'lucide-react'
 import { DynamicForm } from '@/components/modules/dynamic-form'
 import { WorkflowScreenTask } from '@/components/processes/workflow-screen-task'
 import { apiFetch, apiJson } from '@/lib/http'
@@ -212,18 +212,28 @@ export function InstanceRunner({ processDefinitionId, processName, formSchema, o
         {active && (() => {
           const step = stepFor(active.nodeId)
           // Atividade com TELA → renderiza o cadastro real (cria/edita a entidade).
-          return step.screenRef ? (
-            <WorkflowScreenTask key={active.id} step={step} variables={variables} onComplete={complete} onCancel={onClose} />
-          ) : (
-            <DynamicForm
-              key={active.id}
-              step={step}
-              stepIndex={0}
-              totalSteps={1}
-              submitting={submitting}
-              onSubmit={complete}
-              onCancel={onClose}
-            />
+          return (
+            <>
+              {step.instructions?.trim() && (
+                <div className="mb-3 flex gap-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2">
+                  <Info className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                  <p className="text-xs text-foreground/80 leading-snug whitespace-pre-line">{step.instructions.trim()}</p>
+                </div>
+              )}
+              {step.screenRef ? (
+                <WorkflowScreenTask key={active.id} step={step} variables={variables} onComplete={complete} onCancel={onClose} />
+              ) : (
+                <DynamicForm
+                  key={active.id}
+                  step={step}
+                  stepIndex={0}
+                  totalSteps={1}
+                  submitting={submitting}
+                  onSubmit={complete}
+                  onCancel={onClose}
+                />
+              )}
+            </>
           )
         })()}
       </div>
