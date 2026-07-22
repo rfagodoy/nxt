@@ -58,13 +58,38 @@ const isActivity = (t: NType) => t === 'userTask' || t === 'serviceTask'
 const rnd = () => Math.random().toString(36).slice(2, 9)
 const nid = (p: string) => `${p}_${rnd()}`
 
-/** Roteamento ortogonal arredondado (smoothstep) — igual ao mockup aprovado. */
-function smoothPath(a: { x: number; y: number }, b: { x: number; y: number }, r = 18): string {
-  if (Math.abs(a.y - b.y) < 1) return `M ${a.x} ${a.y} L ${b.x} ${b.y}`
-  const midX = (a.x + b.x) / 2
-  const dir = b.y > a.y ? 1 : -1
-  const rr = Math.max(2, Math.min(r, Math.abs(b.y - a.y) / 2, Math.abs(midX - a.x), Math.abs(b.x - midX)))
-  return `M ${a.x} ${a.y} L ${midX - rr} ${a.y} Q ${midX} ${a.y} ${midX} ${a.y + dir * rr} L ${midX} ${b.y - dir * rr} Q ${midX} ${b.y} ${midX + rr} ${b.y} L ${b.x} ${b.y}`
+/* ─── Conexões: âncoras cientes do lado (portas nos 4 lados) ─────────────────── */
+type Side = 'top' | 'right' | 'bottom' | 'left'
+type Pt = { x: number; y: number }
+type Box = { x: number; y: number; w: number; h: number }
+const SIDE_NORMAL: Record<Side, Pt> = { top: { x: 0, y: -1 }, right: { x: 1, y: 0 }, bottom: { x: 0, y: 1 }, left: { x: -1, y: 0 } }
+const sidePoint = (b: Box, side: Side): Pt => {
+  const cx = b.x + b.w / 2, cy = b.y + b.h / 2
+  if (side === 'top') return { x: cx, y: b.y }
+  if (side === 'bottom') return { x: cx, y: b.y + b.h }
+  if (side === 'left') return { x: b.x, y: cy }
+  return { x: b.x + b.w, y: cy }
+}
+/** Escolhe os lados mais próximos entre dois nós → âncoras + normais de saída/entrada. */
+function pickAnchors(na: Box, nb: Box): { a: Pt; aDir: Pt; b: Pt; bDir: Pt } {
+  const dx = (nb.x + nb.w / 2) - (na.x + na.w / 2)
+  const dy = (nb.y + nb.h / 2) - (na.y + na.h / 2)
+  let aSide: Side, bSide: Side
+  if (Math.abs(dx) >= Math.abs(dy)) { aSide = dx >= 0 ? 'right' : 'left'; bSide = dx >= 0 ? 'left' : 'right' }
+  else { aSide = dy >= 0 ? 'bottom' : 'top'; bSide = dy >= 0 ? 'top' : 'bottom' }
+  return { a: sidePoint(na, aSide), aDir: SIDE_NORMAL[aSide], b: sidePoint(nb, bSide), bDir: SIDE_NORMAL[bSide] }
+}
+/** Curva cúbica que SAI perpendicular ao lado de origem e ENTRA perpendicular ao de destino. */
+function edgeBezier(a: Pt, aDir: Pt, b: Pt, bDir: Pt): string {
+  const k = Math.max(28, Math.hypot(b.x - a.x, b.y - a.y) * 0.4)
+  return `M ${a.x} ${a.y} C ${a.x + aDir.x * k} ${a.y + aDir.y * k}, ${b.x + bDir.x * k} ${b.y + bDir.y * k}, ${b.x} ${b.y}`
+}
+/** Posição de cada porta (dot 12px) centrada na borda do nó. */
+const PORT_POS: Record<Side, string> = {
+  top: 'left-1/2 -translate-x-1/2 -top-1.5',
+  bottom: 'left-1/2 -translate-x-1/2 -bottom-1.5',
+  left: 'top-1/2 -translate-y-1/2 -left-1.5',
+  right: 'top-1/2 -translate-y-1/2 -right-1.5',
 }
 
 /* ─── modelo inicial / conversões ──────────────────────────────────────────── */
@@ -360,7 +385,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
             <div className="flex flex-col items-center justify-center h-full text-center px-6">
               <div className="p-3 rounded-full bg-accent mb-3"><LayoutTemplate className="h-5 w-5 text-primary" /></div>
               <p className="text-sm font-semibold">Monte o fluxo</p>
-              <p className="text-xs text-muted-foreground mt-1 leading-snug">Passe o mouse num quadro e <span className="font-medium">arraste a bolinha da direita</span> até outro quadro para conectar — ou solte no vazio para criar já ligado. Clique num quadro para configurá-lo.</p>
+              <p className="text-xs text-muted-foreground mt-1 leading-snug">Passe o mouse num quadro e <span className="font-medium">arraste uma das bolinhas</span> (nos 4 lados) até outro quadro para conectar — solte em qualquer parte dele. Ou solte no vazio para criar já ligado. Clique num quadro para configurá-lo.</p>
             </div>
           )}
         </div>
@@ -400,27 +425,31 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
     const f = nodeById[e.from]
     if (f?.type === 'exclusiveGateway') return '#7c3aed'
     if (f?.type === 'parallelGateway') return '#e11d68'
-    return 'hsl(var(--border))'
+    return 'hsl(var(--muted-foreground) / 0.5)' // visível sobre a "Mesa de Vidro" (--border some no fundo profundo)
   }
-  const outPt = (id: string) => ({ x: layout.nodes[id].x + layout.nodes[id].w, y: layout.nodes[id].y + layout.nodes[id].h / 2 })
-  const inPt = (id: string) => ({ x: layout.nodes[id].x, y: layout.nodes[id].y + layout.nodes[id].h / 2 })
   const toCanvas = (cx: number, cy: number) => {
     const r = canvasRef.current!.getBoundingClientRect()
     return { x: cx - r.left, y: cy - r.top }
   }
 
-  const startConnect = (from: string, ev: React.PointerEvent) => {
+  const startConnect = (from: string, side: Side, ev: React.PointerEvent) => {
     ev.preventDefault(); ev.stopPropagation()
     setConnecting(from)
-    const a = outPt(from)
-    const move = (e: PointerEvent) => setRubber(smoothPath(a, toCanvas(e.clientX, e.clientY)))
+    const a = sidePoint(layout.nodes[from], side)
+    const aDir = SIDE_NORMAL[side]
+    const move = (e: PointerEvent) => {
+      const c = toCanvas(e.clientX, e.clientY)
+      setRubber(edgeBezier(a, aDir, c, { x: -aDir.x, y: -aDir.y }))
+    }
     const up = (e: PointerEvent) => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
       setRubber(''); setConnecting(null)
+      // SOLTAR EM QUALQUER LUGAR DE UM NÓ conecta (antes exigia acertar a bolinha de
+      // entrada, 14px — por isso início→atividade e atividade→fim "não funcionavam").
       const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
-      const port = el?.closest('[data-inport]') as HTMLElement | null
-      if (port) { onConnect(from, port.getAttribute('data-inport')!); return }
+      const to = (el?.closest('[data-node-id]') as HTMLElement | null)?.getAttribute('data-node-id')
+      if (to && to !== from && nodeById[to]?.type !== 'start') { onConnect(from, to); return }
       setMenu({ ...toCanvas(e.clientX, e.clientY), from })
     }
     window.addEventListener('pointermove', move)
@@ -466,8 +495,8 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
           {edges.map((e) => {
             const na = layout.nodes[e.from], nb = layout.nodes[e.to]
             if (!na || !nb) return null
-            const a = outPt(e.from), b = inPt(e.to)
-            const d = smoothPath(a, b)
+            const { a, aDir, b, bDir } = pickAnchors(na, nb)
+            const d = edgeBezier(a, aDir, b, bDir)
             const col = edgeColor(e)
             const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2
             return (
@@ -489,9 +518,10 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
 
         {/* rótulos das arestas */}
         {edges.map((e) => {
-          const a = layout.nodes[e.from], b = layout.nodes[e.to]
-          if (!a || !b || !e.label) return null
-          const mx = (a.x + a.w + b.x) / 2, my = (a.y + a.h / 2 + b.y + b.h / 2) / 2
+          const na = layout.nodes[e.from], nb = layout.nodes[e.to]
+          if (!na || !nb || !e.label) return null
+          const { a, b } = pickAnchors(na, nb)
+          const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2
           return <div key={`lb-${e.id}`} className="absolute -translate-x-1/2 -translate-y-1/2 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-card border shadow-sm pointer-events-none" style={{ left: mx, top: my - 16, color: e.isDefault ? 'hsl(var(--muted-foreground))' : undefined }}>{e.label}</div>
         })}
 
@@ -500,7 +530,7 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
           const p = layout.nodes[n.id]
           if (!p) return null
           return (
-            <div key={n.id} onPointerDown={(e) => startNodeDrag(n.id, e)}
+            <div key={n.id} data-node-id={n.id} onPointerDown={(e) => startNodeDrag(n.id, e)}
               className={cn('absolute group select-none', dragId === n.id ? 'z-40 cursor-grabbing' : 'cursor-grab')}
               style={{ left: p.x, top: p.y, width: p.w, height: p.h }}>
               <FlowNodeView node={n} selected={n.id === selectedId} onClick={() => onSelect(n.id)} resolvePapel={resolvePapel} />
@@ -510,12 +540,13 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
                   <Trash2 className="h-3 w-3" />
                 </button>
               )}
-              {n.type !== 'start' && (
-                <div data-port data-inport={n.id} className={cn('absolute w-3.5 h-3.5 rounded-full bg-background border-2 border-primary -translate-y-1/2 transition-opacity z-10', connecting ? 'opacity-100' : 'opacity-0 group-hover:opacity-100')} style={{ left: -7, top: '50%' }} />
-              )}
-              {n.type !== 'end' && (
-                <div data-port onPointerDown={(ev) => startConnect(n.id, ev)} title="Arraste para conectar" className="absolute w-3.5 h-3.5 rounded-full bg-background border-2 border-primary -translate-y-1/2 opacity-0 group-hover:opacity-100 hover:bg-primary hover:scale-125 transition-all z-10 cursor-crosshair" style={{ right: -7, top: '50%' }} />
-              )}
+              {/* Portas de saída nos 4 lados (menos o Fim, que só recebe). Arraste qualquer
+                  uma até OUTRO nó (solte em qualquer lugar dele) para conectar. */}
+              {n.type !== 'end' && (['top', 'right', 'bottom', 'left'] as Side[]).map((side) => (
+                <div key={side} data-port title="Arraste para conectar" onPointerDown={(ev) => startConnect(n.id, side, ev)}
+                  className={cn('absolute w-3 h-3 rounded-full bg-background border-2 border-primary z-10 cursor-crosshair transition-all hover:bg-primary hover:scale-125',
+                    connecting ? 'opacity-70' : 'opacity-0 group-hover:opacity-100', PORT_POS[side])} />
+              ))}
             </div>
           )
         })}
@@ -618,8 +649,8 @@ function FlowNodeView({ node, selected, onClick, resolvePapel }: { node: ENode; 
           <span className={cn('flex h-6 w-6 items-center justify-center rounded-lg shrink-0', tone)}><Icon className="h-3.5 w-3.5" /></span>
           <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{type === 'serviceTask' ? 'Ação automática' : 'Tarefa'}</span>
         </div>
-        <p className="text-[13px] font-semibold leading-tight line-clamp-2 mt-1.5">{step?.stepName || <span className="text-muted-foreground italic font-normal">Sem nome</span>}</p>
-        <div className="mt-auto space-y-0.5 pt-1.5">
+        <p className="text-[13px] font-semibold leading-tight line-clamp-2 mt-1.5 shrink-0">{step?.stepName || <span className="text-muted-foreground italic font-normal">Sem nome</span>}</p>
+        <div className="mt-auto space-y-0.5 pt-1.5 min-h-0 overflow-hidden">
           <MetaRow icon={type === 'serviceTask' ? <Zap className="h-3 w-3" /> : <User className="h-3 w-3" />} text={type === 'serviceTask' ? (connector ?? 'Sem ação') : (role ?? 'Sem executor')} />
           {due && <MetaRow icon={<Clock className="h-3 w-3" />} text={due} />}
         </div>
