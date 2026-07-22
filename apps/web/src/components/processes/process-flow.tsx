@@ -22,7 +22,7 @@ import { useLookupTable } from '@/hooks/use-lookup-table'
 import type { ScreenSubject } from '@/lib/screen-types'
 import { PAPEIS_KEY, INIT_PAPEIS, REFERENCIA, ORIGEM, referenciaDoPapelEntry } from '@/lib/contract-roles'
 import { layoutGraph, type FlowNode as LNode, type FlowNodeType } from '@/lib/flow-layout'
-import { exportFlow, type FlowExportFormat } from '@/lib/flow-export'
+import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, type ExportEdge } from '@/lib/flow-export'
 import { apiFetch } from '@/lib/http'
 import { cn } from '@/lib/utils'
 
@@ -252,13 +252,37 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     finally { setActivating(false) }
   }, [name, activityCount, persist, router])
 
-  // Exporta o desenho atual (edições ao vivo, sem precisar salvar) como PNG ou PDF.
+  // Monta o modelo do grafo (posições + textos) para o exportador desenhar em 2D.
+  const buildExportModel = useCallback((): ExportModel => {
+    const enodes: ExportNode[] = nodes.map((n) => {
+      const p = layout.nodes[n.id]
+      const base = { id: n.id, type: n.type, x: p.x, y: p.y, w: p.w, h: p.h }
+      if (isActivity(n.type)) {
+        const step = n.step
+        const role = step?.executor?.papelId ? (resolvePapel(step.executor.papelId) ?? 'Responsável') : null
+        const connector = CONNECTORS.find((c) => c.value === step?.connector)?.label
+        const due = dueText(step)
+        const meta = [n.type === 'serviceTask' ? (connector ?? 'Sem ação') : (role ?? 'Sem executor')]
+        if (due) meta.push(due)
+        return { ...base, name: step?.stepName || 'Sem nome', typeLabel: n.type === 'serviceTask' ? 'Ação automática' : 'Tarefa', meta }
+      }
+      if (n.type === 'exclusiveGateway' || n.type === 'parallelGateway') return { ...base, name: n.name, isFork: !!n.name }
+      return { ...base, name: n.name }
+    })
+    const eedges: ExportEdge[] = edges.filter((e) => layout.nodes[e.from] && layout.nodes[e.to]).map((e) => {
+      const a = layout.nodes[e.from], b = layout.nodes[e.to]
+      const from = nodeById[e.from]
+      const variant: ExportEdge['variant'] = from?.type === 'exclusiveGateway' ? 'exclusive' : from?.type === 'parallelGateway' ? 'parallel' : 'normal'
+      return { ax: a.x + a.w, ay: a.y + a.h / 2, bx: b.x, by: b.y + b.h / 2, variant, label: e.label }
+    })
+    return { width: layout.width, height: layout.height, nodes: enodes, edges: eedges }
+  }, [nodes, edges, layout, nodeById, resolvePapel])
+
+  // Exporta o desenho atual (edições ao vivo, sem precisar salvar) como JPG ou PDF.
   const handleExport = useCallback(async (format: FlowExportFormat) => {
-    const el = canvasRef.current
-    if (!el) return
     setExporting(format); setExportError(null)
     try {
-      await exportFlow(el, { width: layout.width, height: layout.height, format, name: name || 'workflow', kind })
+      await exportFlow(buildExportModel(), { format, name: name || 'workflow', kind })
     } catch (err) {
       // NÃO usar alert() aqui: diálogo nativo trava a automação/extensão. Erro inline + console.
       console.error('[export]', err)
@@ -267,7 +291,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     } finally {
       setExporting(null)
     }
-  }, [layout.width, layout.height, name, kind])
+  }, [buildExportModel, name, kind])
 
   // Tecla Delete/Backspace exclui o nó selecionado (exceto início/fim), fora de campos de texto.
   useEffect(() => {
