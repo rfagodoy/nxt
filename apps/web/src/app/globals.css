@@ -4,8 +4,9 @@
 
 @layer base {
   :root {
-    /* página: Mist — off-white frio levemente esverdeado (identidade Nxt) */
-    --background: 120 16% 96%;
+    /* página: "Mesa de Vidro" — Mist mais PROFUNDO (sage), pra o vidro branco e os
+       cards saltarem por cima. O mesh de marca (app-ambient) dá a profundidade. */
+    --background: 138 16% 88%;
     --foreground: 156 28% 11%;
 
     /* cards: branco puro — "flutuam" sobre o Mist */
@@ -49,18 +50,18 @@
     /* Liquid Glass — material do CHROME (menus, barras, ícones, modais).
        Conteúdo (tabelas/formulários) segue sólido (--card). */
     --glass-bg: 140 26% 99%;
-    --glass-alpha: 0.40;         /* material FINO — chrome encostado (sidebar/barras) */
-    --glass-alpha-strong: 0.84;  /* material GROSSO — flutuante sobre conteúdo denso (menus/dropdowns/notificações/modais) */
+    --glass-alpha: 0.55;         /* material FINO — chrome encostado (sidebar/barras): mais branco p/ saltar na Mesa de Vidro */
+    --glass-alpha-strong: 0.86;  /* material GROSSO — flutuante sobre conteúdo denso (menus/dropdowns/notificações/modais) */
     --glass-border: 0 0% 100%;
     --glass-border-alpha: 0.92;
-    --glass-highlight: 0.98;
+    --glass-highlight: 1;
     --glass-blur: 30px;
-    --glass-shadow: 0 18px 46px -16px hsl(156 28% 11% / 0.32);
-    /* brilhos do ambiente (Esmeralda + Lima) que o vidro refrata — intensificados 2026-07-21 */
+    --glass-shadow: 0 24px 54px -18px hsl(156 28% 11% / 0.40);
+    /* brilhos do ambiente (Esmeralda + Lima) que o vidro refrata — Mesa de Vidro: mesh mais presente */
     --ambient-a: 154 76% 44%;
     --ambient-b: 74 84% 62%;
-    --ambient-alpha-a: 0.24;
-    --ambient-alpha-b: 0.26;
+    --ambient-alpha-a: 0.34;
+    --ambient-alpha-b: 0.34;
   }
 
   .dark {
