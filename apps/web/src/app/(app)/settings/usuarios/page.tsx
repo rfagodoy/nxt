@@ -1,7 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { UserPlus, KeyRound, Pencil, Loader2, AlertCircle, ShieldCheck, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  UserPlus, KeyRound, Pencil, Loader2, AlertCircle, ShieldCheck, X, RefreshCw,
+  Settings2, ChevronsUpDown, ArrowUp, ArrowDown,
+} from 'lucide-react'
 import { apiFetch } from '@/lib/http'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,6 +13,12 @@ import { Badge } from '@/components/ui/badge'
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
+import { cn } from '@/lib/utils'
+import { useViews } from '@/hooks/use-views'
+import { exportExcel } from '@/lib/export-excel'
+import { TablePagination } from '@/components/ui/table-pagination'
+import { ListToolbar } from '@/components/list/list-toolbar'
+import { type FilterRow, matchOp, norm } from '@/lib/list-filter'
 
 interface UserRow {
   id: string
@@ -22,40 +31,147 @@ interface UserRow {
 }
 
 type ModalMode = 'create' | 'edit' | 'password' | null
+interface SortState { col: string; dir: 'asc' | 'desc' }
 
 const ROLE_LABEL: Record<string, string> = { admin: 'Administrador', user: 'Usuário' }
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '—'
-  return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
+interface Col { key: string; label: string; align?: 'right'; text: (u: UserRow) => string; sortVal?: (u: UserRow) => string | number; node: (u: UserRow) => ReactNode }
+const COLS: Col[] = [
+  { key: 'nome', label: 'Nome', text: (u) => u.name, sortVal: (u) => norm(u.name), node: (u) => <span className="font-medium">{u.name}</span> },
+  { key: 'email', label: 'E-mail', text: (u) => u.email, node: (u) => <span className="text-muted-foreground">{u.email}</span> },
+  {
+    key: 'papel', label: 'Papel', text: (u) => ROLE_LABEL[u.role] ?? u.role,
+    node: (u) => <Badge variant={u.role === 'admin' ? 'default' : 'secondary'}>{ROLE_LABEL[u.role] ?? u.role}</Badge>,
+  },
+  {
+    key: 'situacao', label: 'Situação', text: (u) => (u.status === 'ATIVO' ? 'Ativo' : 'Inativo'),
+    node: (u) => <Badge variant={u.status === 'ATIVO' ? 'success' : 'outline'}>{u.status === 'ATIVO' ? 'Ativo' : 'Inativo'}</Badge>,
+  },
+  { key: 'ultimoAcesso', label: 'Último acesso', text: (u) => fmtDate(u.lastLoginAt), sortVal: (u) => (u.lastLoginAt ? new Date(u.lastLoginAt).getTime() : 0), node: (u) => <span className="text-muted-foreground whitespace-nowrap tabular-nums">{fmtDate(u.lastLoginAt)}</span> },
+  { key: 'criadoEm', label: 'Criado em', text: (u) => fmtDate(u.createdAt), sortVal: (u) => new Date(u.createdAt).getTime(), node: (u) => <span className="text-muted-foreground whitespace-nowrap tabular-nums">{fmtDate(u.createdAt)}</span> },
+]
+const HIDDEN_KEY = 'nxt:cols:usuarios:hidden'
+
 export default function UsuariosPage() {
-  const [users, setUsers] = useState<UserRow[]>([])
-  const [loading, setLoading] = useState(true)
+  const { views, saveView, deleteView } = useViews('usuarios')
+  const [users, setUsers] = useState<UserRow[] | null>(null)
   const [forbidden, setForbidden] = useState(false)
   const [modal, setModal] = useState<ModalMode>(null)
   const [target, setTarget] = useState<UserRow | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    const res = await apiFetch('/api/users')
-    if (res.status === 403) { setForbidden(true); setLoading(false); return }
-    if (res.ok) {
-      const rows = (await res.json()) as UserRow[]
-      // Padrão: ordem alfabética por nome.
-      rows.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }))
-      setUsers(rows)
-    }
-    setLoading(false)
-  }, [])
+  const [search, setSearch] = useState('')
+  const [sort, setSort] = useState<SortState | null>({ col: 'nome', dir: 'asc' })
+  const [filters, setFilters] = useState<FilterRow[]>([])
+  const [logic, setLogic] = useState<'AND' | 'OR'>('AND')
+  const [activeViewId, setActiveViewId] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+  const [hidden, setHidden] = useState<Set<string>>(new Set())
+  const [showConfig, setShowConfig] = useState(false)
+  const configRef = useRef<HTMLDivElement>(null)
+  const mounted = useRef(false)
 
+  const load = useCallback(async () => {
+    const res = await apiFetch('/api/users')
+    if (res.status === 403) { setForbidden(true); setUsers([]); return }
+    if (res.ok) setUsers((await res.json()) as UserRow[])
+    else setUsers([])
+  }, [])
   useEffect(() => { void load() }, [load])
+
+  useEffect(() => {
+    mounted.current = true
+    try { const raw = localStorage.getItem(HIDDEN_KEY); if (raw) setHidden(new Set(JSON.parse(raw))) } catch {}
+  }, [])
+  useEffect(() => { if (mounted.current) try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...hidden])) } catch {} }, [hidden])
+  useEffect(() => { setPage(1) }, [search, filters, sort, logic, pageSize])
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (configRef.current && !configRef.current.contains(e.target as Node)) setShowConfig(false) }
+    document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h)
+  }, [])
 
   function openCreate() { setTarget(null); setModal('create') }
   function openEdit(u: UserRow) { setTarget(u); setModal('edit') }
   function openPassword(u: UserRow) { setTarget(u); setModal('password') }
   function close(reload?: boolean) { setModal(null); setTarget(null); if (reload) void load() }
+
+  const visibleCols = useMemo(() => COLS.filter((c) => !hidden.has(c.key)), [hidden])
+  const all = useMemo(() => users ?? [], [users])
+  const stats = useMemo(() => ({
+    total: all.length,
+    admins: all.filter((u) => u.role === 'admin').length,
+    ativos: all.filter((u) => u.status === 'ATIVO').length,
+    inativos: all.filter((u) => u.status === 'INATIVO').length,
+  }), [all])
+
+  const filtered = useMemo(() => {
+    const q = norm(search)
+    const active = filters.filter((f) => f.value.trim())
+    return all.filter((u) => {
+      if (q && !COLS.some((c) => norm(c.text(u)).includes(q))) return false
+      if (!active.length) return true
+      const res = active.map((f) => { const col = COLS.find((c) => c.key === f.col); return col ? matchOp(col.text(u), f.op, f.value) : true })
+      return logic === 'AND' ? res.every(Boolean) : res.some(Boolean)
+    })
+  }, [all, search, filters, logic])
+
+  const sorted = useMemo(() => {
+    if (!sort) return filtered
+    const col = COLS.find((c) => c.key === sort.col)
+    if (!col) return filtered
+    const val = (u: UserRow) => col.sortVal ? col.sortVal(u) : norm(col.text(u))
+    return [...filtered].sort((a, b) => {
+      const va = val(a), vb = val(b)
+      const cmp = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb), 'pt-BR')
+      return sort.dir === 'asc' ? cmp : -cmp
+    })
+  }, [filtered, sort])
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
+  const pageRows = sorted.slice((Math.min(page, totalPages) - 1) * pageSize, Math.min(page, totalPages) * pageSize)
+  const handleSort = (col: string) => setSort((p) => !p || p.col !== col ? { col, dir: 'asc' } : p.dir === 'asc' ? { col, dir: 'desc' } : null)
+
+  const selectView = (id: string | null) => {
+    setActiveViewId(id)
+    if (!id) { setSort({ col: 'nome', dir: 'asc' }); setFilters([]); setLogic('AND') }
+    else { const v = views.find((v) => v.id === id); if (!v) return; setSort(v.sort); setFilters(v.filters); setLogic(v.logic) }
+  }
+  const onSaveView = (name: string) => { const v = saveView(name, { sort, filters: filters.filter((f) => f.value.trim()), logic }); setActiveViewId(v.id) }
+  const onDeleteView = (e: React.MouseEvent, id: string) => { e.stopPropagation(); deleteView(id); if (activeViewId === id) selectView(null) }
+
+  const handleExport = async () => {
+    await exportExcel({
+      fileName: 'usuarios', sheet: 'Usuários',
+      title: `Usuários — ${views.find((v) => v.id === activeViewId)?.name ?? 'Todos'}`,
+      columns: visibleCols.map((c) => ({ header: c.label, align: c.align })),
+      rows: sorted.map((u) => visibleCols.map((c) => c.text(u))),
+    })
+  }
+
+  const configSlot = (
+    <div ref={configRef} className="relative">
+      <button onClick={() => setShowConfig((v) => !v)} className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+        <Settings2 className="h-3.5 w-3.5" />Configurações
+      </button>
+      {showConfig && (
+        <div className="glass absolute right-0 top-full mt-1.5 z-50 w-56 rounded-xl p-1.5">
+          <p className="px-2 py-1.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Colunas visíveis</p>
+          {COLS.map((c) => (
+            <label key={c.key} className="flex items-center gap-2.5 px-2 py-1.5 rounded-md hover:bg-muted cursor-pointer">
+              <input type="checkbox" checked={!hidden.has(c.key)} onChange={(e) => setHidden((prev) => { const n = new Set(prev); if (e.target.checked) n.delete(c.key); else n.add(c.key); return n })} className="h-3.5 w-3.5 accent-primary" />
+              <span className="text-xs">{c.label}</span>
+            </label>
+          ))}
+          {hidden.size > 0 && <button onClick={() => setHidden(new Set())} className="mt-1 w-full text-left px-2 py-1.5 text-[11px] text-primary hover:bg-muted rounded-md">Mostrar todas</button>}
+        </div>
+      )}
+    </div>
+  )
 
   if (forbidden) {
     return (
@@ -68,63 +184,84 @@ export default function UsuariosPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1100px] space-y-4">
-      <div className="flex items-end justify-between gap-3">
+    <div className="flex h-full flex-col gap-3">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Usuários</h1>
-          <p className="text-sm text-muted-foreground">Gerencie quem acessa o Nxt na sua organização.</p>
+          <h1 className="text-base font-semibold tracking-tight">Usuários</h1>
+          <p className="text-[11px] text-muted-foreground">Gerencie quem acessa o Nxt na sua organização</p>
         </div>
-        <Button size="sm" onClick={openCreate}>
-          <UserPlus className="h-4 w-4" /> Novo usuário
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" onClick={openCreate}><UserPlus className="h-4 w-4" />Novo usuário</Button>
+          <Button variant="outline" size="sm" onClick={() => void load()} title="Recarregar"><RefreshCw className="h-3.5 w-3.5" /></Button>
+        </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
-              <th className="px-3 py-1.5 font-medium">Nome</th>
-              <th className="px-3 py-1.5 font-medium">E-mail</th>
-              <th className="px-3 py-1.5 font-medium">Papel</th>
-              <th className="px-3 py-1.5 font-medium">Situação</th>
-              <th className="px-3 py-1.5 font-medium">Último acesso</th>
-              <th className="px-3 py-1.5 font-medium text-right">Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={6} className="px-3 py-10 text-center text-muted-foreground">
-                <Loader2 className="mx-auto h-5 w-5 animate-spin" />
-              </td></tr>
-            ) : users.length === 0 ? (
-              <tr><td colSpan={6} className="px-3 py-10 text-center text-muted-foreground">Nenhum usuário ainda.</td></tr>
-            ) : users.map((u) => (
-              <tr key={u.id} className="border-b last:border-0 hover:bg-muted/30">
-                <td className="px-3 py-1.5 font-medium">{u.name}</td>
-                <td className="px-3 py-1.5 text-muted-foreground">{u.email}</td>
-                <td className="px-3 py-1.5">
-                  <Badge variant={u.role === 'admin' ? 'default' : 'secondary'}>{ROLE_LABEL[u.role] ?? u.role}</Badge>
-                </td>
-                <td className="px-3 py-1.5">
-                  <Badge variant={u.status === 'ATIVO' ? 'success' : 'outline'}>
-                    {u.status === 'ATIVO' ? 'Ativo' : 'Inativo'}
-                  </Badge>
-                </td>
-                <td className="px-3 py-1.5 text-muted-foreground tabular-nums">{fmtDate(u.lastLoginAt)}</td>
-                <td className="px-3 py-1.5">
-                  <div className="flex justify-end gap-1">
-                    <Button variant="ghost" size="sm" onClick={() => openEdit(u)} title="Editar">
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => openPassword(u)} title="Resetar senha">
-                      <KeyRound className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </td>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {[
+          { label: 'Total', value: stats.total, cls: 'text-foreground' },
+          { label: 'Administradores', value: stats.admins, cls: 'text-primary' },
+          { label: 'Ativos', value: stats.ativos, cls: 'text-emerald-600 dark:text-emerald-400' },
+          { label: 'Inativos', value: stats.inativos, cls: 'text-muted-foreground' },
+        ].map(({ label, value, cls }) => (
+          <div key={label} className="rounded-xl border bg-card px-3 py-2 flex items-center justify-between shadow-sm">
+            <p className="text-[11px] text-muted-foreground">{label}</p>
+            <p className={cn('text-sm font-bold tabular-nums', cls)}>{value}</p>
+          </div>
+        ))}
+      </div>
+
+      <ListToolbar
+        search={search} onSearch={setSearch}
+        columns={COLS.map((c) => ({ key: c.key, label: c.label }))}
+        filters={filters} onFiltersChange={setFilters} logic={logic} onLogicChange={setLogic}
+        views={views} activeViewId={activeViewId} onSelectView={selectView} onSaveView={onSaveView} onDeleteView={onDeleteView}
+        onExport={() => { void handleExport() }} exportDisabled={sorted.length === 0}
+        configSlot={configSlot}
+        filteredCount={sorted.length} totalCount={all.length}
+      />
+
+      <div className="rounded-xl border bg-card shadow-sm flex-1 min-h-0 flex flex-col">
+        <div className="overflow-auto flex-1 min-h-0">
+          <table className="min-w-full text-xs">
+            <thead className="sticky top-0 z-20">
+              <tr className="border-b">
+                {visibleCols.map((col) => (
+                  <th key={col.key} className={cn('text-left px-3 py-1.5 font-medium text-muted-foreground select-none whitespace-nowrap bg-muted', col.align === 'right' && 'text-right')}>
+                    <button onClick={() => handleSort(col.key)} className="group inline-flex items-center hover:text-foreground transition-colors">
+                      {col.label}
+                      {!sort || sort.col !== col.key
+                        ? <ChevronsUpDown className="h-3 w-3 ml-1 opacity-30 group-hover:opacity-70 transition-opacity" />
+                        : sort.dir === 'asc' ? <ArrowUp className="h-3 w-3 ml-1 text-primary" /> : <ArrowDown className="h-3 w-3 ml-1 text-primary" />}
+                    </button>
+                  </th>
+                ))}
+                <th className="px-3 py-1.5 font-medium text-muted-foreground text-right bg-muted whitespace-nowrap">Ações</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {users === null ? (
+                <tr><td colSpan={visibleCols.length + 1} className="px-3 py-10 text-center text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin inline mr-2" />Carregando…</td></tr>
+              ) : pageRows.length === 0 ? (
+                <tr><td colSpan={visibleCols.length + 1} className="px-3 py-8 text-center text-xs text-muted-foreground">
+                  {all.length === 0 ? 'Nenhum usuário ainda.' : 'Nenhum usuário encontrado com os filtros aplicados.'}
+                </td></tr>
+              ) : pageRows.map((u) => (
+                <tr key={u.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => openEdit(u)}>
+                  {visibleCols.map((col) => (
+                    <td key={col.key} className={cn('px-3 py-2 align-middle', col.align === 'right' && 'text-right')}>{col.node(u)}</td>
+                  ))}
+                  <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex justify-end gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => openEdit(u)} title="Editar"><Pencil className="h-3.5 w-3.5" /></Button>
+                      <Button variant="ghost" size="sm" onClick={() => openPassword(u)} title="Resetar senha"><KeyRound className="h-3.5 w-3.5" /></Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <TablePagination page={page} pageSize={pageSize} total={sorted.length} onPage={setPage} onPageSize={setPageSize} />
       </div>
 
       {modal === 'create' && <UserFormModal onClose={close} />}

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Save, Zap, Trash2, User, Clock, LayoutTemplate, Wand2,
   CircleDot, CheckCircle2, Loader2, UserSquare, GitBranch, GitMerge,
+  Download, FileImage, FileText, ChevronDown,
 } from 'lucide-react'
 import { generateBpmn, compileBpmn, type WfGraph, type WfNode, type WfEdge } from '@nxt/workflow-core'
 import type { StepFormSchema, ProcessFormSchema } from '@nxt/types'
@@ -21,6 +22,7 @@ import { useLookupTable } from '@/hooks/use-lookup-table'
 import type { ScreenSubject } from '@/lib/screen-types'
 import { PAPEIS_KEY, INIT_PAPEIS, REFERENCIA, ORIGEM, referenciaDoPapelEntry } from '@/lib/contract-roles'
 import { layoutGraph, type FlowNode as LNode, type FlowNodeType } from '@/lib/flow-layout'
+import { exportFlow, type FlowExportFormat } from '@/lib/flow-export'
 import { apiFetch } from '@/lib/http'
 import { cn } from '@/lib/utils'
 
@@ -139,6 +141,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [activating, setActivating] = useState(false)
+  const [exporting, setExporting] = useState<FlowExportFormat | null>(null)
+  const [exportError, setExportError] = useState<string | null>(null)
+  const canvasRef = useRef<HTMLDivElement>(null)
 
   const papeis = useLookupTable(PAPEIS_KEY, INIT_PAPEIS)
   const { screens } = useScreens()
@@ -247,6 +252,23 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     finally { setActivating(false) }
   }, [name, activityCount, persist, router])
 
+  // Exporta o desenho atual (edições ao vivo, sem precisar salvar) como PNG ou PDF.
+  const handleExport = useCallback(async (format: FlowExportFormat) => {
+    const el = canvasRef.current
+    if (!el) return
+    setExporting(format); setExportError(null)
+    try {
+      await exportFlow(el, { width: layout.width, height: layout.height, format, name: name || 'workflow', kind })
+    } catch (err) {
+      // NÃO usar alert() aqui: diálogo nativo trava a automação/extensão. Erro inline + console.
+      console.error('[export]', err)
+      setExportError('Falha ao exportar')
+      setTimeout(() => setExportError(null), 5000)
+    } finally {
+      setExporting(null)
+    }
+  }, [layout.width, layout.height, name, kind])
+
   // Tecla Delete/Backspace exclui o nó selecionado (exceto início/fim), fora de campos de texto.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -274,6 +296,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
           {hasManual && (
             <Button variant="ghost" size="sm" onClick={organize} title="Realinhar tudo automaticamente"><Wand2 className="h-4 w-4" />Organizar</Button>
           )}
+          {exportError && <span className="text-[11px] text-destructive font-medium">{exportError}</span>}
+          <ExportMenu exporting={exporting} disabled={saving || activating} onExport={handleExport} />
           <Button variant="outline" size="sm" onClick={handleSaveDraft} disabled={saving || activating}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Salvar rascunho</Button>
           <Button size="sm" onClick={handleActivate} disabled={saving || activating}>{activating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}Ativar workflow</Button>
         </div>
@@ -292,7 +316,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
       {/* Canvas + Inspetor */}
       <div className="flex flex-1 overflow-hidden">
-        <FlowCanvas nodes={nodes} edges={edges} layout={layout} selectedId={selectedId} onSelect={setSelectedId} onConnect={onConnect} onCreateConnected={onCreateConnected} onDeleteEdge={onDeleteEdge} onDeleteNode={removeNode} onSetPosition={setPosition} resolvePapel={resolvePapel} />
+        <FlowCanvas canvasRef={canvasRef} nodes={nodes} edges={edges} layout={layout} selectedId={selectedId} onSelect={setSelectedId} onConnect={onConnect} onCreateConnected={onCreateConnected} onDeleteEdge={onDeleteEdge} onDeleteNode={removeNode} onSetPosition={setPosition} resolvePapel={resolvePapel} />
         <div className="w-80 border-l bg-card flex flex-col overflow-hidden shrink-0">
           {selected ? (
             isActivity(selected.type) ? (
@@ -320,7 +344,8 @@ const STEP_TONE: Record<string, string> = {
   serviceTask: 'text-amber-600 dark:text-amber-400 bg-amber-500/10',
 }
 
-function FlowCanvas({ nodes, edges, layout, selectedId, onSelect, onConnect, onCreateConnected, onDeleteEdge, onDeleteNode, onSetPosition, resolvePapel }: {
+function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onConnect, onCreateConnected, onDeleteEdge, onDeleteNode, onSetPosition, resolvePapel }: {
+  canvasRef: React.RefObject<HTMLDivElement | null>
   nodes: ENode[]; edges: EEdge[]; layout: ReturnType<typeof layoutGraph>
   selectedId: string | null; onSelect: (id: string) => void
   onConnect: (from: string, to: string) => void
@@ -330,7 +355,6 @@ function FlowCanvas({ nodes, edges, layout, selectedId, onSelect, onConnect, onC
   onSetPosition: (id: string, pos: { x: number; y: number }) => void
   resolvePapel: (id: string) => string | undefined
 }) {
-  const canvasRef = useRef<HTMLDivElement>(null)
   const [connecting, setConnecting] = useState<string | null>(null)
   const [rubber, setRubber] = useState('')
   const [menu, setMenu] = useState<{ x: number; y: number; from: string } | null>(null)
@@ -491,10 +515,45 @@ function CreateMenu({ x, y, onPick, onClose }: { x: number; y: number; onPick: (
   )
 }
 
+/** Botão "Exportar" com menu PNG/PDF. Fecha ao clicar fora; some enquanto captura. */
+function ExportMenu({ exporting, disabled, onExport }: {
+  exporting: FlowExportFormat | null
+  disabled?: boolean
+  onExport: (format: FlowExportFormat) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const busy = exporting !== null
+  useEffect(() => {
+    if (!open) return
+    const h = () => setOpen(false)
+    const t = setTimeout(() => window.addEventListener('pointerdown', h), 0)
+    return () => { clearTimeout(t); window.removeEventListener('pointerdown', h) }
+  }, [open])
+  return (
+    <div className="relative" onPointerDown={(e) => e.stopPropagation()}>
+      <Button variant="outline" size="sm" disabled={disabled || busy} onClick={() => setOpen((o) => !o)} title="Exportar o desenho como imagem ou PDF">
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+        Exportar
+        <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+      </Button>
+      {open && !busy && (
+        <div className="glass absolute right-0 top-10 z-30 w-44 rounded-xl p-1">
+          <button onClick={() => { onExport('jpg'); setOpen(false) }} className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm hover:bg-accent">
+            <FileImage className="h-4 w-4 text-sky-600 dark:text-sky-400" /> Imagem (JPG)
+          </button>
+          <button onClick={() => { onExport('pdf'); setOpen(false) }} className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm hover:bg-accent">
+            <FileText className="h-4 w-4 text-rose-600 dark:text-rose-400" /> Documento (PDF)
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function FlowNodeView({ node, selected, onClick, resolvePapel }: { node: ENode; selected: boolean; onClick: () => void; resolvePapel: (id: string) => string | undefined }) {
   if (node.type === 'start' || node.type === 'end') {
     const Icon = node.type === 'start' ? CircleDot : CheckCircle2
-    return <div className="w-full h-full rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex flex-col items-center justify-center gap-1 text-[11px] font-semibold"><Icon className="h-4 w-4" />{node.name}</div>
+    return <div className="w-full h-full rounded-2xl bg-emerald-500/10 border border-emerald-500/20 shadow-sm text-emerald-600 dark:text-emerald-400 flex flex-col items-center justify-center gap-1 text-[11px] font-semibold"><Icon className="h-4 w-4" />{node.name}</div>
   }
   if (node.type === 'exclusiveGateway' || node.type === 'parallelGateway') {
     const isExcl = node.type === 'exclusiveGateway'
@@ -505,13 +564,13 @@ function FlowNodeView({ node, selected, onClick, resolvePapel }: { node: ENode; 
       return <button onClick={onClick} className={cn('w-full h-full rounded-lg border flex items-center justify-center transition-all rotate-45', tone, selected && 'ring-2 ring-primary/30')} title="Reencontro"><Icon className="h-3.5 w-3.5 -rotate-45" /></button>
     }
     return (
-      <button onClick={onClick} className={cn('w-full h-full rounded-xl border flex items-center gap-2 px-3 text-left transition-all', tone, selected ? 'ring-2 ring-primary/30' : '')}>
+      <button onClick={onClick} className={cn('w-full h-full rounded-xl border shadow-sm flex items-center gap-2 px-3 text-left transition-all hover:shadow-md', tone, selected ? 'ring-2 ring-primary/30' : '')}>
         <Icon className="h-4 w-4 shrink-0" />
         <span className="text-[12px] font-semibold leading-tight truncate">{node.name}</span>
       </button>
     )
   }
-  // atividade
+  // atividade — card em vidro (sem thumbnail-esqueleto), acento no topo pela cor do tipo
   const type = node.type
   const tone = STEP_TONE[type]
   const Icon = type === 'serviceTask' ? Zap : UserSquare
@@ -520,16 +579,15 @@ function FlowNodeView({ node, selected, onClick, resolvePapel }: { node: ENode; 
   const connector = CONNECTORS.find((c) => c.value === step?.connector)?.label
   const due = dueText(step)
   return (
-    <button onClick={onClick} className={cn('w-full h-full text-left rounded-xl border bg-card shadow-sm overflow-hidden transition-all hover:shadow-md', selected ? 'border-primary ring-2 ring-primary/20' : 'border-border')}>
-      <div className="h-11 px-2.5 py-2 border-b bg-muted/30 relative">
-        {type === 'serviceTask' ? <div className="flex items-center justify-center h-full"><Zap className="h-5 w-5 text-amber-500/70" /></div> : (
-          <div className="space-y-1 pt-0.5"><div className="h-1.5 w-1/2 rounded bg-muted-foreground/15" /><div className="h-2.5 w-full rounded bg-muted-foreground/10" /></div>
-        )}
-      </div>
-      <div className="p-2">
-        <span className={cn('inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full', tone)}><Icon className="h-3 w-3" />{type === 'serviceTask' ? 'Ação' : 'Tarefa'}</span>
-        <p className="text-[13px] font-semibold mt-1 leading-tight truncate">{step?.stepName || <span className="text-muted-foreground italic font-normal">Sem nome</span>}</p>
-        <div className="mt-1.5 space-y-0.5">
+    <button onClick={onClick} className={cn('group/card w-full h-full text-left rounded-xl glass overflow-hidden flex flex-col transition-all hover:-translate-y-0.5 hover:shadow-lg', selected && 'ring-2 ring-primary')}>
+      <div className={cn('h-1 shrink-0', type === 'serviceTask' ? 'bg-amber-500/70' : 'bg-sky-500/70')} />
+      <div className="flex flex-1 min-h-0 flex-col p-2.5">
+        <div className="flex items-center gap-1.5">
+          <span className={cn('flex h-6 w-6 items-center justify-center rounded-lg shrink-0', tone)}><Icon className="h-3.5 w-3.5" /></span>
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{type === 'serviceTask' ? 'Ação automática' : 'Tarefa'}</span>
+        </div>
+        <p className="text-[13px] font-semibold leading-tight line-clamp-2 mt-1.5">{step?.stepName || <span className="text-muted-foreground italic font-normal">Sem nome</span>}</p>
+        <div className="mt-auto space-y-0.5 pt-1.5">
           <MetaRow icon={type === 'serviceTask' ? <Zap className="h-3 w-3" /> : <User className="h-3 w-3" />} text={type === 'serviceTask' ? (connector ?? 'Sem ação') : (role ?? 'Sem executor')} />
           {due && <MetaRow icon={<Clock className="h-3 w-3" />} text={due} />}
         </div>
