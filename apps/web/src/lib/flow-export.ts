@@ -8,6 +8,8 @@
    (extensão cently interferindo no carregamento interno de imagem da lib).
    Saída: JPG (toDataURL) ou PDF (jspdf, import dinâmico). CSP já cobre data:/blob:. */
 
+import { titleLineCount } from './flow-layout'
+
 export type FlowExportFormat = 'jpg' | 'pdf'
 
 export type ExportNodeType = 'start' | 'end' | 'userTask' | 'serviceTask' | 'exclusiveGateway' | 'parallelGateway'
@@ -199,9 +201,9 @@ function drawCard(ctx: CanvasRenderingContext2D, n: ExportNode, x: number, y: nu
   ctx.fillStyle = pal.bar; roundRect(ctx, px + 5, top + 5, 8, 8, 2.5); ctx.fill()
   ctx.fillStyle = C.muted; ctx.font = `600 9px ${C.sans}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
   ctx.fillText((n.typeLabel ?? '').toUpperCase(), px + 24, top + 9)
-  // título (até 2 linhas)
+  // título (nº de linhas dinâmico, casa com a altura do card)
   ctx.fillStyle = C.fg; ctx.font = `700 13px ${C.sans}`; ctx.textBaseline = 'top'
-  wrapText(ctx, n.name, px, top + 24, w - 24, 16, 2)
+  wrapText(ctx, n.name, px, top + 24, w - 24, 16, titleLineCount(n.name))
   // meta (rodapé do card)
   const meta = n.meta ?? []
   if (meta.length) {

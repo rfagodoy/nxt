@@ -1,7 +1,21 @@
 import { describe, it, expect } from 'vitest'
-import { layoutGraph, type FlowGraph } from './flow-layout'
+import { layoutGraph, titleLineCount, nodeSize, type FlowGraph } from './flow-layout'
 
 const g = (nodes: FlowGraph['nodes'], edges: FlowGraph['edges']): FlowGraph => ({ nodes, edges, startId: 'start' })
+
+describe('titleLineCount / altura dinâmica do card', () => {
+  it('nome vazio/curto = 1 linha; cresce com o comprimento; capa em 3', () => {
+    expect(titleLineCount('')).toBe(1)
+    expect(titleLineCount('Aprovar')).toBe(1)
+    expect(titleLineCount('a'.repeat(30))).toBe(2)
+    expect(titleLineCount('a'.repeat(200))).toBe(3) // capado
+  })
+  it('a altura do card de atividade acompanha o nº de linhas do título', () => {
+    const short = nodeSize({ id: 'x', type: 'userTask', name: 'Aprovar' }, 1, 1).h
+    const long = nodeSize({ id: 'y', type: 'userTask', name: 'a'.repeat(50) }, 1, 1).h
+    expect(long).toBeGreaterThan(short)
+  })
+})
 
 describe('layoutGraph', () => {
   it('fluxo linear fica numa linha reta (mesma faixa/centro-y)', () => {

@@ -21,7 +21,7 @@ import { useScreens } from '@/hooks/use-screens'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import type { ScreenSubject } from '@/lib/screen-types'
 import { PAPEIS_KEY, INIT_PAPEIS, REFERENCIA, ORIGEM, referenciaDoPapelEntry } from '@/lib/contract-roles'
-import { layoutGraph, type FlowNode as LNode, type FlowNodeType } from '@/lib/flow-layout'
+import { layoutGraph, titleLineCount, type FlowNode as LNode, type FlowNodeType } from '@/lib/flow-layout'
 import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, type ExportEdge } from '@/lib/flow-export'
 import { apiFetch } from '@/lib/http'
 import { cn } from '@/lib/utils'
@@ -649,7 +649,7 @@ function FlowNodeView({ node, selected, onClick, resolvePapel }: { node: ENode; 
           <span className={cn('flex h-6 w-6 items-center justify-center rounded-lg shrink-0', tone)}><Icon className="h-3.5 w-3.5" /></span>
           <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{type === 'serviceTask' ? 'Ação automática' : 'Tarefa'}</span>
         </div>
-        <p className="text-[13px] font-semibold leading-tight line-clamp-2 mt-1.5 shrink-0">{step?.stepName || <span className="text-muted-foreground italic font-normal">Sem nome</span>}</p>
+        <p className="text-[13px] font-semibold leading-tight mt-1.5 shrink-0" style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: titleLineCount(step?.stepName), overflow: 'hidden' }}>{step?.stepName || <span className="text-muted-foreground italic font-normal">Sem nome</span>}</p>
         <div className="mt-auto space-y-0.5 pt-1.5 min-h-0 overflow-hidden">
           <MetaRow icon={type === 'serviceTask' ? <Zap className="h-3 w-3" /> : <User className="h-3 w-3" />} text={type === 'serviceTask' ? (connector ?? 'Sem ação') : (role ?? 'Sem executor')} />
           {due && <MetaRow icon={<Clock className="h-3 w-3" />} text={due} />}

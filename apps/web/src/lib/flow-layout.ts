@@ -21,8 +21,25 @@ export interface PositionedNode { id: string; x: number; y: number; w: number; h
 export interface LayoutResult { nodes: Record<string, PositionedNode>; width: number; height: number }
 
 const COL_GAP = 72          // espaço horizontal entre colunas
-const BRANCH_GAP = 150      // distância vertical entre faixas (≥ altura do card + folga)
+const BRANCH_GAP = 168      // distância vertical entre faixas (≥ altura do card MAIS ALTO + folga)
 const MARGIN = 40
+
+/* Card da atividade: altura DINÂMICA pela descrição (nome). O restante do card
+   (acento + ícone/rótulo + 2 linhas de meta = executor/ação + prazo + paddings) é
+   fixo; cada linha do título soma. Assim a caixa "acompanha a descrição" e o prazo
+   nunca é cortado. Estimativa determinística (sem medir o DOM) → layout puro/testável. */
+const TASK_W = 190
+const TITLE_CHARS_PER_LINE = 20 // ~largura útil do título (170px) / ~8.5px por char (13px semibold)
+const TITLE_MAX_LINES = 3
+const CARD_BASE_H = 96          // tudo menos as linhas do título
+const CARD_LINE_H = 17          // altura de cada linha do título
+
+/** Nº de linhas que a descrição da atividade ocupa no card (1..MAX). Compartilhado
+ *  entre o layout (altura da caixa) e o card (line-clamp) para casarem exatamente. */
+export function titleLineCount(name: string | undefined): number {
+  const len = (name ?? '').trim().length || 1
+  return Math.min(TITLE_MAX_LINES, Math.max(1, Math.ceil(len / TITLE_CHARS_PER_LINE)))
+}
 
 /** Dimensões de cada tipo de nó. Gateways: FORK (com rótulo) vs JUNÇÃO (losango pequeno). */
 export function nodeSize(node: FlowNode, _outDeg: number, _inDeg: number): { w: number; h: number } {
@@ -32,7 +49,7 @@ export function nodeSize(node: FlowNode, _outDeg: number, _inDeg: number): { w: 
       return { w: 60, h: 60 }
     case 'userTask':
     case 'serviceTask':
-      return { w: 190, h: 122 }
+      return { w: TASK_W, h: CARD_BASE_H + titleLineCount(node.name) * CARD_LINE_H }
     case 'exclusiveGateway':
     case 'parallelGateway': {
       // com rótulo = pílula (decisão/paralelo); sem rótulo = losango pequeno (junção)
