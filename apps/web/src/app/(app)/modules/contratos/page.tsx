@@ -432,7 +432,9 @@ export default function ContratosPage() {
           </thead>
           <tbody>
             {pageRows.length === 0 ? (
-              <tr><td colSpan={orderedColumns.length} className="px-3 py-8 text-center text-xs text-muted-foreground">Nenhum contrato encontrado.</td></tr>
+              <tr><td colSpan={orderedColumns.length} className="px-3 py-8 text-center text-xs text-muted-foreground">
+                {totalAll === 0 ? 'Nenhum contrato cadastrado.' : 'Nenhum contrato encontrado com os filtros aplicados.'}
+              </td></tr>
             ) : pageRows.map(r => (
               <tr key={r.id} className="group/row border-b last:border-0 hover:bg-muted/30 transition-colors">
                 {orderedColumns.map((col, colIdx) => renderCell(r, col.key, colIdx))}

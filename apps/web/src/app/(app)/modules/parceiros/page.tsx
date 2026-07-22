@@ -568,7 +568,9 @@ export default function ParceirosPage() {
             {pageRows.length === 0 ? (
               <tr>
                 <td colSpan={orderedColumns.length} className="px-3 py-8 text-center text-xs text-muted-foreground">
-                  Nenhum registro encontrado com os filtros aplicados.
+                  {(search.trim() || filters.some(f => f.value.trim()))
+                    ? 'Nenhum parceiro encontrado com os filtros aplicados.'
+                    : 'Nenhum parceiro cadastrado.'}
                 </td>
               </tr>
             ) : pageRows.map(p => (
