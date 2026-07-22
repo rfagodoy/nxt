@@ -63,7 +63,8 @@ export class InstancesService {
    *  (precede o slaMinutes legado). Sem prazo configurado → null. */
   private dueAtFor(node: WfNode, cal: StoredCalendar): Date | null {
     const days = node.slaBusinessDays ?? 0
-    const hours = node.slaBusinessHours ?? 0
+    // minutos úteis entram como fração de hora (addBusinessTime acumula em minutos).
+    const hours = (node.slaBusinessHours ?? 0) + (node.slaBusinessMinutes ?? 0) / 60
     if (days > 0 || hours > 0) return this.calendar.computeDue(new Date(), days, hours, cal)
     if (node.slaMinutes && node.slaMinutes > 0) return new Date(Date.now() + node.slaMinutes * 60_000)
     return null
@@ -271,7 +272,7 @@ export class InstancesService {
       // super-estima (soma todos os ramos → prazo mais folgado); documentado como escolha.
       let slaDays = 0, slaHours = 0
       for (const n of Object.values(graph?.nodes ?? {})) {
-        if (n?.type === 'userTask') { slaDays += n.slaBusinessDays ?? 0; slaHours += n.slaBusinessHours ?? 0 }
+        if (n?.type === 'userTask') { slaDays += n.slaBusinessDays ?? 0; slaHours += (n.slaBusinessHours ?? 0) + (n.slaBusinessMinutes ?? 0) / 60 }
       }
       const hasProcessSla = slaDays > 0 || slaHours > 0
       const processDueAt = hasProcessSla && startMs != null ? this.calendar.computeDue(new Date(startMs), slaDays, slaHours, cal) : null
@@ -308,6 +309,30 @@ export class InstancesService {
         processOnTime,
       }
     })
+  }
+
+  /** Gargalos (Fase 3): tempo MÉDIO por etapa (tarefa concluída → createdAt..completedAt),
+   *  agrupado por nome de atividade. Devolve as mais lentas (top 5) para a tela de
+   *  Acompanhamento destacar onde o processo mais demora. */
+  async stepMetrics(organizationId: string) {
+    const tasks = await this.prisma.workflowTask.findMany({
+      where: { status: 'DONE', completedAt: { not: null }, instance: { processDefinition: { organizationId } } },
+      select: { name: true, nodeId: true, createdAt: true, completedAt: true },
+    })
+    const byStep = new Map<string, { name: string; totalMs: number; count: number }>()
+    for (const t of tasks) {
+      const dur = (t.completedAt as Date).getTime() - t.createdAt.getTime()
+      if (dur < 0) continue
+      const key = t.name || t.nodeId
+      const cur = byStep.get(key) ?? { name: key, totalMs: 0, count: 0 }
+      cur.totalMs += dur; cur.count += 1
+      byStep.set(key, cur)
+    }
+    const slowest = [...byStep.values()]
+      .map((s) => ({ name: s.name, avgMs: Math.round(s.totalMs / s.count), count: s.count }))
+      .sort((a, b) => b.avgMs - a.avgMs)
+      .slice(0, 5)
+    return { slowest }
   }
 
   async getInstanceWithContext(instanceId: string, organizationId: string) {

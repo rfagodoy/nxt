@@ -29,6 +29,7 @@ interface TaskRow {
   status: string; createdAt: string; dueAt?: string | null; completedAt?: string | null; completedBy?: string | null
 }
 interface SortState { col: string; dir: 'asc' | 'desc' }
+interface StepMetric { name: string; avgMs: number; count: number }
 
 const STATUS: Record<string, { label: string; icon: typeof Activity; cls: string }> = {
   RUNNING:   { label: 'Em andamento', icon: PlayCircle,   cls: 'bg-sky-500/10 text-sky-600 dark:text-sky-400' },
@@ -105,6 +106,7 @@ const HIDDEN_KEY = 'nxt:cols:processos:hidden'
 export default function ProcessosPage() {
   const { views, saveView, deleteView } = useViews('processos')
   const [rows, setRows] = useState<Inst[] | null>(null)
+  const [slowest, setSlowest] = useState<StepMetric[]>([])
   const [detail, setDetail] = useState<Inst | null>(null)
   const [tasks, setTasks] = useState<TaskRow[] | null>(null)
 
@@ -120,7 +122,14 @@ export default function ProcessosPage() {
   const configRef = useRef<HTMLDivElement>(null)
   const mounted = useRef(false)
 
-  const load = useCallback(async () => { setRows(await apiJson<Inst[]>('/api/instances') ?? []) }, [])
+  const load = useCallback(async () => {
+    const [insts, m] = await Promise.all([
+      apiJson<Inst[]>('/api/instances'),
+      apiJson<{ slowest: StepMetric[] }>('/api/instances/metrics'),
+    ])
+    setRows(insts ?? [])
+    setSlowest(m?.slowest ?? [])
+  }, [])
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
@@ -266,6 +275,23 @@ export default function ProcessosPage() {
           </div>
         ))}
       </div>
+
+      {/* Gargalos (Fase 3): etapas com maior tempo médio de execução. */}
+      {slowest.length > 0 && (
+        <div className="rounded-xl border bg-card shadow-sm px-3 py-2.5">
+          <p className="text-[11px] font-medium text-muted-foreground mb-2">Gargalos — etapas mais lentas (tempo médio)</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1.5">
+            {slowest.map((s, i) => (
+              <div key={s.name} className="flex items-center gap-2 text-xs min-w-0">
+                <span className={cn('flex h-5 w-5 items-center justify-center rounded text-[10px] font-bold shrink-0', i === 0 ? 'bg-red-500/15 text-red-600 dark:text-red-400' : 'bg-muted text-muted-foreground')}>{i + 1}</span>
+                <span className="flex-1 truncate">{s.name}</span>
+                <span className="tabular-nums font-semibold shrink-0">{humanDuration(s.avgMs)}</span>
+                <span className="text-[10px] text-muted-foreground/70 shrink-0">({s.count})</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <ListToolbar
         search={search} onSearch={setSearch}

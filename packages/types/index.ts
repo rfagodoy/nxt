@@ -46,6 +46,9 @@ export interface StepFormSchema {
   slaBusinessDays?: number
   /** Prazo em HORAS ÚTEIS (storyboard). Contado dentro do expediente. */
   slaBusinessHours?: number
+  /** Prazo em MINUTOS ÚTEIS (storyboard). Contado dentro do expediente.
+   *  O editor grava APENAS um dos três (dias|horas|minutos) — "prazo único + unidade". */
+  slaBusinessMinutes?: number
   /** Instruções livres exibidas ao executor ao abrir a tarefa (storyboard). */
   instructions?: string
   /** Conector de domínio de uma atividade de serviço (ação automática). Ex.:

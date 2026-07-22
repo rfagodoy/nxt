@@ -45,6 +45,15 @@ export class InstancesController {
     })
   }
 
+  // Rota estática ANTES de `:id`. Gargalos/métricas por etapa — admin.
+  @Get('metrics')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Métricas de gargalo: etapas mais lentas (tempo médio) — admin' })
+  metrics(@CurrentOrg() organizationId: string) {
+    return this.instancesService.stepMetrics(organizationId)
+  }
+
   @Patch('tasks/:taskId/complete')
   @ApiOperation({ summary: 'Conclui uma tarefa (userTask) e avança o motor' })
   completeTask(

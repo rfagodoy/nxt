@@ -38,6 +38,8 @@ export interface WfNode {
   slaBusinessDays?: number
   /** Prazo em HORAS ÚTEIS (Storyboard) — contado dentro do expediente. */
   slaBusinessHours?: number
+  /** Prazo em MINUTOS ÚTEIS (Storyboard) — contado dentro do expediente. */
+  slaBusinessMinutes?: number
   /** Instruções livres exibidas ao executor ao abrir a tarefa (Storyboard). */
   instructions?: string
 
