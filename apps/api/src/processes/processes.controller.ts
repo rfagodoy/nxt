@@ -41,6 +41,22 @@ export class ProcessesController {
     return this.processesService.activate(id, organizationId)
   }
 
+  @Patch(':id/inactivate')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Inativa um workflow ativo (sai de "Novo processo") — admin' })
+  inactivate(@Param('id') id: string, @CurrentOrg() organizationId: string) {
+    return this.processesService.inactivate(id, organizationId)
+  }
+
+  @Patch(':id/reactivate')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Reativa um workflow inativo — admin' })
+  reactivate(@Param('id') id: string, @CurrentOrg() organizationId: string) {
+    return this.processesService.reactivate(id, organizationId)
+  }
+
   @Patch(':id')
   @UseGuards(RolesGuard)
   @Roles('admin')

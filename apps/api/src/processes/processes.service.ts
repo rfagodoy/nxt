@@ -58,10 +58,29 @@ export class ProcessesService {
       throw e
     }
 
+    const formSchema = process.formSchema as unknown as ProcessFormSchema
+
+    // OBRIGATORIEDADE (política do produto): toda TAREFA DO USUÁRIO precisa de nome,
+    // executor (papel) e prazo (SLA). Bloqueia a ativação com a lista de pendências —
+    // em vez de deixar ativar um processo com atividades incompletas.
+    const incompletos: string[] = []
+    for (const step of formSchema.steps ?? []) {
+      const node = graph.nodes[step.stepId]
+      if (node?.type !== 'userTask') continue
+      const hasSla = (step.slaBusinessDays ?? 0) > 0 || (step.slaBusinessHours ?? 0) > 0 || (step.slaBusinessMinutes ?? 0) > 0
+      if (!step.stepName?.trim() || !step.executor?.papelId || !hasSla) {
+        incompletos.push(step.stepName?.trim() || 'Tarefa sem nome')
+      }
+    }
+    if (incompletos.length) {
+      throw new BadRequestException(
+        `Preencha nome, executor e prazo em todas as tarefas antes de ativar: ${incompletos.join(', ')}`,
+      )
+    }
+
     // Mescla o que foi configurado no painel "Atividade" do designer (guardado no
     // formSchema por nó): executor (papel) e prazo/SLA. É a forma explícita de
     // definir esses atributos sem depender de raias/extensões no XML.
-    const formSchema = process.formSchema as unknown as ProcessFormSchema
     for (const step of formSchema.steps ?? []) {
       const node = graph.nodes[step.stepId]
       if (!node) continue
@@ -71,6 +90,7 @@ export class ProcessesService {
       // calendário comercial da org na criação (persistTasks). Precede o slaMinutes legado.
       if (typeof step.slaBusinessDays === 'number' && step.slaBusinessDays > 0) node.slaBusinessDays = step.slaBusinessDays
       if (typeof step.slaBusinessHours === 'number' && step.slaBusinessHours > 0) node.slaBusinessHours = step.slaBusinessHours
+      if (typeof step.slaBusinessMinutes === 'number' && step.slaBusinessMinutes > 0) node.slaBusinessMinutes = step.slaBusinessMinutes
       // Instruções livres exibidas ao executor ao abrir a tarefa.
       if (step.instructions?.trim()) node.instructions = step.instructions.trim()
       // Conector de domínio da atividade de serviço (ação automática). Definido no
@@ -102,7 +122,6 @@ export class ProcessesService {
       where: { processDefinitionId: id },
     })
     if (!existingModule) {
-      const formSchema = process.formSchema as unknown as ProcessFormSchema
       const slug = process.name
         .toLowerCase()
         .normalize('NFD')
@@ -134,6 +153,27 @@ export class ProcessesService {
     if (dto.kind !== undefined) data.kind = dto.kind || null
     if (dto.bpmnXml !== undefined || dto.formSchema !== undefined) data.status = 'DRAFT'
     return this.prisma.processDefinition.update({ where: { id }, data: data as never })
+  }
+
+  /** Inativa um workflow ATIVO → deixa de aparecer em "Novo processo" (StartProcessButton
+   *  só lista ACTIVE). Preserva o grafo compilado; instâncias em andamento seguem no
+   *  graphSnapshot. Reversível via reactivate. Distinto de ARCHIVED (que vem do delete). */
+  async inactivate(id: string, organizationId: string) {
+    const process = await this.findOne(id, organizationId)
+    if (process.status !== 'ACTIVE') {
+      throw new BadRequestException('Só é possível inativar um workflow ativo.')
+    }
+    return this.prisma.processDefinition.update({ where: { id }, data: { status: 'INACTIVE' } })
+  }
+
+  /** Reativa um workflow INATIVO → volta a ficar disponível. O grafo já está compilado
+   *  (o diagrama não mudou na inativação), então só reabre o status. */
+  async reactivate(id: string, organizationId: string) {
+    const process = await this.findOne(id, organizationId)
+    if (process.status !== 'INACTIVE') {
+      throw new BadRequestException('Só é possível reativar um workflow inativo.')
+    }
+    return this.prisma.processDefinition.update({ where: { id }, data: { status: 'ACTIVE' } })
   }
 
   /** Remove um processo. Sem instâncias → exclusão limpa (apaga o módulo gerado).

@@ -166,6 +166,14 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const patchStep = useCallback((id: string, patch: Partial<StepFormSchema>) => {
     setNodes((prev) => prev.map((n) => (n.id === id && n.step ? { ...n, step: { ...n.step, ...patch } } : n)))
   }, [])
+  // Troca o TIPO da atividade (Tarefa ↔ Ação automática). Precisa mexer em node.type
+  // (o inspetor e o motor leem daí) além do stepType — por isso não dá para fazer só
+  // via patchStep (era o bug do toggle que "não fazia nada").
+  const changeNodeType = useCallback((id: string, t: 'userTask' | 'serviceTask') => {
+    setNodes((prev) => prev.map((n) => (n.id === id
+      ? { ...n, type: t, step: { ...(n.step ?? { stepId: id, stepName: '', fields: [] }), stepType: t } }
+      : n)))
+  }, [])
 
   // ── gestos de conexão (portas): conectar, criar-no-vazio, apagar aresta ──
   const onConnect = useCallback((from: string, to: string) => {
@@ -344,7 +352,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         <div className="w-80 border-l bg-card flex flex-col overflow-hidden shrink-0">
           {selected ? (
             isActivity(selected.type) ? (
-              <ActivityInspector key={selected.id} node={selected} nodes={nodes} edges={edges} screens={screens} papeis={papeis} onPatchStep={(p) => patchStep(selected.id, p)} onRemove={() => removeNode(selected.id)} />
+              <ActivityInspector key={selected.id} node={selected} nodes={nodes} edges={edges} screens={screens} papeis={papeis} onPatchStep={(p) => patchStep(selected.id, p)} onChangeType={(t) => changeNodeType(selected.id, t)} onRemove={() => removeNode(selected.id)} />
             ) : (
               <GatewayInspector key={selected.id} node={selected} edges={edges} onPatchNode={(p) => patchNode(selected.id, p)} onSetEdge={setEdge} />
             )
@@ -625,10 +633,11 @@ function MetaRow({ icon, text }: { icon: React.ReactNode; text: string }) {
 }
 
 function dueText(step?: StepFormSchema): string | null {
-  const d = step?.slaBusinessDays ?? 0, h = step?.slaBusinessHours ?? 0
+  const d = step?.slaBusinessDays ?? 0, h = step?.slaBusinessHours ?? 0, m = step?.slaBusinessMinutes ?? 0
   const parts: string[] = []
   if (d) parts.push(`${d} ${d > 1 ? 'dias úteis' : 'dia útil'}`)
   if (h) parts.push(`${h} h úteis`)
+  if (m) parts.push(`${m} min úteis`)
   return parts.length ? parts.join(' · ') : null
 }
 
@@ -647,9 +656,9 @@ function Field({ label, required, hint, children }: { label: string; required?: 
   )
 }
 
-function ActivityInspector({ node, nodes, edges, screens, papeis, onPatchStep, onRemove }: {
+function ActivityInspector({ node, nodes, edges, screens, papeis, onPatchStep, onChangeType, onRemove }: {
   node: ENode; nodes: ENode[]; edges: EEdge[]; screens: Screens; papeis: Papeis
-  onPatchStep: (patch: Partial<StepFormSchema>) => void; onRemove: () => void
+  onPatchStep: (patch: Partial<StepFormSchema>) => void; onChangeType: (t: 'userTask' | 'serviceTask') => void; onRemove: () => void
 }) {
   const step = node.step!
   const type = node.type as 'userTask' | 'serviceTask'
@@ -684,7 +693,7 @@ function ActivityInspector({ node, nodes, edges, screens, papeis, onPatchStep, o
   const papelSel = executor?.papelId ? papeis.entries.find((p) => p.id === executor.papelId) : undefined
   const execOrigem = papelSel?.origem
   const pickPapel = (papelId: string) => {
-    if (!papelId || papelId === 'none') { onPatchStep({ executor: undefined }); return }
+    if (!papelId) return
     const p = papeis.entries.find((pp) => pp.id === papelId)
     onPatchStep({ executor: { papelId, entityType: p?.origem ?? 'CONTRATO', mode: 'FIXA', entityId: undefined, entityVar: undefined } })
   }
@@ -693,6 +702,19 @@ function ActivityInspector({ node, nodes, edges, screens, papeis, onPatchStep, o
     if (!id || id === 'none') { onPatchStep({ screenRef: undefined, screenSubject: undefined, entityMode: undefined, entityVar: undefined }); return }
     const sc = entityScreens.find((s) => s.id === id)
     onPatchStep({ screenRef: id, screenSubject: sc?.subjectType as ScreenSubject as 'CONTRATO' | 'FORNECEDOR' | undefined, entityMode: step.entityMode ?? 'CREATE' })
+  }
+
+  // Prazo ÚNICO + unidade (dias/horas/minutos úteis): guarda em apenas UM dos três
+  // campos slaBusiness* (os outros ficam undefined) — "de acordo com a unidade, um só campo".
+  const slaUnit: 'DAYS' | 'HOURS' | 'MINUTES' = step.slaBusinessDays != null ? 'DAYS' : step.slaBusinessHours != null ? 'HOURS' : step.slaBusinessMinutes != null ? 'MINUTES' : 'DAYS'
+  const slaValue = step.slaBusinessDays ?? step.slaBusinessHours ?? step.slaBusinessMinutes ?? ''
+  const setSla = (unit: 'DAYS' | 'HOURS' | 'MINUTES', value: string | number) => {
+    const v = value === '' ? undefined : Math.max(0, Number(value))
+    onPatchStep({
+      slaBusinessDays: unit === 'DAYS' ? v : undefined,
+      slaBusinessHours: unit === 'HOURS' ? v : undefined,
+      slaBusinessMinutes: unit === 'MINUTES' ? v : undefined,
+    })
   }
 
   return (
@@ -704,7 +726,7 @@ function ActivityInspector({ node, nodes, edges, screens, papeis, onPatchStep, o
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         <div className="flex gap-1 text-xs">
           {(['userTask', 'serviceTask'] as const).map((t) => (
-            <button key={t} type="button" onClick={() => onPatchStep({ stepType: t })}
+            <button key={t} type="button" onClick={() => onChangeType(t)}
               className={cn('flex-1 rounded-md px-2 py-1.5 border transition-colors', type === t ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted text-muted-foreground')}>
               {t === 'serviceTask' ? 'Ação automática' : 'Tarefa'}
             </button>
@@ -721,11 +743,10 @@ function ActivityInspector({ node, nodes, edges, screens, papeis, onPatchStep, o
 
         {type === 'userTask' ? (
           <>
-            <Field label="Executor (papel)">
-              <Select value={executor?.papelId || 'none'} onValueChange={pickPapel}>
-                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Sem papel definido" /></SelectTrigger>
+            <Field label="Executor (papel)" required hint={papeisPessoa.length === 0 ? 'Nenhum papel de pessoa cadastrado. Crie em Configurações → Papéis (referência “Pessoa”).' : undefined}>
+              <Select value={executor?.papelId ?? ''} onValueChange={pickPapel}>
+                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Selecione o executor" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Sem papel definido</SelectItem>
                   {papeisPessoa.map((p) => <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -761,10 +782,17 @@ function ActivityInspector({ node, nodes, edges, screens, papeis, onPatchStep, o
                 ))}
               </div>
             )}
-            <Field label="Prazo (SLA)" hint="Conta no expediente comercial e pula fins de semana e feriados.">
+            <Field label="Prazo (SLA)" required hint="Conta no expediente comercial e pula fins de semana e feriados.">
               <div className="flex gap-2">
-                <div className="relative flex-1"><Input className="h-8 text-sm pr-16" type="number" min={0} placeholder="0" value={step.slaBusinessDays ?? ''} onChange={(e) => onPatchStep({ slaBusinessDays: e.target.value === '' ? undefined : Math.max(0, Number(e.target.value)) })} /><span className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground pointer-events-none">dias úteis</span></div>
-                <div className="relative flex-1"><Input className="h-8 text-sm pr-12" type="number" min={0} placeholder="0" value={step.slaBusinessHours ?? ''} onChange={(e) => onPatchStep({ slaBusinessHours: e.target.value === '' ? undefined : Math.max(0, Number(e.target.value)) })} /><span className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground pointer-events-none">h úteis</span></div>
+                <Input className="h-8 text-sm flex-1" type="number" min={0} placeholder="0" value={slaValue} onChange={(e) => setSla(slaUnit, e.target.value)} />
+                <Select value={slaUnit} onValueChange={(u) => setSla(u as 'DAYS' | 'HOURS' | 'MINUTES', slaValue)}>
+                  <SelectTrigger className="h-8 text-sm w-36 shrink-0"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="DAYS">Dias úteis</SelectItem>
+                    <SelectItem value="HOURS">Horas úteis</SelectItem>
+                    <SelectItem value="MINUTES">Minutos úteis</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </Field>
           </>

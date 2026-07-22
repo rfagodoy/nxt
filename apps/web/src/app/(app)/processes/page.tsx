@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import Link from 'next/link'
 import {
-  Plus, Zap, Pencil, Trash2, Loader2, RefreshCw, AlertTriangle, Play,
+  Plus, Zap, Pencil, Trash2, Loader2, RefreshCw, AlertTriangle, Power, PowerOff,
   Settings2, ChevronsUpDown, ArrowUp, ArrowDown,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -19,7 +19,7 @@ interface ProcessRow {
   id: string
   name: string
   description?: string | null
-  status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED'
+  status: 'DRAFT' | 'ACTIVE' | 'INACTIVE' | 'ARCHIVED'
   version: number
   kind?: string | null
   updatedAt: string
@@ -30,6 +30,7 @@ const KIND_LABEL: Record<string, string> = { CONTRATO: 'Contrato', ADITIVO: 'Adi
 const STATUS: Record<string, { label: string; cls: string }> = {
   ACTIVE:   { label: 'Ativo',     cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
   DRAFT:    { label: 'Rascunho',  cls: 'bg-muted text-muted-foreground' },
+  INACTIVE: { label: 'Inativo',   cls: 'bg-slate-500/10 text-slate-600 dark:text-slate-400' },
   ARCHIVED: { label: 'Arquivado', cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
 }
 const fmtDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString('pt-BR') : '—')
@@ -105,6 +106,15 @@ export default function WorkflowsPage() {
       await load()
     } finally { setBusy(null) }
   }
+  // Inativar (ACTIVE→INACTIVE) / Reativar (INACTIVE→ACTIVE). Inativo sai de "Novo processo".
+  const setStatus = async (id: string, action: 'inactivate' | 'reactivate') => {
+    setBusy(id)
+    try {
+      const res = await apiFetch(`/api/processes/${id}/${action}`, { method: 'PATCH' })
+      if (!res.ok) { const err = await res.json().catch(() => null); alert(err?.message || 'Operação não permitida.'); return }
+      await load()
+    } finally { setBusy(null) }
+  }
   const remove = async (p: ProcessRow) => {
     if (!confirm(`Excluir o workflow "${p.name}"? Se houver execuções, ele será apenas arquivado (o histórico é preservado).`)) return
     setBusy(p.id)
@@ -122,6 +132,7 @@ export default function WorkflowsPage() {
   const stats = useMemo(() => ({
     total: all.length,
     active: all.filter((p) => p.status === 'ACTIVE').length,
+    inactive: all.filter((p) => p.status === 'INACTIVE').length,
     draft: all.filter((p) => p.status === 'DRAFT').length,
     archived: all.filter((p) => p.status === 'ARCHIVED').length,
   }), [all])
@@ -214,10 +225,11 @@ export default function WorkflowsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
         {[
           { label: 'Total', value: stats.total, cls: 'text-foreground' },
           { label: 'Ativos', value: stats.active, cls: 'text-emerald-600 dark:text-emerald-400' },
+          { label: 'Inativos', value: stats.inactive, cls: 'text-slate-500 dark:text-slate-400' },
           { label: 'Rascunhos', value: stats.draft, cls: 'text-muted-foreground' },
           { label: 'Arquivados', value: stats.archived, cls: 'text-amber-600 dark:text-amber-400' },
         ].map(({ label, value, cls }) => (
@@ -274,9 +286,14 @@ export default function WorkflowsPage() {
                         </Button>
                       )}
                       {p.status === 'ACTIVE' && (
-                        <Link href={`/processes/${p.id}?iniciar=1`} className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs hover:bg-muted transition-colors" title="Iniciar o workflow">
-                          <Play className="h-3.5 w-3.5" />Iniciar
-                        </Link>
+                        <button onClick={() => setStatus(p.id, 'inactivate')} disabled={busy === p.id} className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs hover:bg-muted transition-colors disabled:opacity-50" title="Inativar — deixa de aparecer em Novo processo">
+                          <PowerOff className="h-3.5 w-3.5" />Inativar
+                        </button>
+                      )}
+                      {p.status === 'INACTIVE' && (
+                        <button onClick={() => setStatus(p.id, 'reactivate')} disabled={busy === p.id} className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 transition-colors disabled:opacity-50" title="Reativar">
+                          <Power className="h-3.5 w-3.5" />Reativar
+                        </button>
                       )}
                       <Link href={`/processes/${p.id}/edit`} className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs hover:bg-muted transition-colors" title="Abrir no editor">
                         <Pencil className="h-3.5 w-3.5" />Editar

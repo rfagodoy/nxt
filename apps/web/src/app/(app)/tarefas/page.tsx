@@ -29,11 +29,12 @@ interface InstanceContext {
   state?: { variables?: Record<string, unknown> }
 }
 
-type Grp = 'crit' | 'warn' | 'week' | 'none'
+type Grp = 'crit' | 'warn' | 'week'
 
-/** Deriva a urgência da tarefa a partir do prazo (dueAt) + rótulo humano. */
+/** Deriva a urgência da tarefa a partir do prazo (dueAt) + rótulo humano.
+ *  Toda atividade agora tem prazo obrigatório; tarefa sem dueAt (legado) cai em "Próximas". */
 function dueInfo(dueAt?: string | null): { grp: Grp; label: string } {
-  if (!dueAt) return { grp: 'none', label: 'sem prazo' }
+  if (!dueAt) return { grp: 'week', label: 'sem prazo' }
   const due = new Date(dueAt).getTime()
   const now = Date.now()
   const diff = due - now
@@ -68,13 +69,11 @@ const COLUMNS: { key: Grp; label: string; dot: string; rail: string }[] = [
   { key: 'crit', label: 'Atrasadas',    dot: 'bg-red-500',              rail: 'bg-red-500' },
   { key: 'warn', label: 'Vencem hoje',  dot: 'bg-amber-500',            rail: 'bg-amber-500' },
   { key: 'week', label: 'Próximas',     dot: 'bg-primary',              rail: 'bg-primary' },
-  { key: 'none', label: 'Sem prazo',    dot: 'bg-muted-foreground/40',  rail: 'bg-border' },
 ]
 const DUE_CHIP: Record<Grp, string> = {
   crit: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
   warn: 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300',
   week: 'bg-muted text-muted-foreground',
-  none: 'bg-muted text-muted-foreground/80',
 }
 const TASK_STATUS: Record<string, string> = { PENDING: 'atual', DONE: 'concluída', CANCELED: 'cancelada' }
 
@@ -141,7 +140,7 @@ export default function TarefasPage() {
   }, [tasks])
 
   const byGroup = useMemo(() => {
-    const g: Record<Grp, Task[]> = { crit: [], warn: [], week: [], none: [] }
+    const g: Record<Grp, Task[]> = { crit: [], warn: [], week: [] }
     ;(tasks ?? []).forEach((t) => g[dueInfo(t.dueAt).grp].push(t))
     return g
   }, [tasks])
@@ -171,13 +170,12 @@ export default function TarefasPage() {
       </div>
 
       {/* cards de resumo (padrão das listas) */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {[
           { label: 'Total',       value: stats.total,        cls: 'text-foreground' },
           { label: 'Atrasadas',   value: stats.crit,         cls: 'text-red-600 dark:text-red-400' },
           { label: 'Vencem hoje', value: stats.warn,         cls: 'text-amber-600 dark:text-amber-400' },
           { label: 'Próximas',    value: byGroup.week.length, cls: 'text-primary' },
-          { label: 'Sem prazo',   value: byGroup.none.length, cls: 'text-muted-foreground' },
         ].map(({ label, value, cls }) => (
           <div key={label} className="rounded-xl border bg-card px-3 py-2 flex items-center justify-between shadow-sm">
             <p className="text-[11px] text-muted-foreground">{label}</p>
@@ -202,7 +200,7 @@ export default function TarefasPage() {
           <EmptyState icon={CheckCircle2} tone="success" size="lg" title="Tudo em dia! 🎉" description="Nenhuma tarefa aguardando você." />
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 xl:grid-rows-1 gap-3 items-start xl:items-stretch xl:flex-1 xl:min-h-0">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 xl:grid-rows-1 gap-3 items-start xl:items-stretch xl:flex-1 xl:min-h-0">
           {COLUMNS.map((col) => {
             const items = byGroup[col.key]
             return (
