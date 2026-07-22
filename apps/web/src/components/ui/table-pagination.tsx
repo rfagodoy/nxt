@@ -3,7 +3,7 @@
 import { ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-export const PAGE_SIZE_OPTIONS = [10, 50, 100, 200, 500]
+export const PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 200, 500]
 
 /** janela de páginas com reticências (1 … 4 5 6 … 20). */
 export function pageWindow(current: number, total: number): (number | '...')[] {

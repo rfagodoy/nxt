@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { X, FileText, Users, Eraser, ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useWorkspace } from '@/contexts/workspace-context'
@@ -24,13 +25,17 @@ export function WorkspaceBar() {
   const [canL, setCanL] = useState(false)
   const [canR, setCanR] = useState(false)
 
-  /* fecha menu de contexto / confirmações ao clicar fora ou rolar */
+  /* fecha menu de contexto / confirmações ao clicar fora ou rolar.
+     Os popups vão num PORTAL no body (senão o backdrop-filter da barra em vidro prende o
+     blur e o conteúdo vaza) — por isso o clique-dentro é detectado por [data-ws-menu],
+     não por stopPropagation (que não segura evento nativo de conteúdo portado). */
   useEffect(() => {
     if (!menu && !clearAt && !closeAsk) return
-    const h = () => { setMenu(null); setClearAt(null); setCloseAsk(null) }
-    window.addEventListener('mousedown', h)
-    window.addEventListener('scroll', h, true)
-    return () => { window.removeEventListener('mousedown', h); window.removeEventListener('scroll', h, true) }
+    const close = () => { setMenu(null); setClearAt(null); setCloseAsk(null) }
+    const onDown = (e: MouseEvent) => { if ((e.target as Element)?.closest?.('[data-ws-menu]')) return; close() }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('scroll', close, true)
+    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('scroll', close, true) }
   }, [menu, clearAt, closeAsk])
 
   /* afordância de rolagem (setas) conforme overflow das abas */
@@ -65,7 +70,7 @@ export function WorkspaceBar() {
   const arrowCls  = 'self-center shrink-0 flex h-7 w-5 items-center justify-center rounded text-muted-foreground transition-all'
 
   return (
-    <div className="flex items-stretch h-14 shrink-0 border-b bg-muted/60">
+    <div className="flex items-stretch h-14 shrink-0 border-b border-white/20 dark:border-white/10 glass-panel">
 
       {/* pseudo-aba Lista (fixa) → volta para a página roteada */}
       <div className="flex items-end pl-2 shrink-0">
@@ -134,10 +139,10 @@ export function WorkspaceBar() {
         </button>
       </div>
 
-      {/* menu de contexto (botão direito) */}
-      {menu && (
-        <div className="fixed z-50 min-w-[160px] rounded-md border bg-card p-1 shadow-md text-xs"
-          style={{ top: menu.y, left: menu.x }} onMouseDown={e => e.stopPropagation()}>
+      {/* menu de contexto (botão direito) — portado para o body (blur do vidro funciona) */}
+      {menu && createPortal(
+        <div data-ws-menu className="glass fixed z-50 min-w-[160px] rounded-xl p-1 text-xs"
+          style={{ top: menu.y, left: menu.x }}>
           <button type="button" onClick={() => { const m = menu; setMenu(null); askClose(m.id, m.x, m.y) }}
             className="flex w-full items-center rounded px-2 py-1.5 hover:bg-muted text-left">Fechar</button>
           <button type="button" onClick={() => { closeOthers(menu.id); setMenu(null) }}
@@ -145,13 +150,14 @@ export function WorkspaceBar() {
             disabled={tabs.length <= 1}>Fechar outras</button>
           <button type="button" onClick={() => { closeAll(); setMenu(null) }}
             className="flex w-full items-center rounded px-2 py-1.5 hover:bg-muted text-left text-destructive">Fechar todas</button>
-        </div>
+        </div>,
+        document.body,
       )}
 
-      {/* confirmação de limpar área de trabalho */}
-      {clearAt && (
-        <div className="fixed z-50 w-60 rounded-md border bg-card p-3 shadow-md text-xs"
-          style={{ top: clearAt.y + 8, left: Math.max(8, clearAt.x - 220) }} onMouseDown={e => e.stopPropagation()}>
+      {/* confirmação de limpar área de trabalho — portada para o body */}
+      {clearAt && createPortal(
+        <div data-ws-menu className="glass fixed z-50 w-60 rounded-xl p-3 text-xs"
+          style={{ top: clearAt.y + 8, left: Math.max(8, clearAt.x - 220) }}>
           <p className="font-medium mb-0.5">Limpar área de trabalho?</p>
           <p className="text-muted-foreground">Fecha as {tabs.length} aba{tabs.length !== 1 ? 's' : ''} aberta{tabs.length !== 1 ? 's' : ''}.</p>
           {dirtyCount > 0 && <p className="mt-1.5 text-amber-600 dark:text-amber-400">{dirtyCount} com alterações não salvas serão descartadas.</p>}
@@ -160,13 +166,14 @@ export function WorkspaceBar() {
             <button type="button" onClick={() => { closeAll(); setClearAt(null) }}
               className="inline-flex items-center h-7 rounded-md bg-primary px-3 font-medium text-primary-foreground hover:bg-primary/90 transition-colors">Fechar todas</button>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
-      {/* confirmação de fechar aba com alterações não salvas */}
-      {closeAsk && (
-        <div className="fixed z-50 w-60 rounded-md border bg-card p-3 shadow-md text-xs"
-          style={{ top: closeAsk.y + 8, left: Math.max(8, closeAsk.x - 220) }} onMouseDown={e => e.stopPropagation()}>
+      {/* confirmação de fechar aba com alterações não salvas — portada para o body */}
+      {closeAsk && createPortal(
+        <div data-ws-menu className="glass fixed z-50 w-60 rounded-xl p-3 text-xs"
+          style={{ top: closeAsk.y + 8, left: Math.max(8, closeAsk.x - 220) }}>
           <p className="font-medium mb-0.5">Fechar sem salvar?</p>
           <p className="text-amber-600 dark:text-amber-400">Esta aba tem alterações não salvas que serão descartadas.</p>
           <div className="mt-2.5 flex items-center justify-end gap-2">
@@ -174,7 +181,8 @@ export function WorkspaceBar() {
             <button type="button" onClick={() => { close(closeAsk.id); setCloseAsk(null) }}
               className="inline-flex items-center h-7 rounded-md bg-destructive px-3 font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors">Descartar e fechar</button>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )

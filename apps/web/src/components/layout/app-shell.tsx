@@ -20,11 +20,11 @@ function DeactivateOnNav() {
 function ShellInner({ children }: { children: React.ReactNode }) {
   const { activeId } = useWorkspace()
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden app-ambient bg-background">
       <Sidebar />
       <div className="flex flex-col flex-1 overflow-hidden min-w-0">
         <WorkspaceBar />
-        <main className="flex-1 overflow-y-auto bg-muted/10">
+        <main className="flex-1 overflow-y-auto">
           <div className="mx-auto h-full w-full max-w-[1400px] p-6">
             {/* lista roteada: sempre montada (preserva estado), escondida quando um documento está ativo.
                 `h-full` passa a altura adiante para telas que querem preencher (ex.: dashboard);

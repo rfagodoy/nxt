@@ -121,13 +121,16 @@ function CountUp({ value, format }: { value: number; format?: (n: number) => str
 }
 
 /* ─────────────────────────── card base ───────────────────────────────────── */
-function Tile({ className, children, onClick }: { className?: string; children: React.ReactNode; onClick?: () => void }) {
+function Tile({ className, children, onClick, highlight }: { className?: string; children: React.ReactNode; onClick?: () => void; highlight?: boolean }) {
+  // Realce de hover (liquid glass) desacoplado do clique: aplica-se aos cards de
+  // estatística (highlight) e aos navegáveis (onClick); o cursor-pointer só nos que navegam.
   return (
     <div
       onClick={onClick}
       className={cn(
         'rounded-xl border bg-card p-4 shadow-sm transition-all duration-200',
-        onClick && 'cursor-pointer hover:-translate-y-0.5 hover:shadow-md hover:border-primary/30',
+        (onClick || highlight) && 'hover:-translate-y-0.5 hover:shadow-md hover:border-primary/30',
+        onClick && 'cursor-pointer',
         className,
       )}
     >
@@ -258,6 +261,7 @@ export default function DashboardPage() {
         <MiniStat
           icon={<Loader2 className="h-4 w-4" />} label="Em execução"
           value={data?.instances.running ?? 0}
+          onClick={() => router.push('/processos')}
           sub={(data?.instances.stuck.length ?? 0) > 0 ? `${data?.instances.stuck.length} parada(s)` : 'fluxos rodando'}
           subWarn={(data?.instances.stuck.length ?? 0) > 0}
         />
@@ -339,7 +343,7 @@ function MiniStat({ icon, label, value, sub, subWarn, delta, series, onClick }: 
   delta?: number | null; series?: number[]; onClick?: () => void
 }) {
   return (
-    <Tile onClick={onClick} className="flex flex-col">
+    <Tile onClick={onClick} highlight className="flex flex-col">
       <div className="flex items-center justify-between">
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">{icon}</span>
         {delta !== undefined && <Delta pct={delta ?? null} />}

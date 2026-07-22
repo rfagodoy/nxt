@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
-  Loader2, RefreshCw, AlertTriangle, X, CheckCircle2, FileText, Users, GitBranch, ChevronRight,
+  Loader2, RefreshCw, AlertTriangle, X, CheckCircle2, FileText, Users, GitBranch, ChevronRight, Info,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -150,7 +150,7 @@ export default function TarefasPage() {
   const km = kindMeta(kind)
 
   return (
-    <div className="space-y-4">
+    <div className="flex h-full flex-col gap-3">
       <style jsx>{`
         @keyframes drawerIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
         @keyframes scrimIn { from { opacity: 0; } to { opacity: 1; } }
@@ -162,19 +162,28 @@ export default function TarefasPage() {
       `}</style>
 
       {/* header */}
-      <div className="flex items-end justify-between gap-3 flex-wrap">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-base font-semibold tracking-tight">Minhas tarefas</h1>
-          <p className="text-[11px] text-muted-foreground">
-            {tasks === null ? 'Carregando…'
-              : tasks.length === 0 ? 'Nenhuma tarefa aguardando você'
-              : <><b className="text-foreground tabular-nums">{stats.total}</b> aguardando você{(stats.crit || stats.warn) ? ' · ' : ''}
-                  {stats.crit > 0 && <span className="text-red-600 dark:text-red-400">{stats.crit} atrasada{stats.crit > 1 ? 's' : ''}</span>}
-                  {stats.crit > 0 && stats.warn > 0 && ', '}
-                  {stats.warn > 0 && <span className="text-amber-600 dark:text-amber-400">{stats.warn} vence{stats.warn > 1 ? 'm' : ''} hoje</span>}</>}
-          </p>
+          <h1 className="text-base font-semibold tracking-tight">Tarefas</h1>
+          <p className="text-[11px] text-muted-foreground">Suas tarefas, priorizadas por prazo</p>
         </div>
         <Button variant="outline" size="sm" onClick={load} title="Recarregar"><RefreshCw className="h-3.5 w-3.5" /></Button>
+      </div>
+
+      {/* cards de resumo (padrão das listas) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+        {[
+          { label: 'Total',       value: stats.total,        cls: 'text-foreground' },
+          { label: 'Atrasadas',   value: stats.crit,         cls: 'text-red-600 dark:text-red-400' },
+          { label: 'Vencem hoje', value: stats.warn,         cls: 'text-amber-600 dark:text-amber-400' },
+          { label: 'Próximas',    value: byGroup.week.length, cls: 'text-primary' },
+          { label: 'Sem prazo',   value: byGroup.none.length, cls: 'text-muted-foreground' },
+        ].map(({ label, value, cls }) => (
+          <div key={label} className="rounded-xl border bg-card px-3 py-2 flex items-center justify-between shadow-sm">
+            <p className="text-[11px] text-muted-foreground">{label}</p>
+            <p className={cn('text-sm font-bold tabular-nums', cls)}>{value}</p>
+          </div>
+        ))}
       </div>
 
       {notice && (
@@ -187,22 +196,23 @@ export default function TarefasPage() {
 
       {/* board */}
       {tasks === null ? (
-        <div className="flex items-center justify-center py-16 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin mr-2" /> Carregando…</div>
+        <div className="flex items-center justify-center py-16 text-xs text-muted-foreground xl:flex-1"><Loader2 className="h-4 w-4 animate-spin mr-2" /> Carregando…</div>
       ) : tasks.length === 0 ? (
-        <div className="rounded-xl border bg-card shadow-sm">
+        <div className="rounded-xl border bg-card shadow-sm flex items-center justify-center xl:flex-1 xl:min-h-0">
           <EmptyState icon={CheckCircle2} tone="success" size="lg" title="Tudo em dia! 🎉" description="Nenhuma tarefa aguardando você." />
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 items-start">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 xl:grid-rows-1 gap-3 items-start xl:items-stretch xl:flex-1 xl:min-h-0">
           {COLUMNS.map((col) => {
             const items = byGroup[col.key]
             return (
-              <div key={col.key} className="rounded-xl border bg-muted/30 p-2.5 flex flex-col gap-2 min-h-[120px]">
-                <div className="flex items-center gap-2 px-1 pt-1 pb-0.5">
+              <div key={col.key} className="rounded-xl border bg-muted/30 p-2.5 flex flex-col gap-2 min-h-[120px] xl:min-h-0">
+                <div className="flex items-center gap-2 px-1 pt-1 pb-0.5 shrink-0">
                   <span className={cn('h-2 w-2 rounded-full', col.dot)} />
                   <span className="text-sm font-semibold">{col.label}</span>
                   <span className="ml-auto text-[11px] text-muted-foreground bg-card border rounded-md px-1.5 py-0.5 tabular-nums">{items.length}</span>
                 </div>
+                <div className="flex flex-col gap-2 xl:flex-1 xl:min-h-0 xl:overflow-y-auto">
                 {items.length === 0 ? (
                   <p className="text-[11px] text-muted-foreground/60 text-center py-3">vazio</p>
                 ) : items.map((t) => {
@@ -231,6 +241,7 @@ export default function TarefasPage() {
                     </button>
                   )
                 })}
+                </div>
               </div>
             )
           })}
@@ -241,7 +252,7 @@ export default function TarefasPage() {
       {active && (
         <>
           <div className="scrim-in fixed inset-0 z-40 bg-black/40" onClick={closeDrawer} />
-          <aside className="drawer-in fixed top-0 right-0 z-50 h-full w-full max-w-[720px] bg-card border-l shadow-xl flex flex-col">
+          <aside className="drawer-in fixed top-0 right-0 z-50 h-full w-full max-w-[720px] glass-panel border-l border-white/15 dark:border-white/10 shadow-xl flex flex-col">
             <div className="flex items-start gap-3 px-5 py-4 border-b">
               <span className={cn('flex h-11 w-11 items-center justify-center rounded-xl shrink-0', km.cls)}><km.Icon className="h-5 w-5" /></span>
               <div className="flex-1 min-w-0">
@@ -280,10 +291,20 @@ export default function TarefasPage() {
               {error && <p className="text-[12px] text-destructive mb-2">{error}</p>}
               {loadingStep || !step ? (
                 <div className="flex items-center justify-center py-10 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin mr-2" /> Carregando formulário…</div>
-              ) : step.screenRef ? (
-                <WorkflowScreenTask key={active.id} step={step} variables={variables} onComplete={complete} onCancel={closeDrawer} />
               ) : (
-                <DynamicForm key={active.id} step={step} stepIndex={0} totalSteps={1} submitting={submitting} onSubmit={complete} onCancel={closeDrawer} />
+                <>
+                  {step.instructions?.trim() && (
+                    <div className="mb-3 flex gap-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2">
+                      <Info className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                      <p className="text-xs text-foreground/80 leading-snug whitespace-pre-line">{step.instructions.trim()}</p>
+                    </div>
+                  )}
+                  {step.screenRef ? (
+                    <WorkflowScreenTask key={active.id} step={step} variables={variables} onComplete={complete} onCancel={closeDrawer} />
+                  ) : (
+                    <DynamicForm key={active.id} step={step} stepIndex={0} totalSteps={1} submitting={submitting} onSubmit={complete} onCancel={closeDrawer} />
+                  )}
+                </>
               )}
             </div>
           </aside>

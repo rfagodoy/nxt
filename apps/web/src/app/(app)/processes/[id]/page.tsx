@@ -3,14 +3,13 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Zap, Play, Pencil, Loader2, GitBranch, User, Cog, Circle, Diamond } from 'lucide-react'
+import { ArrowLeft, Zap, Play, Pencil, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { apiFetch, apiJson } from '@/lib/http'
 import { InstanceRunner } from '@/components/processes/instance-runner'
 import type { ProcessFormSchema } from '@nxt/types'
 
-interface GraphNode { id: string; type: string; name?: string; role?: string }
 interface Process {
   id: string
   name: string
@@ -18,19 +17,12 @@ interface Process {
   status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED'
   version: number
   formSchema: ProcessFormSchema
-  compiledGraph?: { nodes: Record<string, GraphNode>; startId: string } | null
 }
 
-const NODE_META: Record<string, { label: string; icon: typeof Circle }> = {
-  start: { label: 'Início', icon: Circle },
-  end: { label: 'Fim', icon: Circle },
-  userTask: { label: 'Atividade', icon: User },
-  serviceTask: { label: 'Serviço', icon: Cog },
-  exclusiveGateway: { label: 'Decisão', icon: Diamond },
-  parallelGateway: { label: 'Paralelo', icon: Diamond },
-}
-
-export default function ProcessDetailPage() {
+/** Superfície de EXECUÇÃO do processo. O desenho/configuração vivem no editor
+ *  (storyboard) — o clique no nome vai pra lá. Aqui só se INICIA/executa uma
+ *  instância (também alvo dos botões "Novo processo" via ?iniciar=1). */
+export default function ProcessRunPage() {
   const params = useParams<{ id: string }>()
   const search = useSearchParams()
   const router = useRouter()
@@ -41,15 +33,14 @@ export default function ProcessDetailPage() {
   const [running, setRunning] = useState(false)
 
   const load = useCallback(async () => {
-    const data = await apiJson<Process>(`/api/processes/${id}`)
-    setProc(data)
+    setProc(await apiJson<Process>(`/api/processes/${id}`))
   }, [id])
 
   useEffect(() => {
     load()
   }, [load])
 
-  // auto-iniciar quando vier da lista com ?iniciar=1 e o processo estiver ativo
+  // auto-iniciar quando vier de "Iniciar"/"Novo processo" com ?iniciar=1
   useEffect(() => {
     if (proc?.status === 'ACTIVE' && search.get('iniciar') === '1') setRunning(true)
   }, [proc?.status, search])
@@ -60,7 +51,7 @@ export default function ProcessDetailPage() {
       const res = await apiFetch(`/api/processes/${id}/activate`, { method: 'PATCH' })
       if (!res.ok) {
         const e = await res.json().catch(() => null)
-        alert(e?.message || 'Não foi possível ativar o processo.')
+        alert(e?.message || 'Não foi possível ativar o workflow.')
         return
       }
       await load()
@@ -80,20 +71,17 @@ export default function ProcessDetailPage() {
     return (
       <div className="space-y-3">
         <Link href="/processes" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="h-3.5 w-3.5" /> Processos
+          <ArrowLeft className="h-3.5 w-3.5" /> Workflows
         </Link>
-        <p className="text-sm">Processo não encontrado.</p>
+        <p className="text-sm">Workflow não encontrado.</p>
       </div>
     )
   }
 
-  const nodes = proc.compiledGraph?.nodes ? Object.values(proc.compiledGraph.nodes) : []
-  const activities = nodes.filter((n) => n.type === 'userTask' || n.type === 'serviceTask')
-
   return (
     <div className="space-y-4 max-w-3xl">
       <Link href="/processes" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-3.5 w-3.5" /> Processos
+        <ArrowLeft className="h-3.5 w-3.5" /> Workflows
       </Link>
 
       <div className="flex items-start justify-between gap-3">
@@ -130,7 +118,7 @@ export default function ProcessDetailPage() {
         </div>
       </div>
 
-      {running && (
+      {running ? (
         <InstanceRunner
           processDefinitionId={proc.id}
           processName={proc.name}
@@ -140,42 +128,27 @@ export default function ProcessDetailPage() {
             router.replace(`/processes/${id}`)
           }}
         />
-      )}
-
-      {/* Mapa das atividades (grafo compilado) */}
-      <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
-        <div className="px-4 py-2.5 border-b bg-muted/40 flex items-center gap-2">
-          <GitBranch className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-semibold">Atividades</span>
-          {proc.status === 'DRAFT' && (
-            <span className="ml-auto text-[11px] text-muted-foreground">ative o processo para executar</span>
+      ) : (
+        <div className="rounded-xl border bg-card shadow-sm px-6 py-10 text-center">
+          {proc.status === 'ACTIVE' ? (
+            <>
+              <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-primary/10">
+                <Play className="h-5 w-5 text-primary" />
+              </div>
+              <p className="text-sm font-semibold">Pronto para executar</p>
+              <p className="text-xs text-muted-foreground mt-1">Clique em “Iniciar” para rodar uma nova instância deste workflow.</p>
+            </>
+          ) : (
+            <>
+              <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-muted">
+                <Zap className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <p className="text-sm font-semibold">Workflow em rascunho</p>
+              <p className="text-xs text-muted-foreground mt-1">Ative o workflow para poder executá-lo, ou abra o editor para ajustá-lo.</p>
+            </>
           )}
         </div>
-        {activities.length === 0 ? (
-          <p className="text-xs text-muted-foreground px-4 py-6 text-center">
-            {proc.compiledGraph ? 'Sem atividades no diagrama.' : 'Diagrama ainda não compilado (ative o processo).'}
-          </p>
-        ) : (
-          <ul className="divide-y">
-            {activities.map((n) => {
-              const meta = NODE_META[n.type] ?? { label: n.type, icon: Circle }
-              const Icon = meta.icon
-              const fields = proc.formSchema.steps?.find((s) => s.stepId === n.id)?.fields.length ?? 0
-              return (
-                <li key={n.id} className="flex items-center gap-2.5 px-4 py-2">
-                  <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <span className="text-sm font-medium">{n.name || n.id}</span>
-                  <Badge variant="outline" className="text-[10px]">{meta.label}</Badge>
-                  {n.role && <span className="text-[11px] text-muted-foreground">executor: {n.role}</span>}
-                  {n.type === 'userTask' && (
-                    <span className="ml-auto text-[11px] text-muted-foreground">{fields} campo{fields !== 1 ? 's' : ''}</span>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-        )}
-      </div>
+      )}
     </div>
   )
 }

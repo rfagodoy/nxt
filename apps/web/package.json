@@ -13,6 +13,7 @@
   "dependencies": {
     "@nxt/contracts-core": "*",
     "@nxt/types": "*",
+    "@nxt/workflow-core": "*",
     "@hookform/resolvers": "^3.9.1",
     "@radix-ui/react-dialog": "^1.1.4",
     "@radix-ui/react-dropdown-menu": "^2.1.4",

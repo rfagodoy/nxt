@@ -32,8 +32,14 @@ export interface WfNode {
   /** Tela/formulário associado à atividade — id de uma tela da Personalização de
    *  Telas. É o que a pessoa preenche ao executar a tarefa. (F3) */
   formRef?: string
-  /** SLA da atividade em minutos a partir da criação da tarefa. (F4) */
+  /** SLA da atividade em minutos a partir da criação da tarefa. (F4, legado) */
   slaMinutes?: number
+  /** Prazo em DIAS ÚTEIS (Storyboard) — contado no calendário comercial. */
+  slaBusinessDays?: number
+  /** Prazo em HORAS ÚTEIS (Storyboard) — contado dentro do expediente. */
+  slaBusinessHours?: number
+  /** Instruções livres exibidas ao executor ao abrir a tarefa (Storyboard). */
+  instructions?: string
 
   // ── serviceTask ───────────────────────────────────────────────────────────
   /** Conector de domínio a executar, ex.: 'contracts.create'. O backend resolve

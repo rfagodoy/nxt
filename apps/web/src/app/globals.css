@@ -45,6 +45,22 @@
     --sidebar-active-bg: 152 52% 90%;
     --sidebar-active-fg: 155 80% 24%;
     --sidebar-hover-bg:  145 24% 94%;
+
+    /* Liquid Glass — material do CHROME (menus, barras, ícones, modais).
+       Conteúdo (tabelas/formulários) segue sólido (--card). */
+    --glass-bg: 140 26% 99%;
+    --glass-alpha: 0.40;         /* material FINO — chrome encostado (sidebar/barras) */
+    --glass-alpha-strong: 0.84;  /* material GROSSO — flutuante sobre conteúdo denso (menus/dropdowns/notificações/modais) */
+    --glass-border: 0 0% 100%;
+    --glass-border-alpha: 0.92;
+    --glass-highlight: 0.98;
+    --glass-blur: 30px;
+    --glass-shadow: 0 18px 46px -16px hsl(156 28% 11% / 0.32);
+    /* brilhos do ambiente (Esmeralda + Lima) que o vidro refrata — intensificados 2026-07-21 */
+    --ambient-a: 154 76% 44%;
+    --ambient-b: 74 84% 62%;
+    --ambient-alpha-a: 0.24;
+    --ambient-alpha-b: 0.26;
   }
 
   .dark {
@@ -88,6 +104,20 @@
     --sidebar-active-bg: 153 48% 13%;
     --sidebar-active-fg: 151 64% 56%;
     --sidebar-hover-bg:  154 26% 11%;
+
+    /* Liquid Glass (escuro — o vidro brilha mais no Forest Ink) */
+    --glass-bg: 156 28% 15%;
+    --glass-alpha: 0.30;
+    --glass-alpha-strong: 0.70;  /* material GROSSO — flutuante sobre conteúdo denso (ver :root) */
+    --glass-border: 0 0% 100%;
+    --glass-border-alpha: 0.24;
+    --glass-highlight: 0.20;
+    --glass-blur: 32px;
+    --glass-shadow: 0 26px 60px -20px hsl(0 0% 0% / 0.80);
+    --ambient-a: 154 76% 46%;
+    --ambient-b: 74 84% 60%;
+    --ambient-alpha-a: 0.34;
+    --ambient-alpha-b: 0.28;
   }
 }
 
@@ -112,6 +142,40 @@
   width: 0;
   height: 0;
   display: none; /* Chrome, Safari, Edge */
+}
+
+/* ─── Liquid Glass ────────────────────────────────────────────────────────────
+   `.glass`        superfície flutuante (borda + brilho + sombra) — menus, modais, cards de chrome.
+   `.glass-panel`  painel encostado (só fundo translúcido + blur) — sidebar, barras.
+   `.app-ambient`  brilhos da marca por trás, para o vidro ter o que refratar.
+   ⚠️ Só no CHROME. Conteúdo denso (tabelas/formulários) continua sólido (--card).
+   Acessibilidade/performance: cai para sólido quando o SO pede menos transparência. */
+@layer components {
+  .glass-panel {
+    background-color: hsl(var(--glass-bg) / var(--glass-alpha));
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(2);
+    backdrop-filter: blur(var(--glass-blur)) saturate(2);
+  }
+  .glass {
+    background-color: hsl(var(--glass-bg) / var(--glass-alpha-strong));
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(2);
+    backdrop-filter: blur(var(--glass-blur)) saturate(2);
+    border: 1px solid hsl(var(--glass-border) / var(--glass-border-alpha));
+    box-shadow: var(--glass-shadow), inset 0 1px 0 0 hsl(0 0% 100% / var(--glass-highlight));
+  }
+  .app-ambient {
+    background-image:
+      radial-gradient(52rem 52rem at 3% -4%, hsl(var(--ambient-a) / var(--ambient-alpha-a)), transparent 60%),
+      radial-gradient(44rem 44rem at 102% 6%, hsl(var(--ambient-b) / var(--ambient-alpha-b)), transparent 58%),
+      radial-gradient(56rem 56rem at 64% 106%, hsl(var(--ambient-a) / calc(var(--ambient-alpha-a) * 0.7)), transparent 60%);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass, .glass-panel {
+    background-color: hsl(var(--card));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 /* bpmn-js overrides */

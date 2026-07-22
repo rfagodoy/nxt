@@ -75,7 +75,7 @@ const ROW_GRID  = 'grid grid-cols-[6.5rem_1fr_9rem] items-center gap-2'
 function Modal({ title, onClose, wide, children }: { title: string; onClose: () => void; wide?: boolean; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className={cn('bg-card rounded-xl border shadow-xl w-full overflow-hidden flex flex-col max-h-[90vh]', wide ? 'max-w-3xl' : 'max-w-md')}>
+      <div className={cn('glass rounded-2xl w-full overflow-hidden flex flex-col max-h-[90vh]', wide ? 'max-w-3xl' : 'max-w-md')}>
         <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
           <h2 className="text-sm font-semibold">{title}</h2>
           <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors"><X className="h-4 w-4" /></button>

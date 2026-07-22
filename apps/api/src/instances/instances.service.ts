@@ -28,6 +28,7 @@ import type { CurrentUserData } from '../auth/current-user.decorator'
 import { ContractsService } from '../contracts/contracts.service'
 import { PartnersService } from '../partners/partners.service'
 import { RoleAssignmentsService } from '../role-assignments/role-assignments.service'
+import { WorkflowCalendarService, type StoredCalendar } from './workflow-calendar.service'
 
 /** Ids de token únicos para o motor (viram WorkflowTask.tokenId). */
 const runtime: WfRuntime = { genId: () => randomUUID() }
@@ -55,7 +56,18 @@ export class InstancesService {
     private readonly contracts: ContractsService,
     private readonly partners: PartnersService,
     private readonly roleAssignments: RoleAssignmentsService,
+    private readonly calendar: WorkflowCalendarService,
   ) {}
+
+  /** Prazo (dueAt) de uma atividade: dias/horas ÚTEIS no calendário comercial da org
+   *  (precede o slaMinutes legado). Sem prazo configurado → null. */
+  private dueAtFor(node: WfNode, cal: StoredCalendar): Date | null {
+    const days = node.slaBusinessDays ?? 0
+    const hours = node.slaBusinessHours ?? 0
+    if (days > 0 || hours > 0) return this.calendar.computeDue(new Date(), days, hours, cal)
+    if (node.slaMinutes && node.slaMinutes > 0) return new Date(Date.now() + node.slaMinutes * 60_000)
+    return null
+  }
 
   private isAdmin(actor?: CurrentUserData): boolean {
     return !!actor?.roles?.includes('admin')
@@ -635,6 +647,8 @@ export class InstancesService {
     variables: Record<string, unknown>,
   ) {
     if (tasks.length === 0) return
+    // Calendário comercial da org (uma leitura por lote) para o prazo em dias/horas úteis.
+    const cal = await this.calendar.get(organizationId)
     // Resolve o executor (papel+entidade → usuário[]) de cada tarefa ANTES de gravar.
     const rows = await Promise.all(tasks.map(async ({ token, node }) => ({
       instanceId,
@@ -645,7 +659,7 @@ export class InstancesService {
       assignee: node.assignee ?? null,
       assignees: await this.resolveExecutor(node, organizationId, variables),
       formRef: node.formRef ?? null,
-      dueAt: node.slaMinutes ? new Date(Date.now() + node.slaMinutes * 60_000) : null,
+      dueAt: this.dueAtFor(node, cal),
       status: 'PENDING',
     })))
     await client.workflowTask.createMany({ data: rows as never })

@@ -55,7 +55,7 @@ export function StartProcessButton({ variant = 'outline', className, kinds }: {
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={() => setOpen(false)}>
           {/* text-foreground: o botão pode viver no hero (text-white); sem isto o
               cabeçalho e o nome herdariam branco e sumiriam no card claro. */}
-          <div className="w-full max-w-md rounded-xl border bg-card text-foreground shadow-xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="glass w-full max-w-md rounded-2xl text-foreground overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/40">
               <div className="flex items-center gap-2">
                 <GitBranch className="h-4 w-4 text-primary" />

@@ -83,7 +83,7 @@ export function ListToolbar({
             <ChevronDown className={cn('h-3 w-3 transition-transform', showViews && 'rotate-180')} />
           </button>
           {showViews && (
-            <div className="absolute left-0 top-full mt-1.5 z-50 w-56 rounded-lg border bg-card shadow-lg py-1">
+            <div className="glass absolute left-0 top-full mt-1.5 z-50 w-56 rounded-xl py-1">
               <button onClick={() => { onSelectView(null); setShowViews(false) }} className={cn('flex w-full items-center gap-3 px-3 py-2 text-xs transition-colors', !activeViewId ? 'text-primary font-medium' : 'text-foreground hover:bg-muted')}>
                 <Check className={cn('h-3.5 w-3.5 shrink-0', !activeViewId ? 'opacity-100' : 'opacity-0')} /><span>Todos</span>
               </button>
