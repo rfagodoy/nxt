@@ -13,7 +13,6 @@ import { CONNECTORS } from '@nxt/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { EntitySelect, type EntityKind } from '@/components/ui/entity-select'
@@ -360,17 +359,6 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         </div>
       </div>
 
-      {/* Meta */}
-      <div className="flex items-center gap-3 px-4 py-2 border-b bg-muted/30 shrink-0">
-        <Label className="text-xs text-muted-foreground shrink-0">Descrição</Label>
-        <Input className="h-7 text-xs" placeholder="Descreva o objetivo deste workflow..." value={description} onChange={(e) => setDescription(e.target.value)} />
-        <Label className="text-xs text-muted-foreground shrink-0">Tipo</Label>
-        <select value={kind} onChange={(e) => setKind(e.target.value)} className="h-7 rounded-md border border-input bg-background px-2 text-xs shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-          <option value="">— não especificado</option>
-          {WORKFLOW_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
-        </select>
-      </div>
-
       {/* Canvas + Inspetor */}
       <div className="flex flex-1 overflow-hidden">
         <FlowCanvas canvasRef={canvasRef} nodes={nodes} edges={edges} layout={layout} selectedId={selectedId} onSelect={setSelectedId} onConnect={onConnect} onCreateConnected={onCreateConnected} onDeleteEdge={onDeleteEdge} onDeleteNode={removeNode} onSetPosition={setPosition} resolvePapel={resolvePapel} />
@@ -382,10 +370,29 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
               <GatewayInspector key={selected.id} node={selected} edges={edges} onPatchNode={(p) => patchNode(selected.id, p)} onSetEdge={setEdge} />
             )
           ) : (
-            <div className="flex flex-col items-center justify-center h-full text-center px-6">
-              <div className="p-3 rounded-full bg-accent mb-3"><LayoutTemplate className="h-5 w-5 text-primary" /></div>
-              <p className="text-sm font-semibold">Monte o fluxo</p>
-              <p className="text-xs text-muted-foreground mt-1 leading-snug">Passe o mouse num quadro e <span className="font-medium">arraste uma das bolinhas</span> (nos 4 lados) até outro quadro para conectar — solte em qualquer parte dele. Ou solte no vazio para criar já ligado. Clique num quadro para configurá-lo.</p>
+            /* Nada selecionado → propriedades do workflow (padrão de editor visual: painel = documento) */
+            <div className="flex flex-col h-full">
+              <div className="px-4 py-3 border-b shrink-0 flex items-center">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary"><LayoutTemplate className="h-3 w-3" />Propriedades do workflow</span>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                <Field label="Descrição" hint="O objetivo deste workflow, para quem for gerenciá-lo.">
+                  <Textarea className="text-sm min-h-[72px]" placeholder="Descreva o objetivo deste workflow…" value={description} onChange={(e) => setDescription(e.target.value)} />
+                </Field>
+                <Field label="Tipo" hint="Determina onde ele aparece em “Novo processo”.">
+                  <Select value={kind || 'none'} onValueChange={(v) => setKind(v === 'none' ? '' : v)}>
+                    <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">— não especificado</SelectItem>
+                      {WORKFLOW_KINDS.map((k) => <SelectItem key={k.value} value={k.value}>{k.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <div className="rounded-md border border-dashed bg-muted/20 p-3">
+                  <p className="text-xs font-semibold flex items-center gap-1.5"><LayoutTemplate className="h-3.5 w-3.5 text-primary" />Monte o fluxo</p>
+                  <p className="text-[11px] text-muted-foreground mt-1 leading-snug">Passe o mouse num quadro e <span className="font-medium">arraste uma das bolinhas</span> (nos 4 lados) até outro quadro para conectar — solte em qualquer parte dele. Ou solte no vazio para criar já ligado. Clique num quadro para configurá-lo.</p>
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -404,7 +411,7 @@ const STEP_TONE: Record<string, string> = {
 function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onConnect, onCreateConnected, onDeleteEdge, onDeleteNode, onSetPosition, resolvePapel }: {
   canvasRef: React.RefObject<HTMLDivElement | null>
   nodes: ENode[]; edges: EEdge[]; layout: ReturnType<typeof layoutGraph>
-  selectedId: string | null; onSelect: (id: string) => void
+  selectedId: string | null; onSelect: (id: string | null) => void
   onConnect: (from: string, to: string) => void
   onCreateConnected: (from: string, type: AddType) => void
   onDeleteEdge: (edgeId: string) => void
@@ -487,7 +494,8 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
 
   return (
     <div className="flex-1 min-w-0 min-h-0 overflow-auto bg-muted/20 [background-image:radial-gradient(circle_at_1px_1px,hsl(var(--border))_1px,transparent_0)] [background-size:24px_24px]">
-      <div ref={canvasRef} className="relative" style={{ width: layout.width, height: layout.height, minWidth: '100%' }}>
+      <div ref={canvasRef} className="relative" style={{ width: layout.width, height: layout.height, minWidth: '100%' }}
+        onClick={(e) => { if (!(e.target as HTMLElement).closest('[data-node-id]')) onSelect(null) }}>{/* clicar no fundo deseleciona → volta às Propriedades do workflow */}
         <svg className="absolute inset-0 overflow-visible" style={{ width: layout.width, height: layout.height }}>
           <defs>
             <marker id="fl-arrow" markerWidth="8" markerHeight="8" refX="6.5" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="context-stroke" /></marker>
