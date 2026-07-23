@@ -77,8 +77,8 @@ export function ScreenFieldEditor({ sections, subjectType, initial, defaultSecti
   return (
     <>
       <div className="fixed inset-0 z-[60] bg-black/40" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 z-[70] w-96 bg-background border-l shadow-xl flex flex-col">
-        <div className="px-4 py-3 border-b bg-card flex items-center justify-between shrink-0">
+      <div className="fixed inset-y-0 right-0 z-[70] w-96 glass-panel border-l border-white/15 dark:border-white/10 shadow-xl flex flex-col">
+        <div className="px-4 py-3 border-b bg-muted/30 flex items-center justify-between shrink-0">
           <div>
             <h2 className="text-sm font-semibold">{isEdit ? 'Editar campo' : 'Novo campo personalizado'}</h2>
             <p className="text-[11px] text-muted-foreground">{isEdit ? initial!.label : 'Coleta um dado novo (persistido)'}</p>
@@ -179,7 +179,7 @@ export function ScreenFieldEditor({ sections, subjectType, initial, defaultSecti
           {err && <p className="text-[11px] text-red-500">{err}</p>}
         </div>
 
-        <div className="px-4 py-3 border-t bg-card flex items-center justify-between shrink-0">
+        <div className="px-4 py-3 border-t bg-muted/30 flex items-center justify-between shrink-0">
           <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground">Cancelar</button>
           <button type="button" onClick={handleSave}
             className="inline-flex items-center gap-1.5 h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">

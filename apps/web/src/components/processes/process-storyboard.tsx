@@ -391,7 +391,7 @@ function AddMenu({ onAdd }: { onAdd: (type: StepType) => void }) {
         <Plus className="h-5 w-5" />
       </button>
       {open && (
-        <div className="absolute left-0 top-12 z-10 w-44 rounded-lg border bg-popover shadow-md p-1">
+        <div className="glass absolute left-0 top-12 z-10 w-44 rounded-xl p-1">
           <button
             onMouseDown={(e) => { e.preventDefault(); onAdd('userTask'); setOpen(false) }}
             className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm hover:bg-accent"
