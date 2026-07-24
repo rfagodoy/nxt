@@ -137,8 +137,31 @@ model ProcessInstance {
   processDefinition ProcessDefinition @relation(fields: [processDefinitionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   records           ModuleRecord[]
   tasks             WorkflowTask[]
+  returns           WorkflowReturn[]
 
   @@map("process_instances")
+}
+
+// Devolução: registro de que alguém mandou o processo de volta para uma etapa
+// anterior. É AUDITORIA — sem ela a linha do tempo mente (pareceria que a etapa
+// foi executada duas vezes sem explicação). A contagem de reaberturas de uma
+// instância sai daqui, então não existe contador desnormalizado para desencontrar.
+model WorkflowReturn {
+  id         String   @id @default(cuid())
+  instanceId String
+  fromNodeId String // etapa de onde foi devolvido
+  fromName   String? // rótulo no momento (snapshot; o diagrama pode mudar depois)
+  toNodeId   String // etapa para onde voltou
+  toName     String?
+  reason     String   @db.NVarChar(Max) // motivo — OBRIGATÓRIO na API
+  user       String // nome do autor no momento (snapshot; fallback quando userId nulo)
+  userId     String? // id estável → nome resolvido ao vivo na leitura (sem FK, de propósito)
+  createdAt  DateTime @default(now())
+
+  instance ProcessInstance @relation(fields: [instanceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([instanceId])
+  @@map("workflow_returns")
 }
 
 // Caixa de tarefas: cada userTask ativo do motor vira uma linha aqui (a "inbox").
@@ -153,7 +176,7 @@ model WorkflowTask {
   assignee    String? // executor por usuário direto (F2)
   assignees   String  @default("[]") @db.NVarChar(Max) // [JSON] userId[] resolvidos do executor papel+entidade (Papéis/Responsáveis)
   formRef     String? // tela/formulário associado à atividade (F3)
-  status      String    @default("PENDING") // PENDING | DONE | CANCELED
+  status      String    @default("PENDING") // PENDING | DONE | CANCELED | RETURNED
   dueAt       DateTime? // prazo/SLA (F4)
   escalatedAt DateTime? // quando a varredura marcou a tarefa como vencida/escalonada (F4)
   data        String    @default("{}") @db.NVarChar(Max) // [JSON] dados preenchidos ao concluir

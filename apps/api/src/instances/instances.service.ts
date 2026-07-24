@@ -13,6 +13,8 @@ import { resolveContractId, resolvePartnerId, aditivoFromVars, applyInputMap } f
 import {
   startProcess,
   completeToken,
+  returnToken,
+  returnTargets,
   cancelProcess,
   WfError,
   type WfGraph,
@@ -24,6 +26,7 @@ import {
 } from '@nxt/workflow-core'
 import { StartInstanceDto } from './dto/start-instance.dto'
 import { CompleteTaskDto } from './dto/complete-task.dto'
+import { ReturnTaskDto } from './dto/return-task.dto'
 import type { CurrentUserData } from '../auth/current-user.decorator'
 import { ContractsService } from '../contracts/contracts.service'
 import { PartnersService } from '../partners/partners.service'
@@ -223,6 +226,142 @@ export class InstancesService {
       instanceId: task.instanceId,
       completed: settled.completed,
       errored: settled.errored ?? null,
+      tasks: await this.pendingTasks(task.instanceId),
+    }
+  }
+
+  // ── Devolver (retroceder para uma etapa anterior) ────────────────────────────
+
+  /** Carrega a tarefa + grafo congelado e confere quem pode agir. Compartilhado
+   *  pela consulta de alvos e pela devolução em si. */
+  private async taskForReturn(taskId: string, organizationId: string, actor?: CurrentUserData) {
+    const task = await this.prisma.workflowTask.findFirst({
+      where: { id: taskId, instance: { processDefinition: { organizationId } } },
+      include: { instance: { include: { processDefinition: true } } },
+    })
+    if (!task) throw new NotFoundException('Tarefa não encontrada')
+    if (task.status !== 'PENDING') throw new BadRequestException('Tarefa já concluída ou cancelada')
+    if (task.instance.status !== 'RUNNING') throw new BadRequestException('Instância não está em execução')
+
+    const roleKeys = await this.roles.roleKeysForUser(organizationId, actor?.sub ?? '')
+    if (!canActOnTask(task, actor?.sub ?? '', roleKeys, this.isAdmin(actor))) {
+      throw new ForbiddenException('Você não é o executor desta tarefa')
+    }
+
+    const graph =
+      (task.instance.graphSnapshot as unknown as WfGraph | null) ??
+      (task.instance.processDefinition.compiledGraph as unknown as WfGraph | null)
+    if (!graph || !graph.nodes) throw new BadRequestException('Processo sem grafo compilado')
+
+    return { task, graph, state: task.instance.state as unknown as WfState }
+  }
+
+  /** Etapas para onde esta tarefa pode ser devolvida. Traz também as BLOQUEADAS
+   *  (com o motivo) — some-las sem explicação faria o usuário achar que o sistema
+   *  esqueceu a etapa. */
+  async returnTargetsFor(taskId: string, organizationId: string, actor?: CurrentUserData) {
+    const { task, graph, state } = await this.taskForReturn(taskId, organizationId, actor)
+    try {
+      return returnTargets(graph, state, task.tokenId)
+    } catch (e) {
+      throw new BadRequestException(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  /** Devolve o processo para uma etapa anterior: descarta o que estava em voo
+   *  abaixo do alvo (inclusive ramos paralelos irmãos), recria a tarefa no alvo e
+   *  registra a auditoria. Preserva as variáveis — a pessoa corrige o que já existe. */
+  async returnTask(taskId: string, dto: ReturnTaskDto, organizationId: string, actor?: CurrentUserData) {
+    const { task, graph, state: prevState } = await this.taskForReturn(taskId, organizationId, actor)
+    const prevRevision = task.instance.revision
+    const reason = (dto.reason ?? '').trim()
+    if (!reason) throw new BadRequestException('Informe o motivo da devolução')
+
+    // Roda o motor ANTES de reivindicar a tarefa: alvo inválido / bloqueado por
+    // conector é erro de VALIDAÇÃO (400), não pode marcar a tarefa nem levar a
+    // instância a ERRO (por isso não passa pelo `settle`). Devolver nunca executa
+    // conector — o alvo é sempre atividade humana, onde a propagação para.
+    let result: WfRunResult
+    try {
+      result = returnToken(graph, prevState, task.tokenId, dto.targetNodeId, runtime)
+    } catch (e) {
+      if (e instanceof WfError) throw new BadRequestException(e.message)
+      throw e
+    }
+
+    const tasksToCreate: Array<{ token: { id: string; nodeId: string }; node: WfNode }> = []
+    const tokensToCancel: string[] = []
+    for (const e of result.effects) {
+      if (e.kind === 'createTask') tasksToCreate.push({ token: e.token, node: e.node })
+      // o token DESTA tarefa também é descartado, mas ela fica RETURNED (não CANCELED):
+      // é o registro de que houve devolução, não de que a tarefa sumiu.
+      else if (e.kind === 'cancelTask' && e.token.id !== task.tokenId) tokensToCancel.push(e.token.id)
+    }
+
+    // Anti-corrida (1/2): reivindica a tarefa por CAS antes de mexer na instância.
+    const claim = await this.prisma.workflowTask.updateMany({
+      where: { id: task.id, status: 'PENDING' },
+      data: {
+        status: 'RETURNED',
+        completedBy: actor?.name ?? 'Usuário do sistema',
+        completedById: actor?.sub ?? null,
+        completedAt: new Date(),
+      },
+    })
+    if (claim.count === 0) throw new BadRequestException('Tarefa já concluída ou cancelada')
+
+    const fromName = graph.nodes[task.nodeId]?.name ?? task.name ?? null
+    const toName = graph.nodes[dto.targetNodeId]?.name ?? null
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        // Anti-corrida (2/2): mesmo lock otimístico da conclusão. Se um ramo
+        // paralelo concluiu no meio do caminho, o estado mudou e esta devolução
+        // partiria de uma foto velha — melhor recusar e recarregar.
+        const upd = await tx.processInstance.updateMany({
+          where: { id: task.instanceId, revision: prevRevision },
+          data: { state: result.state as never, status: 'RUNNING', revision: { increment: 1 }, completedAt: null },
+        })
+        if (upd.count === 0) {
+          throw new ConflictException('A instância foi alterada por outra ação simultânea. Recarregue e tente novamente.')
+        }
+        // ramos irmãos descartados saem da caixa de quem os tinha
+        if (tokensToCancel.length > 0) {
+          await tx.workflowTask.updateMany({
+            where: { instanceId: task.instanceId, tokenId: { in: tokensToCancel }, status: 'PENDING' },
+            data: { status: 'CANCELED' },
+          })
+        }
+        await this.persistTasks(tx, task.instanceId, tasksToCreate, organizationId, result.state.variables)
+        await tx.workflowReturn.create({
+          data: {
+            instanceId: task.instanceId,
+            fromNodeId: task.nodeId,
+            fromName,
+            toNodeId: dto.targetNodeId,
+            toName,
+            reason,
+            user: actor?.name ?? 'Usuário do sistema',
+            userId: actor?.sub ?? null,
+          },
+        })
+      })
+    } catch (e) {
+      if (e instanceof ConflictException) {
+        // desfaz a reivindicação: a tarefa volta a PENDING para ser refeita
+        await this.prisma.workflowTask.updateMany({
+          where: { id: task.id, status: 'RETURNED' },
+          data: { status: 'PENDING', completedBy: null, completedById: null, completedAt: null },
+        })
+      }
+      throw e
+    }
+
+    return {
+      instanceId: task.instanceId,
+      returnedTo: dto.targetNodeId,
+      returnedToName: toName,
+      canceled: tokensToCancel.length,
       tasks: await this.pendingTasks(task.instanceId),
     }
   }

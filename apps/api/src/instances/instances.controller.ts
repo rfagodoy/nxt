@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger'
 import { InstancesService } from './instances.service'
 import { StartInstanceDto } from './dto/start-instance.dto'
 import { CompleteTaskDto } from './dto/complete-task.dto'
+import { ReturnTaskDto } from './dto/return-task.dto'
 import { CurrentOrg } from '../auth/current-org.decorator'
 import { CurrentUser, type CurrentUserData } from '../auth/current-user.decorator'
 import { Roles } from '../auth/roles.decorator'
@@ -63,6 +64,28 @@ export class InstancesController {
     @CurrentUser() actor: CurrentUserData,
   ) {
     return this.instancesService.completeTask(taskId, dto, organizationId, actor)
+  }
+
+  // Rotas de DEVOLUÇÃO — ficam sob `tasks/`, antes da param `:id`, para não colidir.
+  @Get('tasks/:taskId/return-targets')
+  @ApiOperation({ summary: 'Etapas anteriores para onde a tarefa pode ser devolvida (inclui bloqueadas, com motivo)' })
+  returnTargets(
+    @Param('taskId') taskId: string,
+    @CurrentOrg() organizationId: string,
+    @CurrentUser() actor: CurrentUserData,
+  ) {
+    return this.instancesService.returnTargetsFor(taskId, organizationId, actor)
+  }
+
+  @Post('tasks/:taskId/return')
+  @ApiOperation({ summary: 'Devolve o processo para uma etapa anterior (motivo obrigatório)' })
+  returnTask(
+    @Param('taskId') taskId: string,
+    @Body() dto: ReturnTaskDto,
+    @CurrentOrg() organizationId: string,
+    @CurrentUser() actor: CurrentUserData,
+  ) {
+    return this.instancesService.returnTask(taskId, dto, organizationId, actor)
   }
 
   @Get(':id')
