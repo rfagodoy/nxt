@@ -5,14 +5,17 @@
    renderiza) porque Next.js proíbe exportar componentes de um page.tsx de rota. */
 
 import { useEffect, useState } from 'react'
-import { Loader2, Info } from 'lucide-react'
+import { Loader2, Info, ArrowRight } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { DynamicForm } from '@/components/modules/dynamic-form'
 import { WorkflowScreenTask } from '@/components/processes/workflow-screen-task'
-import { ReturnTaskButton } from '@/components/processes/return-task-button'
+import { ReturnTaskButton, type ReturnTarget } from '@/components/processes/return-task-button'
 import { apiFetch, apiJson } from '@/lib/http'
 import { cn } from '@/lib/utils'
-import { dueInfo, kindMeta, DUE_CHIP, TASK_STATUS, type Task, type TimelineTask, type InstanceContext } from '@/lib/tasks-ui'
+import { kindMeta, type Task, type TimelineTask, type InstanceContext } from '@/lib/tasks-ui'
 import type { StepFormSchema } from '@nxt/types'
+
+const FORM_ID = 'task-advance-form'
 
 /** onDone: concluída/devolvida → o host fecha a aba e recarrega o board.
  *  onNotice: mensagem a exibir no board (ex.: etapa automática seguinte falhou). */
@@ -27,6 +30,12 @@ export function TaskDocView({ task, onDone, onNotice }: {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [returnTargets, setReturnTargets] = useState<ReturnTarget[] | null>(null)
+  // id da entidade criada/editada por uma tarefa dirigida por Tela (para o "Avançar")
+  const [entityId, setEntityId] = useState<string | null>(null)
+
+  const isScreen = !!step?.screenRef
+  const idVar = step?.screenSubject === 'CONTRATO' ? 'contratoId' : 'partnerId'
 
   useEffect(() => {
     let cancel = false
@@ -37,9 +46,15 @@ export function TaskDocView({ task, onDone, onNotice }: {
         if (cancel) return
         const fs = ctx?.instance?.processDefinition?.formSchema
         const found = fs?.steps?.find((s) => s.stepId === task.nodeId)
-        setVariables(ctx?.state?.variables ?? {})
+        const vars = ctx?.state?.variables ?? {}
+        setVariables(vars)
         setTimeline(ctx?.instance?.tasks ?? [])
         setStep(found ?? { stepId: task.nodeId, stepName: task.name || task.nodeId, fields: [] })
+        // tarefa que EDITA uma entidade já tem o id na variável → "Avançar" liberado
+        if (found?.screenRef && found.entityMode === 'EDIT' && found.entityVar) {
+          const eid = vars[found.entityVar]
+          if (eid) setEntityId(String(eid))
+        }
       } finally {
         if (!cancel) setLoading(false)
       }
@@ -47,13 +62,24 @@ export function TaskDocView({ task, onDone, onNotice }: {
     return () => { cancel = true }
   }, [task.instanceId, task.nodeId, task.name])
 
+  // alvos de devolução (decide se o "Retroceder" aparece — item 4)
+  useEffect(() => {
+    let cancel = false
+    void (async () => {
+      const t = await apiJson<ReturnTarget[]>(`/api/instances/tasks/${task.id}/return-targets`).catch(() => [])
+      if (!cancel) setReturnTargets(t ?? [])
+    })()
+    return () => { cancel = true }
+  }, [task.id])
+
+  /** Conclui a tarefa (Avançar) com os dados coletados. */
   const complete = async (data: Record<string, unknown>) => {
     setSubmitting(true); setError(null)
     try {
       const res = await apiFetch(`/api/instances/tasks/${task.id}/complete`, { method: 'PATCH', body: JSON.stringify({ data }) })
       if (!res.ok) {
         const e = await res.json().catch(() => null)
-        setError(e?.message || 'Não foi possível concluir a tarefa.')
+        setError(e?.message || 'Não foi possível avançar a tarefa.')
         return
       }
       const result = await res.json().catch(() => null)
@@ -64,12 +90,17 @@ export function TaskDocView({ task, onDone, onNotice }: {
     }
   }
 
+  // "Avançar" para tarefa dirigida por Tela: leva o id da entidade. Exige a entidade
+  // salva (decisão do PO) — sem id, o processo seguiria sem referência à entidade.
+  const advanceScreen = () => { if (entityId) void complete({ [idVar]: entityId }) }
+
   const km = kindMeta(task.instance?.processDefinition?.kind)
-  const info = dueInfo(task.dueAt)
+  const hasReturn = (returnTargets?.length ?? 0) > 0
+  const advanceDisabled = submitting || (isScreen && !entityId)
 
   return (
     <div className="mx-auto flex h-full max-w-3xl flex-col">
-      {/* cabeçalho de identidade da tarefa */}
+      {/* cabeçalho de identidade + AÇÕES no topo (Retroceder / Avançar) */}
       <div className="flex items-start gap-3 px-1 py-3 border-b shrink-0">
         <span className={cn('flex h-11 w-11 items-center justify-center rounded-xl shrink-0', km.cls)}><km.Icon className="h-5 w-5" /></span>
         <div className="flex-1 min-w-0">
@@ -78,8 +109,17 @@ export function TaskDocView({ task, onDone, onNotice }: {
             {km.label} · {task.instance?.processDefinition?.name}{task.role ? ` · ${task.role}` : ''}
           </p>
         </div>
-        <span className={cn('text-[10px] font-semibold px-2 py-1 rounded-md whitespace-nowrap', DUE_CHIP[info.grp])}>{info.label}</span>
-        <ReturnTaskButton taskId={task.id} onReturned={onDone} />
+        {/* Retroceder só quando há etapa anterior (item 4) */}
+        {hasReturn && <ReturnTaskButton taskId={task.id} onReturned={onDone} label="Retroceder" targets={returnTargets ?? undefined} />}
+        <Button
+          size="sm"
+          onClick={isScreen ? advanceScreen : undefined}
+          {...(!isScreen ? { type: 'submit' as const, form: FORM_ID } : {})}
+          disabled={advanceDisabled}
+          title={isScreen && !entityId ? `Salve o ${idVar === 'contratoId' ? 'contrato' : 'parceiro'} antes de avançar` : 'Avançar o processo para a próxima etapa'}
+        >
+          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}Avançar
+        </Button>
       </div>
 
       {/* contexto: onde você está no processo */}
@@ -96,7 +136,6 @@ export function TaskDocView({ task, onDone, onNotice }: {
                   <span className={cn('text-[12.5px]', cur ? 'font-semibold' : done ? 'text-muted-foreground' : 'text-muted-foreground/70')}>{tl.name || 'Etapa'}</span>
                   {done && tl.completedBy && <span className="text-[11px] text-muted-foreground/70">· {tl.completedBy}</span>}
                   {cur && <span className="ml-auto text-[10px] uppercase tracking-wide text-primary font-semibold">sua vez</span>}
-                  {!cur && <span className="ml-auto text-[10px] text-muted-foreground/60">{TASK_STATUS[tl.status] ?? ''}</span>}
                 </div>
               )
             })}
@@ -116,10 +155,11 @@ export function TaskDocView({ task, onDone, onNotice }: {
                 <p className="text-xs text-foreground/80 leading-snug whitespace-pre-line">{step.instructions.trim()}</p>
               </div>
             )}
-            {step.screenRef ? (
-              <WorkflowScreenTask key={task.id} step={step} variables={variables} onComplete={complete} onCancel={onDone} />
+            {isScreen ? (
+              <WorkflowScreenTask key={task.id} step={step} variables={variables} entityId={entityId} onEntity={setEntityId} onCancel={onDone} />
             ) : (
-              <DynamicForm key={task.id} step={step} stepIndex={0} totalSteps={1} submitting={submitting} onSubmit={complete} onCancel={onDone} />
+              // o botão "Avançar" (topo) submete este form via `form=FORM_ID`
+              <DynamicForm key={task.id} step={step} stepIndex={0} totalSteps={1} submitting={submitting} onSubmit={complete} formId={FORM_ID} hideActions />
             )}
           </>
         )}

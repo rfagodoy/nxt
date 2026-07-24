@@ -121,6 +121,7 @@ model ProcessDefinition {
 model ProcessInstance {
   id                  String    @id @default(cuid())
   processDefinitionId String
+  numero              Int? // nº sequencial do PROCESSO iniciado, por organização (protocolo; começa em 1)
   definitionVersion   Int       @default(1) // versão do grafo com que esta instância roda (imutável após o start)
   revision            Int       @default(0) // lock otimístico do `state` (concorrência entre conclusões)
   status              String    @default("RUNNING") // RUNNING | COMPLETED | CANCELLED | ERROR

@@ -110,9 +110,19 @@ export class InstancesService {
     // instância não fica órfã sem tarefa pendente). Numa instância em ERRO não se
     // criam tarefas — o fluxo está parado no serviceTask que falhou.
     const instance = await this.prisma.$transaction(async (tx) => {
+      // Número SEQUENCIAL do processo por organização (protocolo, começa em 1). Lê o
+      // maior número existente na org e soma 1 dentro da transação. ⚠️ dois inícios
+      // exatamente simultâneos poderiam ler o mesmo máximo (escala baixa, aceitável).
+      const last = await tx.processInstance.findFirst({
+        where: { processDefinition: { organizationId }, numero: { not: null } },
+        orderBy: { numero: 'desc' },
+        select: { numero: true },
+      })
+      const numero = (last?.numero ?? 0) + 1
       const created = await tx.processInstance.create({
         data: {
           processDefinitionId: process.id,
+          numero,
           definitionVersion: process.version,
           // Congela o grafo com que esta instância roda: reativar/editar o processo
           // depois NÃO afeta instâncias já em andamento (elas seguem no snapshot).
@@ -460,6 +470,7 @@ export class InstancesService {
 
       return {
         id: inst.id,
+        numero: inst.numero ?? null,
         processName: inst.processDefinition?.name ?? 'Processo',
         version: inst.definitionVersion,
         status: inst.status,

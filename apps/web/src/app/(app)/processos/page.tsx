@@ -16,7 +16,7 @@ import { ListToolbar } from '@/components/list/list-toolbar'
 import { type FilterRow, matchOp, norm } from '@/lib/list-filter'
 
 interface Inst {
-  id: string; processName: string; version: number
+  id: string; numero: number | null; processName: string; version: number
   status: 'RUNNING' | 'COMPLETED' | 'ERROR' | 'CANCELLED'
   error: string | null; stepName: string | null; startedBy: string | null
   startedAt: string; completedAt: string | null; updatedAt: string
@@ -65,6 +65,10 @@ function taskPunctuality(t: TaskRow): { label: string; cls: string } {
 
 interface Col { key: string; label: string; align?: 'right'; text: (i: Inst) => string; sortVal?: (i: Inst) => string | number; node: (i: Inst) => ReactNode }
 const COLS: Col[] = [
+  {
+    key: 'numero', label: 'Nº', text: (i) => (i.numero != null ? String(i.numero) : ''), sortVal: (i) => i.numero ?? 0,
+    node: (i) => <span className="font-mono text-xs tabular-nums text-muted-foreground">{i.numero != null ? `#${i.numero}` : '—'}</span>,
+  },
   {
     key: 'processo', label: 'Processo', text: (i) => `${i.processName} v${i.version}`, sortVal: (i) => norm(i.processName),
     node: (i) => (
@@ -361,7 +365,7 @@ export default function ProcessosPage() {
               <div className="flex items-center gap-2 min-w-0">
                 <GitBranch className="h-4 w-4 text-primary shrink-0" />
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold truncate">{detail.processName} <span className="text-[11px] text-muted-foreground font-normal">v{detail.version}</span></p>
+                  <p className="text-sm font-semibold truncate">{detail.numero != null && <span className="font-mono text-muted-foreground">#{detail.numero} </span>}{detail.processName} <span className="text-[11px] text-muted-foreground font-normal">v{detail.version}</span></p>
                   <p className="text-[11px] text-muted-foreground">Iniciado por {detail.startedBy || '—'} em {fmt(detail.startedAt)}</p>
                 </div>
               </div>

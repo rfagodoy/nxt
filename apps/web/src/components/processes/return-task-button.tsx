@@ -7,17 +7,23 @@ import { Button } from '@/components/ui/button'
 import { apiFetch, apiJson } from '@/lib/http'
 import { cn } from '@/lib/utils'
 
-interface ReturnTarget { nodeId: string; name?: string; blockedBy?: string }
+export interface ReturnTarget { nodeId: string; name?: string; blockedBy?: string }
 
 /** Botão "Devolver" da tarefa: abre um painel que carrega os alvos anteriores
  *  (GET return-targets), exige um destino desbloqueado + motivo, e chama a API.
  *  Os alvos BLOQUEADOS aparecem desabilitados com o motivo — some-los pareceria
  *  que o sistema esqueceu a etapa (ver [[project_workflow_devolver]]). */
-export function ReturnTaskButton({ taskId, onReturned }: { taskId: string; onReturned: () => void }) {
+export function ReturnTaskButton({ taskId, onReturned, label = 'Devolver', targets: preTargets }: {
+  taskId: string
+  onReturned: () => void
+  label?: string
+  /** alvos já carregados pelo pai — evita refetch e permite decidir a visibilidade. */
+  targets?: ReturnTarget[]
+}) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [targets, setTargets] = useState<ReturnTarget[] | null>(null)
+  const [targets, setTargets] = useState<ReturnTarget[] | null>(preTargets ?? null)
   const [sel, setSel] = useState<string>('')
   const [reason, setReason] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -25,7 +31,9 @@ export function ReturnTaskButton({ taskId, onReturned }: { taskId: string; onRet
   useEffect(() => { setMounted(true) }, [])
 
   const openPanel = useCallback(async () => {
-    setOpen(true); setError(null); setSel(''); setReason(''); setTargets(null); setLoading(true)
+    setOpen(true); setError(null); setSel(''); setReason('')
+    if (preTargets) { setTargets(preTargets); return } // já temos os alvos
+    setTargets(null); setLoading(true)
     try {
       const data = await apiJson<ReturnTarget[]>(`/api/instances/tasks/${taskId}/return-targets`)
       setTargets(data ?? [])
@@ -35,7 +43,7 @@ export function ReturnTaskButton({ taskId, onReturned }: { taskId: string; onRet
     } finally {
       setLoading(false)
     }
-  }, [taskId])
+  }, [taskId, preTargets])
 
   const submit = async () => {
     if (!sel || !reason.trim()) return
@@ -63,7 +71,7 @@ export function ReturnTaskButton({ taskId, onReturned }: { taskId: string; onRet
   return (
     <>
       <Button variant="outline" size="sm" onClick={openPanel} title="Devolver para uma etapa anterior">
-        <Undo2 className="h-3.5 w-3.5" />Devolver
+        <Undo2 className="h-3.5 w-3.5" />{label}
       </Button>
 
       {/* portado para o body: o drawer de Tarefas tem backdrop-filter (glass-panel), que
