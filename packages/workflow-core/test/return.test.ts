@@ -193,13 +193,17 @@ describe('devolver — ação automática já executada', () => {
     expect(r3.state.tokens.map((t) => t.nodeId)).toEqual(['A'])
   })
 
-  it('COMPENSATE ainda bloqueia (compensação é F5 — liberar antes duplicaria em silêncio)', () => {
+  it('COMPENSATE é LIBERADO no motor (a inversa roda no backend — F5)', () => {
     const g: WfGraph = { ...comConector, nodes: { ...comConector.nodes, S: { ...comConector.nodes.S, onReturn: 'COMPENSATE' } } }
     const rt = makeCounterRuntime()
     const r0 = startProcess(g, {}, rt)
     const r1 = completeToken(g, r0.state, firstToken(r0.effects), {}, rt)
     const r2 = completeToken(g, r1.state, tokenAt(r1.state, 'S'), {}, rt)
-    expect(returnTargets(g, r2.state, tokenAt(r2.state, 'B'))[0].blockedBy).toBe('Lançar aditivo')
+    // não bloqueado: o alvo A aparece como usável (sem blockedBy)
+    expect(returnTargets(g, r2.state, tokenAt(r2.state, 'B'))).toEqual([{ nodeId: 'A', name: 'Preencher' }])
+    // e a devolução em si é aceita pelo motor (o backend cuida da compensação)
+    const r3 = returnToken(g, r2.state, tokenAt(r2.state, 'B'), 'A', rt)
+    expect(r3.state.tokens.map((t) => t.nodeId)).toEqual(['A'])
   })
 })
 

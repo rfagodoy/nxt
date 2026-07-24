@@ -188,9 +188,13 @@ export function completeToken(
    preenchido e corrige). */
 
 /** Política efetiva de um nó ao devolver atravessando-o. Ausente = BLOCK.
- *  COMPENSATE ainda não tem compensação implementada → tratado como BLOCK. */
+ *  - IDEMPOTENT: reexecutar não causa dano → liberado.
+ *  - COMPENSATE: tem inversa (o backend a roda na devolução) → liberado.
+ *  - BLOCK (padrão): bloqueia.
+ *  O motor confia na flag; a garantia de que existe uma inversa para COMPENSATE é
+ *  validada na ATIVAÇÃO do processo (backend), não aqui. */
 const crossingBlocked = (n: WfNode): boolean =>
-  n.type === 'serviceTask' && (n.onReturn ?? 'BLOCK') !== 'IDEMPOTENT'
+  n.type === 'serviceTask' && (n.onReturn ?? 'BLOCK') === 'BLOCK'
 
 export interface WfReturnTarget {
   nodeId: string
@@ -241,6 +245,13 @@ export function returnTargets(graph: WfGraph, state: WfState, tokenId: string): 
   for (const id of clean) if (!blocked.has(id)) out.push({ nodeId: id, name: graph.nodes[id]?.name })
   for (const [id, blocker] of blocked) out.push({ nodeId: id, name: graph.nodes[id]?.name, blockedBy: blocker })
   return out
+}
+
+/** Nós alcançáveis a partir de `from` (inclusive) — o sub-grafo DESCARTADO numa
+ *  devolução para `from`. Público para o backend saber quais ações compensáveis
+ *  precisam ser desfeitas (as que executaram dentro deste sub-grafo). */
+export function nodesReachableFrom(graph: WfGraph, from: string): string[] {
+  return [...reachableFrom(graph, from)]
 }
 
 /** Sub-grafo alcançável a partir de `from` (inclusive). Guarda de visitados

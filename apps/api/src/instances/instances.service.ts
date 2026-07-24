@@ -15,6 +15,7 @@ import {
   completeToken,
   returnToken,
   returnTargets,
+  nodesReachableFrom,
   cancelProcess,
   WfError,
   type WfGraph,
@@ -124,6 +125,7 @@ export class InstancesService {
         },
       })
       if (!settled.errored) await this.persistTasks(tx, created.id, settled.tasksToCreate, organizationId, settled.state.variables)
+      await this.persistCompensations(tx, created.id, settled.compensations)
       return created
     })
 
@@ -210,6 +212,7 @@ export class InstancesService {
         }
         // Em ERRO não se criam novas tarefas: o fluxo parou no serviceTask que falhou.
         if (!settled.errored) await this.persistTasks(tx, task.instanceId, settled.tasksToCreate, organizationId, settled.state.variables)
+        await this.persistCompensations(tx, task.instanceId, settled.compensations)
       })
     } catch (e) {
       if (e instanceof ConflictException) {
@@ -313,6 +316,31 @@ export class InstancesService {
     const fromName = graph.nodes[task.nodeId]?.name ?? task.name ?? null
     const toName = graph.nodes[dto.targetNodeId]?.name ?? null
 
+    // COMPENSAÇÃO (F5): as ações automáticas COMPENSATE que rodaram DENTRO do sub-grafo
+    // descartado precisam ser DESFEITAS antes de reabrir a etapa — senão seguir de novo
+    // lançaria o aditivo/ativação em dobro. Rodo as inversas AGORA (com a tarefa já
+    // reivindicada); se uma falhar, reverto a reivindicação e recuso (400). Os
+    // compensadores são idempotentes, então uma repetição rara (lock otimístico abaixo)
+    // não causa dano.
+    const discarded = new Set(nodesReachableFrom(graph, dto.targetNodeId))
+    const comps = (await this.prisma.workflowCompensation.findMany({
+      where: { instanceId: task.instanceId, undoneAt: null },
+      orderBy: { createdAt: 'desc' }, // desfaz o mais recente primeiro
+    })).filter((c) => discarded.has(c.nodeId))
+
+    try {
+      for (const c of comps) {
+        await this.runCompensator(c.undoData as unknown as Record<string, unknown>, { organizationId, actor })
+      }
+    } catch (e) {
+      // inversa falhou → devolve a tarefa a PENDING e recusa (nada foi devolvido)
+      await this.prisma.workflowTask.updateMany({
+        where: { id: task.id, status: 'RETURNED' },
+        data: { status: 'PENDING', completedBy: null, completedById: null, completedAt: null },
+      })
+      throw new BadRequestException(`Não foi possível desfazer uma ação automática: ${e instanceof Error ? e.message : String(e)}`)
+    }
+
     try {
       await this.prisma.$transaction(async (tx) => {
         // Anti-corrida (2/2): mesmo lock otimístico da conclusão. Se um ramo
@@ -333,6 +361,13 @@ export class InstancesService {
           })
         }
         await this.persistTasks(tx, task.instanceId, tasksToCreate, organizationId, result.state.variables)
+        // marca as compensações que rodaram como desfeitas (some da lista de ativas)
+        if (comps.length > 0) {
+          await tx.workflowCompensation.updateMany({
+            where: { id: { in: comps.map((c) => c.id) } },
+            data: { undoneAt: new Date() },
+          })
+        }
         await tx.workflowReturn.create({
           data: {
             instanceId: task.instanceId,
@@ -631,6 +666,7 @@ export class InstancesService {
         throw new ConflictException('A instância foi alterada por outra ação simultânea. Recarregue e tente novamente.')
       }
       if (!settled.errored) await this.persistTasks(tx, instanceId, settled.tasksToCreate, organizationId, settled.state.variables)
+      await this.persistCompensations(tx, instanceId, settled.compensations)
     })
 
     return {
@@ -652,11 +688,13 @@ export class InstancesService {
   ): Promise<{
     state: WfState
     tasksToCreate: Array<{ token: { id: string; nodeId: string }; node: WfNode }>
+    compensations: Array<{ nodeId: string; connector: string; undoData: Record<string, unknown> }>
     completed: boolean
     errored?: string
   }> {
     let state: WfState = fallbackState
     const tasksToCreate: Array<{ token: { id: string; nodeId: string }; node: WfNode }> = []
+    const compensations: Array<{ nodeId: string; connector: string; undoData: Record<string, unknown> }> = []
     const serviceQueue: Array<{ token: { id: string; nodeId: string }; node: WfNode }> = []
     let completed = false
 
@@ -673,6 +711,7 @@ export class InstancesService {
     const engineErrored = (s: WfState, msg: string) => ({
       state: { ...s, variables: { ...s.variables, __engineError: msg } },
       tasksToCreate,
+      compensations,
       completed: false,
       errored: msg,
     })
@@ -689,7 +728,7 @@ export class InstancesService {
 
     while (serviceQueue.length > 0) {
       const svc = serviceQueue.shift() as { token: { id: string; nodeId: string }; node: WfNode }
-      let out: Record<string, unknown>
+      let out: { outputs: Record<string, unknown>; compensation?: Record<string, unknown> }
       try {
         out = await this.runConnector(svc.node, state.variables, ctx)
       } catch (e) {
@@ -697,11 +736,16 @@ export class InstancesService {
         // permanece parado). Guardamos a causa nas variáveis para diagnóstico.
         const msg = msgOf(e)
         state = { ...state, variables: { ...state.variables, __connectorError: msg } }
-        return { state, tasksToCreate, completed: false, errored: msg }
+        return { state, tasksToCreate, compensations, completed: false, errored: msg }
+      }
+      // Registra COMO desfazer este passo, se for uma ação compensável (COMPENSATE).
+      // Só grava quando o conector produziu dados de inversa (create não produz).
+      if (svc.node.onReturn === 'COMPENSATE' && out.compensation) {
+        compensations.push({ nodeId: svc.node.id, connector: String(out.compensation.connector ?? svc.node.connector ?? ''), undoData: out.compensation })
       }
       // Retomada do token após o conector: erro do motor aqui também vira ERRO.
       try {
-        const next = completeToken(graph, state, svc.token.id, out, runtime)
+        const next = completeToken(graph, state, svc.token.id, out.outputs, runtime)
         state = next.state
         absorb(next.effects)
       } catch (e) {
@@ -710,7 +754,7 @@ export class InstancesService {
       }
     }
 
-    return { state, tasksToCreate, completed }
+    return { state, tasksToCreate, compensations, completed }
   }
 
   /** Executa o conector de domínio de um serviceTask (nó `connector`). O resultado
@@ -721,7 +765,7 @@ export class InstancesService {
     node: WfNode,
     rawVars: Record<string, unknown>,
     ctx: ConnectorCtx,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<{ outputs: Record<string, unknown>; compensation?: Record<string, unknown> }> {
     const actorName = ctx.actor?.name
     const actorId = ctx.actor?.sub
     // Re-liga as variáveis mapeadas no designer ao nome que o conector espera; sem
@@ -730,7 +774,7 @@ export class InstancesService {
     switch (node.connector) {
       case undefined:
       case '':
-        return {} // serviceTask sem conector = passo automático de passagem
+        return { outputs: {} } // serviceTask sem conector = passo automático de passagem
 
       case 'partners.create': {
         const created = await this.partners.create(
@@ -749,7 +793,7 @@ export class InstancesService {
           actorName,
           actorId,
         )
-        return { partnerId: created.id, partnerStatus: created.status }
+        return { outputs: { partnerId: created.id, partnerStatus: created.status } }
       }
 
       case 'contracts.create': {
@@ -769,7 +813,7 @@ export class InstancesService {
           actorName,
           actorId,
         )
-        return { contratoId: created.id, contratoNumero: created.numero }
+        return { outputs: { contratoId: created.id, contratoNumero: created.numero } }
       }
 
       case 'contracts.aditivo': {
@@ -794,7 +838,11 @@ export class InstancesService {
           actorName,
           actorId,
         )
-        return { contratoId, aditivoId: novo.id, contratoSituacao: updated.situacao }
+        // compensação: remover ESTE aditivo (por id) do contrato-alvo
+        return {
+          outputs: { contratoId, aditivoId: novo.id, contratoSituacao: updated.situacao },
+          compensation: { connector: 'contracts.aditivo', contratoId, aditivoId: novo.id },
+        }
       }
 
       case 'contracts.distrato': {
@@ -803,6 +851,11 @@ export class InstancesService {
         const contratoId = resolveContractId(vars)
         if (!contratoId) throw new BadRequestException('Distrato sem contrato-alvo (defina a variável contratoId)')
         const motivo = str(vars.motivo) ?? str(vars.motivoDistrato) ?? str(vars.justificativa)
+        // captura a situação ANTES para a compensação restaurá-la (não assumir VIGENTE)
+        const prev = await this.prisma.contract.findFirst({
+          where: { id: contratoId, organizationId: ctx.organizationId },
+          select: { situacao: true },
+        })
         const updated = await this.contracts.update(
           contratoId,
           { situacao: 'RESCINDIDO', motivo } as unknown as Parameters<ContractsService['update']>[1],
@@ -810,7 +863,10 @@ export class InstancesService {
           actorName,
           actorId,
         )
-        return { contratoId, contratoSituacao: updated.situacao }
+        return {
+          outputs: { contratoId, contratoSituacao: updated.situacao },
+          compensation: prev?.situacao ? { connector: 'contracts.distrato', contratoId, prevSituacao: prev.situacao } : undefined,
+        }
       }
 
       case 'partners.activate': {
@@ -818,6 +874,11 @@ export class InstancesService {
         // (partnerId), normalmente produzida por um partners.create anterior no fluxo.
         const partnerId = resolvePartnerId(vars)
         if (!partnerId) throw new BadRequestException('Ativação sem parceiro-alvo (defina a variável partnerId)')
+        // captura o status ANTES para a compensação restaurá-lo
+        const prevP = await this.prisma.partner.findFirst({
+          where: { id: partnerId, organizationId: ctx.organizationId },
+          select: { status: true },
+        })
         const updated = await this.partners.update(
           partnerId,
           { status: 'ATIVO', motivo: str(vars.motivo) } as unknown as Parameters<PartnersService['update']>[1],
@@ -825,7 +886,10 @@ export class InstancesService {
           actorName,
           actorId,
         )
-        return { partnerId, partnerStatus: updated.status }
+        return {
+          outputs: { partnerId, partnerStatus: updated.status },
+          compensation: prevP?.status ? { connector: 'partners.activate', partnerId, prevStatus: prevP.status } : undefined,
+        }
       }
 
       default:
@@ -833,7 +897,65 @@ export class InstancesService {
     }
   }
 
+  /** Conectores com INVERSA definida — os únicos que podem receber onReturn=COMPENSATE.
+   *  A ativação valida contra esta lista; a devolução chama `runCompensator`. */
+  private static readonly COMPENSABLE = new Set(['contracts.aditivo', 'contracts.distrato', 'partners.activate'])
+
+  /** Roda a inversa de uma ação compensável (desfaz o efeito de domínio). Usada na
+   *  devolução, ANTES de reabrir a etapa anterior. Idempotente onde dá (ex.: remover
+   *  um aditivo que já não existe é no-op). */
+  private async runCompensator(undoData: Record<string, unknown>, ctx: ConnectorCtx) {
+    const actorName = ctx.actor?.name
+    const actorId = ctx.actor?.sub
+    const connector = String(undoData.connector ?? '')
+    switch (connector) {
+      case 'contracts.aditivo': {
+        // remove ESTE aditivo (por id) do contrato-alvo
+        const contratoId = String(undoData.contratoId ?? '')
+        const aditivoId = String(undoData.aditivoId ?? '')
+        const atual = await this.prisma.contract.findFirst({ where: { id: contratoId, organizationId: ctx.organizationId }, select: { aditivos: true } })
+        if (!atual) return // contrato sumiu → nada a desfazer
+        const existentes = Array.isArray(atual.aditivos) ? (atual.aditivos as Array<{ id?: string }>) : []
+        const restante = existentes.filter((a) => a?.id !== aditivoId)
+        if (restante.length === existentes.length) return // já não estava lá (no-op)
+        await this.contracts.update(contratoId, { aditivos: restante, motivo: 'Compensação: devolução do processo' } as unknown as Parameters<ContractsService['update']>[1], ctx.organizationId, actorName, actorId)
+        return
+      }
+      case 'contracts.distrato': {
+        // restaura a situação anterior ao distrato
+        const contratoId = String(undoData.contratoId ?? '')
+        const prevSituacao = String(undoData.prevSituacao ?? '')
+        if (!contratoId || !prevSituacao) return
+        await this.contracts.update(contratoId, { situacao: prevSituacao, motivo: 'Compensação: devolução do processo' } as unknown as Parameters<ContractsService['update']>[1], ctx.organizationId, actorName, actorId)
+        return
+      }
+      case 'partners.activate': {
+        // restaura o status anterior à ativação
+        const partnerId = String(undoData.partnerId ?? '')
+        const prevStatus = String(undoData.prevStatus ?? '')
+        if (!partnerId || !prevStatus) return
+        await this.partners.update(partnerId, { status: prevStatus, motivo: 'Compensação: devolução do processo' } as unknown as Parameters<PartnersService['update']>[1], ctx.organizationId, actorName, actorId)
+        return
+      }
+      default:
+        throw new BadRequestException(`Ação "${connector}" não tem compensação definida`)
+    }
+  }
+
   // ── Persistência auxiliar ────────────────────────────────────────────────────
+
+  /** Grava o log de compensação (como desfazer) das ações COMPENSATE que rodaram. */
+  private async persistCompensations(
+    client: Pick<PrismaService, 'workflowCompensation'>,
+    instanceId: string,
+    comps: Array<{ nodeId: string; connector: string; undoData: Record<string, unknown> }>,
+  ) {
+    if (comps.length === 0) return
+    await client.workflowCompensation.createMany({
+      data: comps.map((c) => ({ instanceId, nodeId: c.nodeId, connector: c.connector, undoData: c.undoData })) as never,
+    })
+  }
+
   private async persistTasks(
     client: Pick<PrismaService, 'workflowTask'>,
     instanceId: string,

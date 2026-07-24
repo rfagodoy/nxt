@@ -138,8 +138,29 @@ model ProcessInstance {
   records           ModuleRecord[]
   tasks             WorkflowTask[]
   returns           WorkflowReturn[]
+  compensations     WorkflowCompensation[]
 
   @@map("process_instances")
+}
+
+// Log de compensação (saga): quando uma AÇÃO AUTOMÁTICA com onReturn=COMPENSATE roda,
+// grava aqui COMO desfazê-la. Se o processo for DEVOLVIDO atravessando essa ação, o
+// backend roda a inversa (remove o aditivo, restaura a situação/status) antes de
+// reabrir a etapa — senão seguir de novo lançaria o aditivo/ativação em DOBRO.
+// `undoData` (JSON) carrega o necessário para a inversa (ex.: aditivoId, valor anterior).
+model WorkflowCompensation {
+  id         String    @id @default(cuid())
+  instanceId String
+  nodeId     String // serviceTask que executou
+  connector  String // ex.: contracts.aditivo
+  undoData   String    @db.NVarChar(Max) // [JSON] como desfazer
+  undoneAt   DateTime? // preenchido quando a compensação roda (na devolução)
+  createdAt  DateTime  @default(now())
+
+  instance ProcessInstance @relation(fields: [instanceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([instanceId])
+  @@map("workflow_compensations")
 }
 
 // Devolução: registro de que alguém mandou o processo de volta para uma etapa
