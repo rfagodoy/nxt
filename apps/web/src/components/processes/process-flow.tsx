@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Save, Zap, Trash2, User, Clock, LayoutTemplate, Wand2,
   CircleDot, CheckCircle2, Loader2, UserSquare, GitBranch, GitMerge,
-  Download, FileImage, FileText, ChevronDown,
+  Download, FileImage, FileText, ChevronDown, PanelRightClose, PanelRightOpen,
 } from 'lucide-react'
 import { generateBpmn, compileBpmn, type WfGraph, type WfNode, type WfEdge } from '@nxt/workflow-core'
 import type { StepFormSchema, ProcessFormSchema } from '@nxt/types'
@@ -24,6 +24,9 @@ import { layoutGraph, titleLineCount, type FlowNode as LNode, type FlowNodeType 
 import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, type ExportEdge } from '@/lib/flow-export'
 import { apiFetch } from '@/lib/http'
 import { cn } from '@/lib/utils'
+
+/** Preferência de painel recolhido (por usuário desta máquina). */
+const PANEL_KEY = 'nxt:workflow:panel-collapsed'
 
 export const WORKFLOW_KINDS = [
   { value: 'CONTRATO', label: 'Contrato' },
@@ -186,6 +189,24 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
   const hasManual = Object.keys(positions).length > 0
   const layout = useMemo(() => layoutGraph({ nodes: nodes.map(toLNode), edges, startId: nodes.find((n) => n.type === 'start')?.id ?? 'Start_1' }, hasManual ? positions : undefined), [nodes, edges, positions, hasManual])
+
+  /* Painel lateral RETRÁTIL — o canvas é a superfície principal; recolher devolve os
+     320px (e o enquadramento reaproveita o espaço, subindo a escala do desenho).
+     O estado efetivo é DERIVADO: recolhido só quando o usuário pediu E não há nó
+     selecionado — selecionar um nó É o gesto de "quero configurar isto", então o painel
+     reaparece sozinho e volta a recolher ao deselecionar. Sem lógica imperativa. */
+  const [mounted, setMounted] = useState(false)
+  const [panelPref, setPanelPref] = useState(false) // true = recolhido
+  useEffect(() => { setMounted(true); setPanelPref(localStorage.getItem(PANEL_KEY) === '1') }, [])
+  useEffect(() => { if (mounted) localStorage.setItem(PANEL_KEY, panelPref ? '1' : '0') }, [panelPref, mounted])
+  const panelCollapsed = mounted && panelPref && !selectedId
+  // recolher = "me devolve o canvas": também deseleciona, senão o derivado o manteria aberto
+  const togglePanel = useCallback(() => {
+    setPanelPref((prev) => {
+      if (!prev) { setSelectedId(null); return true }
+      return false
+    })
+  }, [])
 
   const setPosition = useCallback((id: string, pos: { x: number; y: number }) => setPositions((prev) => ({ ...prev, [id]: pos })), [])
   const organize = useCallback(() => setPositions({}), [])
@@ -377,7 +398,15 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       {/* Canvas + Inspetor */}
       <div className="flex flex-1 overflow-hidden">
         <FlowCanvas canvasRef={canvasRef} nodes={nodes} edges={edges} layout={layout} selectedId={selectedId} onSelect={setSelectedId} onConnect={onConnect} onCreateConnected={onCreateConnected} onDeleteEdge={onDeleteEdge} onDeleteNode={removeNode} onSetPosition={setPosition} resolvePapel={resolvePapel} />
-        <div className="w-80 border-l bg-card flex flex-col overflow-hidden shrink-0">
+        {/* trilho do toggle: fica SEMPRE visível (é a alça para trazer o painel de volta) */}
+        <div className="w-8 border-l bg-card flex flex-col items-center pt-2.5 shrink-0">
+          <button type="button" onClick={togglePanel}
+            title={panelCollapsed ? 'Expandir configurações' : 'Recolher configurações (mais espaço para o desenho)'}
+            className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+            {panelCollapsed ? <PanelRightOpen className="h-4 w-4" /> : <PanelRightClose className="h-4 w-4" />}
+          </button>
+        </div>
+        <div className={cn('w-80 border-l bg-card flex-col overflow-hidden shrink-0', panelCollapsed ? 'hidden' : 'flex')}>
           {selected ? (
             isActivity(selected.type) ? (
               <ActivityInspector key={selected.id} node={selected} nodes={nodes} edges={edges} screens={screens} papeis={papeis} onPatchStep={(p) => patchStep(selected.id, p)} onChangeType={(t) => changeNodeType(selected.id, t)} onRemove={() => removeNode(selected.id)} />
@@ -528,12 +557,15 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
   }
 
+  // O deselect fica no CONTAINER de rolagem (não na div do grafo): com o enquadramento a
+  // div do grafo não cobre toda a área visível, e clicar no vazio abaixo dela não
+  // deselecionava — o painel ficava preso no inspetor do nó.
   return (
-    <div ref={scrollRef} className="flex-1 min-w-0 min-h-0 overflow-auto bg-muted/20 [background-image:radial-gradient(circle_at_1px_1px,hsl(var(--border))_1px,transparent_0)] [background-size:24px_24px]">
+    <div ref={scrollRef} className="flex-1 min-w-0 min-h-0 overflow-auto bg-muted/20 [background-image:radial-gradient(circle_at_1px_1px,hsl(var(--border))_1px,transparent_0)] [background-size:24px_24px]"
+      onClick={(e) => { if (!(e.target as HTMLElement).closest('[data-node-id]')) onSelect(null) }}>
       {/* espaçador com o tamanho JÁ ESCALADO: mantém as barras de rolagem corretas */}
       <div style={{ width: layout.width * scale, height: layout.height * scale, minWidth: '100%' }}>
-      <div ref={canvasRef} className="relative" style={{ width: layout.width, height: layout.height, transform: `scale(${scale})`, transformOrigin: '0 0' }}
-        onClick={(e) => { if (!(e.target as HTMLElement).closest('[data-node-id]')) onSelect(null) }}>{/* clicar no fundo deseleciona → volta às Propriedades do workflow */}
+      <div ref={canvasRef} className="relative" style={{ width: layout.width, height: layout.height, transform: `scale(${scale})`, transformOrigin: '0 0' }}>
         <svg className="absolute inset-0 overflow-visible" style={{ width: layout.width, height: layout.height }}>
           <defs>
             <marker id="fl-arrow" markerWidth="8" markerHeight="8" refX="6.5" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="context-stroke" /></marker>
