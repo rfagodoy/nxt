@@ -313,7 +313,14 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       const a = layout.nodes[e.from], b = layout.nodes[e.to]
       const from = nodeById[e.from]
       const variant: ExportEdge['variant'] = from?.type === 'exclusiveGateway' ? 'exclusive' : from?.type === 'parallelGateway' ? 'parallel' : 'normal'
-      return { ax: a.x + a.w, ay: a.y + a.h / 2, bx: b.x, by: b.y + b.h / 2, variant, label: e.label }
+      // MESMA geometria da tela (âncoras cientes do lado + laço de retorno), senão o
+      // arquivo exportado sai diferente do que o usuário desenhou.
+      const g = edgeGeometry(a, b)
+      return {
+        ax: g.a.x, ay: g.a.y, bx: g.b.x, by: g.b.y,
+        adx: g.aDir.x, ady: g.aDir.y, bdx: g.bDir.x, bdy: g.bDir.y,
+        backward: g.backward, variant, label: e.label,
+      }
     })
     return { width: layout.width, height: layout.height, nodes: enodes, edges: eedges }
   }, [nodes, edges, layout, nodeById, resolvePapel])
