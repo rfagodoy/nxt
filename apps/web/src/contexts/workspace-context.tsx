@@ -11,7 +11,7 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef } f
 
 const STORAGE_KEY = 'nxt:workspace:tabs'
 
-export type WorkspaceKind = 'contract' | 'partner' | 'unit'
+export type WorkspaceKind = 'contract' | 'partner' | 'unit' | 'task'
 
 export interface WorkspaceTab {
   id:        string            // único: `${kind}:${recordId}` ou `${kind}:new`
