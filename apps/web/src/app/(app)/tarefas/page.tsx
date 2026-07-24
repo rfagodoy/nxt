@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { DynamicForm } from '@/components/modules/dynamic-form'
 import { WorkflowScreenTask } from '@/components/processes/workflow-screen-task'
+import { ReturnTaskButton } from '@/components/processes/return-task-button'
 import { apiFetch, apiJson } from '@/lib/http'
 import { cn } from '@/lib/utils'
 import type { StepFormSchema, ProcessFormSchema } from '@nxt/types'
@@ -109,6 +110,10 @@ export default function TarefasPage() {
     }
   }
   const closeDrawer = () => { setActive(null); setStep(null) }
+
+  // Devolução concluída: fecha o drawer e recarrega o board (a tarefa saiu de PENDING;
+  // a etapa anterior reabre para o executor dela).
+  const onReturned = () => { closeDrawer(); void load() }
 
   const complete = async (data: Record<string, unknown>) => {
     if (!active) return
@@ -260,6 +265,7 @@ export default function TarefasPage() {
                 </p>
               </div>
               <span className={cn('text-[10px] font-semibold px-2 py-1 rounded-md whitespace-nowrap', DUE_CHIP[dueInfo(active.dueAt).grp])}>{dueInfo(active.dueAt).label}</span>
+              <ReturnTaskButton taskId={active.id} onReturned={onReturned} />
               <button onClick={closeDrawer} className="ml-1 h-8 w-8 grid place-items-center rounded-lg bg-muted/60 text-muted-foreground hover:text-foreground shrink-0"><X className="h-4 w-4" /></button>
             </div>
 
