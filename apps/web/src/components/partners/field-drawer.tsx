@@ -96,10 +96,11 @@ export function FieldDrawer({ targetSection, initialField, onClose, onSave }: {
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 z-50 w-96 bg-background border-l shadow-xl flex flex-col">
+      {/* acima do FieldManagerDrawer (z-50) que o abre: o scrim tapa o vidro do pai p/ o frost não vazar texto */}
+      <div className="fixed inset-0 z-[60] bg-black/40" onClick={onClose} />
+      <div className="fixed inset-y-0 right-0 z-[70] w-96 glass-panel border-l border-white/15 dark:border-white/10 shadow-xl flex flex-col">
 
-        <div className="px-4 py-3 border-b bg-card flex items-center justify-between shrink-0">
+        <div className="px-4 py-3 border-b bg-muted/30 flex items-center justify-between shrink-0">
           <div>
             <h2 className="text-sm font-semibold">{isEdit ? 'Editar campo' : 'Novo campo'}</h2>
             <p className="text-[11px] text-muted-foreground">
@@ -219,7 +220,7 @@ export function FieldDrawer({ targetSection, initialField, onClose, onSave }: {
           </div>
         </div>
 
-        <div className="px-4 py-3 border-t bg-card flex items-center justify-between shrink-0">
+        <div className="px-4 py-3 border-t bg-muted/30 flex items-center justify-between shrink-0">
           <button type="button" onClick={onClose}
             className="text-xs text-muted-foreground hover:text-foreground transition-colors">
             Cancelar
@@ -394,9 +395,9 @@ export function FieldManagerDrawer({ onClose }: { onClose: () => void }) {
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 z-50 w-96 bg-background border-l shadow-xl flex flex-col">
+      <div className="fixed inset-y-0 right-0 z-50 w-96 glass-panel border-l border-white/15 dark:border-white/10 shadow-xl flex flex-col">
 
-        <div className="px-4 py-3 border-b bg-card flex items-center justify-between shrink-0">
+        <div className="px-4 py-3 border-b bg-muted/30 flex items-center justify-between shrink-0">
           <div>
             <h2 className="text-sm font-semibold">Configurar campos</h2>
             <p className="text-[11px] text-muted-foreground">Campos e seções personalizados</p>
@@ -406,7 +407,7 @@ export function FieldManagerDrawer({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        <div className="flex border-b bg-card shrink-0">
+        <div className="flex border-b bg-muted/30 shrink-0">
           {([['fields', 'Campos'], ['sections', 'Seções']] as [DrawerTab, string][]).map(([key, lbl]) => (
             <button key={key} type="button" onClick={() => setTab(key)}
               className={cn(
@@ -525,7 +526,7 @@ export function FieldManagerDrawer({ onClose }: { onClose: () => void }) {
                 )
               })}
             </div>
-            <div className="px-4 py-3 border-t bg-card shrink-0">
+            <div className="px-4 py-3 border-t bg-muted/30 shrink-0">
               <button type="button" onClick={() => setAdding(true)}
                 className="w-full inline-flex items-center justify-center gap-1.5 h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
                 <Plus className="h-3.5 w-3.5" />Adicionar campo
@@ -650,7 +651,7 @@ export function FieldManagerDrawer({ onClose }: { onClose: () => void }) {
             </div>
 
             {!addingSection && (
-              <div className="px-4 py-3 border-t bg-card shrink-0">
+              <div className="px-4 py-3 border-t bg-muted/30 shrink-0">
                 <button type="button" onClick={() => setAddingSection(true)}
                   className="w-full inline-flex items-center justify-center gap-1.5 h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
                   <Plus className="h-3.5 w-3.5" />Nova seção
@@ -771,9 +772,9 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 z-50 w-96 bg-background border-l shadow-xl flex flex-col">
+      <div className="fixed inset-y-0 right-0 z-50 w-96 glass-panel border-l border-white/15 dark:border-white/10 shadow-xl flex flex-col">
 
-        <div className="px-4 py-3 border-b bg-card flex items-center justify-between shrink-0">
+        <div className="px-4 py-3 border-b bg-muted/30 flex items-center justify-between shrink-0">
           <div>
             <h2 className="text-sm font-semibold">Configurações</h2>
             <p className="text-[11px] text-muted-foreground">Visibilidade das colunas na tabela</p>
@@ -899,7 +900,7 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
           )}
         </div>
 
-        <div className="px-4 py-3 border-t bg-card flex items-center justify-between gap-2 shrink-0">
+        <div className="px-4 py-3 border-t bg-muted/30 flex items-center justify-between gap-2 shrink-0">
           <button type="button" onClick={restoreDefault}
             className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
             <RotateCcw className="h-3.5 w-3.5" />Restaurar padrão

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Save, Zap, Trash2, User, Clock, LayoutTemplate, Wand2,
   CircleDot, CheckCircle2, Loader2, UserSquare, GitBranch, GitMerge,
-  Download, FileImage, FileText, ChevronDown,
+  Download, FileImage, FileText, ChevronDown, PanelRightClose, PanelRightOpen,
 } from 'lucide-react'
 import { generateBpmn, compileBpmn, type WfGraph, type WfNode, type WfEdge } from '@nxt/workflow-core'
 import type { StepFormSchema, ProcessFormSchema } from '@nxt/types'
@@ -13,7 +13,6 @@ import { CONNECTORS } from '@nxt/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { EntitySelect, type EntityKind } from '@/components/ui/entity-select'
@@ -25,6 +24,9 @@ import { layoutGraph, titleLineCount, type FlowNode as LNode, type FlowNodeType 
 import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, type ExportEdge } from '@/lib/flow-export'
 import { apiFetch } from '@/lib/http'
 import { cn } from '@/lib/utils'
+
+/** Preferência de painel recolhido (por usuário desta máquina). */
+const PANEL_KEY = 'nxt:workflow:panel-collapsed'
 
 export const WORKFLOW_KINDS = [
   { value: 'CONTRATO', label: 'Contrato' },
@@ -70,15 +72,23 @@ const sidePoint = (b: Box, side: Side): Pt => {
   if (side === 'left') return { x: b.x, y: cy }
   return { x: b.x + b.w, y: cy }
 }
-/** Escolhe os lados mais próximos entre dois nós → âncoras + normais de saída/entrada. */
-function pickAnchors(na: Box, nb: Box): { a: Pt; aDir: Pt; b: Pt; bDir: Pt } {
+/** Escolhe os lados mais próximos entre dois nós → âncoras + normais de saída/entrada.
+ *  `backward` = RETORNO (laço para trás): o destino está à ESQUERDA na mesma faixa. Nesse
+ *  caso sai e entra por BAIXO, arcando por fora — senão o traço cai EXATAMENTE sobre a
+ *  aresta de ida e as duas viram uma "seta dupla" indistinguível (o laço some da tela). */
+function edgeGeometry(na: Box, nb: Box): { a: Pt; aDir: Pt; b: Pt; bDir: Pt; backward: boolean } {
   const dx = (nb.x + nb.w / 2) - (na.x + na.w / 2)
   const dy = (nb.y + nb.h / 2) - (na.y + na.h / 2)
+  if (dx < 0 && Math.abs(dx) >= Math.abs(dy)) {
+    return { a: sidePoint(na, 'bottom'), aDir: SIDE_NORMAL.bottom, b: sidePoint(nb, 'bottom'), bDir: SIDE_NORMAL.bottom, backward: true }
+  }
   let aSide: Side, bSide: Side
   if (Math.abs(dx) >= Math.abs(dy)) { aSide = dx >= 0 ? 'right' : 'left'; bSide = dx >= 0 ? 'left' : 'right' }
   else { aSide = dy >= 0 ? 'bottom' : 'top'; bSide = dy >= 0 ? 'top' : 'bottom' }
-  return { a: sidePoint(na, aSide), aDir: SIDE_NORMAL[aSide], b: sidePoint(nb, bSide), bDir: SIDE_NORMAL[bSide] }
+  return { a: sidePoint(na, aSide), aDir: SIDE_NORMAL[aSide], b: sidePoint(nb, bSide), bDir: SIDE_NORMAL[bSide], backward: false }
 }
+/** Comprimento do "puxão" da curva — mesmo k usado no bezier (para posicionar o rótulo). */
+const edgeK = (a: Pt, b: Pt) => Math.max(28, Math.hypot(b.x - a.x, b.y - a.y) * 0.4)
 /** Curva cúbica que SAI perpendicular ao lado de origem e ENTRA perpendicular ao de destino. */
 function edgeBezier(a: Pt, aDir: Pt, b: Pt, bDir: Pt): string {
   const k = Math.max(28, Math.hypot(b.x - a.x, b.y - a.y) * 0.4)
@@ -179,6 +189,24 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
   const hasManual = Object.keys(positions).length > 0
   const layout = useMemo(() => layoutGraph({ nodes: nodes.map(toLNode), edges, startId: nodes.find((n) => n.type === 'start')?.id ?? 'Start_1' }, hasManual ? positions : undefined), [nodes, edges, positions, hasManual])
+
+  /* Painel lateral RETRÁTIL — o canvas é a superfície principal; recolher devolve os
+     320px (e o enquadramento reaproveita o espaço, subindo a escala do desenho).
+     O estado efetivo é DERIVADO: recolhido só quando o usuário pediu E não há nó
+     selecionado — selecionar um nó É o gesto de "quero configurar isto", então o painel
+     reaparece sozinho e volta a recolher ao deselecionar. Sem lógica imperativa. */
+  const [mounted, setMounted] = useState(false)
+  const [panelPref, setPanelPref] = useState(false) // true = recolhido
+  useEffect(() => { setMounted(true); setPanelPref(localStorage.getItem(PANEL_KEY) === '1') }, [])
+  useEffect(() => { if (mounted) localStorage.setItem(PANEL_KEY, panelPref ? '1' : '0') }, [panelPref, mounted])
+  const panelCollapsed = mounted && panelPref && !selectedId
+  // recolher = "me devolve o canvas": também deseleciona, senão o derivado o manteria aberto
+  const togglePanel = useCallback(() => {
+    setPanelPref((prev) => {
+      if (!prev) { setSelectedId(null); return true }
+      return false
+    })
+  }, [])
 
   const setPosition = useCallback((id: string, pos: { x: number; y: number }) => setPositions((prev) => ({ ...prev, [id]: pos })), [])
   const organize = useCallback(() => setPositions({}), [])
@@ -306,7 +334,14 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       const a = layout.nodes[e.from], b = layout.nodes[e.to]
       const from = nodeById[e.from]
       const variant: ExportEdge['variant'] = from?.type === 'exclusiveGateway' ? 'exclusive' : from?.type === 'parallelGateway' ? 'parallel' : 'normal'
-      return { ax: a.x + a.w, ay: a.y + a.h / 2, bx: b.x, by: b.y + b.h / 2, variant, label: e.label }
+      // MESMA geometria da tela (âncoras cientes do lado + laço de retorno), senão o
+      // arquivo exportado sai diferente do que o usuário desenhou.
+      const g = edgeGeometry(a, b)
+      return {
+        ax: g.a.x, ay: g.a.y, bx: g.b.x, by: g.b.y,
+        adx: g.aDir.x, ady: g.aDir.y, bdx: g.bDir.x, bdy: g.bDir.y,
+        backward: g.backward, variant, label: e.label,
+      }
     })
     return { width: layout.width, height: layout.height, nodes: enodes, edges: eedges }
   }, [nodes, edges, layout, nodeById, resolvePapel])
@@ -360,21 +395,18 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         </div>
       </div>
 
-      {/* Meta */}
-      <div className="flex items-center gap-3 px-4 py-2 border-b bg-muted/30 shrink-0">
-        <Label className="text-xs text-muted-foreground shrink-0">Descrição</Label>
-        <Input className="h-7 text-xs" placeholder="Descreva o objetivo deste workflow..." value={description} onChange={(e) => setDescription(e.target.value)} />
-        <Label className="text-xs text-muted-foreground shrink-0">Tipo</Label>
-        <select value={kind} onChange={(e) => setKind(e.target.value)} className="h-7 rounded-md border border-input bg-background px-2 text-xs shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-          <option value="">— não especificado</option>
-          {WORKFLOW_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
-        </select>
-      </div>
-
       {/* Canvas + Inspetor */}
       <div className="flex flex-1 overflow-hidden">
         <FlowCanvas canvasRef={canvasRef} nodes={nodes} edges={edges} layout={layout} selectedId={selectedId} onSelect={setSelectedId} onConnect={onConnect} onCreateConnected={onCreateConnected} onDeleteEdge={onDeleteEdge} onDeleteNode={removeNode} onSetPosition={setPosition} resolvePapel={resolvePapel} />
-        <div className="w-80 border-l bg-card flex flex-col overflow-hidden shrink-0">
+        {/* trilho do toggle: fica SEMPRE visível (é a alça para trazer o painel de volta) */}
+        <div className="w-8 border-l bg-card flex flex-col items-center pt-2.5 shrink-0">
+          <button type="button" onClick={togglePanel}
+            title={panelCollapsed ? 'Expandir configurações' : 'Recolher configurações (mais espaço para o desenho)'}
+            className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+            {panelCollapsed ? <PanelRightOpen className="h-4 w-4" /> : <PanelRightClose className="h-4 w-4" />}
+          </button>
+        </div>
+        <div className={cn('w-80 border-l bg-card flex-col overflow-hidden shrink-0', panelCollapsed ? 'hidden' : 'flex')}>
           {selected ? (
             isActivity(selected.type) ? (
               <ActivityInspector key={selected.id} node={selected} nodes={nodes} edges={edges} screens={screens} papeis={papeis} onPatchStep={(p) => patchStep(selected.id, p)} onChangeType={(t) => changeNodeType(selected.id, t)} onRemove={() => removeNode(selected.id)} />
@@ -382,10 +414,29 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
               <GatewayInspector key={selected.id} node={selected} edges={edges} onPatchNode={(p) => patchNode(selected.id, p)} onSetEdge={setEdge} />
             )
           ) : (
-            <div className="flex flex-col items-center justify-center h-full text-center px-6">
-              <div className="p-3 rounded-full bg-accent mb-3"><LayoutTemplate className="h-5 w-5 text-primary" /></div>
-              <p className="text-sm font-semibold">Monte o fluxo</p>
-              <p className="text-xs text-muted-foreground mt-1 leading-snug">Passe o mouse num quadro e <span className="font-medium">arraste uma das bolinhas</span> (nos 4 lados) até outro quadro para conectar — solte em qualquer parte dele. Ou solte no vazio para criar já ligado. Clique num quadro para configurá-lo.</p>
+            /* Nada selecionado → propriedades do workflow (padrão de editor visual: painel = documento) */
+            <div className="flex flex-col h-full">
+              <div className="px-4 py-3 border-b shrink-0 flex items-center">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary"><LayoutTemplate className="h-3 w-3" />Propriedades do workflow</span>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                <Field label="Descrição" hint="O objetivo deste workflow, para quem for gerenciá-lo.">
+                  <Textarea className="text-sm min-h-[72px]" placeholder="Descreva o objetivo deste workflow…" value={description} onChange={(e) => setDescription(e.target.value)} />
+                </Field>
+                <Field label="Tipo" hint="Determina onde ele aparece em “Novo processo”.">
+                  <Select value={kind || 'none'} onValueChange={(v) => setKind(v === 'none' ? '' : v)}>
+                    <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">— não especificado</SelectItem>
+                      {WORKFLOW_KINDS.map((k) => <SelectItem key={k.value} value={k.value}>{k.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <div className="rounded-md border border-dashed bg-muted/20 p-3">
+                  <p className="text-xs font-semibold flex items-center gap-1.5"><LayoutTemplate className="h-3.5 w-3.5 text-primary" />Monte o fluxo</p>
+                  <p className="text-[11px] text-muted-foreground mt-1 leading-snug">Passe o mouse num quadro e <span className="font-medium">arraste uma das bolinhas</span> (nos 4 lados) até outro quadro para conectar — solte em qualquer parte dele. Ou solte no vazio para criar já ligado. Clique num quadro para configurá-lo.</p>
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -404,7 +455,7 @@ const STEP_TONE: Record<string, string> = {
 function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onConnect, onCreateConnected, onDeleteEdge, onDeleteNode, onSetPosition, resolvePapel }: {
   canvasRef: React.RefObject<HTMLDivElement | null>
   nodes: ENode[]; edges: EEdge[]; layout: ReturnType<typeof layoutGraph>
-  selectedId: string | null; onSelect: (id: string) => void
+  selectedId: string | null; onSelect: (id: string | null) => void
   onConnect: (from: string, to: string) => void
   onCreateConnected: (from: string, type: AddType) => void
   onDeleteEdge: (edgeId: string) => void
@@ -418,6 +469,25 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
   const [hoverEdge, setHoverEdge] = useState<string | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
   const [guides, setGuides] = useState<{ x?: number; y?: number }>({})
+  // ENQUADRAMENTO: encolhe o desenho para caber na área REAL do canvas (que já exclui o
+  // inspetor, pois são irmãos no flex). Sem isso o "Fim" — sempre na última coluna —
+  // nasce fora da tela e o usuário não vê (nem alcança) as ligações que chegam nele.
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const [scale, setScale] = useState(1)
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const fit = () => {
+      const availW = el.clientWidth - 24, availH = el.clientHeight - 24
+      if (availW <= 0 || availH <= 0) return
+      // só REDUZ (nunca amplia) e nunca abaixo de 0.5, senão vira ilegível — aí rola.
+      setScale(Math.max(0.5, Math.min(1, availW / layout.width, availH / layout.height)))
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [layout.width, layout.height])
   const dragRef = useRef<{ id: string; sx: number; sy: number; ox: number; oy: number; w: number; h: number; moved: boolean } | null>(null)
 
   const nodeById = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n])), [nodes])
@@ -427,9 +497,10 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
     if (f?.type === 'parallelGateway') return '#e11d68'
     return 'hsl(var(--muted-foreground) / 0.5)' // visível sobre a "Mesa de Vidro" (--border some no fundo profundo)
   }
+  // px de tela → coordenadas do GRAFO (o canvas está sob transform: scale)
   const toCanvas = (cx: number, cy: number) => {
     const r = canvasRef.current!.getBoundingClientRect()
-    return { x: cx - r.left, y: cy - r.top }
+    return { x: (cx - r.left) / scale, y: (cy - r.top) / scale }
   }
 
   const startConnect = (from: string, side: Side, ev: React.PointerEvent) => {
@@ -467,8 +538,9 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
       const d = dragRef.current; if (!d) return
       if (!d.moved && Math.abs(e.clientX - d.sx) + Math.abs(e.clientY - d.sy) < 4) return
       d.moved = true; setDragId(d.id)
-      let nx = Math.round((d.ox + (e.clientX - d.sx)) / GRID) * GRID
-      let ny = Math.round((d.oy + (e.clientY - d.sy)) / GRID) * GRID
+      // delta de TELA → delta do GRAFO (dividido pela escala do enquadramento)
+      let nx = Math.round((d.ox + (e.clientX - d.sx) / scale) / GRID) * GRID
+      let ny = Math.round((d.oy + (e.clientY - d.sy) / scale) / GRID) * GRID
       let cx = nx + d.w / 2, cy = ny + d.h / 2
       let gx: number | undefined, gy: number | undefined
       for (const o of others) {
@@ -485,9 +557,15 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
   }
 
+  // O deselect fica no CONTAINER de rolagem (não na div do grafo): com o enquadramento a
+  // div do grafo não cobre toda a área visível, e clicar no vazio abaixo dela não
+  // deselecionava — o painel ficava preso no inspetor do nó.
   return (
-    <div className="flex-1 min-w-0 min-h-0 overflow-auto bg-muted/20 [background-image:radial-gradient(circle_at_1px_1px,hsl(var(--border))_1px,transparent_0)] [background-size:24px_24px]">
-      <div ref={canvasRef} className="relative" style={{ width: layout.width, height: layout.height, minWidth: '100%' }}>
+    <div ref={scrollRef} className="flex-1 min-w-0 min-h-0 overflow-auto bg-muted/20 [background-image:radial-gradient(circle_at_1px_1px,hsl(var(--border))_1px,transparent_0)] [background-size:24px_24px]"
+      onClick={(e) => { if (!(e.target as HTMLElement).closest('[data-node-id]')) onSelect(null) }}>
+      {/* espaçador com o tamanho JÁ ESCALADO: mantém as barras de rolagem corretas */}
+      <div style={{ width: layout.width * scale, height: layout.height * scale, minWidth: '100%' }}>
+      <div ref={canvasRef} className="relative" style={{ width: layout.width, height: layout.height, transform: `scale(${scale})`, transformOrigin: '0 0' }}>
         <svg className="absolute inset-0 overflow-visible" style={{ width: layout.width, height: layout.height }}>
           <defs>
             <marker id="fl-arrow" markerWidth="8" markerHeight="8" refX="6.5" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="context-stroke" /></marker>
@@ -495,7 +573,7 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
           {edges.map((e) => {
             const na = layout.nodes[e.from], nb = layout.nodes[e.to]
             if (!na || !nb) return null
-            const { a, aDir, b, bDir } = pickAnchors(na, nb)
+            const { a, aDir, b, bDir } = edgeGeometry(na, nb)
             const d = edgeBezier(a, aDir, b, bDir)
             const col = edgeColor(e)
             const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2
@@ -520,9 +598,11 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
         {edges.map((e) => {
           const na = layout.nodes[e.from], nb = layout.nodes[e.to]
           if (!na || !nb || !e.label) return null
-          const { a, b } = pickAnchors(na, nb)
-          const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2
-          return <div key={`lb-${e.id}`} className="absolute -translate-x-1/2 -translate-y-1/2 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-card border shadow-sm pointer-events-none" style={{ left: mx, top: my - 16, color: e.isDefault ? 'hsl(var(--muted-foreground))' : undefined }}>{e.label}</div>
+          const { a, b, backward } = edgeGeometry(na, nb)
+          const mx = (a.x + b.x) / 2
+          // no retorno o rótulo acompanha o ponto mais baixo do arco (y ≈ Y + 0.75k)
+          const my = backward ? (a.y + b.y) / 2 + 0.75 * edgeK(a, b) : (a.y + b.y) / 2 - 16
+          return <div key={`lb-${e.id}`} className="absolute -translate-x-1/2 -translate-y-1/2 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-card border shadow-sm pointer-events-none" style={{ left: mx, top: my, color: e.isDefault ? 'hsl(var(--muted-foreground))' : undefined }}>{e.label}</div>
         })}
 
         {/* nós + portas de conexão */}
@@ -556,6 +636,7 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
         {guides.y !== undefined && <div className="absolute left-0 right-0 h-px bg-primary/70 pointer-events-none z-30" style={{ top: guides.y }} />}
 
         {menu && <CreateMenu x={menu.x} y={menu.y} onPick={(t) => { onCreateConnected(menu.from, t); setMenu(null) }} onClose={() => setMenu(null)} />}
+      </div>
       </div>
     </div>
   )
