@@ -69,15 +69,23 @@ const sidePoint = (b: Box, side: Side): Pt => {
   if (side === 'left') return { x: b.x, y: cy }
   return { x: b.x + b.w, y: cy }
 }
-/** Escolhe os lados mais próximos entre dois nós → âncoras + normais de saída/entrada. */
-function pickAnchors(na: Box, nb: Box): { a: Pt; aDir: Pt; b: Pt; bDir: Pt } {
+/** Escolhe os lados mais próximos entre dois nós → âncoras + normais de saída/entrada.
+ *  `backward` = RETORNO (laço para trás): o destino está à ESQUERDA na mesma faixa. Nesse
+ *  caso sai e entra por BAIXO, arcando por fora — senão o traço cai EXATAMENTE sobre a
+ *  aresta de ida e as duas viram uma "seta dupla" indistinguível (o laço some da tela). */
+function edgeGeometry(na: Box, nb: Box): { a: Pt; aDir: Pt; b: Pt; bDir: Pt; backward: boolean } {
   const dx = (nb.x + nb.w / 2) - (na.x + na.w / 2)
   const dy = (nb.y + nb.h / 2) - (na.y + na.h / 2)
+  if (dx < 0 && Math.abs(dx) >= Math.abs(dy)) {
+    return { a: sidePoint(na, 'bottom'), aDir: SIDE_NORMAL.bottom, b: sidePoint(nb, 'bottom'), bDir: SIDE_NORMAL.bottom, backward: true }
+  }
   let aSide: Side, bSide: Side
   if (Math.abs(dx) >= Math.abs(dy)) { aSide = dx >= 0 ? 'right' : 'left'; bSide = dx >= 0 ? 'left' : 'right' }
   else { aSide = dy >= 0 ? 'bottom' : 'top'; bSide = dy >= 0 ? 'top' : 'bottom' }
-  return { a: sidePoint(na, aSide), aDir: SIDE_NORMAL[aSide], b: sidePoint(nb, bSide), bDir: SIDE_NORMAL[bSide] }
+  return { a: sidePoint(na, aSide), aDir: SIDE_NORMAL[aSide], b: sidePoint(nb, bSide), bDir: SIDE_NORMAL[bSide], backward: false }
 }
+/** Comprimento do "puxão" da curva — mesmo k usado no bezier (para posicionar o rótulo). */
+const edgeK = (a: Pt, b: Pt) => Math.max(28, Math.hypot(b.x - a.x, b.y - a.y) * 0.4)
 /** Curva cúbica que SAI perpendicular ao lado de origem e ENTRA perpendicular ao de destino. */
 function edgeBezier(a: Pt, aDir: Pt, b: Pt, bDir: Pt): string {
   const k = Math.max(28, Math.hypot(b.x - a.x, b.y - a.y) * 0.4)
@@ -425,6 +433,25 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
   const [hoverEdge, setHoverEdge] = useState<string | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
   const [guides, setGuides] = useState<{ x?: number; y?: number }>({})
+  // ENQUADRAMENTO: encolhe o desenho para caber na área REAL do canvas (que já exclui o
+  // inspetor, pois são irmãos no flex). Sem isso o "Fim" — sempre na última coluna —
+  // nasce fora da tela e o usuário não vê (nem alcança) as ligações que chegam nele.
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const [scale, setScale] = useState(1)
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const fit = () => {
+      const availW = el.clientWidth - 24, availH = el.clientHeight - 24
+      if (availW <= 0 || availH <= 0) return
+      // só REDUZ (nunca amplia) e nunca abaixo de 0.5, senão vira ilegível — aí rola.
+      setScale(Math.max(0.5, Math.min(1, availW / layout.width, availH / layout.height)))
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [layout.width, layout.height])
   const dragRef = useRef<{ id: string; sx: number; sy: number; ox: number; oy: number; w: number; h: number; moved: boolean } | null>(null)
 
   const nodeById = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n])), [nodes])
@@ -434,9 +461,10 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
     if (f?.type === 'parallelGateway') return '#e11d68'
     return 'hsl(var(--muted-foreground) / 0.5)' // visível sobre a "Mesa de Vidro" (--border some no fundo profundo)
   }
+  // px de tela → coordenadas do GRAFO (o canvas está sob transform: scale)
   const toCanvas = (cx: number, cy: number) => {
     const r = canvasRef.current!.getBoundingClientRect()
-    return { x: cx - r.left, y: cy - r.top }
+    return { x: (cx - r.left) / scale, y: (cy - r.top) / scale }
   }
 
   const startConnect = (from: string, side: Side, ev: React.PointerEvent) => {
@@ -474,8 +502,9 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
       const d = dragRef.current; if (!d) return
       if (!d.moved && Math.abs(e.clientX - d.sx) + Math.abs(e.clientY - d.sy) < 4) return
       d.moved = true; setDragId(d.id)
-      let nx = Math.round((d.ox + (e.clientX - d.sx)) / GRID) * GRID
-      let ny = Math.round((d.oy + (e.clientY - d.sy)) / GRID) * GRID
+      // delta de TELA → delta do GRAFO (dividido pela escala do enquadramento)
+      let nx = Math.round((d.ox + (e.clientX - d.sx) / scale) / GRID) * GRID
+      let ny = Math.round((d.oy + (e.clientY - d.sy) / scale) / GRID) * GRID
       let cx = nx + d.w / 2, cy = ny + d.h / 2
       let gx: number | undefined, gy: number | undefined
       for (const o of others) {
@@ -493,8 +522,10 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
   }
 
   return (
-    <div className="flex-1 min-w-0 min-h-0 overflow-auto bg-muted/20 [background-image:radial-gradient(circle_at_1px_1px,hsl(var(--border))_1px,transparent_0)] [background-size:24px_24px]">
-      <div ref={canvasRef} className="relative" style={{ width: layout.width, height: layout.height, minWidth: '100%' }}
+    <div ref={scrollRef} className="flex-1 min-w-0 min-h-0 overflow-auto bg-muted/20 [background-image:radial-gradient(circle_at_1px_1px,hsl(var(--border))_1px,transparent_0)] [background-size:24px_24px]">
+      {/* espaçador com o tamanho JÁ ESCALADO: mantém as barras de rolagem corretas */}
+      <div style={{ width: layout.width * scale, height: layout.height * scale, minWidth: '100%' }}>
+      <div ref={canvasRef} className="relative" style={{ width: layout.width, height: layout.height, transform: `scale(${scale})`, transformOrigin: '0 0' }}
         onClick={(e) => { if (!(e.target as HTMLElement).closest('[data-node-id]')) onSelect(null) }}>{/* clicar no fundo deseleciona → volta às Propriedades do workflow */}
         <svg className="absolute inset-0 overflow-visible" style={{ width: layout.width, height: layout.height }}>
           <defs>
@@ -503,7 +534,7 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
           {edges.map((e) => {
             const na = layout.nodes[e.from], nb = layout.nodes[e.to]
             if (!na || !nb) return null
-            const { a, aDir, b, bDir } = pickAnchors(na, nb)
+            const { a, aDir, b, bDir } = edgeGeometry(na, nb)
             const d = edgeBezier(a, aDir, b, bDir)
             const col = edgeColor(e)
             const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2
@@ -528,9 +559,11 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
         {edges.map((e) => {
           const na = layout.nodes[e.from], nb = layout.nodes[e.to]
           if (!na || !nb || !e.label) return null
-          const { a, b } = pickAnchors(na, nb)
-          const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2
-          return <div key={`lb-${e.id}`} className="absolute -translate-x-1/2 -translate-y-1/2 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-card border shadow-sm pointer-events-none" style={{ left: mx, top: my - 16, color: e.isDefault ? 'hsl(var(--muted-foreground))' : undefined }}>{e.label}</div>
+          const { a, b, backward } = edgeGeometry(na, nb)
+          const mx = (a.x + b.x) / 2
+          // no retorno o rótulo acompanha o ponto mais baixo do arco (y ≈ Y + 0.75k)
+          const my = backward ? (a.y + b.y) / 2 + 0.75 * edgeK(a, b) : (a.y + b.y) / 2 - 16
+          return <div key={`lb-${e.id}`} className="absolute -translate-x-1/2 -translate-y-1/2 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-card border shadow-sm pointer-events-none" style={{ left: mx, top: my, color: e.isDefault ? 'hsl(var(--muted-foreground))' : undefined }}>{e.label}</div>
         })}
 
         {/* nós + portas de conexão */}
@@ -564,6 +597,7 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
         {guides.y !== undefined && <div className="absolute left-0 right-0 h-px bg-primary/70 pointer-events-none z-30" style={{ top: guides.y }} />}
 
         {menu && <CreateMenu x={menu.x} y={menu.y} onPick={(t) => { onCreateConnected(menu.from, t); setMenu(null) }} onClose={() => setMenu(null)} />}
+      </div>
       </div>
     </div>
   )
