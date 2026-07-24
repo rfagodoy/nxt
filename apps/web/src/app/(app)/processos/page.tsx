@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import {
   Activity, Loader2, RefreshCw, CheckCircle2, AlertTriangle, Clock,
-  PlayCircle, Ban, X, User, GitBranch, Settings2, ChevronsUpDown, ArrowUp, ArrowDown,
+  PlayCircle, Ban, X, User, GitBranch, Settings2, ChevronsUpDown, ArrowUp, ArrowDown, Undo2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StartProcessButton } from '@/components/processes/start-process-button'
@@ -23,11 +23,13 @@ interface Inst {
   currentStep: string | null; currentDueAt: string | null; currentOverdue: boolean
   totalSteps: number; doneSteps: number; hasSla: boolean; onTime: boolean; durationMs: number | null
   processDueAt: string | null; processOverdue: boolean; processOnTime: boolean | null
+  returnCount: number
 }
 interface TaskRow {
   id: string; nodeId: string; name?: string | null; role?: string | null; assignee?: string | null
   status: string; createdAt: string; dueAt?: string | null; completedAt?: string | null; completedBy?: string | null
 }
+interface ReturnRow { id: string; fromName?: string | null; toName?: string | null; reason: string; user: string; createdAt: string }
 interface SortState { col: string; dir: 'asc' | 'desc' }
 interface StepMetric { name: string; avgMs: number; count: number }
 
@@ -37,7 +39,7 @@ const STATUS: Record<string, { label: string; icon: typeof Activity; cls: string
   ERROR:     { label: 'Com erro',     icon: AlertTriangle, cls: 'bg-red-500/10 text-red-600 dark:text-red-400' },
   CANCELLED: { label: 'Cancelado',    icon: Ban,          cls: 'bg-muted text-muted-foreground' },
 }
-const TASK_STATUS: Record<string, string> = { PENDING: 'Pendente', DONE: 'Concluída', CANCELED: 'Cancelada' }
+const TASK_STATUS: Record<string, string> = { PENDING: 'Pendente', DONE: 'Concluída', CANCELED: 'Cancelada', RETURNED: 'Devolvida' }
 
 const fmt = (iso?: string | null) =>
   iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
@@ -95,10 +97,20 @@ const COLS: Col[] = [
     ) : <span className="text-muted-foreground">—</span>,
   },
   {
-    key: 'pontualidade', label: 'Pontualidade', text: pontualidadeLabel,
-    node: (i) => i.processOnTime == null ? <span className="text-muted-foreground">sem prazo</span>
-      : i.processOnTime ? <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="h-3 w-3" />no prazo</span>
-      : <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400"><AlertTriangle className="h-3 w-3" />atrasado</span>,
+    key: 'pontualidade', label: 'Pontualidade', text: (i) => pontualidadeLabel(i) + (i.returnCount > 0 ? ` · reaberta ${i.returnCount}×` : ''),
+    node: (i) => (
+      <span className="inline-flex items-center gap-1.5">
+        {i.processOnTime == null ? <span className="text-muted-foreground">sem prazo</span>
+          : i.processOnTime ? <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="h-3 w-3" />no prazo</span>
+          : <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400"><AlertTriangle className="h-3 w-3" />atrasado</span>}
+        {/* prazo derivado NÃO conta reaberturas → é otimista; o badge ressalva o número */}
+        {i.returnCount > 0 && (
+          <span title="Processo devolvido — o prazo derivado não conta as reaberturas" className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300">
+            <Undo2 className="h-2.5 w-2.5" />{i.returnCount}×
+          </span>
+        )}
+      </span>
+    ),
   },
 ]
 const HIDDEN_KEY = 'nxt:cols:processos:hidden'
@@ -109,6 +121,7 @@ export default function ProcessosPage() {
   const [slowest, setSlowest] = useState<StepMetric[]>([])
   const [detail, setDetail] = useState<Inst | null>(null)
   const [tasks, setTasks] = useState<TaskRow[] | null>(null)
+  const [returns, setReturns] = useState<ReturnRow[]>([])
 
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SortState | null>({ col: 'inicio', dir: 'desc' })
@@ -144,9 +157,10 @@ export default function ProcessosPage() {
   }, [])
 
   const openDetail = async (inst: Inst) => {
-    setDetail(inst); setTasks(null)
-    const ctx = await apiJson<{ instance?: { tasks?: TaskRow[] } }>(`/api/instances/${inst.id}`)
+    setDetail(inst); setTasks(null); setReturns([])
+    const ctx = await apiJson<{ instance?: { tasks?: TaskRow[] }; returns?: ReturnRow[] }>(`/api/instances/${inst.id}`)
     setTasks(ctx?.instance?.tasks ?? [])
+    setReturns(ctx?.returns ?? [])
   }
 
   const visibleCols = useMemo(() => COLS.filter((c) => !hidden.has(c.key)), [hidden])
@@ -365,6 +379,26 @@ export default function ProcessosPage() {
               )}
             </div>
             <div className="flex-1 overflow-y-auto p-4">
+              {returns.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                    <Undo2 className="h-3 w-3" />Devoluções ({returns.length})
+                  </p>
+                  <ol className="space-y-2">
+                    {returns.map((r) => (
+                      <li key={r.id} className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-2.5">
+                        <div className="flex items-center gap-1.5 text-xs">
+                          <span className="font-medium">{r.fromName || '—'}</span>
+                          <Undo2 className="h-3 w-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                          <span className="font-medium">{r.toName || '—'}</span>
+                        </div>
+                        <p className="text-[12px] text-foreground/80 mt-1 leading-snug">“{r.reason}”</p>
+                        <p className="text-[11px] text-muted-foreground mt-1">{r.user} · {fmt(r.createdAt)}</p>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
               <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Linha do tempo das atividades</p>
               {tasks === null ? (
                 <div className="flex items-center justify-center py-8 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin mr-2" /> Carregando…</div>
@@ -374,7 +408,7 @@ export default function ProcessosPage() {
                 <ol className="space-y-2">
                   {tasks.map((t) => {
                     const p = taskPunctuality(t)
-                    const doneCls = t.status === 'DONE' ? 'bg-emerald-500' : t.status === 'CANCELED' ? 'bg-muted-foreground/40' : 'bg-sky-500'
+                    const doneCls = t.status === 'DONE' ? 'bg-emerald-500' : t.status === 'RETURNED' ? 'bg-amber-500' : t.status === 'CANCELED' ? 'bg-muted-foreground/40' : 'bg-sky-500'
                     return (
                       <li key={t.id} className="rounded-lg border p-2.5">
                         <div className="flex items-center gap-2">

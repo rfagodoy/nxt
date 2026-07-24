@@ -379,6 +379,7 @@ export class InstancesService {
       include: {
         processDefinition: { select: { name: true } },
         tasks: { orderBy: { createdAt: 'asc' } },
+        _count: { select: { returns: true } },
       },
       orderBy: { updatedAt: 'desc' },
     })
@@ -446,6 +447,10 @@ export class InstancesService {
         processDueAt,
         processOverdue,
         processOnTime,
+        // devoluções: quantas vezes o processo foi retrocedido. O SLA acima é otimista
+        // num processo devolvido (a soma não conta as reaberturas) → a UI usa isto para
+        // ressalvar a Pontualidade.
+        returnCount: inst._count?.returns ?? 0,
       }
     })
   }
@@ -477,7 +482,11 @@ export class InstancesService {
   async getInstanceWithContext(instanceId: string, organizationId: string) {
     const instance = await this.prisma.processInstance.findFirst({
       where: { id: instanceId, processDefinition: { organizationId } },
-      include: { processDefinition: true, tasks: { orderBy: { createdAt: 'asc' } } },
+      include: {
+        processDefinition: true,
+        tasks: { orderBy: { createdAt: 'asc' } },
+        returns: { orderBy: { createdAt: 'asc' } },
+      },
     })
     if (!instance) throw new NotFoundException('Instância não encontrada')
 
@@ -489,6 +498,7 @@ export class InstancesService {
       state,
       graph,
       pendingTasks: instance.tasks.filter((t) => t.status === 'PENDING'),
+      returns: instance.returns, // histórico de devoluções (F4) — de/para/motivo/autor/quando
     }
   }
 
