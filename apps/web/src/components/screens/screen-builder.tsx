@@ -184,7 +184,7 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
     <div className="max-w-[1240px] mx-auto pb-16">
 
       {/* ── barra fixa: título editável + padrão + modo + salvar ── */}
-      <div className="sticky top-0 z-30 -mt-4 mb-4 border-b bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+      <div className="glass-panel sticky top-0 z-30 -mt-4 mb-4 border-b">
         <div className="flex items-center gap-3 py-2.5">
           <button onClick={() => router.push('/settings/telas')} title="Voltar" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
             <ChevronLeft className="h-4 w-4" />
@@ -386,7 +386,7 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
                             {menuOpen === s.id && (
                               <>
                                 <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(null)} />
-                                <div className="absolute right-0 top-full mt-1 z-50 w-52 rounded-lg border bg-card shadow-lg py-1 text-xs">
+                                <div className="glass absolute right-0 top-full mt-1 z-50 w-52 rounded-xl py-1 text-xs">
                                   <button onClick={() => { moveSection(s.id, -1); setMenuOpen(null) }} disabled={sIdx === 0} className="w-full text-left px-3 py-1.5 hover:bg-muted disabled:opacity-40 flex items-center gap-2"><ChevronUp className="h-3.5 w-3.5" />Mover para cima</button>
                                   <button onClick={() => { moveSection(s.id, 1); setMenuOpen(null) }} disabled={sIdx === sections.length - 1} className="w-full text-left px-3 py-1.5 hover:bg-muted disabled:opacity-40 flex items-center gap-2"><ChevronDown className="h-3.5 w-3.5" />Mover para baixo</button>
                                   <button onClick={() => { toggleDefaultOpen(s.id); setMenuOpen(null) }} className="w-full text-left px-3 py-1.5 hover:bg-muted flex items-center gap-2">

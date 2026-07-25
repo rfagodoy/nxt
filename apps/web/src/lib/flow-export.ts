@@ -17,7 +17,14 @@ export interface ExportNode {
   id: string; type: ExportNodeType; x: number; y: number; w: number; h: number
   name: string; typeLabel?: string; meta?: string[]; isFork?: boolean
 }
-export interface ExportEdge { ax: number; ay: number; bx: number; by: number; variant: 'exclusive' | 'parallel' | 'normal'; label?: string }
+/** Âncoras + NORMAIS de saída/entrada (mesma geometria da tela: `edgeGeometry`), para o
+ *  export desenhar a MESMA curva. `backward` = laço de retorno (arco por baixo). */
+export interface ExportEdge {
+  ax: number; ay: number; bx: number; by: number
+  adx: number; ady: number; bdx: number; bdy: number
+  backward?: boolean
+  variant: 'exclusive' | 'parallel' | 'normal'; label?: string
+}
 export interface ExportModel { width: number; height: number; nodes: ExportNode[]; edges: ExportEdge[] }
 
 const KIND_LABEL: Record<string, string> = { CONTRATO: 'Contrato', ADITIVO: 'Aditivo', PARCEIRO: 'Parceiro' }
@@ -45,6 +52,17 @@ function fileSlug(name: string): string {
 function token(name: string, fallback: string): string {
   const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
   return raw ? `hsl(${raw})` : fallback
+}
+/** Aplica opacidade a um token (`hsl(H S% L%)`) ou ao hex de fallback. */
+function withAlpha(color: string, a: number): string {
+  const hsl = color.match(/^hsl\(([^)]+)\)$/)
+  if (hsl) return `hsl(${hsl[1]} / ${a})`
+  const hex = color.match(/^#([0-9a-f]{6})$/i)
+  if (hex) {
+    const n = parseInt(hex[1], 16)
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`
+  }
+  return color
 }
 function fontFamilies(): { sans: string; mono: string } {
   const sans = getComputedStyle(document.body).fontFamily || 'Manrope, sans-serif'
@@ -106,24 +124,23 @@ function drawMark(ctx: CanvasRenderingContext2D, x: number, y: number, size: num
 
 /* ─── desenho do fluxo (nós + arestas) ─────────────────────────────────────── */
 
-function smoothPath(ctx: CanvasRenderingContext2D, ax: number, ay: number, bx: number, by: number) {
+/** Curva cúbica idêntica à da tela (`edgeBezier`): sai e entra perpendicular ao lado. */
+function edgePath(ctx: CanvasRenderingContext2D, e: ExportEdge, offX: number, offY: number) {
+  const ax = offX + e.ax, ay = offY + e.ay, bx = offX + e.bx, by = offY + e.by
+  const k = Math.max(28, Math.hypot(e.bx - e.ax, e.by - e.ay) * 0.4)
   ctx.beginPath()
-  if (Math.abs(ay - by) < 1) { ctx.moveTo(ax, ay); ctx.lineTo(bx, by); return }
-  const midX = (ax + bx) / 2
-  const dir = by > ay ? 1 : -1
-  const rr = Math.max(2, Math.min(18, Math.abs(by - ay) / 2, Math.abs(midX - ax), Math.abs(bx - midX)))
   ctx.moveTo(ax, ay)
-  ctx.lineTo(midX - rr, ay)
-  ctx.quadraticCurveTo(midX, ay, midX, ay + dir * rr)
-  ctx.lineTo(midX, by - dir * rr)
-  ctx.quadraticCurveTo(midX, by, midX + rr, by)
-  ctx.lineTo(bx, by)
+  ctx.bezierCurveTo(ax + e.adx * k, ay + e.ady * k, bx + e.bdx * k, by + e.bdy * k, bx, by)
 }
-function arrowHead(ctx: CanvasRenderingContext2D, x: number, y: number, color: string) {
+/** Seta na ponta, ORIENTADA pela direção de chegada (−bDir) — senão aponta sempre p/ a
+ *  direita e fica torta nas âncoras por cima/baixo (laço de retorno, junções). */
+function arrowHead(ctx: CanvasRenderingContext2D, x: number, y: number, dx: number, dy: number, color: string) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(Math.atan2(dy, dx))
   ctx.fillStyle = color
   ctx.beginPath()
-  ctx.moveTo(x, y); ctx.lineTo(x - 8, y - 4.5); ctx.lineTo(x - 8, y + 4.5)
+  ctx.moveTo(0, 0); ctx.lineTo(-8, -4.5); ctx.lineTo(-8, 4.5)
   ctx.closePath(); ctx.fill()
+  ctx.restore()
 }
 
 interface Theme { bg: string; fg: string; muted: string; primary: string; border: string; card: string; sans: string; mono: string }
@@ -131,13 +148,18 @@ interface Theme { bg: string; fg: string; muted: string; primary: string; border
 function drawDiagram(ctx: CanvasRenderingContext2D, model: ExportModel, C: Theme, offX: number, offY: number) {
   // arestas (atrás dos nós)
   for (const e of model.edges) {
-    const color = e.variant === 'exclusive' ? VIOLET.edge : e.variant === 'parallel' ? ROSE.edge : C.border
+    // ⚠️ a aresta NORMAL não pode usar `--border`: some no fundo claro (mesmo motivo pelo
+    // qual a tela já usa `--muted-foreground/0.5`). Sem isto, Início→atividade e
+    // atividade→Fim saem INVISÍVEIS no arquivo exportado.
+    const color = e.variant === 'exclusive' ? VIOLET.edge : e.variant === 'parallel' ? ROSE.edge : withAlpha(C.muted, 0.5)
     ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.lineJoin = 'round'
-    smoothPath(ctx, offX + e.ax, offY + e.ay, offX + e.bx, offY + e.by)
+    edgePath(ctx, e, offX, offY)
     ctx.stroke()
-    arrowHead(ctx, offX + e.bx, offY + e.by, color)
+    arrowHead(ctx, offX + e.bx, offY + e.by, -e.bdx, -e.bdy, color)
     if (e.label) {
-      const mx = offX + (e.ax + e.bx) / 2, my = offY + (e.ay + e.by) / 2 - 10
+      const k = Math.max(28, Math.hypot(e.bx - e.ax, e.by - e.ay) * 0.4)
+      const mx = offX + (e.ax + e.bx) / 2
+      const my = offY + (e.backward ? (e.ay + e.by) / 2 + 0.75 * k : (e.ay + e.by) / 2 - 16)
       ctx.font = `600 10px ${C.sans}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
       const tw = ctx.measureText(e.label).width
       ctx.fillStyle = C.card; roundRect(ctx, mx - tw / 2 - 6, my - 9, tw + 12, 18, 9); ctx.fill()
