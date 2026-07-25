@@ -32,7 +32,7 @@ export function formatSla(t: Pick<TaskRow, 'slaBusinessDays' | 'slaBusinessHours
 export function taskStatusMeta(status: string): { label: string; dot: string; pill: string } {
   switch (status) {
     case 'DONE':     return { label: 'Concluída', dot: 'bg-emerald-500', pill: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' }
-    case 'RETURNED': return { label: 'Devolvida', dot: 'bg-amber-500',   pill: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' }
+    case 'RETURNED': return { label: 'Retrocedida', dot: 'bg-amber-500',   pill: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' }
     case 'CANCELED': return { label: 'Cancelada', dot: 'bg-muted-foreground/40', pill: 'bg-muted text-muted-foreground' }
     default:         return { label: 'Pendente',  dot: 'bg-sky-500',     pill: 'bg-sky-500/10 text-sky-600 dark:text-sky-400' }
   }
@@ -46,7 +46,7 @@ export const STATUS: Record<string, { label: string; icon: LucideIcon; cls: stri
   CANCELLED: { label: 'Cancelado',    icon: Ban,          cls: 'bg-muted text-muted-foreground' },
 }
 export const STATUS_FALLBACK_ICON = Activity
-export const TASK_STATUS: Record<string, string> = { PENDING: 'Pendente', DONE: 'Concluída', CANCELED: 'Cancelada', RETURNED: 'Devolvida' }
+export const TASK_STATUS: Record<string, string> = { PENDING: 'Pendente', DONE: 'Concluída', CANCELED: 'Cancelada', RETURNED: 'Retrocedida' }
 
 export const fmt = (iso?: string | null) =>
   iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
@@ -62,6 +62,35 @@ export function humanDuration(ms: number | null): string {
 }
 
 export function pontualidadeLabel(i: Inst): string { return i.processOnTime == null ? 'sem prazo' : i.processOnTime ? 'no prazo' : 'atrasado' }
+
+/** Um registro do HISTÓRICO do processo (trilha cronológica de eventos). */
+export interface HistoryEvent {
+  key: string
+  ts: string
+  user: string
+  kind: 'done' | 'return'
+  /** conclusão: nome da atividade concluída */
+  activity?: string
+  /** retrocesso: de → para + motivo */
+  from?: string
+  to?: string
+  reason?: string
+}
+
+/** Monta o histórico do processo: cada CONCLUSÃO de atividade (task DONE) e cada
+ *  RETROCESSO (WorkflowReturn) vira um evento. Mais recente primeiro. */
+export function buildHistory(tasks: TaskRow[], returns: ReturnRow[]): HistoryEvent[] {
+  const evs: HistoryEvent[] = []
+  for (const t of tasks) {
+    if (t.status === 'DONE' && t.completedAt) {
+      evs.push({ key: `d:${t.id}`, ts: t.completedAt, user: t.completedBy || '—', kind: 'done', activity: t.name || t.nodeId })
+    }
+  }
+  for (const r of returns) {
+    evs.push({ key: `r:${r.id}`, ts: r.createdAt, user: r.user, kind: 'return', from: r.fromName || '—', to: r.toName || '—', reason: r.reason })
+  }
+  return evs.sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0))
+}
 
 export function taskPunctuality(t: TaskRow): { label: string; cls: string } {
   const now = Date.now()
