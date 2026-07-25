@@ -37,7 +37,7 @@ export function taskStatusMeta(status: string): { label: string; dot: string; pi
     default:         return { label: 'Pendente',  dot: 'bg-sky-500',     pill: 'bg-sky-500/10 text-sky-600 dark:text-sky-400' }
   }
 }
-export interface ReturnRow { id: string; fromName?: string | null; toName?: string | null; reason: string; user: string; createdAt: string }
+export interface ReturnRow { id: string; fromNodeId?: string | null; fromName?: string | null; toName?: string | null; reason: string; user: string; createdAt: string }
 
 export const STATUS: Record<string, { label: string; icon: LucideIcon; cls: string }> = {
   RUNNING:   { label: 'Em andamento', icon: PlayCircle,   cls: 'bg-sky-500/10 text-sky-600 dark:text-sky-400' },
@@ -63,31 +63,33 @@ export function humanDuration(ms: number | null): string {
 
 export function pontualidadeLabel(i: Inst): string { return i.processOnTime == null ? 'sem prazo' : i.processOnTime ? 'no prazo' : 'atrasado' }
 
-/** Um registro do HISTÓRICO do processo (trilha cronológica de eventos). */
+/** Um registro do HISTÓRICO do processo (trilha cronológica de eventos). Carrega a
+ *  TAREFA da atividade (para as colunas Início/Prazo/Data prevista/Pontualidade/Executor). */
 export interface HistoryEvent {
   key: string
   ts: string
-  user: string
   kind: 'done' | 'return'
-  /** conclusão: nome da atividade concluída */
-  activity?: string
-  /** retrocesso: de → para + motivo */
-  from?: string
+  task: TaskRow
+  /** retrocesso: para onde voltou + motivo */
   to?: string
   reason?: string
 }
 
-/** Monta o histórico do processo: cada CONCLUSÃO de atividade (task DONE) e cada
- *  RETROCESSO (WorkflowReturn) vira um evento. Mais recente primeiro. */
+/** Monta o histórico: cada atividade CONCLUÍDA (DONE) ou RETROCEDIDA (RETURNED) vira um
+ *  evento, carregando a tarefa (colunas de atividade). No retrocesso, casa o WorkflowReturn
+ *  pelo nó de origem (mais próximo no tempo) para o destino + motivo. Mais recente primeiro. */
 export function buildHistory(tasks: TaskRow[], returns: ReturnRow[]): HistoryEvent[] {
   const evs: HistoryEvent[] = []
   for (const t of tasks) {
-    if (t.status === 'DONE' && t.completedAt) {
-      evs.push({ key: `d:${t.id}`, ts: t.completedAt, user: t.completedBy || '—', kind: 'done', activity: t.name || t.nodeId })
+    if (!t.completedAt) continue
+    if (t.status === 'DONE') {
+      evs.push({ key: `d:${t.id}`, ts: t.completedAt, kind: 'done', task: t })
+    } else if (t.status === 'RETURNED') {
+      const cands = returns.filter((r) => r.fromNodeId === t.nodeId)
+      const ret = cands.sort((a, b) =>
+        Math.abs(+new Date(a.createdAt) - +new Date(t.completedAt!)) - Math.abs(+new Date(b.createdAt) - +new Date(t.completedAt!)))[0]
+      evs.push({ key: `r:${t.id}`, ts: t.completedAt, kind: 'return', task: t, to: ret?.toName ?? '', reason: ret?.reason ?? '' })
     }
-  }
-  for (const r of returns) {
-    evs.push({ key: `r:${r.id}`, ts: r.createdAt, user: r.user, kind: 'return', from: r.fromName || '—', to: r.toName || '—', reason: r.reason })
   }
   return evs.sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0))
 }
