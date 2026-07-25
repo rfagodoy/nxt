@@ -19,7 +19,7 @@ import {
 
 const execOf = (t: TaskRow) => t.completedBy || t.role || t.assignee || '—'
 
-interface Col<T> { key: string; label: string; get: (r: T) => string; cell: (r: T) => ReactNode }
+interface Col<T> { key: string; label: string; get: (r: T) => string; cell: (r: T) => ReactNode; align?: 'center' }
 
 /** Tabela de seção com busca + filtros (E/OU), no padrão do sistema. */
 function FilteredTable<T>({ title, icon, cols, rows, rowKey, emptyText }: {
@@ -47,7 +47,7 @@ function FilteredTable<T>({ title, icon, cols, rows, rowKey, emptyText }: {
         <table className="min-w-full text-xs">
           <thead className="sticky top-0 z-10">
             <tr className="border-b">
-              {cols.map((c) => <th key={c.key} className="text-left px-3 py-1.5 font-medium text-muted-foreground whitespace-nowrap bg-muted">{c.label}</th>)}
+              {cols.map((c) => <th key={c.key} className={cn('px-3 py-1.5 font-medium text-muted-foreground whitespace-nowrap bg-muted', c.align === 'center' ? 'text-center' : 'text-left')}>{c.label}</th>)}
             </tr>
           </thead>
           <tbody>
@@ -57,7 +57,7 @@ function FilteredTable<T>({ title, icon, cols, rows, rowKey, emptyText }: {
               <tr><td colSpan={cols.length} className="px-3 py-6 text-center text-xs text-muted-foreground">{rows.length === 0 ? emptyText : 'Nenhum registro com os filtros aplicados.'}</td></tr>
             ) : filtered.map((r) => (
               <tr key={rowKey(r)} className="border-b last:border-0 hover:bg-muted/30 transition-colors align-top">
-                {cols.map((c) => <td key={c.key} className="px-3 py-2 align-top">{c.cell(r)}</td>)}
+                {cols.map((c) => <td key={c.key} className={cn('px-3 py-2 align-top', c.align === 'center' && 'text-center')}>{c.cell(r)}</td>)}
               </tr>
             ))}
           </tbody>
@@ -102,13 +102,13 @@ export function ProcessInstanceDocView({ inst }: { inst: Inst }) {
   const eventLabel = (e: HistoryEvent) => e.kind === 'done' ? 'Concluída' : 'Retrocedida'
   const detailText = (e: HistoryEvent) => e.kind === 'return' ? `para ${e.to || '—'}${e.reason ? ` · motivo: ${e.reason}` : ''}` : '—'
   const histCols: Col<HistoryEvent>[] = [
-    { key: 'atividade', label: 'Atividade', get: (e) => e.task.name || e.task.nodeId, cell: (e) => <span className="font-medium">{e.task.name || e.task.nodeId}</span> },
-    { key: 'inicio', label: 'Início', get: (e) => fmt(e.task.createdAt), cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{fmt(e.task.createdAt)}</span> },
-    { key: 'prazo', label: 'Prazo', get: (e) => formatSla(e.task), cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{formatSla(e.task)}</span> },
-    { key: 'prevista', label: 'Data prevista', get: (e) => fmt(e.task.dueAt), cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{fmt(e.task.dueAt)}</span> },
-    { key: 'pontualidade', label: 'Pontualidade', get: (e) => taskPunctuality(e.task).label, cell: (e) => <span className={cn('whitespace-nowrap', taskPunctuality(e.task).cls)}>{taskPunctuality(e.task).label}</span> },
-    { key: 'executor', label: 'Executor', get: (e) => execOf(e.task), cell: (e) => execOf(e.task) !== '—' ? <span className="inline-flex items-center gap-1 text-muted-foreground"><User className="h-3 w-3 shrink-0" />{execOf(e.task)}</span> : <span className="text-muted-foreground">—</span> },
-    { key: 'situacao', label: 'Situação', get: eventLabel,
+    { key: 'atividade', label: 'Atividade', align: 'center', get: (e) => e.task.name || e.task.nodeId, cell: (e) => <span className="font-medium">{e.task.name || e.task.nodeId}</span> },
+    { key: 'inicio', label: 'Início', align: 'center', get: (e) => fmt(e.task.createdAt), cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{fmt(e.task.createdAt)}</span> },
+    { key: 'prazo', label: 'Prazo', align: 'center', get: (e) => formatSla(e.task), cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{formatSla(e.task)}</span> },
+    { key: 'prevista', label: 'Data prevista', align: 'center', get: (e) => fmt(e.task.dueAt), cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{fmt(e.task.dueAt)}</span> },
+    { key: 'pontualidade', label: 'Pontualidade', align: 'center', get: (e) => taskPunctuality(e.task).label, cell: (e) => <span className={cn('whitespace-nowrap', taskPunctuality(e.task).cls)}>{taskPunctuality(e.task).label}</span> },
+    { key: 'executor', label: 'Executor', align: 'center', get: (e) => execOf(e.task), cell: (e) => execOf(e.task) !== '—' ? <span className="inline-flex items-center gap-1 text-muted-foreground"><User className="h-3 w-3 shrink-0" />{execOf(e.task)}</span> : <span className="text-muted-foreground">—</span> },
+    { key: 'situacao', label: 'Situação', align: 'center', get: eventLabel,
       cell: (e) => <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10.5px] font-medium whitespace-nowrap',
         e.kind === 'done' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400')}>
         {e.kind === 'done' ? <CheckCircle2 className="h-3 w-3" /> : <Undo2 className="h-3 w-3" />}{eventLabel(e)}</span> },
