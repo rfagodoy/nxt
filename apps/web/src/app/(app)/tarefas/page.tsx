@@ -122,6 +122,7 @@ export default function TarefasPage() {
                       </div>
                       <div className="flex items-center gap-2">
                         <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded-md whitespace-nowrap tabular-nums', DUE_CHIP[info.grp])}>{info.label}</span>
+                        {t.instance?.numero != null && <span className="text-[10px] font-mono text-muted-foreground shrink-0">#{t.instance.numero}</span>}
                         <span className="text-[11px] text-muted-foreground truncate">{t.instance?.processDefinition?.name || 'Processo'}</span>
                         <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 ml-auto shrink-0 group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
                       </div>

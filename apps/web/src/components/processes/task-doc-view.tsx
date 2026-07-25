@@ -106,6 +106,7 @@ export function TaskDocView({ task, onDone, onNotice }: {
         <div className="flex-1 min-w-0">
           <h2 className="text-base font-semibold tracking-tight leading-snug">{task.name || task.nodeId}</h2>
           <p className="text-[11.5px] text-muted-foreground mt-0.5">
+            {task.instance?.numero != null && <span className="font-mono text-foreground/70">#{task.instance.numero} · </span>}
             {km.label} · {task.instance?.processDefinition?.name}{task.role ? ` · ${task.role}` : ''}
           </p>
         </div>
@@ -116,9 +117,9 @@ export function TaskDocView({ task, onDone, onNotice }: {
           onClick={isScreen ? advanceScreen : undefined}
           {...(!isScreen ? { type: 'submit' as const, form: FORM_ID } : {})}
           disabled={advanceDisabled}
-          title={isScreen && !entityId ? `Salve o ${idVar === 'contratoId' ? 'contrato' : 'parceiro'} antes de avançar` : 'Avançar o processo para a próxima etapa'}
+          title={isScreen && !entityId ? `Salve o ${idVar === 'contratoId' ? 'contrato' : 'parceiro'} antes de concluir` : 'Concluir a tarefa e avançar o processo'}
         >
-          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}Avançar
+          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}Concluir
         </Button>
       </div>
 
@@ -156,7 +157,7 @@ export function TaskDocView({ task, onDone, onNotice }: {
               </div>
             )}
             {isScreen ? (
-              <WorkflowScreenTask key={task.id} step={step} variables={variables} entityId={entityId} onEntity={setEntityId} onCancel={onDone} />
+              <WorkflowScreenTask key={task.id} step={step} entityId={entityId} onEntity={setEntityId} onCancel={onDone} />
             ) : (
               // o botão "Avançar" (topo) submete este form via `form=FORM_ID`
               <DynamicForm key={task.id} step={step} stepIndex={0} totalSteps={1} submitting={submitting} onSubmit={complete} formId={FORM_ID} hideActions />

@@ -12,7 +12,7 @@ export interface Task {
   role?: string | null
   dueAt?: string | null
   createdAt: string
-  instance?: { processDefinition?: { name?: string; kind?: string | null } }
+  instance?: { numero?: number | null; processDefinition?: { name?: string; kind?: string | null } }
 }
 
 export interface TimelineTask { id: string; name?: string | null; status: string; completedBy?: string | null }

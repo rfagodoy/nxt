@@ -24,9 +24,8 @@ type PartnerRow = Parameters<typeof PartnerDetailView>[0]['partner']
  * componente passa a mostrar a entidade em EDIÇÃO — evita criar um segundo registro se
  * a pessoa salvar de novo antes de avançar.
  */
-export function WorkflowScreenTask({ step, variables, entityId, onEntity, onCancel }: {
+export function WorkflowScreenTask({ step, entityId, onEntity, onCancel }: {
   step: StepFormSchema
-  variables: Record<string, unknown>
   /** id atual da entidade (null = ainda não criada, em modo CREATE) */
   entityId: string | null
   /** reporta o id ao salvar a entidade (o pai guarda para o "Avançar") */
@@ -88,7 +87,7 @@ export function WorkflowScreenTask({ step, variables, entityId, onEntity, onCanc
       <>
         <div className="mb-3 flex items-center gap-2 rounded-lg border border-emerald-300/60 bg-emerald-50 dark:border-emerald-900/60 dark:bg-emerald-950/30 px-3 py-2 text-[12px] text-emerald-800 dark:text-emerald-200">
           <CheckCircle2 className="h-4 w-4 shrink-0" />
-          <span>{isContract ? 'Contrato' : 'Parceiro'} salvo. Revise se quiser e clique em <span className="font-semibold">Avançar</span> para seguir o processo.</span>
+          <span>{isContract ? 'Contrato' : 'Parceiro'} salvo. Revise se quiser e clique em <span className="font-semibold">Concluir</span> para seguir o processo.</span>
         </div>
         {isContract
           ? <ContractDetailView row={entity as ContractRow} screen={screen} onClose={onCancel ?? (() => {})} onSaved={() => onEntity(entityId)} />
