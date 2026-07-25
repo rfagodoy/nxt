@@ -42,6 +42,21 @@ export const SERVER_OPERATORS = [
 /** normaliza p/ comparação: minúsculas, sem acento, trim (alinha à collation do SQL Server). */
 export const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
 
+/** Coluna filtrável: `get` devolve o texto da célula (para busca/filtro/ordenação). */
+export interface FilterCol<T> { key: string; label: string; get: (row: T) => string }
+
+/** Aplica busca (em todas as colunas) + condições (E/OU) a uma lista, client-side. */
+export function filterRows<T>(rows: T[], cols: FilterCol<T>[], search: string, filters: FilterRow[], logic: 'AND' | 'OR'): T[] {
+  const s = norm(search)
+  const active = filters.filter((f) => f.value.trim())
+  return rows.filter((row) => {
+    if (s && !cols.some((c) => norm(c.get(row)).includes(s))) return false
+    if (active.length === 0) return true
+    const rs = active.map((f) => { const c = cols.find((x) => x.key === f.col); return c ? matchOp(c.get(row), f.op, f.value) : true })
+    return logic === 'AND' ? rs.every(Boolean) : rs.some(Boolean)
+  })
+}
+
 /** aplica um operador de filtro a um valor de célula já em texto. */
 export function matchOp(cell: string, op: string, val: string): boolean {
   const c = norm(cell), v = norm(val)

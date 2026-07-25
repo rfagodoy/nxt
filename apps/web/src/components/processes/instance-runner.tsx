@@ -221,7 +221,12 @@ export function InstanceRunner({ processDefinitionId, processName, formSchema, o
                 </div>
               )}
               {step.screenRef ? (
-                <WorkflowScreenTask key={active.id} step={step} variables={variables} onComplete={complete} onCancel={onClose} />
+                // Runner do "Novo processo": salvar a entidade CONCLUI a tarefa na hora
+                // (comportamento de assistente). O `onEntity` reporta o id → complete.
+                <WorkflowScreenTask key={active.id} step={step}
+                  entityId={step.entityMode === 'EDIT' && step.entityVar && variables[step.entityVar] ? String(variables[step.entityVar]) : null}
+                  onEntity={(id) => void complete({ [step.screenSubject === 'CONTRATO' ? 'contratoId' : 'partnerId']: id })}
+                  onCancel={onClose} />
               ) : (
                 <DynamicForm
                   key={active.id}

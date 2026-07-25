@@ -21,6 +21,7 @@ const JSON_FIELDS: Record<string, string[]> = {
   GroupCompany: ['contatos', 'enderecos', 'bancos', 'socios'],
   AppSetting: ['value'],
   ScreenField: ['options', 'validation', 'hiddenCategories', 'requiredCategories'],
+  WorkflowCompensation: ['undoData'],
 }
 
 function serialize(model: string | undefined, data: unknown) {

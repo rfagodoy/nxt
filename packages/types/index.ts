@@ -61,6 +61,11 @@ export interface StepFormSchema {
    *  designer; mesclado ao grafo na ativação (vira node.connectorInputs). Quando
    *  uma entrada não é mapeada, o backend usa a convenção de nome. */
   connectorInputs?: Record<string, string>
+  /** Política de RETORNO da ação automática: o que acontece se o processo for
+   *  devolvido atravessando este passo. BLOCK (padrão) impede; IDEMPOTENT libera;
+   *  COMPENSATE libera e o backend roda a inversa (só p/ conectores compensáveis).
+   *  Mesclado ao grafo na ativação (vira node.onReturn). */
+  onReturn?: 'BLOCK' | 'IDEMPOTENT' | 'COMPENSATE'
 
   /** Executor por PAPEL (referência PESSOA) + ENTIDADE. Alternativa ao `role` de
    *  texto livre: o motor resolve papel+entidade → usuário(s) responsável(is) e
@@ -112,6 +117,9 @@ export interface ConnectorManifest {
   inputs: ConnectorInput[]
   /** Variáveis que o conector PRODUZ (viram disponíveis para conectores seguintes). */
   outputs: string[]
+  /** Tem INVERSA definida no backend → pode receber onReturn=COMPENSATE (desfazer na
+   *  devolução). Sem isto, só BLOCK/IDEMPOTENT fazem sentido para este conector. */
+  compensable?: boolean
 }
 
 export const CONNECTORS: ConnectorManifest[] = [
@@ -140,6 +148,7 @@ export const CONNECTORS: ConnectorManifest[] = [
       { key: 'aditivoNumero', label: 'Número do aditivo', kind: 'text' },
     ],
     outputs: ['aditivoId', 'contratoSituacao'],
+    compensable: true, // inversa: remove o aditivo pelo id
   },
   {
     value: 'contracts.distrato', label: 'Registrar distrato (rescisão)', domain: 'contract',
@@ -148,6 +157,7 @@ export const CONNECTORS: ConnectorManifest[] = [
       { key: 'motivo', label: 'Motivo da rescisão', kind: 'text' },
     ],
     outputs: ['contratoSituacao'],
+    compensable: true, // inversa: restaura a situação anterior
   },
   {
     value: 'partners.create', label: 'Criar parceiro', domain: 'partner',
@@ -167,8 +177,13 @@ export const CONNECTORS: ConnectorManifest[] = [
       { key: 'motivo', label: 'Motivo/observação', kind: 'text' },
     ],
     outputs: ['partnerStatus'],
+    compensable: true, // inversa: restaura o status anterior
   },
 ]
+
+/** Conector tem inversa? (fonte única p/ o designer oferecer COMPENSATE e o backend validar) */
+export const isCompensable = (connector?: string): boolean =>
+  !!CONNECTORS.find((c) => c.value === connector)?.compensable
 
 export interface ProcessFormSchema {
   steps: StepFormSchema[]

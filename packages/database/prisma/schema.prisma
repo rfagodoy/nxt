@@ -121,6 +121,7 @@ model ProcessDefinition {
 model ProcessInstance {
   id                  String    @id @default(cuid())
   processDefinitionId String
+  numero              Int? // nº sequencial do PROCESSO iniciado, por organização (protocolo; começa em 1)
   definitionVersion   Int       @default(1) // versão do grafo com que esta instância roda (imutável após o start)
   revision            Int       @default(0) // lock otimístico do `state` (concorrência entre conclusões)
   status              String    @default("RUNNING") // RUNNING | COMPLETED | CANCELLED | ERROR
@@ -137,8 +138,52 @@ model ProcessInstance {
   processDefinition ProcessDefinition @relation(fields: [processDefinitionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   records           ModuleRecord[]
   tasks             WorkflowTask[]
+  returns           WorkflowReturn[]
+  compensations     WorkflowCompensation[]
 
   @@map("process_instances")
+}
+
+// Log de compensação (saga): quando uma AÇÃO AUTOMÁTICA com onReturn=COMPENSATE roda,
+// grava aqui COMO desfazê-la. Se o processo for DEVOLVIDO atravessando essa ação, o
+// backend roda a inversa (remove o aditivo, restaura a situação/status) antes de
+// reabrir a etapa — senão seguir de novo lançaria o aditivo/ativação em DOBRO.
+// `undoData` (JSON) carrega o necessário para a inversa (ex.: aditivoId, valor anterior).
+model WorkflowCompensation {
+  id         String    @id @default(cuid())
+  instanceId String
+  nodeId     String // serviceTask que executou
+  connector  String // ex.: contracts.aditivo
+  undoData   String    @db.NVarChar(Max) // [JSON] como desfazer
+  undoneAt   DateTime? // preenchido quando a compensação roda (na devolução)
+  createdAt  DateTime  @default(now())
+
+  instance ProcessInstance @relation(fields: [instanceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([instanceId])
+  @@map("workflow_compensations")
+}
+
+// Devolução: registro de que alguém mandou o processo de volta para uma etapa
+// anterior. É AUDITORIA — sem ela a linha do tempo mente (pareceria que a etapa
+// foi executada duas vezes sem explicação). A contagem de reaberturas de uma
+// instância sai daqui, então não existe contador desnormalizado para desencontrar.
+model WorkflowReturn {
+  id         String   @id @default(cuid())
+  instanceId String
+  fromNodeId String // etapa de onde foi devolvido
+  fromName   String? // rótulo no momento (snapshot; o diagrama pode mudar depois)
+  toNodeId   String // etapa para onde voltou
+  toName     String?
+  reason     String   @db.NVarChar(Max) // motivo — OBRIGATÓRIO na API
+  user       String // nome do autor no momento (snapshot; fallback quando userId nulo)
+  userId     String? // id estável → nome resolvido ao vivo na leitura (sem FK, de propósito)
+  createdAt  DateTime @default(now())
+
+  instance ProcessInstance @relation(fields: [instanceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([instanceId])
+  @@map("workflow_returns")
 }
 
 // Caixa de tarefas: cada userTask ativo do motor vira uma linha aqui (a "inbox").
@@ -153,7 +198,7 @@ model WorkflowTask {
   assignee    String? // executor por usuário direto (F2)
   assignees   String  @default("[]") @db.NVarChar(Max) // [JSON] userId[] resolvidos do executor papel+entidade (Papéis/Responsáveis)
   formRef     String? // tela/formulário associado à atividade (F3)
-  status      String    @default("PENDING") // PENDING | DONE | CANCELED
+  status      String    @default("PENDING") // PENDING | DONE | CANCELED | RETURNED
   dueAt       DateTime? // prazo/SLA (F4)
   escalatedAt DateTime? // quando a varredura marcou a tarefa como vencida/escalonada (F4)
   data        String    @default("{}") @db.NVarChar(Max) // [JSON] dados preenchidos ao concluir

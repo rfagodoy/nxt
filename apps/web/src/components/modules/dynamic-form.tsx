@@ -133,14 +133,18 @@ interface DynamicFormProps {
   onSubmit: (data: Record<string, unknown>) => void
   onCancel?: () => void
   submitting?: boolean
+  /** id do <form> — permite um botão externo (ex.: "Avançar" no topo) submeter via `form=`. */
+  formId?: string
+  /** Esconde os botões internos (Concluir/Cancelar) — quando a ação fica no topo da tela. */
+  hideActions?: boolean
 }
 
-export function DynamicForm({ step, stepIndex, totalSteps, onSubmit, onCancel, submitting }: DynamicFormProps) {
+export function DynamicForm({ step, stepIndex, totalSteps, onSubmit, onCancel, submitting, formId, hideActions }: DynamicFormProps) {
   const { register, handleSubmit, setValue, watch, formState: { errors } } = useForm<Record<string, unknown>>()
   const isLast = stepIndex === totalSteps - 1
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form id={formId} onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       {step.fields.map((field) => (
         <div key={field.id} className="space-y-1">
           <label htmlFor={field.id} className="text-xs font-medium">
@@ -160,21 +164,23 @@ export function DynamicForm({ step, stepIndex, totalSteps, onSubmit, onCancel, s
         </p>
       )}
 
-      <div className="flex items-center justify-between pt-1">
-        {onCancel && (
-          <button type="button" onClick={onCancel} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
-            Cancelar
+      {!hideActions && (
+        <div className="flex items-center justify-between pt-1">
+          {onCancel && (
+            <button type="button" onClick={onCancel} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+              Cancelar
+            </button>
+          )}
+          <button
+            type="submit"
+            disabled={submitting}
+            className="ml-auto inline-flex items-center gap-1.5 h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          >
+            {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {isLast ? 'Concluir' : 'Próximo →'}
           </button>
-        )}
-        <button
-          type="submit"
-          disabled={submitting}
-          className="ml-auto inline-flex items-center gap-1.5 h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
-        >
-          {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          {isLast ? 'Concluir' : 'Próximo →'}
-        </button>
-      </div>
+        </div>
+      )}
     </form>
   )
 }

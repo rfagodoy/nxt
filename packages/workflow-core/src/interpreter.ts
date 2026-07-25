@@ -172,6 +172,153 @@ export function completeToken(
   return { state, effects }
 }
 
+/* ─── DEVOLVER (retorno a uma etapa anterior) ────────────────────────────────
+   O motor nunca teve direção: `propagate` só segue arestas. O que faltava era a
+   PESSOA poder mandar o processo de volta sem que isso estivesse desenhado.
+
+   `returnToken` reposiciona o token numa atividade anterior. A regra que mantém o
+   estado consistente é UMA só:
+
+     ao devolver para T, descarte todo token no sub-grafo alcançável a partir de T
+     e zere o joinCounts de toda junção nesse sub-grafo; depois ponha um token em T.
+
+   É ela que resolve o caso paralelo: devolver de um ramo cancela o ramo IRMÃO e
+   destrava a junção — que senão ficaria esperando para sempre um ramo que deixou
+   de existir. As variáveis são preservadas (a pessoa reabre o formulário
+   preenchido e corrige). */
+
+/** Política efetiva de um nó ao devolver atravessando-o. Ausente = BLOCK.
+ *  - IDEMPOTENT: reexecutar não causa dano → liberado.
+ *  - COMPENSATE: tem inversa (o backend a roda na devolução) → liberado.
+ *  - BLOCK (padrão): bloqueia.
+ *  O motor confia na flag; a garantia de que existe uma inversa para COMPENSATE é
+ *  validada na ATIVAÇÃO do processo (backend), não aqui. */
+const crossingBlocked = (n: WfNode): boolean =>
+  n.type === 'serviceTask' && (n.onReturn ?? 'BLOCK') === 'BLOCK'
+
+export interface WfReturnTarget {
+  nodeId: string
+  name?: string
+  /** Quando presente, o alvo NÃO pode ser usado; explica o porquê. */
+  blockedBy?: string
+}
+
+/** Alvos de devolução a partir do token atual: atividades humanas ANTERIORES.
+ *
+ *  Ancestral = nó a partir do qual o nó atual é alcançável. A busca é para trás
+ *  com guarda de visitados — obrigatória, porque o grafo PODE TER CICLO (um laço
+ *  de reprovação desenhado); sem ela isto não terminaria.
+ *
+ *  Conservador de propósito: se EXISTE algum caminho do alvo até aqui que cruza
+ *  uma ação automática bloqueante, o alvo é recusado — seguir em frente de novo
+ *  poderia reexecutá-la e duplicar a operação de domínio. */
+export function returnTargets(graph: WfGraph, state: WfState, tokenId: string): WfReturnTarget[] {
+  const token = state.tokens.find((t) => t.id === tokenId)
+  if (!token) throw new WfError(`Token "${tokenId}" não está ativo nesta instância`)
+
+  const clean = new Set<string>()
+  const blocked = new Map<string, string>()
+  const seen = new Set<string>()
+  const queue: Array<{ id: string; crossed: boolean; blocker?: string }> = [{ id: token.nodeId, crossed: false }]
+
+  while (queue.length > 0) {
+    const cur = queue.shift() as { id: string; crossed: boolean; blocker?: string }
+    const key = `${cur.id}|${cur.crossed ? 1 : 0}`
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    for (const e of incoming(graph, cur.id)) {
+      const p = graph.nodes[e.from]
+      if (!p) continue
+      // cruzar uma ação automática bloqueante contamina tudo que vem ANTES dela
+      const crossed = cur.crossed || crossingBlocked(p)
+      const blocker = crossingBlocked(p) ? (p.name ?? p.id) : cur.blocker
+      if (p.type === 'userTask' && p.id !== token.nodeId) {
+        if (crossed) { if (!blocked.has(p.id)) blocked.set(p.id, blocker as string) }
+        else clean.add(p.id)
+      }
+      queue.push({ id: p.id, crossed, blocker })
+    }
+  }
+
+  const out: WfReturnTarget[] = []
+  for (const id of clean) if (!blocked.has(id)) out.push({ nodeId: id, name: graph.nodes[id]?.name })
+  for (const [id, blocker] of blocked) out.push({ nodeId: id, name: graph.nodes[id]?.name, blockedBy: blocker })
+  return out
+}
+
+/** Nós alcançáveis a partir de `from` (inclusive) — o sub-grafo DESCARTADO numa
+ *  devolução para `from`. Público para o backend saber quais ações compensáveis
+ *  precisam ser desfeitas (as que executaram dentro deste sub-grafo). */
+export function nodesReachableFrom(graph: WfGraph, from: string): string[] {
+  return [...reachableFrom(graph, from)]
+}
+
+/** Sub-grafo alcançável a partir de `from` (inclusive). Guarda de visitados
+ *  porque o grafo pode ter ciclo. */
+function reachableFrom(graph: WfGraph, from: string): Set<string> {
+  const seen = new Set<string>([from])
+  const queue = [from]
+  while (queue.length > 0) {
+    const id = queue.shift() as string
+    for (const e of outgoing(graph, id)) {
+      if (seen.has(e.to)) continue
+      seen.add(e.to)
+      queue.push(e.to)
+    }
+  }
+  return seen
+}
+
+/** Devolve o processo para uma atividade anterior. Descarta o que estiver em voo
+ *  abaixo do alvo (emitindo `cancelTask`), zera as junções afetadas e recria a
+ *  tarefa no alvo. Preserva as variáveis. */
+export function returnToken(
+  graph: WfGraph,
+  prev: WfState,
+  tokenId: string,
+  targetNodeId: string,
+  rt: WfRuntime,
+): WfRunResult {
+  if (prev.status !== 'running') {
+    throw new WfError(`Instância não está em execução (status: ${prev.status})`)
+  }
+
+  const target = graph.nodes[targetNodeId]
+  if (!target) throw new WfError(`Etapa "${targetNodeId}" não existe no grafo`)
+  if (target.type !== 'userTask') throw new WfError('Só é possível devolver para uma atividade humana')
+
+  const allowed = returnTargets(graph, prev, tokenId)
+  const chosen = allowed.find((t) => t.nodeId === targetNodeId)
+  if (!chosen) throw new WfError('Etapa não é anterior a esta no fluxo')
+  if (chosen.blockedBy) {
+    throw new WfError(`Não é possível devolver: a ação automática "${chosen.blockedBy}" já foi executada e seria refeita`)
+  }
+
+  const state: WfState = structuredClone(prev)
+  const effects: WfEffect[] = []
+
+  // 1) descarta TODO token no sub-grafo do alvo (inclui o próprio token atual e,
+  //    num fork, os ramos irmãos) — cada um vira um cancelTask para o backend.
+  const sub = reachableFrom(graph, targetNodeId)
+  const kept: typeof state.tokens = []
+  for (const t of state.tokens) {
+    if (sub.has(t.nodeId)) effects.push({ kind: 'cancelTask', token: t })
+    else kept.push(t)
+  }
+  state.tokens = kept
+
+  // 2) zera as junções do sub-grafo: chegadas parciais de ramos que acabaram de
+  //    ser descartados não podem contar quando o fluxo passar por aqui de novo.
+  for (const id of sub) {
+    if (graph.nodes[id]?.type === 'parallelGateway') delete state.joinCounts[id]
+  }
+
+  // 3) recoloca o processo no alvo (propagate cria o token + o efeito createTask)
+  propagate(graph, state, [targetNodeId], rt, effects)
+  return { state, effects }
+}
+
 /** Cancela a instância (parada humana). */
 export function cancelProcess(prev: WfState): WfState {
   if (prev.status !== 'running') return prev

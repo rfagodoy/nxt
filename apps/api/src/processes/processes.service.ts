@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma.service'
 import { ModuleGeneratorService } from '../modules/module-generator.service'
 import { CreateProcessDto } from './dto/create-process.dto'
 import { UpdateProcessDto } from './dto/update-process.dto'
-import { ProcessFormSchema } from '@nxt/types'
+import { ProcessFormSchema, isCompensable } from '@nxt/types'
 import { compileBpmn, CompileError, type WfGraph } from '@nxt/workflow-core'
 
 @Injectable()
@@ -96,6 +96,16 @@ export class ProcessesService {
       // Conector de domínio da atividade de serviço (ação automática). Definido no
       // painel "Ação automática" do designer; tem precedência sobre nxt:connector do XML.
       if (step.connector) node.connector = step.connector
+      // Política de retorno (F5). COMPENSATE só vale se o conector tem inversa — senão
+      // seguir de novo após devolver duplicaria a operação sem forma de desfazer.
+      if (step.onReturn) {
+        if (step.onReturn === 'COMPENSATE' && !isCompensable(step.connector)) {
+          throw new BadRequestException(
+            `A ação "${step.stepName || step.stepId}" não pode usar retorno com compensação: o conector não tem inversa definida.`,
+          )
+        }
+        node.onReturn = step.onReturn
+      }
       // Mapa entrada-do-conector → variável-do-processo (re-liga nomes no designer).
       if (step.connectorInputs && Object.keys(step.connectorInputs).length) {
         node.connectorInputs = step.connectorInputs

@@ -1,68 +1,28 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from 'react'
-import {
-  Activity, Loader2, RefreshCw, CheckCircle2, AlertTriangle, Clock,
-  PlayCircle, Ban, X, User, GitBranch, Settings2, ChevronsUpDown, ArrowUp, ArrowDown,
-} from 'lucide-react'
+import { Loader2, RefreshCw, CheckCircle2, AlertTriangle, Clock, Settings2, ChevronsUpDown, ArrowUp, ArrowDown, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StartProcessButton } from '@/components/processes/start-process-button'
 import { cn } from '@/lib/utils'
 import { apiJson } from '@/lib/http'
 import { useViews } from '@/hooks/use-views'
+import { useWorkspace } from '@/contexts/workspace-context'
 import { exportExcel } from '@/lib/export-excel'
 import { TablePagination } from '@/components/ui/table-pagination'
 import { ListToolbar } from '@/components/list/list-toolbar'
 import { type FilterRow, matchOp, norm } from '@/lib/list-filter'
+import { STATUS, fmt, humanDuration, pontualidadeLabel, type Inst } from '@/lib/processos-ui'
 
-interface Inst {
-  id: string; processName: string; version: number
-  status: 'RUNNING' | 'COMPLETED' | 'ERROR' | 'CANCELLED'
-  error: string | null; stepName: string | null; startedBy: string | null
-  startedAt: string; completedAt: string | null; updatedAt: string
-  currentStep: string | null; currentDueAt: string | null; currentOverdue: boolean
-  totalSteps: number; doneSteps: number; hasSla: boolean; onTime: boolean; durationMs: number | null
-  processDueAt: string | null; processOverdue: boolean; processOnTime: boolean | null
-}
-interface TaskRow {
-  id: string; nodeId: string; name?: string | null; role?: string | null; assignee?: string | null
-  status: string; createdAt: string; dueAt?: string | null; completedAt?: string | null; completedBy?: string | null
-}
 interface SortState { col: string; dir: 'asc' | 'desc' }
 interface StepMetric { name: string; avgMs: number; count: number }
 
-const STATUS: Record<string, { label: string; icon: typeof Activity; cls: string }> = {
-  RUNNING:   { label: 'Em andamento', icon: PlayCircle,   cls: 'bg-sky-500/10 text-sky-600 dark:text-sky-400' },
-  COMPLETED: { label: 'Concluído',    icon: CheckCircle2, cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
-  ERROR:     { label: 'Com erro',     icon: AlertTriangle, cls: 'bg-red-500/10 text-red-600 dark:text-red-400' },
-  CANCELLED: { label: 'Cancelado',    icon: Ban,          cls: 'bg-muted text-muted-foreground' },
-}
-const TASK_STATUS: Record<string, string> = { PENDING: 'Pendente', DONE: 'Concluída', CANCELED: 'Cancelada' }
-
-const fmt = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
-function humanDuration(ms: number | null): string {
-  if (ms == null) return '—'
-  const min = Math.round(ms / 60000)
-  if (min < 60) return `${min} min`
-  const h = Math.floor(min / 60), m = min % 60
-  if (h < 24) return m ? `${h}h ${m}min` : `${h}h`
-  const d = Math.floor(h / 24), rh = h % 24
-  return rh ? `${d}d ${rh}h` : `${d}d`
-}
-function pontualidadeLabel(i: Inst): string { return i.processOnTime == null ? 'sem prazo' : i.processOnTime ? 'no prazo' : 'atrasado' }
-function taskPunctuality(t: TaskRow): { label: string; cls: string } {
-  const now = Date.now()
-  if (!t.dueAt) return { label: 'sem prazo', cls: 'text-muted-foreground' }
-  const due = new Date(t.dueAt).getTime()
-  if (t.completedAt) return new Date(t.completedAt).getTime() <= due
-    ? { label: 'no prazo', cls: 'text-emerald-600 dark:text-emerald-400' }
-    : { label: 'atrasada', cls: 'text-red-600 dark:text-red-400' }
-  return due < now ? { label: 'atrasada', cls: 'text-red-600 dark:text-red-400' } : { label: 'no prazo', cls: 'text-muted-foreground' }
-}
-
 interface Col { key: string; label: string; align?: 'right'; text: (i: Inst) => string; sortVal?: (i: Inst) => string | number; node: (i: Inst) => ReactNode }
 const COLS: Col[] = [
+  {
+    key: 'numero', label: 'Nº', text: (i) => (i.numero != null ? String(i.numero) : ''), sortVal: (i) => i.numero ?? 0,
+    node: (i) => <span className="font-mono text-xs tabular-nums text-muted-foreground">{i.numero != null ? `#${i.numero}` : '—'}</span>,
+  },
   {
     key: 'processo', label: 'Processo', text: (i) => `${i.processName} v${i.version}`, sortVal: (i) => norm(i.processName),
     node: (i) => (
@@ -95,20 +55,29 @@ const COLS: Col[] = [
     ) : <span className="text-muted-foreground">—</span>,
   },
   {
-    key: 'pontualidade', label: 'Pontualidade', text: pontualidadeLabel,
-    node: (i) => i.processOnTime == null ? <span className="text-muted-foreground">sem prazo</span>
-      : i.processOnTime ? <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="h-3 w-3" />no prazo</span>
-      : <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400"><AlertTriangle className="h-3 w-3" />atrasado</span>,
+    key: 'pontualidade', label: 'Pontualidade', text: (i) => pontualidadeLabel(i) + (i.returnCount > 0 ? ` · reaberta ${i.returnCount}×` : ''),
+    node: (i) => (
+      <span className="inline-flex items-center gap-1.5">
+        {i.processOnTime == null ? <span className="text-muted-foreground">sem prazo</span>
+          : i.processOnTime ? <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="h-3 w-3" />no prazo</span>
+          : <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400"><AlertTriangle className="h-3 w-3" />atrasado</span>}
+        {/* prazo derivado NÃO conta reaberturas → é otimista; o badge ressalva o número */}
+        {i.returnCount > 0 && (
+          <span title="Processo devolvido — o prazo derivado não conta as reaberturas" className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300">
+            <Undo2 className="h-2.5 w-2.5" />{i.returnCount}×
+          </span>
+        )}
+      </span>
+    ),
   },
 ]
 const HIDDEN_KEY = 'nxt:cols:processos:hidden'
 
 export default function ProcessosPage() {
+  const ws = useWorkspace()
   const { views, saveView, deleteView } = useViews('processos')
   const [rows, setRows] = useState<Inst[] | null>(null)
   const [slowest, setSlowest] = useState<StepMetric[]>([])
-  const [detail, setDetail] = useState<Inst | null>(null)
-  const [tasks, setTasks] = useState<TaskRow[] | null>(null)
 
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SortState | null>({ col: 'inicio', dir: 'desc' })
@@ -143,11 +112,9 @@ export default function ProcessosPage() {
     document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h)
   }, [])
 
-  const openDetail = async (inst: Inst) => {
-    setDetail(inst); setTasks(null)
-    const ctx = await apiJson<{ instance?: { tasks?: TaskRow[] } }>(`/api/instances/${inst.id}`)
-    setTasks(ctx?.instance?.tasks ?? [])
-  }
+  /** Abre a instância como ABA na área de trabalho (padrão MDI da casa). */
+  const openDetail = (inst: Inst) =>
+    ws.open({ id: `process-instance:${inst.id}`, kind: 'process-instance', mode: 'detail', label: inst.numero != null ? `Processo #${inst.numero}` : 'Processo', data: inst })
 
   const visibleCols = useMemo(() => COLS.filter((c) => !hidden.has(c.key)), [hidden])
   const all = useMemo(() => rows ?? [], [rows])
@@ -339,66 +306,6 @@ export default function ProcessosPage() {
         </div>
         <TablePagination page={page} pageSize={pageSize} total={sorted.length} onPage={setPage} onPageSize={setPageSize} />
       </div>
-
-      {detail && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={() => setDetail(null)}>
-          <div className="glass w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl text-foreground overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/40">
-              <div className="flex items-center gap-2 min-w-0">
-                <GitBranch className="h-4 w-4 text-primary shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold truncate">{detail.processName} <span className="text-[11px] text-muted-foreground font-normal">v{detail.version}</span></p>
-                  <p className="text-[11px] text-muted-foreground">Iniciado por {detail.startedBy || '—'} em {fmt(detail.startedAt)}</p>
-                </div>
-              </div>
-              <button onClick={() => setDetail(null)} className="text-muted-foreground hover:text-foreground shrink-0"><X className="h-4 w-4" /></button>
-            </div>
-            <div className="px-4 py-2 border-b flex items-center gap-2 text-[11px]">
-              <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium', (STATUS[detail.status] ?? STATUS.RUNNING).cls)}>{STATUS[detail.status]?.label}</span>
-              {detail.status === 'COMPLETED' && <span className="text-muted-foreground">Concluído em {fmt(detail.completedAt)} · durou {humanDuration(detail.durationMs)}</span>}
-              {detail.status === 'ERROR' && detail.error && <span className="text-red-600 dark:text-red-400 truncate">{detail.error}</span>}
-              {detail.processOnTime != null && (
-                <span className={cn('inline-flex items-center gap-1', detail.processOnTime ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400')}>
-                  {detail.processOnTime ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
-                  {detail.processOnTime ? 'no prazo do processo' : 'fora do prazo'}{detail.processDueAt ? ` · prazo ${fmt(detail.processDueAt)}` : ''}
-                </span>
-              )}
-            </div>
-            <div className="flex-1 overflow-y-auto p-4">
-              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Linha do tempo das atividades</p>
-              {tasks === null ? (
-                <div className="flex items-center justify-center py-8 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin mr-2" /> Carregando…</div>
-              ) : tasks.length === 0 ? (
-                <p className="text-xs text-muted-foreground py-4 text-center">Nenhuma atividade registrada ainda.</p>
-              ) : (
-                <ol className="space-y-2">
-                  {tasks.map((t) => {
-                    const p = taskPunctuality(t)
-                    const doneCls = t.status === 'DONE' ? 'bg-emerald-500' : t.status === 'CANCELED' ? 'bg-muted-foreground/40' : 'bg-sky-500'
-                    return (
-                      <li key={t.id} className="rounded-lg border p-2.5">
-                        <div className="flex items-center gap-2">
-                          <span className={cn('h-2 w-2 rounded-full shrink-0', doneCls)} />
-                          <span className="text-sm font-medium flex-1 truncate">{t.name || t.nodeId}</span>
-                          <span className="text-[11px] text-muted-foreground">{TASK_STATUS[t.status] ?? t.status}</span>
-                        </div>
-                        <div className="mt-1.5 grid grid-cols-2 sm:grid-cols-4 gap-y-1 gap-x-3 text-[11px] text-muted-foreground pl-4">
-                          {(t.role || t.assignee) && <span className="flex items-center gap-1"><User className="h-3 w-3" />{t.role || t.assignee}</span>}
-                          <span>Início: {fmt(t.createdAt)}</span>
-                          <span>Prazo: {fmt(t.dueAt)}</span>
-                          <span>Conclusão: {fmt(t.completedAt)}</span>
-                          {t.completedBy && <span>Por: {t.completedBy}</span>}
-                          <span className={p.cls}>Pontualidade: {p.label}</span>
-                        </div>
-                      </li>
-                    )
-                  })}
-                </ol>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

@@ -51,6 +51,16 @@ export interface WfNode {
    *  nome do campo coletado numa atividade) ao nome que o conector espera. Quando
    *  ausente para uma entrada, o backend cai na convenção de nome. (F5 estendida) */
   connectorInputs?: Record<string, string>
+  /** POLÍTICA DE RETORNO: o que acontece se alguém DEVOLVER o processo para uma
+   *  etapa ANTERIOR a esta ação automática. Voltar e seguir de novo REEXECUTA o
+   *  conector — e conector de domínio mexe em contrato/parceiro (lança aditivo,
+   *  ativa parceiro, faz distrato). Por isso o padrão é BLOQUEAR:
+   *  - 'BLOCK' (padrão, inclusive quando ausente): não se pode devolver atravessando.
+   *  - 'IDEMPOTENT': reexecutar não causa dano — liberado.
+   *  - 'COMPENSATE': tem ação inversa a rodar ao voltar. RESERVADO — enquanto a
+   *    compensação não existir (F5), é tratado como BLOCK; liberar antes disso
+   *    duplicaria a operação silenciosamente. */
+  onReturn?: 'BLOCK' | 'IDEMPOTENT' | 'COMPENSATE'
 
   /** Executor da atividade por PAPEL (referência PESSOA) + ENTIDADE. O motor resolve
    *  (papel + entidade) → usuário(s) responsável(is) e roteia a tarefa. A entidade
@@ -118,6 +128,10 @@ export type WfEffect =
   | { kind: 'createTask'; token: WfToken; node: WfNode }
   /** Um serviceTask precisa ser executado pelo backend (conector de domínio). */
   | { kind: 'runService'; token: WfToken; node: WfNode }
+  /** Um token foi descartado (devolução): a tarefa correspondente deve ser
+   *  CANCELADA na caixa. Sem isto, devolver de dentro de um ramo paralelo deixaria
+   *  a tarefa irmã viva e órfã na caixa de alguém. */
+  | { kind: 'cancelTask'; token: WfToken }
   /** A instância chegou ao fim (não há mais tokens vivos). */
   | { kind: 'completed' }
 

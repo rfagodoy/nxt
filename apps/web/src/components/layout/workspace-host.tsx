@@ -11,6 +11,10 @@ import { PartnerDetailView, type PartnerAPI } from '@/components/partners/partne
 import { UnitDetailView, type Unit } from '@/components/organization/unit-detail-view'
 import ContractNewForm from '@/components/contracts/contract-new-form'
 import PartnerNewForm from '@/components/partners/partner-new-form'
+import { TaskDocView } from '@/components/processes/task-doc-view'
+import { ProcessInstanceDocView } from '@/components/processes/process-instance-doc-view'
+import type { Task } from '@/lib/tasks-ui'
+import type { Inst } from '@/lib/processos-ui'
 
 const Loader = () => <div className="flex items-center justify-center py-12 text-xs text-muted-foreground">Carregando...</div>
 
@@ -46,6 +50,18 @@ function Document({ tab }: { tab: WorkspaceTab }) {
       )
     }
     return <ContractDetailView row={tab.data as ContractRow} onClose={() => close(tab.id)} onSaved={fireRefresh} onDirtyChange={d => setDirty(tab.id, d)} />
+  }
+
+  if (tab.kind === 'task') {
+    // concluir/devolver: fecha a aba + recarrega o board; erro da etapa automática
+    // seguinte é levado ao board via evento (a aba já terá fechado).
+    return <TaskDocView task={tab.data as Task}
+      onDone={() => { fireRefresh(); close(tab.id) }}
+      onNotice={(msg) => { try { window.dispatchEvent(new CustomEvent('nxt:tasks:notice', { detail: msg })) } catch { /* SSR */ } }} />
+  }
+
+  if (tab.kind === 'process-instance') {
+    return <ProcessInstanceDocView inst={tab.data as Inst} />
   }
 
   if (tab.kind === 'unit') {

@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import { generateBpmn, compileBpmn, type WfGraph, type WfNode, type WfEdge } from '@nxt/workflow-core'
 import type { StepFormSchema, ProcessFormSchema } from '@nxt/types'
-import { CONNECTORS } from '@nxt/types'
+import { CONNECTORS, isCompensable } from '@nxt/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -909,12 +909,31 @@ function ActivityInspector({ node, nodes, edges, screens, papeis, onPatchStep, o
             </Field>
           </>
         ) : (
-          <Field label="Ação automática (conector)" hint="O motor executa esta ação sozinho — grava a entidade de verdade.">
-            <Select value={step.connector || 'none'} onValueChange={(v) => onPatchStep({ connector: v && v !== 'none' ? v : undefined })}>
-              <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Nenhuma (só passa)" /></SelectTrigger>
-              <SelectContent><SelectItem value="none">Nenhuma (só passa)</SelectItem>{CONNECTORS.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
-            </Select>
-          </Field>
+          <>
+            <Field label="Ação automática (conector)" hint="O motor executa esta ação sozinho — grava a entidade de verdade.">
+              <Select value={step.connector || 'none'} onValueChange={(v) => onPatchStep({ connector: v && v !== 'none' ? v : undefined })}>
+                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Nenhuma (só passa)" /></SelectTrigger>
+                <SelectContent><SelectItem value="none">Nenhuma (só passa)</SelectItem>{CONNECTORS.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
+              </Select>
+            </Field>
+            {step.connector && (() => {
+              const compensable = isCompensable(step.connector)
+              return (
+                <Field label="Se o processo for devolvido para trás daqui" hint={compensable
+                  ? 'Esta ação mexe em dados reais. Escolha o que fazer se alguém devolver o processo atravessando este passo.'
+                  : 'Esta ação não tem como ser desfeita, então devolver atravessando-a fica bloqueado.'}>
+                  <Select value={step.onReturn ?? 'BLOCK'} onValueChange={(v) => onPatchStep({ onReturn: v as StepFormSchema['onReturn'] })}>
+                    <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="BLOCK">Bloquear a devolução (padrão)</SelectItem>
+                      <SelectItem value="IDEMPOTENT">Liberar — refazer não causa dano</SelectItem>
+                      {compensable && <SelectItem value="COMPENSATE">Liberar — desfazer esta ação ao voltar</SelectItem>}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              )
+            })()}
+          </>
         )}
       </div>
     </div>
