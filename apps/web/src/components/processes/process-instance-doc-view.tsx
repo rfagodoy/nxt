@@ -2,14 +2,15 @@
 
 /* Consulta de UMA instância de processo, aberta como ABA na área de trabalho global
    (como contrato/parceiro). Standalone porque o host a renderiza. Substitui o antigo
-   modal do Acompanhamento (/processos). */
+   modal do Acompanhamento (/processos). Segue o padrão da casa: cabeçalho de
+   identidade + seções em card + a linha do tempo numa TABELA densa (header fixo). */
 
 import { useEffect, useState } from 'react'
 import { Loader2, User, GitBranch, CheckCircle2, AlertTriangle, Undo2 } from 'lucide-react'
 import { apiJson } from '@/lib/http'
 import { cn } from '@/lib/utils'
 import {
-  STATUS, TASK_STATUS, fmt, humanDuration, taskPunctuality,
+  STATUS, fmt, humanDuration, taskPunctuality, formatSla, taskStatusMeta,
   type Inst, type TaskRow, type ReturnRow,
 } from '@/lib/processos-ui'
 
@@ -32,9 +33,9 @@ export function ProcessInstanceDocView({ inst }: { inst: Inst }) {
   const st = STATUS[inst.status] ?? STATUS.RUNNING
 
   return (
-    <div className="mx-auto flex h-full max-w-3xl flex-col">
+    <div className="mx-auto flex h-full max-w-[1100px] flex-col gap-3 pb-2">
       {/* identidade da instância */}
-      <div className="flex items-start gap-3 px-1 py-3 border-b shrink-0">
+      <div className="flex items-start gap-3 shrink-0">
         <span className="flex h-11 w-11 items-center justify-center rounded-xl shrink-0 bg-primary/10 text-primary"><GitBranch className="h-5 w-5" /></span>
         <div className="flex-1 min-w-0">
           <h2 className="text-base font-semibold tracking-tight leading-snug">
@@ -48,8 +49,8 @@ export function ProcessInstanceDocView({ inst }: { inst: Inst }) {
         </span>
       </div>
 
-      {/* linha de situação */}
-      <div className="px-1 py-2 border-b flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px]">
+      {/* faixa de situação (chips) */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] shrink-0">
         {inst.status === 'COMPLETED' && <span className="text-muted-foreground">Concluído em {fmt(inst.completedAt)} · durou {humanDuration(inst.durationMs)}</span>}
         {inst.status === 'ERROR' && inst.error && <span className="text-red-600 dark:text-red-400">{inst.error}</span>}
         {inst.processOnTime != null && (
@@ -63,58 +64,76 @@ export function ProcessInstanceDocView({ inst }: { inst: Inst }) {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto py-4 px-1">
-        {returns.length > 0 && (
-          <div className="mb-4">
-            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
-              <Undo2 className="h-3 w-3" />Devoluções ({returns.length})
-            </p>
-            <ol className="space-y-2">
-              {returns.map((r) => (
-                <li key={r.id} className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-2.5">
-                  <div className="flex items-center gap-1.5 text-xs">
-                    <span className="font-medium">{r.fromName || '—'}</span>
-                    <Undo2 className="h-3 w-3 text-amber-600 dark:text-amber-400 shrink-0" />
-                    <span className="font-medium">{r.toName || '—'}</span>
-                  </div>
-                  <p className="text-[12px] text-foreground/80 mt-1 leading-snug">“{r.reason}”</p>
-                  <p className="text-[11px] text-muted-foreground mt-1">{r.user} · {fmt(r.createdAt)}</p>
-                </li>
-              ))}
-            </ol>
+      {/* devoluções — card no padrão */}
+      {returns.length > 0 && (
+        <div className="rounded-xl border bg-card shadow-sm shrink-0">
+          <div className="px-3 py-2 border-b flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+            <Undo2 className="h-3 w-3" />Devoluções ({returns.length})
           </div>
-        )}
-
-        <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Linha do tempo das atividades</p>
-        {tasks === null ? (
-          <div className="flex items-center justify-center py-8 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin mr-2" /> Carregando…</div>
-        ) : tasks.length === 0 ? (
-          <p className="text-xs text-muted-foreground py-4 text-center">Nenhuma atividade registrada ainda.</p>
-        ) : (
-          <ol className="space-y-2">
-            {tasks.map((t) => {
-              const p = taskPunctuality(t)
-              const doneCls = t.status === 'DONE' ? 'bg-emerald-500' : t.status === 'RETURNED' ? 'bg-amber-500' : t.status === 'CANCELED' ? 'bg-muted-foreground/40' : 'bg-sky-500'
-              return (
-                <li key={t.id} className="rounded-lg border p-2.5">
-                  <div className="flex items-center gap-2">
-                    <span className={cn('h-2 w-2 rounded-full shrink-0', doneCls)} />
-                    <span className="text-sm font-medium flex-1 truncate">{t.name || t.nodeId}</span>
-                    <span className="text-[11px] text-muted-foreground">{TASK_STATUS[t.status] ?? t.status}</span>
-                  </div>
-                  <div className="mt-1.5 grid grid-cols-2 sm:grid-cols-4 gap-y-1 gap-x-3 text-[11px] text-muted-foreground pl-4">
-                    {(t.role || t.assignee) && <span className="flex items-center gap-1"><User className="h-3 w-3" />{t.role || t.assignee}</span>}
-                    <span>Início: {fmt(t.createdAt)}</span>
-                    <span>Prazo: {fmt(t.dueAt)}</span>
-                    <span>Conclusão: {fmt(t.completedAt)}</span>
-                    {t.completedBy && <span>Por: {t.completedBy}</span>}
-                    <span className={p.cls}>Pontualidade: {p.label}</span>
-                  </div>
-                </li>
-              )
-            })}
+          <ol className="p-2.5 space-y-2">
+            {returns.map((r) => (
+              <li key={r.id} className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-2.5">
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className="font-medium">{r.fromName || '—'}</span>
+                  <Undo2 className="h-3 w-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span className="font-medium">{r.toName || '—'}</span>
+                </div>
+                <p className="text-[12px] text-foreground/80 mt-1 leading-snug">“{r.reason}”</p>
+                <p className="text-[11px] text-muted-foreground mt-1">{r.user} · {fmt(r.createdAt)}</p>
+              </li>
+            ))}
           </ol>
-        )}
+        </div>
+      )}
+
+      {/* linha do tempo das atividades — TABELA densa (padrão da casa) */}
+      <div className="rounded-xl border bg-card shadow-sm flex-1 min-h-0 flex flex-col">
+        <div className="px-3 py-2 border-b text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
+          Linha do tempo das atividades
+        </div>
+        <div className="overflow-auto flex-1 min-h-0">
+          <table className="min-w-full text-xs">
+            <thead className="sticky top-0 z-10">
+              <tr className="border-b">
+                {['Atividade', 'Início', 'Prazo', 'Data prevista', 'Pontualidade', 'Executor', 'Situação'].map((h) => (
+                  <th key={h} className="text-left px-3 py-1.5 font-medium text-muted-foreground whitespace-nowrap bg-muted">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {tasks === null ? (
+                <tr><td colSpan={7} className="px-3 py-10 text-center text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin inline mr-2" />Carregando…</td></tr>
+              ) : tasks.length === 0 ? (
+                <tr><td colSpan={7} className="px-3 py-8 text-center text-xs text-muted-foreground">Nenhuma atividade registrada ainda.</td></tr>
+              ) : tasks.map((t) => {
+                const p = taskPunctuality(t)
+                const sm = taskStatusMeta(t.status)
+                const executor = t.completedBy || t.role || t.assignee || '—'
+                return (
+                  <tr key={t.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                    <td className="px-3 py-2 align-top">
+                      <span className="inline-flex items-center gap-2 font-medium">
+                        <span className={cn('h-2 w-2 rounded-full shrink-0', sm.dot)} />{t.name || t.nodeId}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 align-top text-muted-foreground whitespace-nowrap">{fmt(t.createdAt)}</td>
+                    <td className="px-3 py-2 align-top text-muted-foreground whitespace-nowrap">{formatSla(t)}</td>
+                    <td className="px-3 py-2 align-top text-muted-foreground whitespace-nowrap">{fmt(t.dueAt)}</td>
+                    <td className={cn('px-3 py-2 align-top whitespace-nowrap', p.cls)}>{p.label}</td>
+                    <td className="px-3 py-2 align-top text-muted-foreground">
+                      {executor !== '—'
+                        ? <span className="inline-flex items-center gap-1"><User className="h-3 w-3 shrink-0" />{executor}</span>
+                        : '—'}
+                    </td>
+                    <td className="px-3 py-2 align-top">
+                      <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[10.5px] font-medium', sm.pill)}>{sm.label}</span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   )

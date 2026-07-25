@@ -536,14 +536,30 @@ export class InstancesService {
     })
     if (!instance) throw new NotFoundException('Instância não encontrada')
 
-    const graph = instance.processDefinition.compiledGraph as unknown as WfGraph | null
+    // Grafo CONGELADO da instância (imune a edição do processo depois) para ler o SLA
+    // configurado de cada atividade; fallback no grafo vivo para instâncias antigas.
+    const snap =
+      (instance.graphSnapshot as unknown as WfGraph | null) ??
+      (instance.processDefinition.compiledGraph as unknown as WfGraph | null)
     const state = instance.state as unknown as WfState
 
+    // Enriquece cada tarefa com o PRAZO configurado (dias/horas/minutos úteis) do nó —
+    // a tela de consulta mostra numa coluna. `dueAt` (data prevista) já vem na tarefa.
+    const tasks = instance.tasks.map((t) => {
+      const node = snap?.nodes?.[t.nodeId]
+      return {
+        ...t,
+        slaBusinessDays: node?.slaBusinessDays ?? null,
+        slaBusinessHours: node?.slaBusinessHours ?? null,
+        slaBusinessMinutes: node?.slaBusinessMinutes ?? null,
+      }
+    })
+
     return {
-      instance,
+      instance: { ...instance, tasks },
       state,
-      graph,
-      pendingTasks: instance.tasks.filter((t) => t.status === 'PENDING'),
+      graph: snap,
+      pendingTasks: tasks.filter((t) => t.status === 'PENDING'),
       returns: instance.returns, // histórico de devoluções (F4) — de/para/motivo/autor/quando
     }
   }

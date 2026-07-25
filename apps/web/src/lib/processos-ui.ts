@@ -16,6 +16,26 @@ export interface Inst {
 export interface TaskRow {
   id: string; nodeId: string; name?: string | null; role?: string | null; assignee?: string | null
   status: string; createdAt: string; dueAt?: string | null; completedAt?: string | null; completedBy?: string | null
+  slaBusinessDays?: number | null; slaBusinessHours?: number | null; slaBusinessMinutes?: number | null
+}
+
+/** Prazo configurado da atividade em dias/horas/minutos ÚTEIS → texto humano. */
+export function formatSla(t: Pick<TaskRow, 'slaBusinessDays' | 'slaBusinessHours' | 'slaBusinessMinutes'>): string {
+  const plural = (n: number, s: string) => `${n} ${s}${n === 1 ? '' : 's'} úte${n === 1 ? 'l' : 'is'}`
+  if (t.slaBusinessDays != null) return plural(t.slaBusinessDays, 'dia')
+  if (t.slaBusinessHours != null) return plural(t.slaBusinessHours, 'hora')
+  if (t.slaBusinessMinutes != null) return plural(t.slaBusinessMinutes, 'minuto')
+  return '—'
+}
+
+/** Rótulo humano da situação da tarefa + cor do ponto/pílula. */
+export function taskStatusMeta(status: string): { label: string; dot: string; pill: string } {
+  switch (status) {
+    case 'DONE':     return { label: 'Concluída', dot: 'bg-emerald-500', pill: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' }
+    case 'RETURNED': return { label: 'Devolvida', dot: 'bg-amber-500',   pill: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' }
+    case 'CANCELED': return { label: 'Cancelada', dot: 'bg-muted-foreground/40', pill: 'bg-muted text-muted-foreground' }
+    default:         return { label: 'Pendente',  dot: 'bg-sky-500',     pill: 'bg-sky-500/10 text-sky-600 dark:text-sky-400' }
+  }
 }
 export interface ReturnRow { id: string; fromName?: string | null; toName?: string | null; reason: string; user: string; createdAt: string }
 
