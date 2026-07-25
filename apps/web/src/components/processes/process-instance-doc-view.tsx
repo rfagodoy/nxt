@@ -102,16 +102,16 @@ export function ProcessInstanceDocView({ inst }: { inst: Inst }) {
   const eventLabel = (e: HistoryEvent) => e.kind === 'done' ? 'Concluída' : 'Retrocedida'
   const detailText = (e: HistoryEvent) => e.kind === 'return' ? `para ${e.to || '—'}${e.reason ? ` · motivo: ${e.reason}` : ''}` : '—'
   const histCols: Col<HistoryEvent>[] = [
-    { key: 'evento', label: 'Evento', get: eventLabel,
-      cell: (e) => <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10.5px] font-medium whitespace-nowrap',
-        e.kind === 'done' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400')}>
-        {e.kind === 'done' ? <CheckCircle2 className="h-3 w-3" /> : <Undo2 className="h-3 w-3" />}{eventLabel(e)}</span> },
     { key: 'atividade', label: 'Atividade', get: (e) => e.task.name || e.task.nodeId, cell: (e) => <span className="font-medium">{e.task.name || e.task.nodeId}</span> },
     { key: 'inicio', label: 'Início', get: (e) => fmt(e.task.createdAt), cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{fmt(e.task.createdAt)}</span> },
     { key: 'prazo', label: 'Prazo', get: (e) => formatSla(e.task), cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{formatSla(e.task)}</span> },
     { key: 'prevista', label: 'Data prevista', get: (e) => fmt(e.task.dueAt), cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{fmt(e.task.dueAt)}</span> },
     { key: 'pontualidade', label: 'Pontualidade', get: (e) => taskPunctuality(e.task).label, cell: (e) => <span className={cn('whitespace-nowrap', taskPunctuality(e.task).cls)}>{taskPunctuality(e.task).label}</span> },
     { key: 'executor', label: 'Executor', get: (e) => execOf(e.task), cell: (e) => execOf(e.task) !== '—' ? <span className="inline-flex items-center gap-1 text-muted-foreground"><User className="h-3 w-3 shrink-0" />{execOf(e.task)}</span> : <span className="text-muted-foreground">—</span> },
+    { key: 'situacao', label: 'Situação', get: eventLabel,
+      cell: (e) => <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10.5px] font-medium whitespace-nowrap',
+        e.kind === 'done' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400')}>
+        {e.kind === 'done' ? <CheckCircle2 className="h-3 w-3" /> : <Undo2 className="h-3 w-3" />}{eventLabel(e)}</span> },
     { key: 'detalhe', label: 'Detalhe', get: detailText,
       cell: (e) => e.kind === 'return'
         ? <span className="text-muted-foreground"><Undo2 className="h-3 w-3 inline mr-1 text-amber-600 dark:text-amber-400" />para <span className="font-medium text-foreground">{e.to || '—'}</span>{e.reason && <span className="block text-[11px] italic mt-0.5">motivo: {e.reason}</span>}</span>
