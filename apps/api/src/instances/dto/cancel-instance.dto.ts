@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, MaxLength } from 'class-validator'
+import { IsString, IsNotEmpty, IsOptional, IsBoolean, MaxLength } from 'class-validator'
 import { ApiProperty } from '@nestjs/swagger'
 
 export class CancelInstanceDto {
@@ -9,4 +9,12 @@ export class CancelInstanceDto {
   @IsNotEmpty({ message: 'Informe o motivo do cancelamento' })
   @MaxLength(2000)
   reason!: string
+
+  /** Confirmação para desfazer efeitos que já valem para fora (contrato vigente ou
+   *  com movimento). Sem ela, o cancelamento é recusado com a lista do que está em
+   *  jogo — decidir sozinho sobre contrato assinado não é papel do sistema. */
+  @ApiProperty({ description: 'Confirma o desfazimento de efeitos que exigem ciência', required: false })
+  @IsOptional()
+  @IsBoolean()
+  confirmar?: boolean
 }

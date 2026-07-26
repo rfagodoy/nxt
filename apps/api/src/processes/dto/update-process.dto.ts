@@ -20,7 +20,7 @@ export class UpdateProcessDto {
   @IsOptional() @IsObject()
   formSchema?: Record<string, unknown>
 
-  @ApiProperty({ required: false, description: 'CONTRATO | ADITIVO | PARCEIRO' })
+  @ApiProperty({ required: false, description: 'CONTRATO | ADITIVO' })
   @IsOptional() @IsString()
   kind?: string
 }

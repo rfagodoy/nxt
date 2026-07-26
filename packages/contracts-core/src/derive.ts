@@ -113,8 +113,12 @@ export function consumo(c: CoreContract): number {
 }
 
 /* ─── situação ───────────────────────────────────────────────────────────────
-   Estados persistidos: EM_CADASTRO, VIGENTE, ENCERRADO, RESCINDIDO.
-   VENCIDO é DERIVADO, nunca gravado: contrato VIGENTE cujo término já passou. */
+   Estados persistidos: EM_CADASTRO, VIGENTE, ENCERRADO, RESCINDIDO, CANCELADO.
+   VENCIDO é DERIVADO, nunca gravado: contrato VIGENTE cujo término já passou.
+
+   CANCELADO ≠ RESCINDIDO: rescisão é ato entre as partes, com efeitos jurídicos;
+   cancelado é o contrato que NUNCA chegou a valer, porque o processo que o criou
+   foi cancelado. Misturar os dois mentiria no relatório. */
 
 /** Converte situações do modelo antigo para o ciclo atual. */
 export function normalizeSituacao(s: string): string {
@@ -123,6 +127,13 @@ export function normalizeSituacao(s: string): string {
     case 'PENDENTE': case 'REVISAO': case 'SUSPENSO': return 'EM_CADASTRO'
     default:                                          return s
   }
+}
+
+/** O contrato saiu do jogo? Encerrado, rescindido ou cancelado não gera prazo,
+ *  reajuste, renovação nem alerta — o motor de datas deve pulá-los. */
+export function isContratoEncerrado(situacao: string): boolean {
+  const s = normalizeSituacao(situacao)
+  return s === 'ENCERRADO' || s === 'RESCINDIDO' || s === 'CANCELADO'
 }
 
 /** Situação exibida: normaliza o legado e resolve 'VENCIDO'.
