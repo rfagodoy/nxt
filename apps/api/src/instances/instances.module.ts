@@ -8,9 +8,11 @@ import { WorkflowRolesModule } from '../workflow-roles/workflow-roles.module'
 import { ContractsModule } from '../contracts/contracts.module'
 import { PartnersModule } from '../partners/partners.module'
 import { RoleAssignmentsModule } from '../role-assignments/role-assignments.module'
+import { NotificationsModule } from '../notifications/notifications.module'
+import { SettingsModule } from '../settings/settings.module'
 
 @Module({
-  imports: [WorkflowRolesModule, ContractsModule, PartnersModule, RoleAssignmentsModule],
+  imports: [WorkflowRolesModule, ContractsModule, PartnersModule, RoleAssignmentsModule, NotificationsModule, SettingsModule],
   controllers: [InstancesController],
   providers: [InstancesService, WorkflowSchedulerService, WorkflowCalendarService, PrismaService],
   exports: [InstancesService, WorkflowCalendarService],

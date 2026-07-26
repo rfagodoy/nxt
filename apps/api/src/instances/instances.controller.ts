@@ -4,6 +4,9 @@ import { InstancesService } from './instances.service'
 import { StartInstanceDto } from './dto/start-instance.dto'
 import { CompleteTaskDto } from './dto/complete-task.dto'
 import { ReturnTaskDto } from './dto/return-task.dto'
+import { AssignTaskDto } from './dto/assign-task.dto'
+import { CancelInstanceDto } from './dto/cancel-instance.dto'
+import { TransferTasksDto } from './dto/transfer-tasks.dto'
 import { CurrentOrg } from '../auth/current-org.decorator'
 import { CurrentUser, type CurrentUserData } from '../auth/current-user.decorator'
 import { Roles } from '../auth/roles.decorator'
@@ -88,18 +91,55 @@ export class InstancesController {
     return this.instancesService.returnTask(taskId, dto, organizationId, actor)
   }
 
+  // Rotas estáticas de transferência em massa — antes de qualquer `:id`.
+  @Get('transfer-preview')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Tarefas pendentes que seriam movidas de um usuário — admin' })
+  transferPreview(@CurrentOrg() organizationId: string, @Query('fromUserId') fromUserId: string) {
+    return this.instancesService.previewTransfer(organizationId, fromUserId)
+  }
+
+  @Post('transfer')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Transfere todas as tarefas pendentes de um usuário para outro (motivo obrigatório) — admin' })
+  transfer(
+    @Body() dto: TransferTasksDto,
+    @CurrentOrg() organizationId: string,
+    @CurrentUser() actor: CurrentUserData,
+  ) {
+    return this.instancesService.transferTasks(dto, organizationId, actor)
+  }
+
+  @Patch('tasks/:taskId/assign')
+  @ApiOperation({ summary: 'Delega a tarefa a outro usuário (motivo obrigatório) — executor atual ou admin' })
+  assignTask(
+    @Param('taskId') taskId: string,
+    @Body() dto: AssignTaskDto,
+    @CurrentOrg() organizationId: string,
+    @CurrentUser() actor: CurrentUserData,
+  ) {
+    return this.instancesService.assignTask(taskId, dto, organizationId, actor)
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Busca instância com estado, grafo e tarefas pendentes' })
   getWithContext(@Param('id') id: string, @CurrentOrg() organizationId: string) {
     return this.instancesService.getInstanceWithContext(id, organizationId)
   }
 
+  // Sem RolesGuard de propósito: quem INICIOU o processo também pode cancelá-lo —
+  // a regra fica no service, que conhece o dono da instância.
   @Patch(':id/cancel')
-  @UseGuards(RolesGuard)
-  @Roles('admin')
-  @ApiOperation({ summary: 'Cancela uma instância em execução ou com erro — admin' })
-  cancel(@Param('id') id: string, @CurrentOrg() organizationId: string) {
-    return this.instancesService.cancel(id, organizationId)
+  @ApiOperation({ summary: 'Cancela uma instância em execução ou com erro, com motivo — admin ou quem iniciou' })
+  cancel(
+    @Param('id') id: string,
+    @Body() dto: CancelInstanceDto,
+    @CurrentOrg() organizationId: string,
+    @CurrentUser() actor: CurrentUserData,
+  ) {
+    return this.instancesService.cancel(id, organizationId, dto, actor)
   }
 
   @Post(':id/retry')
@@ -113,9 +153,11 @@ export class InstancesController {
   @Post('sweep-overdue')
   @UseGuards(RolesGuard)
   @Roles('admin')
-  @ApiOperation({ summary: 'Varre e escalona tarefas vencidas da organização (SLA) — admin' })
+  @ApiOperation({ summary: 'Varre prazos das tarefas: avisa as que estão perto de vencer e escalona as vencidas (SLA) — admin' })
   async sweepOverdue(@CurrentOrg() organizationId: string) {
+    const avisadas = await this.instancesService.sweepDueSoon(organizationId)
     const escalated = await this.instancesService.sweepOverdue(organizationId)
-    return { escalated }
+    const reavisadas = await this.instancesService.sweepOverdueReminders(organizationId)
+    return { avisadas, escalated, reavisadas }
   }
 }

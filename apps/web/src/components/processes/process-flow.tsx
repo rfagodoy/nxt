@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  ArrowLeft, Save, Zap, Trash2, User, Clock, LayoutTemplate, Wand2,
+  ArrowLeft, Save, Zap, Trash2, User, Clock, LayoutTemplate,
   CircleDot, CheckCircle2, Loader2, UserSquare, GitBranch, GitMerge,
   Download, FileImage, FileText, ChevronDown, PanelRightClose, PanelRightOpen,
 } from 'lucide-react'
@@ -209,7 +209,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   }, [])
 
   const setPosition = useCallback((id: string, pos: { x: number; y: number }) => setPositions((prev) => ({ ...prev, [id]: pos })), [])
-  const organize = useCallback(() => setPositions({}), [])
+  // (o botão "Organizar" — que zerava as posições manuais para realinhar tudo — foi
+  // removido do cabeçalho a pedido; o auto-layout segue valendo enquanto ninguém
+  // arrastar um nó, que é quando `positions` deixa de ficar vazio.)
 
   const activityCount = nodes.filter((n) => isActivity(n.type)).length
 
@@ -302,6 +304,10 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
   const handleActivate = useCallback(async () => {
     if (!name.trim()) { alert('Dê um nome ao workflow antes de ativar.'); return }
+    // O tipo decide em que tela o workflow aparece no "Novo processo" — sem ele, o
+    // workflow ficaria ativo e invisível para quem trabalha em Contratos/Parceiros.
+    // (O backend também recusa; aqui o aviso chega antes de salvar.)
+    if (!kind) { alert('Escolha o tipo do workflow (contrato, aditivo ou parceiro) antes de ativar.'); return }
     if (activityCount === 0) { alert('Adicione ao menos uma atividade antes de ativar.'); return }
     setActivating(true)
     try {
@@ -311,7 +317,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       router.push(`/processes/${id}`)
     } catch (err) { alert('Não foi possível ativar o workflow.'); console.error(err) }
     finally { setActivating(false) }
-  }, [name, activityCount, persist, router])
+  }, [name, kind, activityCount, persist, router])
 
   // Monta o modelo do grafo (posições + textos) para o exportador desenhar em 2D.
   const buildExportModel = useCallback((): ExportModel => {
@@ -384,10 +390,6 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
           <Input className="h-8 text-sm font-semibold border-0 shadow-none px-0 focus-visible:ring-0 bg-transparent" placeholder="Nome do workflow..." value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {activityCount > 0 && <Badge variant="secondary" className="text-xs">{activityCount} atividade{activityCount !== 1 ? 's' : ''}</Badge>}
-          {hasManual && (
-            <Button variant="ghost" size="sm" onClick={organize} title="Realinhar tudo automaticamente"><Wand2 className="h-4 w-4" />Organizar</Button>
-          )}
           {exportError && <span className="text-[11px] text-destructive font-medium">{exportError}</span>}
           <ExportMenu exporting={exporting} disabled={saving || activating} onExport={handleExport} />
           <Button variant="outline" size="sm" onClick={handleSaveDraft} disabled={saving || activating}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Salvar rascunho</Button>

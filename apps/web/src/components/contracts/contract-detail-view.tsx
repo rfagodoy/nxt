@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
 import { FileText, Users, Calendar, Banknote, TrendingUp, TrendingDown, RefreshCw, Paperclip, FilePlus2, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
@@ -12,10 +11,11 @@ import { reconcileNative } from '@/lib/screen-native-structure'
 import type { Screen } from '@/lib/screen-types'
 import { ContractSectionNative, ContractCustomFields } from '@/components/contracts/contract-screen-body'
 import { useContractForm, IdentificacaoFields, VigenciaFields, ValoresFields, ReajustesFields, PartesFields, DocumentosFields, LancamentosFields, AditivosFields } from '@/components/contracts/contract-fields'
-import { emptyContractForm, contractFromApi, contractToPayload, effectiveSituacao, normalizeSituacao, temPagamentos, temRecebimentos, terminoVigente, validateContract, validateLancamentos, TIPOS_KEY, INIT_TIPOS, type CAditivo } from '@/lib/contract-options'
+import { newCParte, emptyContractForm, contractFromApi, contractToPayload, effectiveSituacao, normalizeSituacao, temPagamentos, temRecebimentos, terminoVigente, validateContract, validateLancamentos, TIPOS_KEY, INIT_TIPOS, type CAditivo } from '@/lib/contract-options'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { PAPEIS_KEY, INIT_PAPEIS, validatePartes } from '@/lib/contract-roles'
-import { EntitySearchModal } from '@/components/contracts/entity-search-modal'
+import { EntitySearchModal, type EntityRef } from '@/components/contracts/entity-search-modal'
+import { NewPartnerPanel } from '@/components/contracts/new-partner-panel'
 import { ContractHistory } from '@/components/contracts/contract-history'
 import { getLogUser } from '@/hooks/use-partner-logs'
 import { SaveStatus } from '@/components/save-status'
@@ -78,10 +78,26 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
     valorTotal: String(row.valor_total ?? ''), objeto: row.objeto ?? [],
   })
   const v = form.values
-  const router  = useRouter()
   const [empresas,    setEmpresas]    = useState<{ id: string; nome: string; documento: string }[]>([])
   const [searchModal, setSearchModal] = useState<{ parteId: string; origem: string; excludeIds: string[] } | null>(null)
+  /* cadastro de parceiro SOBRE o contrato: `parteId` = parte que espera a entidade;
+     `cessao` = cessão de aditivo que a espera (a mesma tela serve aos dois). */
+  const [newPartner, setNewPartner] = useState<{ parteId?: string; cessao?: { aditivoId: string; cessaoId: string } } | null>(null)
   const [cessaoSearch, setCessaoSearch] = useState<{ aditivoId: string; cessaoId: string; origem: string } | null>(null)
+
+  /** Liga o parceiro recém-criado a quem pediu o cadastro: a cessão do aditivo, a
+   *  parte que abriu a busca, ou a primeira parte ainda sem entidade (rodapé da seção). */
+  const attachPartner = (e: EntityRef) => {
+    if (newPartner?.cessao) {
+      form.patchCessao(newPartner.cessao.aditivoId, newPartner.cessao.cessaoId, { ref_tipo: e.ref_tipo, ref_id: e.ref_id, nome: e.nome, documento: e.documento })
+    } else {
+      const alvo = newPartner?.parteId || form.values.partes.find((p) => !p.ref_id)?.id
+      if (alvo) form.setParteEntity(alvo, e)
+      else form.set('partes', [...form.values.partes, { ...newCParte(''), ...e }])
+    }
+    setNewPartner(null)
+  }
+
   useEffect(() => {
     void (async () => {
       try {
@@ -393,7 +409,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
               <ContractSectionNative section={s} ctx={{
                 form, ro: locked, moedaCode: v.moeda, contractId: row.id, reloadKey: auditVersion,
                 onOpenSearch: (parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds }),
-                onNewPartner: () => router.push('/modules/parceiros/new?from=contratos'),
+                onNewPartner: () => setNewPartner({}),
                 onOpenCessaoSearch: (aditivoId, cessaoId, origem) => setCessaoSearch({ aditivoId, cessaoId, origem }),
                 onActivate: activateAditivo, onRevise: reviseAditivo,
               }} />
@@ -405,7 +421,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
         <DSection active={tab === 'partes'}>
           <PartesFields form={form} ro={locked} contractId={row.id}
             onOpenSearch={(parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds })}
-            onNewPartner={() => router.push('/modules/parceiros/new?from=contratos')} />
+            onNewPartner={() => setNewPartner({})} />
         </DSection>
         <DSection active={tab === 'vigencia'}><VigenciaFields form={form} ro={locked} /></DSection>
         <DSection active={tab === 'valor'}><ValoresFields form={form} ro={locked} /></DSection>
@@ -425,9 +441,11 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
           excludeIds={searchModal.excludeIds}
           onSelect={(e) => { form.setParteEntity(searchModal.parteId, e); setSearchModal(null) }}
           onClose={() => setSearchModal(null)}
-          onNewPartner={() => router.push('/modules/parceiros/new?from=contratos')}
+          onNewPartner={() => { const parteId = searchModal.parteId; setSearchModal(null); setNewPartner({ parteId }) }}
         />
       )}
+
+      {newPartner && <NewPartnerPanel onCreated={attachPartner} onClose={() => setNewPartner(null)} />}
 
       {cessaoSearch && (
         <EntitySearchModal
@@ -435,7 +453,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
           empresas={empresas}
           onSelect={(e) => { form.patchCessao(cessaoSearch.aditivoId, cessaoSearch.cessaoId, { ref_tipo: e.ref_tipo, ref_id: e.ref_id, nome: e.nome, documento: e.documento }); setCessaoSearch(null) }}
           onClose={() => setCessaoSearch(null)}
-          onNewPartner={() => router.push('/modules/parceiros/new?from=contratos')}
+          onNewPartner={() => { const c = cessaoSearch; setCessaoSearch(null); setNewPartner({ cessao: { aditivoId: c.aditivoId, cessaoId: c.cessaoId } }) }}
         />
       )}
     </div>

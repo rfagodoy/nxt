@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from 'react'
-import { Loader2, RefreshCw, CheckCircle2, AlertTriangle, Clock, Settings2, ChevronsUpDown, ArrowUp, ArrowDown, Undo2 } from 'lucide-react'
+import { Loader2, RefreshCw, CheckCircle2, AlertTriangle, Clock, Settings2, ChevronsUpDown, ArrowUp, ArrowDown, Undo2, Ban } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StartProcessButton } from '@/components/processes/start-process-button'
+import { CancelInstanceButton } from '@/components/processes/cancel-instance-button'
 import { cn } from '@/lib/utils'
 import { apiJson } from '@/lib/http'
 import { useViews } from '@/hooks/use-views'
@@ -31,17 +32,17 @@ const COLS: Col[] = [
       </>
     ),
   },
-  {
-    key: 'situacao', label: 'Situação', text: (i) => STATUS[i.status]?.label ?? i.status,
-    node: (i) => { const st = STATUS[i.status] ?? STATUS.RUNNING; return (
-      <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium', st.cls)}><st.icon className="h-3 w-3" />{st.label}</span>
-    ) },
-  },
-  { key: 'iniciadoPor', label: 'Iniciado por', text: (i) => i.startedBy || '—', node: (i) => <span className="text-muted-foreground">{i.startedBy || '—'}</span> },
   { key: 'inicio', label: 'Início', text: (i) => fmt(i.startedAt), sortVal: (i) => new Date(i.startedAt).getTime(), node: (i) => <span className="text-muted-foreground whitespace-nowrap">{fmt(i.startedAt)}</span> },
   {
+    // prazo do PROCESSO (derivado da soma das atividades) — não confundir com o
+    // vencimento da etapa atual, que vive na coluna "Etapa atual / conclusão".
+    key: 'prevista', label: 'Data prevista para término',
+    text: (i) => fmt(i.processDueAt), sortVal: (i) => (i.processDueAt ? new Date(i.processDueAt).getTime() : 0),
+    node: (i) => <span className={cn('whitespace-nowrap', i.processOverdue ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground')}>{fmt(i.processDueAt)}</span>,
+  },
+  {
     key: 'etapa', label: 'Etapa atual / conclusão',
-    text: (i) => i.status === 'RUNNING' ? (i.currentStep || '—') : i.status === 'ERROR' ? (i.error || i.stepName || 'erro') : i.status === 'COMPLETED' ? `concluído em ${fmt(i.completedAt)}` : '—',
+    text: (i) => i.status === 'RUNNING' ? (i.currentStep || '—') : i.status === 'ERROR' ? (i.error || i.stepName || 'erro') : i.status === 'COMPLETED' ? `concluído em ${fmt(i.completedAt)}` : i.cancelReason ? `cancelado · motivo: ${i.cancelReason}` : '—',
     node: (i) => i.status === 'RUNNING' ? (
       <div className="flex items-center gap-2">
         <span>{i.currentStep || '—'}</span>
@@ -51,13 +52,17 @@ const COLS: Col[] = [
       <span className="inline-flex items-start gap-1 text-red-700 dark:text-red-300"><AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" /><span className="max-w-xs truncate">{i.error || i.stepName || 'erro'}</span></span>
     ) : i.status === 'COMPLETED' ? (
       <span className="text-muted-foreground">em {fmt(i.completedAt)} · durou {humanDuration(i.durationMs)}</span>
+    ) : i.cancelReason ? (
+      // um processo que termina em silêncio é um processo que ninguém sabe explicar
+      <span className="text-muted-foreground">cancelado por {i.cancelledBy || '—'} <span className="block text-[11px] italic max-w-xs truncate">motivo: {i.cancelReason}</span></span>
     ) : <span className="text-muted-foreground">—</span>,
   },
   {
     key: 'pontualidade', label: 'Pontualidade', text: (i) => pontualidadeLabel(i) + (i.returnCount > 0 ? ` · reaberta ${i.returnCount}×` : ''),
     node: (i) => (
       <span className="inline-flex items-center gap-1.5">
-        {i.processOnTime == null ? <span className="text-muted-foreground">sem prazo</span>
+        {i.status === 'CANCELLED' ? <span className="inline-flex items-center gap-1 text-muted-foreground"><Ban className="h-3 w-3" />cancelado</span>
+          : i.processOnTime == null ? <span className="text-muted-foreground">sem prazo</span>
           : i.processOnTime ? <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="h-3 w-3" />no prazo</span>
           : <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400"><AlertTriangle className="h-3 w-3" />atrasado</span>}
         {/* prazo derivado NÃO conta reaberturas → é otimista; o badge ressalva o número */}
@@ -69,8 +74,23 @@ const COLS: Col[] = [
       </span>
     ),
   },
+  { key: 'iniciadoPor', label: 'Iniciado por', text: (i) => i.startedBy || '—', node: (i) => <span className="text-muted-foreground">{i.startedBy || '—'}</span> },
+  {
+    key: 'situacao', label: 'Situação', text: (i) => STATUS[i.status]?.label ?? i.status,
+    node: (i) => { const st = STATUS[i.status] ?? STATUS.RUNNING; return (
+      <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium', st.cls)}><st.icon className="h-3 w-3" />{st.label}</span>
+    ) },
+  },
 ]
-const HIDDEN_KEY = 'nxt:cols:processos:hidden'
+/* v2: a disposição padrão das colunas mudou (Nº · Processo · Início · Data prevista ·
+   Pontualidade · Iniciado por · Situação). A chave é versionada porque a preferência
+   antiga guardada no navegador venceria o novo padrão — e o usuário veria a tela
+   velha sem saber por quê. */
+const HIDDEN_KEY = 'nxt:cols:processos:hidden:v2'
+/* "Etapa atual / conclusão" sai da visão padrão (ordem de colunas definida pelo PO),
+   mas continua disponível em Configurações — é onde aparecem o vencimento da etapa
+   corrente, a causa do erro e o motivo do cancelamento. */
+const HIDDEN_DEFAULT = ['etapa']
 
 export default function ProcessosPage() {
   const ws = useWorkspace()
@@ -84,7 +104,7 @@ export default function ProcessosPage() {
   const [activeViewId, setActiveViewId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
-  const [hidden, setHidden] = useState<Set<string>>(new Set())
+  const [hidden, setHidden] = useState<Set<string>>(new Set(HIDDEN_DEFAULT))
   const [showConfig, setShowConfig] = useState(false)
   const configRef = useRef<HTMLDivElement>(null)
   const mounted = useRef(false)
@@ -234,6 +254,9 @@ export default function ProcessosPage() {
                     </button>
                   </th>
                 ))}
+                {/* Ações fica FORA do sistema de colunas: não é dado (não filtra, não
+                    ordena, não exporta) e não deve aparecer em "Colunas visíveis". */}
+                <th className="w-0 px-3 py-1.5 bg-muted" />
               </tr>
             </thead>
             <tbody>
@@ -248,6 +271,11 @@ export default function ProcessosPage() {
                   {visibleCols.map((col) => (
                     <td key={col.key} className={cn('px-3 py-2 align-top', col.align === 'right' && 'text-right')}>{col.node(i)}</td>
                   ))}
+                  <td className="px-3 py-2 align-top whitespace-nowrap">
+                    {(i.status === 'RUNNING' || i.status === 'ERROR') && (
+                      <CancelInstanceButton instanceId={i.id} processName={i.processName} onCancelled={load} compact />
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

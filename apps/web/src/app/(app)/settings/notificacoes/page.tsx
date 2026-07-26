@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { CalendarClock, RefreshCw, Gauge, RotateCw, Save, ShieldAlert, Check, CloudDownload, Play, Loader2, Eye, PauseCircle } from 'lucide-react'
+import { CalendarClock, RefreshCw, Gauge, RotateCw, Save, ShieldAlert, Check, CloudDownload, Play, Loader2, Eye, PauseCircle, AlarmClock, Repeat, Mail } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/lib/session-context'
 import { cacheRead, pullSetting, pushSetting } from '@/lib/settings-store'
@@ -18,6 +18,10 @@ interface Params {
   indicesAutoImport: boolean
   /** freio de emergência — quem autoriza o reajuste automático é a linha do contrato */
   reajustePausado: boolean
+  /** avisos de prazo das tarefas de workflow (o de vencido é sempre enviado) */
+  tarefas: { enabled: boolean; antecedenciaHoras: number; reavisoDias: number }
+  /** envio por e-mail (só funciona com SMTP configurado no servidor) */
+  email: { imediato: boolean; resumoDiario: boolean; horaResumo: number }
 }
 const DEFAULT: Params = {
   vigencia: { enabled: true, dias: [60, 30, 7] },
@@ -26,6 +30,8 @@ const DEFAULT: Params = {
   renovacaoAutomatica: true,
   indicesAutoImport: true,
   reajustePausado: false,
+  tarefas: { enabled: true, antecedenciaHoras: 24, reavisoDias: 1 },
+  email: { imediato: true, resumoDiario: true, horaResumo: 8 },
 }
 
 /** Resumo retornado por POST /api/notifications/run */
@@ -58,6 +64,26 @@ const MOTIVO: Record<ReajustePendente['motivo'], { texto: string; acao: string }
   SEM_AGENDA:        { texto: 'Linha sem índice ou sem data base', acao: 'Complete o cadastro do reajuste no contrato.' },
   INTERROMPIDO:      { texto: 'Renovação não pôde avançar', acao: 'Verifique o prazo de renovação do contrato.' },
   NAO_VENCIDO:       { texto: 'Competência ainda no futuro', acao: '' },
+}
+
+/** Completa um valor gravado (banco ou cache) com os padrões, bloco a bloco. Um
+ *  parâmetro salvo antes de um cartão existir chega sem ele; sem esta normalização
+ *  a tela lê `undefined.enabled` e morre.
+ *  ⚠️ `reajuste.automatico` do modelo antigo é descartado de propósito: era o gate
+ *  global, hoje a decisão é da linha do contrato — reaproveitá-lo como "pausado"
+ *  herdaria um default como se fosse escolha de alguém. */
+function normalize(r: Partial<Params> | null | undefined): Params {
+  if (!r) return DEFAULT
+  const { enabled, dias } = { ...DEFAULT.reajuste, ...r.reajuste }
+  return {
+    ...DEFAULT, ...r,
+    vigencia: { ...DEFAULT.vigencia, ...r.vigencia },
+    reajuste: { enabled, dias },
+    consumo:  { ...DEFAULT.consumo,  ...r.consumo },
+    tarefas:  { ...DEFAULT.tarefas,  ...r.tarefas },
+    email:    { ...DEFAULT.email,    ...r.email },
+    reajustePausado: r.reajustePausado ?? false,
+  }
 }
 
 /* parse "60, 30, 7" → [60,30,7] (positivos, únicos, ordenados desc) */
@@ -95,11 +121,96 @@ function Card({ icon: Icon, color, title, desc, on, onToggle, children }: {
   )
 }
 
+/* Envio por e-mail. A CREDENCIAL não mora aqui: SMTP é segredo de infraestrutura e
+   vem do ambiente do servidor. A tela mostra se o canal está de pé, escolhe COMO
+   usá-lo e permite provar o caminho com um envio de teste — que é a única forma
+   honesta de dizer "está funcionando". */
+function EmailCard({ p, setP, isAdmin }: { p: Params; setP: (v: Params) => void; isAdmin: boolean }) {
+  const [status, setStatus] = useState<{ enabled: boolean; host: string; from: string } | null>(null)
+  const [testing, setTesting] = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null)
+
+  useEffect(() => {
+    if (!isAdmin) return
+    void apiFetch('/api/notifications/email-status')
+      .then(r => r.ok ? r.json() : null)
+      .then(s => setStatus(s))
+      .catch(() => setStatus(null))
+  }, [isAdmin])
+
+  const testar = async () => {
+    setTesting(true); setResult(null)
+    try {
+      const res = await apiFetch('/api/notifications/email-test', { method: 'POST' })
+      const body = await res.json().catch(() => null) as { ok?: boolean; error?: string } | null
+      setResult(body?.ok
+        ? { ok: true, msg: 'Enviado — confira sua caixa de entrada.' }
+        : { ok: false, msg: body?.error || 'Não foi possível enviar.' })
+    } finally { setTesting(false) }
+  }
+
+  const ligado = status?.enabled ?? false
+
+  return (
+    <div className="rounded-xl border bg-card p-4 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"><Mail className="h-4.5 w-4.5" /></div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold">Envio por e-mail</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+            Leva os avisos pessoais para fora do sistema. O servidor precisa ter SMTP configurado
+            (variável <code className="font-mono text-[11px]">MAIL_HOST</code>) — sem isso, os avisos ficam só no sininho.
+          </p>
+
+          <div className={cn('mt-2 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium',
+            ligado ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-muted text-muted-foreground')}>
+            <span className={cn('h-1.5 w-1.5 rounded-full', ligado ? 'bg-emerald-500' : 'bg-muted-foreground/50')} />
+            {ligado ? `Servidor configurado: ${status?.host}` : 'Nenhum servidor de e-mail configurado'}
+          </div>
+
+          {ligado && (
+            <div className="mt-3 space-y-2">
+              <label className="flex items-center gap-2 text-xs">
+                <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={p.email.imediato}
+                  onChange={e => setP({ ...p, email: { ...p.email, imediato: e.target.checked } })} />
+                Enviar na hora os avisos pessoais (tarefa sua, devolução, prazo)
+              </label>
+              <label className="flex items-center gap-2 text-xs">
+                <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={p.email.resumoDiario}
+                  onChange={e => setP({ ...p, email: { ...p.email, resumoDiario: e.target.checked } })} />
+                Enviar um resumo diário com o que ainda não foi enviado
+              </label>
+              {p.email.resumoDiario && (
+                <label className="flex items-center gap-2 text-xs text-muted-foreground pl-5">
+                  Horário do resumo:
+                  <input type="number" min={0} max={23} className={cn(inputCls, 'w-20')} value={p.email.horaResumo}
+                    onChange={e => setP({ ...p, email: { ...p.email, horaResumo: Math.min(23, Math.max(0, Number(e.target.value) || 0)) } })} />
+                  <span className="text-[11px]">hora local do servidor</span>
+                </label>
+              )}
+              <div className="flex items-center gap-2 pt-1">
+                <button type="button" onClick={() => { void testar() }} disabled={testing}
+                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium hover:bg-muted disabled:opacity-40 transition-colors">
+                  {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}Enviar teste para mim
+                </button>
+                {result && <span className={cn('text-[11px]', result.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive')}>{result.msg}</span>}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function NotificacoesParams() {
   const { data: session } = useSession()
   const isAdmin = session?.user?.role === 'admin'
 
-  const [p, setP] = useState<Params>(() => cacheRead<Params>(KEY, DEFAULT))
+  // O estado inicial vem do CACHE local, que pode ter sido gravado por uma versão
+  // anterior (sem os blocos mais novos). Normalizar aqui — e não só no load — evita
+  // que a tela quebre no primeiro render lendo um bloco que ainda não existia.
+  const [p, setP] = useState<Params>(() => normalize(cacheRead<Params>(KEY, DEFAULT)))
   const [saved, setSaved] = useState(false)
   const [mounted, setMounted] = useState(false)
   /* Espelho do que está GRAVADO. O motor roda no backend e lê o banco, não este formulário:
@@ -120,10 +231,7 @@ export default function NotificacoesParams() {
       /* `reajuste.automatico` do modelo antigo é descartado: era o gate global, hoje a
          decisão é da linha do contrato. Reaproveitá-lo como "pausado" herdaria um default
          como se fosse escolha de alguém. */
-      const { enabled, dias } = { ...DEFAULT.reajuste, ...r?.reajuste }
-      const merged: Params = r
-        ? { ...DEFAULT, ...r, vigencia: { ...DEFAULT.vigencia, ...r.vigencia }, reajuste: { enabled, dias }, consumo: { ...DEFAULT.consumo, ...r.consumo }, reajustePausado: r.reajustePausado ?? false }
-        : DEFAULT
+      const merged = r ? normalize(r) : DEFAULT
       setP(merged)
       setPersistido(merged)
     })()
@@ -315,6 +423,33 @@ export default function NotificacoesParams() {
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
           Limites (%):
           <input className={inputCls} defaultValue={p.consumo.percentuais.join(', ')} onBlur={e => { const d = parseList(e.target.value); setP({ ...p, consumo: { ...p.consumo, percentuais: d.length ? d : DEFAULT.consumo.percentuais } }) }} placeholder="80, 100" />
+        </label>
+      </Card>
+
+      {/* Workflow: o aviso DEPOIS do vencimento sempre existe (a varredura escalona a
+          tarefa); este cartão liga o aviso ANTES, que é o que ainda dá tempo de agir. */}
+      <Card icon={AlarmClock} color="bg-sky-500/10 text-sky-600 dark:text-sky-400"
+        title="Aviso de prazo das tarefas" desc="Avisa o responsável antes de a tarefa do processo vencer. O aviso de prazo VENCIDO é sempre enviado, independentemente deste ajuste."
+        on={p.tarefas.enabled} onToggle={v => setP({ ...p, tarefas: { ...p.tarefas, enabled: v } })}>
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          Antecedência (horas úteis):
+          <input type="number" min={1} className={cn(inputCls, 'w-24')} value={p.tarefas.antecedenciaHoras}
+            onChange={e => setP({ ...p, tarefas: { ...p.tarefas, antecedenciaHoras: Math.max(1, Number(e.target.value) || 1) } })} />
+          <span className="text-[11px] text-muted-foreground/80">contadas no expediente do calendário comercial</span>
+        </label>
+      </Card>
+
+      <EmailCard p={p} setP={setP} isAdmin={isAdmin} />
+
+      {/* O reaviso não tem interruptor próprio: "0 dia" já significa desligado, e um
+          toggle a mais faria o usuário configurar a mesma coisa em dois lugares. */}
+      <Card icon={Repeat} color="bg-orange-500/10 text-orange-600 dark:text-orange-400"
+        title="Insistir em tarefa vencida" desc="Enquanto a tarefa continuar vencida, o responsável volta a ser avisado neste intervalo. Não escala para outras pessoas."
+        on={p.tarefas.reavisoDias > 0} onToggle={v => setP({ ...p, tarefas: { ...p.tarefas, reavisoDias: v ? (DEFAULT.tarefas.reavisoDias || 1) : 0 } })}>
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          Reavisar a cada (dias):
+          <input type="number" min={1} className={cn(inputCls, 'w-24')} value={p.tarefas.reavisoDias || 1}
+            onChange={e => setP({ ...p, tarefas: { ...p.tarefas, reavisoDias: Math.max(1, Number(e.target.value) || 1) } })} />
         </label>
       </Card>
     </div>

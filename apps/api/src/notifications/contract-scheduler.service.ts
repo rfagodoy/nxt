@@ -12,6 +12,7 @@ import { SettingsService } from '../settings/settings.service'
 import { ContractsService } from '../contracts/contracts.service'
 import { StorageService } from '../files/storage.service'
 import { collectAttachmentKeys } from '../files/attachment-keys'
+import { NOTIF_PARAMS_KEY } from './notification-params'
 
 const INDICES_KEY = 'nxt:settings:contratos:indices'
 const INDICE_VALORES_KEY = 'nxt:settings:contratos:indice-valores'
@@ -23,7 +24,7 @@ const INDICE_VALORES_KEY = 'nxt:settings:contratos:indice-valores'
    2) AVISO: gera/atualiza notificações de Vigência, Reajuste e Consumo conforme os
       parâmetros (AppSetting), com dedup; resolve (remove) as que não valem mais. */
 
-export const NOTIF_PARAMS_KEY = 'nxt:settings:notificacoes'
+export { NOTIF_PARAMS_KEY } from './notification-params'
 
 interface Params {
   vigencia: { enabled: boolean; dias: number[] }        // faixas de antecedência (ex.: [60,30,7])
@@ -340,9 +341,15 @@ export class ContractSchedulerService implements OnModuleInit {
         update: { contractId: u.contractId, tipo: u.tipo, severidade: u.severidade, titulo: u.titulo, mensagem: u.mensagem },
       })
     }
-    /* resolve (remove) as que não valem mais */
+    /* resolve (remove) as que não valem mais — SÓ as de contrato. A tabela é
+       compartilhada com os avisos de workflow, que têm ciclo de vida próprio
+       (nascem e morrem com a tarefa); sem este recorte a varredura os apagaria. */
     const resolved = await this.prisma.notification.deleteMany({
-      where: activeKeys.length ? { organizationId, dedupKey: { notIn: activeKeys } } : { organizationId },
+      where: {
+        organizationId,
+        tipo: { in: ['VIGENCIA', 'REAJUSTE', 'CONSUMO'] },
+        ...(activeKeys.length ? { dedupKey: { notIn: activeKeys } } : {}),
+      },
     })
     return { renovados, encerrados, notificacoes: activeKeys.length, resolvidas: resolved.count,
       reajustes: reajustesAplicados.length, detalhe: reajustesAplicados, pendentes: reajustesPendentes }

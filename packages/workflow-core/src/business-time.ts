@@ -48,6 +48,45 @@ export function isBusinessDay(d: Date, cal: BusinessCalendar): boolean {
   return cal.workdays.includes(d.getUTCDay()) && !cal.holidays.includes(ymd(d))
 }
 
+/** Quanto tempo ÚTIL (em minutos) existe entre `from` e `to` — a operação inversa
+ *  de `addBusinessTime`. Serve para responder "quanto tempo de trabalho ainda falta
+ *  até o prazo?", que é diferente de "quantas horas de relógio faltam": às 17h de
+ *  sexta, um prazo de segunda às 10h está a 2 horas ÚTEIS de distância, não a 65.
+ *  Devolve 0 quando `to` não é posterior a `from`. */
+export function businessMinutesBetween(
+  from: Date,
+  to: Date,
+  cal: BusinessCalendar = DEFAULT_BUSINESS_CALENDAR,
+): number {
+  const dayLen = Math.max(0, cal.endMinute - cal.startMinute)
+  if (dayLen === 0 || to.getTime() <= from.getTime()) return 0
+
+  let total = 0
+  let cur = new Date(from.getTime())
+  let guard = 0
+  while (cur.getTime() < to.getTime()) {
+    if (guard++ > 100_000) break // trava de segurança (não deve ocorrer)
+    if (!isBusinessDay(cur, cal)) {
+      cur = nextDayStart(cur, cal)
+      continue
+    }
+    let m = minuteOfDay(cur)
+    if (m < cal.startMinute) {
+      cur = atMinuteOfDay(cur, cal.startMinute)
+      m = cal.startMinute
+    }
+    if (m >= cal.endMinute) {
+      cur = nextDayStart(cur, cal)
+      continue
+    }
+    const fimDoDia = atMinuteOfDay(cur, cal.endMinute)
+    const ate = to.getTime() < fimDoDia.getTime() ? to : fimDoDia
+    total += Math.max(0, Math.round((ate.getTime() - cur.getTime()) / 60_000))
+    cur = ate.getTime() < fimDoDia.getTime() ? new Date(to.getTime()) : nextDayStart(cur, cal)
+  }
+  return total
+}
+
 /** Soma `days` dias úteis + `hours` horas úteis a `from`, acumulando tempo APENAS
  *  dentro do expediente (pula fora-de-hora, fins de semana e feriados). Um "dia útil"
  *  = a duração do expediente (endMinute−startMinute); assim, começando dentro do

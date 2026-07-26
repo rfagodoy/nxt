@@ -28,11 +28,19 @@ import {
 import { StartInstanceDto } from './dto/start-instance.dto'
 import { CompleteTaskDto } from './dto/complete-task.dto'
 import { ReturnTaskDto } from './dto/return-task.dto'
+import { AssignTaskDto } from './dto/assign-task.dto'
+import { CancelInstanceDto } from './dto/cancel-instance.dto'
+import { TransferTasksDto } from './dto/transfer-tasks.dto'
 import type { CurrentUserData } from '../auth/current-user.decorator'
 import { ContractsService } from '../contracts/contracts.service'
 import { PartnersService } from '../partners/partners.service'
 import { RoleAssignmentsService } from '../role-assignments/role-assignments.service'
+import { SettingsService } from '../settings/settings.service'
 import { WorkflowCalendarService, type StoredCalendar } from './workflow-calendar.service'
+import { WorkflowNotifierService, type TaskNotice, type ProcessNotice } from '../notifications/workflow-notifier.service'
+import { recipientsOf } from '../notifications/notification-rules'
+import { canCancelInstance, isCancelable } from './instance-access'
+import { NOTIF_PARAMS_KEY, tarefasParams } from '../notifications/notification-params'
 
 /** Ids de token únicos para o motor (viram WorkflowTask.tokenId). */
 const runtime: WfRuntime = { genId: () => randomUUID() }
@@ -42,6 +50,19 @@ interface ConnectorCtx {
   organizationId: string
   actor?: CurrentUserData
 }
+
+/** Linha de tarefa (com o processo junto) → o que o sininho precisa saber. */
+const toNotice = (t: {
+  id: string; name: string | null; assignees: string[] | string | null; assignee?: string | null; dueAt: Date | null
+  instance: { id: string; numero: number | null; processDefinition: { name: string } }
+}): TaskNotice => ({
+  id: t.id,
+  name: t.name,
+  instanceId: t.instance.id,
+  assignees: recipientsOf(t),
+  dueAt: t.dueAt,
+  process: { name: t.instance.processDefinition.name, numero: t.instance.numero },
+})
 
 const str = (v: unknown): string | undefined => (v == null || v === '' ? undefined : String(v))
 const numOr = (v: unknown): number | undefined => {
@@ -61,6 +82,8 @@ export class InstancesService {
     private readonly partners: PartnersService,
     private readonly roleAssignments: RoleAssignmentsService,
     private readonly calendar: WorkflowCalendarService,
+    private readonly notifier: WorkflowNotifierService,
+    private readonly settings: SettingsService,
   ) {}
 
   /** Prazo (dueAt) de uma atividade: dias/horas ÚTEIS no calendário comercial da org
@@ -109,6 +132,7 @@ export class InstancesService {
     // Instância + tarefas criadas ATOMICAMENTE (se a criação de tarefas falhar, a
     // instância não fica órfã sem tarefa pendente). Numa instância em ERRO não se
     // criam tarefas — o fluxo está parado no serviceTask que falhou.
+    let createdTasks: TaskNotice[] = []
     const instance = await this.prisma.$transaction(async (tx) => {
       // Número SEQUENCIAL do processo por organização (protocolo, começa em 1). Lê o
       // maior número existente na org e soma 1 dentro da transação. ⚠️ dois inícios
@@ -134,10 +158,12 @@ export class InstancesService {
           completedAt: settled.completed && !settled.errored ? new Date() : null,
         },
       })
-      if (!settled.errored) await this.persistTasks(tx, created.id, settled.tasksToCreate, organizationId, settled.state.variables)
+      if (!settled.errored) createdTasks = await this.persistTasks(tx, created.id, settled.tasksToCreate, organizationId, settled.state.variables)
       await this.persistCompensations(tx, created.id, settled.compensations)
       return created
     })
+
+    await this.notifier.taskAssigned(organizationId, createdTasks, { name: process.name, numero: instance.numero })
 
     return {
       instance,
@@ -206,6 +232,7 @@ export class InstancesService {
     // rejeita a perdedora (409) e devolve SUA tarefa a PENDING para refazer com estado
     // fresco. (Resíduo raro conhecido: se o ramo perdedor já disparou um conector, o
     // reprocesso pode reexecutá-lo — coincidência tripla, aceitável nesta escala.)
+    let createdTasks: TaskNotice[] = []
     try {
       await this.prisma.$transaction(async (tx) => {
         const upd = await tx.processInstance.updateMany({
@@ -221,7 +248,7 @@ export class InstancesService {
           throw new ConflictException('A instância foi alterada por outra ação simultânea. Recarregue e tente novamente.')
         }
         // Em ERRO não se criam novas tarefas: o fluxo parou no serviceTask que falhou.
-        if (!settled.errored) await this.persistTasks(tx, task.instanceId, settled.tasksToCreate, organizationId, settled.state.variables)
+        if (!settled.errored) createdTasks = await this.persistTasks(tx, task.instanceId, settled.tasksToCreate, organizationId, settled.state.variables)
         await this.persistCompensations(tx, task.instanceId, settled.compensations)
       })
     } catch (e) {
@@ -235,6 +262,11 @@ export class InstancesService {
       throw e
     }
 
+    // O aviso desta tarefa não pede mais ação; o das próximas nasce agora.
+    await this.notifier.clearForTasks([task.id])
+    if (settled.completed && !settled.errored) await this.notifier.clearForInstance(task.instanceId)
+    await this.notifier.taskAssigned(organizationId, createdTasks, this.processNotice(task.instance))
+
     return {
       instanceId: task.instanceId,
       completed: settled.completed,
@@ -243,11 +275,16 @@ export class InstancesService {
     }
   }
 
+  /** Identificação do processo para as mensagens do sininho. */
+  private processNotice(instance: { numero: number | null; processDefinition: { name: string } }): ProcessNotice {
+    return { name: instance.processDefinition.name, numero: instance.numero }
+  }
+
   // ── Devolver (retroceder para uma etapa anterior) ────────────────────────────
 
   /** Carrega a tarefa + grafo congelado e confere quem pode agir. Compartilhado
-   *  pela consulta de alvos e pela devolução em si. */
-  private async taskForReturn(taskId: string, organizationId: string, actor?: CurrentUserData) {
+   *  por tudo que age sobre uma tarefa pendente: devolver, consultar alvos, delegar. */
+  private async loadActionableTask(taskId: string, organizationId: string, actor?: CurrentUserData) {
     const task = await this.prisma.workflowTask.findFirst({
       where: { id: taskId, instance: { processDefinition: { organizationId } } },
       include: { instance: { include: { processDefinition: true } } },
@@ -273,7 +310,7 @@ export class InstancesService {
    *  (com o motivo) — some-las sem explicação faria o usuário achar que o sistema
    *  esqueceu a etapa. */
   async returnTargetsFor(taskId: string, organizationId: string, actor?: CurrentUserData) {
-    const { task, graph, state } = await this.taskForReturn(taskId, organizationId, actor)
+    const { task, graph, state } = await this.loadActionableTask(taskId, organizationId, actor)
     try {
       return returnTargets(graph, state, task.tokenId)
     } catch (e) {
@@ -285,7 +322,7 @@ export class InstancesService {
    *  abaixo do alvo (inclusive ramos paralelos irmãos), recria a tarefa no alvo e
    *  registra a auditoria. Preserva as variáveis — a pessoa corrige o que já existe. */
   async returnTask(taskId: string, dto: ReturnTaskDto, organizationId: string, actor?: CurrentUserData) {
-    const { task, graph, state: prevState } = await this.taskForReturn(taskId, organizationId, actor)
+    const { task, graph, state: prevState } = await this.loadActionableTask(taskId, organizationId, actor)
     const prevRevision = task.instance.revision
     const reason = (dto.reason ?? '').trim()
     if (!reason) throw new BadRequestException('Informe o motivo da devolução')
@@ -325,6 +362,7 @@ export class InstancesService {
 
     const fromName = graph.nodes[task.nodeId]?.name ?? task.name ?? null
     const toName = graph.nodes[dto.targetNodeId]?.name ?? null
+    let reopened: TaskNotice[] = []
 
     // COMPENSAÇÃO (F5): as ações automáticas COMPENSATE que rodaram DENTRO do sub-grafo
     // descartado precisam ser DESFEITAS antes de reabrir a etapa — senão seguir de novo
@@ -370,7 +408,7 @@ export class InstancesService {
             data: { status: 'CANCELED' },
           })
         }
-        await this.persistTasks(tx, task.instanceId, tasksToCreate, organizationId, result.state.variables)
+        reopened = await this.persistTasks(tx, task.instanceId, tasksToCreate, organizationId, result.state.variables)
         // marca as compensações que rodaram como desfeitas (some da lista de ativas)
         if (comps.length > 0) {
           await tx.workflowCompensation.updateMany({
@@ -402,6 +440,16 @@ export class InstancesService {
       throw e
     }
 
+    // Limpa os avisos das tarefas que a devolução encerrou (esta e os ramos
+    // descartados) e avisa quem recebeu a etapa de volta — com o motivo, que é a
+    // única informação que evita refazer o mesmo trabalho do mesmo jeito.
+    await this.notifier.clearSettledTasks(task.instanceId)
+    await this.notifier.taskReturned(organizationId, reopened, this.processNotice(task.instance), {
+      fromName,
+      reason,
+      by: actor?.name ?? 'Usuário do sistema',
+    })
+
     return {
       instanceId: task.instanceId,
       returnedTo: dto.targetNodeId,
@@ -409,6 +457,162 @@ export class InstancesService {
       canceled: tokensToCancel.length,
       tasks: await this.pendingTasks(task.instanceId),
     }
+  }
+
+  // ── Delegar (passar a tarefa para outra pessoa) ──────────────────────────────
+
+  /** Reatribui uma tarefa pendente a outro usuário. Existe porque processo parado
+   *  por férias/desligamento é o modo mais banal de um workflow morrer: sem isto, a
+   *  única saída seria um administrador editar o banco.
+   *  Quem pode: o executor atual (repassa o que é seu) ou um administrador. */
+  async assignTask(taskId: string, dto: AssignTaskDto, organizationId: string, actor?: CurrentUserData) {
+    const { task } = await this.loadActionableTask(taskId, organizationId, actor)
+    const reason = (dto.reason ?? '').trim()
+    if (!reason) throw new BadRequestException('Informe o motivo da delegação')
+
+    const target = await this.prisma.user.findFirst({
+      where: { id: dto.userId, organizationId },
+      select: { id: true, name: true, status: true },
+    })
+    if (!target) throw new NotFoundException('Usuário não encontrado nesta organização')
+    if (target.status !== 'ATIVO') throw new BadRequestException('Usuário inativo não pode receber tarefas')
+
+    const pool = Array.isArray(task.assignees) ? (task.assignees as string[]) : []
+    if (pool.length === 1 && pool[0] === target.id) {
+      throw new BadRequestException('A tarefa já está com este usuário')
+    }
+
+    // Nome de quem estava com ela (snapshot para o histórico ler sem depender do
+    // cadastro atual). Pool vazio = tarefa estava aberta, sem dono.
+    const anteriores = pool.length
+      ? (await this.prisma.user.findMany({ where: { id: { in: pool } }, select: { name: true } })).map((u) => u.name)
+      : []
+    const fromUser = anteriores.length ? anteriores.join(', ') : null
+
+    await this.prisma.$transaction([
+      // o POOL é a fonte da verdade de quem pode atuar (canActOnTask): trocá-lo já
+      // transfere a tarefa. `role` fica como estava — é o desenho do processo, não
+      // a atribuição desta execução.
+      this.prisma.workflowTask.update({
+        where: { id: task.id },
+        data: { assignees: [target.id] as never, assignee: target.id },
+      }),
+      this.prisma.workflowEvent.create({
+        data: {
+          instanceId: task.instanceId,
+          taskId: task.id,
+          event: 'DELEGADO',
+          detail: task.name,
+          fromUser,
+          toUser: target.name,
+          toUserId: target.id,
+          reason,
+          user: actor?.name ?? 'Usuário do sistema',
+          userId: actor?.sub ?? null,
+        },
+      }),
+    ])
+
+    // O aviso antigo é de quem não é mais responsável; o novo dono recebe o dele.
+    await this.notifier.clearForTasks([task.id])
+    await this.notifier.taskDelegated(
+      organizationId,
+      { id: task.id, name: task.name, instanceId: task.instanceId, assignees: [target.id], dueAt: task.dueAt },
+      this.processNotice(task.instance),
+      { toUserId: target.id, reason, by: actor?.name ?? 'Usuário do sistema' },
+    )
+
+    return { taskId: task.id, assignedTo: target.id, assignedToName: target.name }
+  }
+
+  /** Tarefas PENDENTES que hoje pesam sobre um usuário — as que ele executaria.
+   *  Base da transferência em massa e da pré-visualização que a antecede. */
+  private async pendingTasksOf(organizationId: string, userId: string) {
+    const rows = await this.prisma.workflowTask.findMany({
+      where: { status: 'PENDING', instance: { processDefinition: { organizationId }, status: 'RUNNING' } },
+      include: {
+        instance: {
+          select: { id: true, numero: true, processDefinition: { select: { name: true } } },
+        },
+      },
+      orderBy: { dueAt: 'asc' },
+    })
+    return rows.filter((t) => recipientsOf(t).includes(userId))
+  }
+
+  /** O que a transferência vai mover, ANTES de mover. Uma ação que mexe no trabalho
+   *  de duas pessoas de uma vez não pode ser um botão que só diz "pronto". */
+  async previewTransfer(organizationId: string, fromUserId: string) {
+    const tarefas = await this.pendingTasksOf(organizationId, fromUserId)
+    return {
+      total: tarefas.length,
+      tasks: tarefas.map((t) => ({
+        id: t.id,
+        name: t.name ?? t.nodeId,
+        dueAt: t.dueAt,
+        instanceId: t.instance.id,
+        numero: t.instance.numero,
+        processName: t.instance.processDefinition.name,
+      })),
+    }
+  }
+
+  /** Transfere TODAS as tarefas pendentes de um usuário para outro. Existe para o
+   *  caso banal que trava um workflow inteiro: férias, afastamento, desligamento.
+   *  Só admin — é uma ação sobre o trabalho de terceiros, não sobre o próprio. */
+  async transferTasks(dto: TransferTasksDto, organizationId: string, actor?: CurrentUserData) {
+    if (!this.isAdmin(actor)) throw new ForbiddenException('Só um administrador pode transferir tarefas em massa')
+    const reason = (dto.reason ?? '').trim()
+    if (!reason) throw new BadRequestException('Informe o motivo da transferência')
+    if (dto.fromUserId === dto.toUserId) throw new BadRequestException('Escolha usuários diferentes')
+
+    const [from, to] = await Promise.all([
+      this.prisma.user.findFirst({ where: { id: dto.fromUserId, organizationId }, select: { id: true, name: true } }),
+      this.prisma.user.findFirst({ where: { id: dto.toUserId, organizationId }, select: { id: true, name: true, status: true } }),
+    ])
+    if (!from) throw new NotFoundException('Usuário de origem não encontrado nesta organização')
+    if (!to) throw new NotFoundException('Usuário de destino não encontrado nesta organização')
+    if (to.status !== 'ATIVO') throw new BadRequestException('Usuário inativo não pode receber tarefas')
+
+    const tarefas = await this.pendingTasksOf(organizationId, from.id)
+    if (tarefas.length === 0) return { moved: 0, from: from.name, to: to.name }
+
+    // Uma transação por tarefa seria mais lento e não daria garantia melhor: o que
+    // importa é que cada tarefa mude junto com seu registro de histórico.
+    for (const t of tarefas) {
+      await this.prisma.$transaction([
+        this.prisma.workflowTask.update({
+          where: { id: t.id },
+          data: { assignees: [to.id] as never, assignee: to.id },
+        }),
+        this.prisma.workflowEvent.create({
+          data: {
+            instanceId: t.instanceId,
+            taskId: t.id,
+            event: 'DELEGADO',
+            detail: t.name,
+            fromUser: from.name,
+            toUser: to.name,
+            toUserId: to.id,
+            reason,
+            user: actor?.name ?? 'Usuário do sistema',
+            userId: actor?.sub ?? null,
+          },
+        }),
+      ])
+    }
+
+    await this.notifier.clearForTasks(tarefas.map((t) => t.id))
+    for (const t of tarefas) {
+      await this.notifier.taskDelegated(
+        organizationId,
+        { id: t.id, name: t.name, instanceId: t.instanceId, assignees: [to.id], dueAt: t.dueAt },
+        { name: t.instance.processDefinition.name, numero: t.instance.numero },
+        { toUserId: to.id, reason, by: actor?.name ?? 'Usuário do sistema' },
+      )
+    }
+
+    return { moved: tarefas.length, from: from.name, to: to.name }
   }
 
   // ── Consultas ────────────────────────────────────────────────────────────────
@@ -424,6 +628,8 @@ export class InstancesService {
       include: {
         processDefinition: { select: { name: true } },
         tasks: { orderBy: { createdAt: 'asc' } },
+        // último cancelamento: a lista precisa dizer POR QUE o processo parou
+        events: { where: { event: 'CANCELADO' }, orderBy: { createdAt: 'desc' }, take: 1 },
         _count: { select: { returns: true } },
       },
       orderBy: { updatedAt: 'desc' },
@@ -462,10 +668,19 @@ export class InstancesService {
       const hasProcessSla = slaDays > 0 || slaHours > 0
       const processDueAt = hasProcessSla && startMs != null ? this.calendar.computeDue(new Date(startMs), slaDays, slaHours, cal) : null
       const processDueMs = ms(processDueAt)
-      const processOverdue = processDueMs != null && inst.status === 'RUNNING' && processDueMs < now
+      // Instância em ERRO ainda está VIVA (dá retry) e o prazo dela segue correndo —
+      // por isso conta como em andamento aqui, e não como caso encerrado.
+      const emCurso = inst.status === 'RUNNING' || inst.status === 'ERROR'
+      const processOverdue = processDueMs != null && emCurso && processDueMs < now
+      /* Pontualidade mede ENTREGA:
+         - concluído → cumpriu ou não o prazo;
+         - em curso  → está ou não atrasado agora;
+         - CANCELADO → não se avalia (o front rotula "cancelado"): não houve entrega
+           para julgar, e o prazo do processo não some por isso;
+         - sem SLA configurado → não há o que medir. */
       const processOnTime = !hasProcessSla ? null
         : inst.status === 'COMPLETED' ? (endMs == null || processDueMs == null || endMs <= processDueMs)
-        : inst.status === 'RUNNING' ? !processOverdue
+        : emCurso ? !processOverdue
         : null
 
       return {
@@ -497,6 +712,10 @@ export class InstancesService {
         // num processo devolvido (a soma não conta as reaberturas) → a UI usa isto para
         // ressalvar a Pontualidade.
         returnCount: inst._count?.returns ?? 0,
+        // cancelamento: motivo e autor (vazios quando o processo não foi cancelado)
+        cancelReason: inst.events?.[0]?.reason ?? null,
+        cancelledBy: inst.events?.[0]?.user ?? null,
+        cancelledAt: inst.events?.[0]?.createdAt ?? null,
       }
     })
   }
@@ -532,6 +751,7 @@ export class InstancesService {
         processDefinition: true,
         tasks: { orderBy: { createdAt: 'asc' } },
         returns: { orderBy: { createdAt: 'asc' } },
+        events: { orderBy: { createdAt: 'asc' } },
       },
     })
     if (!instance) throw new NotFoundException('Instância não encontrada')
@@ -543,15 +763,32 @@ export class InstancesService {
       (instance.processDefinition.compiledGraph as unknown as WfGraph | null)
     const state = instance.state as unknown as WfState
 
+    // Nomes dos responsáveis, RESOLVIDOS AO VIVO a partir dos ids (o banco guarda id;
+    // o rótulo se resolve na leitura). Sem isto a tela mostraria o id cru de quem
+    // recebeu a tarefa — visível assim que a delegação passou a gravar o usuário.
+    const userIds = [...new Set(instance.tasks.flatMap((t) => {
+      const pool = Array.isArray(t.assignees) ? (t.assignees as string[]) : []
+      return t.assignee ? [...pool, t.assignee] : pool
+    }))]
+    const nameById = new Map(
+      userIds.length
+        ? (await this.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })).map((u) => [u.id, u.name])
+        : [],
+    )
+
     // Enriquece cada tarefa com o PRAZO configurado (dias/horas/minutos úteis) do nó —
     // a tela de consulta mostra numa coluna. `dueAt` (data prevista) já vem na tarefa.
     const tasks = instance.tasks.map((t) => {
       const node = snap?.nodes?.[t.nodeId]
+      const pool = Array.isArray(t.assignees) ? (t.assignees as string[]) : []
+      const ids = pool.length ? pool : t.assignee ? [t.assignee] : []
       return {
         ...t,
         slaBusinessDays: node?.slaBusinessDays ?? null,
         slaBusinessHours: node?.slaBusinessHours ?? null,
         slaBusinessMinutes: node?.slaBusinessMinutes ?? null,
+        // nomes de quem pode executar (vazio = tarefa aberta)
+        assigneeNames: ids.map((id) => nameById.get(id)).filter((n): n is string => !!n),
       }
     })
 
@@ -561,6 +798,7 @@ export class InstancesService {
       graph: snap,
       pendingTasks: tasks.filter((t) => t.status === 'PENDING'),
       returns: instance.returns, // histórico de devoluções (F4) — de/para/motivo/autor/quando
+      events: instance.events,   // delegações e cancelamento — a outra metade do histórico
     }
   }
 
@@ -594,9 +832,38 @@ export class InstancesService {
     return tasks.filter((t) => canActOnTask(t, userId, roleKeys, false))
   }
 
-  /** Varre tarefas PENDING vencidas (dueAt < agora) ainda não escalonadas e as
-   *  marca (escalatedAt). Chamada pelo WorkflowScheduler no boot e em intervalo.
-   *  `organizationId` opcional escopa (disparo manual); sem ele, varre tudo. */
+  /** Tarefas pendentes com prazo, num recorte de tempo, com o processo junto — a
+   *  base das duas varreduras (a preventiva e a de vencidas). */
+  private async tasksWithDue(where: Record<string, unknown>) {
+    return this.prisma.workflowTask.findMany({
+      where,
+      include: {
+        instance: {
+          select: {
+            id: true, numero: true,
+            processDefinition: { select: { name: true, organizationId: true } },
+          },
+        },
+      },
+    })
+  }
+
+  /** Agrupa por organização: as varreduras rodam globais (o agendador não tem
+   *  tenant), mas notificação e parâmetros são por org. */
+  private byOrg<T extends { instance: { processDefinition: { organizationId: string } } }>(rows: T[]): Map<string, T[]> {
+    const map = new Map<string, T[]>()
+    for (const r of rows) {
+      const org = r.instance.processDefinition.organizationId
+      const list = map.get(org)
+      if (list) list.push(r)
+      else map.set(org, [r])
+    }
+    return map
+  }
+
+  /** Varre tarefas PENDING vencidas (dueAt < agora) ainda não escalonadas, marca
+   *  (escalatedAt) e AVISA os executores. Chamada pelo WorkflowScheduler no boot e
+   *  em intervalo. `organizationId` opcional escopa (disparo manual); sem ele, varre tudo. */
   async sweepOverdue(organizationId?: string): Promise<number> {
     const where: Record<string, unknown> = {
       status: 'PENDING',
@@ -605,24 +872,112 @@ export class InstancesService {
     }
     if (organizationId) where.instance = { processDefinition: { organizationId } }
 
-    const overdue = await this.prisma.workflowTask.findMany({ where, select: { id: true } })
+    const overdue = await this.tasksWithDue(where)
     if (overdue.length === 0) return 0
     await this.prisma.workflowTask.updateMany({
       where: { id: { in: overdue.map((t) => t.id) } },
       data: { escalatedAt: new Date() },
     })
+
+    for (const [org, rows] of this.byOrg(overdue)) {
+      await this.notifier.taskOverdue(org, rows.map(toNotice))
+    }
     return overdue.length
   }
 
-  async cancel(instanceId: string, organizationId: string) {
+  /** Varre tarefas PENDING cujo prazo está PERTO de estourar e avisa quem pode agir
+   *  enquanto ainda dá tempo — o valor do prazo está em chegar antes dele, não em
+   *  registrar o atraso depois. A antecedência é por organização (parâmetros de
+   *  notificação); `enabled: false` desliga. */
+  async sweepDueSoon(organizationId?: string): Promise<number> {
+    const now = new Date()
+    const where: Record<string, unknown> = {
+      status: 'PENDING',
+      dueAt: { gt: now },
+      escalatedAt: null,
+    }
+    if (organizationId) where.instance = { processDefinition: { organizationId } }
+
+    const upcoming = await this.tasksWithDue(where)
+    if (upcoming.length === 0) return 0
+
+    let avisadas = 0
+    for (const [org, rows] of this.byOrg(upcoming)) {
+      const params = tarefasParams((await this.settings.get(org, NOTIF_PARAMS_KEY)).value)
+      if (!params.enabled) continue
+      // Antecedência em tempo ÚTIL, no mesmo calendário que define o prazo: às 17h de
+      // sexta, um prazo de segunda às 10h está a 2 horas de trabalho — avisar por horas
+      // de relógio mandaria o alerta no sábado, quando ninguém pode agir.
+      const cal = await this.calendar.get(org)
+      const perto = rows.filter((t) =>
+        t.dueAt !== null && this.calendar.businessMinutesUntil(now, t.dueAt, cal) <= params.antecedenciaHoras * 60)
+      if (perto.length === 0) continue
+      await this.notifier.taskDueSoon(org, perto.map(toNotice))
+      avisadas += perto.length
+    }
+    return avisadas
+  }
+
+  /** Reaviso das tarefas que continuam vencidas. O primeiro aviso sai na varredura que
+   *  detecta o vencimento; depois disso o silêncio faria a tarefa sumir do radar de quem
+   *  pode resolvê-la. Insiste com o RESPONSÁVEL (não escala para terceiros), no intervalo
+   *  configurado — `reavisoDias: 0` desliga. */
+  async sweepOverdueReminders(organizationId?: string): Promise<number> {
+    const where: Record<string, unknown> = {
+      status: 'PENDING',
+      dueAt: { lt: new Date() },
+      escalatedAt: { not: null }, // já escalonadas: o 1º aviso saiu
+    }
+    if (organizationId) where.instance = { processDefinition: { organizationId } }
+
+    const vencidas = await this.tasksWithDue(where)
+    if (vencidas.length === 0) return 0
+
+    let reavisadas = 0
+    for (const [org, rows] of this.byOrg(vencidas)) {
+      const params = tarefasParams((await this.settings.get(org, NOTIF_PARAMS_KEY)).value)
+      if (params.reavisoDias <= 0) continue
+      const janela = params.reavisoDias * 86_400_000
+      // reavisa quando o último aviso já tem mais de `reavisoDias`
+      const alvo = rows.filter((t) => Date.now() - (t.escalatedAt as Date).getTime() >= janela)
+      if (alvo.length === 0) continue
+      await this.notifier.taskOverdue(org, alvo.map(toNotice), { reaviso: true })
+      // o carimbo marca o ÚLTIMO aviso, não o primeiro — é ele que agenda o próximo
+      await this.prisma.workflowTask.updateMany({
+        where: { id: { in: alvo.map((t) => t.id) } },
+        data: { escalatedAt: new Date() },
+      })
+      reavisadas += alvo.length
+    }
+    return reavisadas
+  }
+
+  /** Cancela a instância, com MOTIVO registrado no histórico e aviso a quem tinha
+   *  tarefa pendente — o trabalho dessas pessoas para aqui, e elas não deveriam
+   *  descobrir isso abrindo a caixa de tarefas e não achando mais nada.
+   *  Quem pode: administrador ou quem iniciou o processo. */
+  async cancel(instanceId: string, organizationId: string, dto: CancelInstanceDto, actor?: CurrentUserData) {
     const instance = await this.prisma.processInstance.findFirst({
       where: { id: instanceId, processDefinition: { organizationId } },
+      include: { processDefinition: { select: { name: true } } },
     })
     if (!instance) throw new NotFoundException('Instância não encontrada')
     // Também cancela instâncias em ERRO (antes ficavam presas para sempre).
-    if (instance.status !== 'RUNNING' && instance.status !== 'ERROR') {
+    if (!isCancelable(instance.status)) {
       throw new BadRequestException('Só é possível cancelar instâncias em execução ou com erro')
     }
+    if (!canCancelInstance(instance, actor?.sub ?? '', this.isAdmin(actor))) {
+      throw new ForbiddenException('Só um administrador ou quem iniciou o processo pode cancelá-lo')
+    }
+    const reason = (dto?.reason ?? '').trim()
+    if (!reason) throw new BadRequestException('Informe o motivo do cancelamento')
+
+    // Quem perde trabalho com o cancelamento (antes de as tarefas irem para CANCELED).
+    const pendentes = await this.prisma.workflowTask.findMany({
+      where: { instanceId, status: 'PENDING' },
+      select: { id: true, assignees: true, assignee: true },
+    })
+    const atingidos = pendentes.flatMap(recipientsOf)
 
     const state = cancelProcess(instance.state as unknown as WfState)
 
@@ -635,7 +990,26 @@ export class InstancesService {
         where: { instanceId, status: 'PENDING' },
         data: { status: 'CANCELED' },
       }),
+      this.prisma.workflowEvent.create({
+        data: {
+          instanceId,
+          event: 'CANCELADO',
+          detail: instance.processDefinition.name,
+          reason,
+          user: actor?.name ?? 'Usuário do sistema',
+          userId: actor?.sub ?? null,
+        },
+      }),
     ])
+
+    await this.notifier.clearForInstance(instanceId)
+    await this.notifier.processCancelled(
+      organizationId,
+      instanceId,
+      atingidos.filter((id) => id !== actor?.sub), // quem cancelou não precisa se avisar
+      this.processNotice(instance),
+      { reason, by: actor?.name ?? 'Usuário do sistema' },
+    )
 
     return updated
   }
@@ -983,18 +1357,23 @@ export class InstancesService {
     })
   }
 
+  /** Grava as tarefas do lote e DEVOLVE o que criou, para quem chamou notificar os
+   *  executores depois do commit (nunca dentro da transação: um sininho lento ou
+   *  fora do ar não pode segurar — nem desfazer — o avanço do processo).
+   *  Os ids são gerados aqui porque `createMany` não devolve as linhas criadas. */
   private async persistTasks(
     client: Pick<PrismaService, 'workflowTask'>,
     instanceId: string,
     tasks: Array<{ token: { id: string; nodeId: string }; node: WfNode }>,
     organizationId: string,
     variables: Record<string, unknown>,
-  ) {
-    if (tasks.length === 0) return
+  ): Promise<TaskNotice[]> {
+    if (tasks.length === 0) return []
     // Calendário comercial da org (uma leitura por lote) para o prazo em dias/horas úteis.
     const cal = await this.calendar.get(organizationId)
     // Resolve o executor (papel+entidade → usuário[]) de cada tarefa ANTES de gravar.
     const rows = await Promise.all(tasks.map(async ({ token, node }) => ({
+      id: randomUUID(),
       instanceId,
       tokenId: token.id,
       nodeId: node.id,
@@ -1007,6 +1386,9 @@ export class InstancesService {
       status: 'PENDING',
     })))
     await client.workflowTask.createMany({ data: rows as never })
+    return rows.map((r) => ({
+      id: r.id, name: r.name, instanceId, assignees: recipientsOf(r), dueAt: r.dueAt,
+    }))
   }
 
   /** Resolve o executor de uma atividade (papel de PESSOA + entidade) em uma lista de

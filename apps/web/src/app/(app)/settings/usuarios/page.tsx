@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  UserPlus, KeyRound, Pencil, Loader2, AlertCircle, ShieldCheck, X, RefreshCw,
+  UserPlus, KeyRound, Pencil, Loader2, AlertCircle, ShieldCheck, X, RefreshCw, ArrowRightLeft,
   Settings2, ChevronsUpDown, ArrowUp, ArrowDown,
 } from 'lucide-react'
 import { apiFetch } from '@/lib/http'
@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils'
 import { useViews } from '@/hooks/use-views'
 import { exportExcel } from '@/lib/export-excel'
 import { TablePagination } from '@/components/ui/table-pagination'
+import { TransferTasksModal } from '@/components/processes/transfer-tasks-modal'
 import { ListToolbar } from '@/components/list/list-toolbar'
 import { type FilterRow, matchOp, norm } from '@/lib/list-filter'
 
@@ -63,6 +64,8 @@ export default function UsuariosPage() {
   const [forbidden, setForbidden] = useState(false)
   const [modal, setModal] = useState<ModalMode>(null)
   const [target, setTarget] = useState<UserRow | null>(null)
+  const [transfer, setTransfer] = useState<UserRow | null>(null)
+  const [aviso, setAviso] = useState<string | null>(null)
 
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SortState | null>({ col: 'nome', dir: 'asc' })
@@ -196,6 +199,12 @@ export default function UsuariosPage() {
         </div>
       </div>
 
+      {aviso && (
+        <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-[12px] text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
+          {aviso}
+        </div>
+      )}
+
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {[
           { label: 'Total', value: stats.total, cls: 'text-foreground' },
@@ -254,6 +263,9 @@ export default function UsuariosPage() {
                     <div className="flex justify-end gap-1">
                       <Button variant="ghost" size="sm" onClick={() => openEdit(u)} title="Editar"><Pencil className="h-3.5 w-3.5" /></Button>
                       <Button variant="ghost" size="sm" onClick={() => openPassword(u)} title="Resetar senha"><KeyRound className="h-3.5 w-3.5" /></Button>
+                      {/* férias/afastamento/desligamento: o trabalho pendente precisa
+                          de dono, senão o processo inteiro para junto com a pessoa */}
+                      <Button variant="ghost" size="sm" onClick={() => setTransfer(u)} title="Transferir tarefas pendentes"><ArrowRightLeft className="h-3.5 w-3.5" /></Button>
                     </div>
                   </td>
                 </tr>
@@ -267,6 +279,18 @@ export default function UsuariosPage() {
       {modal === 'create' && <UserFormModal onClose={close} />}
       {modal === 'edit' && target && <UserFormModal user={target} onClose={close} />}
       {modal === 'password' && target && <PasswordModal user={target} onClose={close} />}
+      {transfer && (
+        <TransferTasksModal
+          fromUserId={transfer.id}
+          fromUserName={transfer.name}
+          onClose={() => setTransfer(null)}
+          onDone={(moved, to) => {
+            setTransfer(null)
+            setAviso(moved === 0 ? 'Nenhuma tarefa pendente para transferir.' : `${moved} tarefa(s) transferida(s) para ${to}.`)
+            setTimeout(() => setAviso(null), 6000)
+          }}
+        />
+      )}
     </div>
   )
 }

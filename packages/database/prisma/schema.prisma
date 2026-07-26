@@ -140,6 +140,7 @@ model ProcessInstance {
   tasks             WorkflowTask[]
   returns           WorkflowReturn[]
   compensations     WorkflowCompensation[]
+  events            WorkflowEvent[]
 
   @@map("process_instances")
 }
@@ -162,6 +163,30 @@ model WorkflowCompensation {
 
   @@index([instanceId])
   @@map("workflow_compensations")
+}
+
+// Linha do tempo do processo para o que NÃO é execução de etapa: delegação de
+// tarefa e cancelamento da instância. A devolução tem tabela própria (mais antiga
+// e com de/para tipados — ver WorkflowReturn); a consulta do processo funde as
+// duas na mesma aba de Histórico.
+model WorkflowEvent {
+  id         String   @id @default(cuid())
+  instanceId String
+  taskId     String? // tarefa afetada (delegação); nulo quando o evento é da instância
+  event      String // DELEGADO | CANCELADO
+  detail     String? // rótulo do alvo no momento (nome da tarefa; snapshot)
+  fromUser   String? // de quem (delegação) — snapshot do nome
+  toUser     String? // para quem — snapshot do nome
+  toUserId   String? // id estável do destinatário (sem FK, de propósito)
+  reason     String   @db.NVarChar(Max) // motivo — OBRIGATÓRIO na API
+  user       String // autor no momento (snapshot; fallback quando userId nulo)
+  userId     String? // id estável do autor
+  createdAt  DateTime @default(now())
+
+  instance ProcessInstance @relation(fields: [instanceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([instanceId])
+  @@map("workflow_events")
 }
 
 // Devolução: registro de que alguém mandou o processo de volta para uma etapa
@@ -419,22 +444,38 @@ model ContractAuditLog {
   @@map("contract_audit_logs")
 }
 
+// Aviso mostrado no sininho. Nasceu só para CONTRATO e hoje serve também o
+// WORKFLOW, daí os alvos opcionais: uma notificação aponta para um contrato OU
+// para um processo/tarefa, nunca para os dois.
+// `userId` é o DESTINATÁRIO: tarefa é pessoal (só quem pode executá-la é avisado),
+// enquanto os avisos de contrato continuam nascendo sem dono (null = a org toda vê).
 model Notification {
   id             String   @id @default(cuid())
   organizationId String
-  contractId     String
-  tipo           String   // VIGENCIA | REAJUSTE | CONSUMO
+  contractId     String?
+  userId         String? // destinatário; null = visível para toda a organização
+  instanceId     String? // processo relacionado (sem FK, como o resto do workflow)
+  taskId         String? // tarefa relacionada
+  tipo           String   // VIGENCIA | REAJUSTE | CONSUMO | TAREFA_ATRIBUIDA | TAREFA_A_VENCER | TAREFA_VENCIDA | PROCESSO_DEVOLVIDO | PROCESSO_CANCELADO
   severidade     String   @default("INFO") // INFO | ALERTA | CRITICO
   titulo         String
   mensagem       String   @db.NVarChar(Max)
-  dedupKey       String   // ex.: "vigencia:<contractId>:30" — único por org, evita duplicar
+  dedupKey       String   // ex.: "vigencia:<contractId>" ou "tarefa-vencida:<taskId>:<userId>" — único por org
   createdAt      DateTime @default(now())
+  // quando este aviso saiu por e-mail. Nulo = ainda não saiu, e é o que o resumo
+  // diário procura — assim o mesmo aviso nunca chega duas vezes na caixa da pessoa.
+  emailedAt      DateTime?
 
-  contract Contract           @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  contract Contract?          @relation(fields: [contractId], references: [id], onDelete: Cascade)
   reads    NotificationRead[]
 
   @@unique([organizationId, dedupKey])
   @@index([organizationId])
+  @@index([organizationId, userId])
+  @@index([taskId])
+  // painel e histórico ordenam por data dentro do escopo do usuário; o expurgo
+  // varre por data. Sem este índice, ambos degradam conforme o histórico cresce.
+  @@index([organizationId, createdAt])
   @@map("notifications")
 }
 

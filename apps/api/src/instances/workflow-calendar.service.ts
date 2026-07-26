@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
-import { addBusinessTime, DEFAULT_BUSINESS_CALENDAR, type BusinessCalendar } from '@nxt/workflow-core'
+import { addBusinessTime, businessMinutesBetween, DEFAULT_BUSINESS_CALENDAR, type BusinessCalendar } from '@nxt/workflow-core'
 
 /** Chave do AppSetting (JSON por org) onde mora o calendário comercial. Sem tabela
  *  dedicada: expediente + feriados cabem no key-value que já existe. */
@@ -54,5 +54,17 @@ export class WorkflowCalendarService {
     const wall = new Date(from.getTime() + off * 60_000)
     const dueWall = addBusinessTime(wall, days, hours, cal)
     return new Date(dueWall.getTime() - off * 60_000)
+  }
+
+  /** Minutos ÚTEIS entre dois instantes (0 quando `to` já passou). Os dois lados são
+   *  levados ao relógio de parede da org antes da conta — é o expediente local que
+   *  decide o que conta como tempo de trabalho. */
+  businessMinutesUntil(from: Date, to: Date, cal: StoredCalendar): number {
+    const off = cal.tzOffsetMinutes ?? DEFAULT_TZ
+    return businessMinutesBetween(
+      new Date(from.getTime() + off * 60_000),
+      new Date(to.getTime() + off * 60_000),
+      cal,
+    )
   }
 }

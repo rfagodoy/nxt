@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft, Building2, Phone, MapPin, CreditCard, Users,
-  ChevronDown, Layers, FileText, Briefcase, UserCog,
+  ChevronDown, Layers, Briefcase, UserCog,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ResponsaveisSection } from '@/components/responsaveis/responsaveis-section'
@@ -26,7 +26,7 @@ import {
   type PartnerCategory, type PartnerFormValues,
 } from './partner-fields'
 
-export interface PartnerSaveResult { id: string; razaoSocial: string }
+export interface PartnerSaveResult { id: string; razaoSocial: string; documento?: string }
 
 /* ─── seção accordion (chrome do cadastro) ───────────────── */
 
@@ -72,7 +72,6 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
 
   const [open,          setOpen]          = useState<Set<string>>(new Set<string>())
   const [errors,        setErrors]        = useState<Set<string>>(new Set())
-  const [fromContratos, setFromContratos] = useState(false)
   const [saving,        setSaving]        = useState<'draft' | 'active' | null>(null)
   const [saveError,     setSaveError]     = useState<string | null>(null)
   const openInit                          = useRef(false)
@@ -93,12 +92,6 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
   const [screenValues, setScreenValues] = useState<Record<string, string>>({})
   const onScreenChange = (fieldId: string, value: string) =>
     setScreenValues(p => ({ ...p, [fieldId]: value }))
-
-  useEffect(() => {
-    if (embedded) return
-    const params = new URLSearchParams(window.location.search)
-    setFromContratos(params.get('from') === 'contratos')
-  }, [embedded])
 
   useEffect(() => {
     if (screensLoading || openInit.current) return
@@ -172,8 +165,13 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
     }
   }
 
+  /* Fim de salvamento. Embutido (painel do contrato, tarefa de workflow) → devolve o
+   *  parceiro a quem chamou; pela rota própria → volta para a lista de parceiros.
+   *  (O antigo `?from=contratos` saiu: o cadastro a partir do contrato agora acontece
+   *  num painel sobre ele, sem navegar — ver NewPartnerPanel.) */
   const afterSave = (result?: PartnerSaveResult) => {
-    if (onSaved) { onSaved(result) } else { router.push('/modules/parceiros') }
+    if (onSaved) { onSaved(result); return }
+    router.push('/modules/parceiros')
   }
 
   /* R2 — grava os valores dos campos personalizados da tela ligados ao novo parceiro. */
@@ -208,7 +206,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
       })
       if (!res.ok) { setSaveError(`Erro ao salvar (${res.status}). Verifique a conexão com o servidor.`); return }
       const created = await res.json() as { id?: string }
-      if (created.id) { await persistScreen(created.id); afterSave({ id: created.id, razaoSocial }) } else { afterSave() }
+      if (created.id) { await persistScreen(created.id); afterSave({ id: created.id, razaoSocial, documento: v.documento.trim() }) } else { afterSave() }
     } catch {
       setSaveError('Não foi possível conectar ao servidor. Verifique se o serviço está disponível.')
     } finally { setSaving(null) }
@@ -254,13 +252,6 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
       return
     }
 
-    if (!embedded && fromContratos) {
-      const novoParceiro = { id: `p_${Date.now()}`, nome: razaoSocial, documento: v.documento.trim() }
-      sessionStorage.setItem('nxt:contract:newParceiro', JSON.stringify(novoParceiro))
-      router.push('/modules/contratos/new')
-      return
-    }
-
     setSaving('active'); setSaveError(null)
     try {
       const res = await apiFetch(`/api/partners`, {
@@ -269,7 +260,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
       })
       if (!res.ok) { setSaveError(`Erro ao ativar (${res.status}). Verifique a conexão com o servidor.`); return }
       const created = await res.json() as { id?: string }
-      if (created.id) { await persistScreen(created.id); afterSave({ id: created.id, razaoSocial }) } else { afterSave() }
+      if (created.id) { await persistScreen(created.id); afterSave({ id: created.id, razaoSocial, documento: v.documento.trim() }) } else { afterSave() }
     } catch {
       setSaveError('Não foi possível conectar ao servidor. Verifique se o serviço está disponível.')
     } finally { setSaving(null) }
@@ -338,7 +329,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
               <ArrowLeft className="h-4 w-4" />
             </button>
           ) : (
-            <Link href={fromContratos ? '/modules/contratos/new' : '/modules/parceiros'}
+            <Link href="/modules/parceiros"
               className="text-muted-foreground hover:text-foreground transition-colors">
               <ArrowLeft className="h-4 w-4" />
             </Link>
@@ -347,16 +338,6 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
             <h1 className="text-base font-semibold tracking-tight">Novo parceiro</h1>
             <p className="text-[11px] text-muted-foreground">Preencha os dados do parceiro</p>
           </div>
-        </div>
-      )}
-
-      {!embedded && fromContratos && (
-        <div className="flex items-start gap-2.5 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-800 dark:bg-blue-950/40">
-          <FileText className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-          <p className="text-xs text-blue-700 dark:text-blue-300">
-            Você está cadastrando um parceiro para vincular a um contrato.
-            Após salvar, você será redirecionado de volta ao formulário do contrato.
-          </p>
         </div>
       )}
 
@@ -397,21 +378,19 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
               Cancelar
             </button>
           ) : (
-            <Link href={fromContratos ? '/modules/contratos/new' : '/modules/parceiros'}
+            <Link href="/modules/parceiros"
               className="text-xs text-muted-foreground hover:text-foreground transition-colors">
               Cancelar
             </Link>
           )}
           <div className="flex items-center gap-2">
-            {!fromContratos && (
-              <button type="button" onClick={() => { void handleSaveDraft() }} disabled={saving !== null}
-                className="inline-flex items-center h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-                {saving === 'draft' ? 'Salvando...' : 'Salvar rascunho'}
-              </button>
-            )}
+            <button type="button" onClick={() => { void handleSaveDraft() }} disabled={saving !== null}
+              className="inline-flex items-center h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+              {saving === 'draft' ? 'Salvando...' : 'Salvar rascunho'}
+            </button>
             <button type="submit" disabled={saving !== null}
               className="inline-flex items-center gap-1.5 h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-              {saving === 'active' ? 'Salvando...' : fromContratos ? 'Salvar e vincular ao contrato' : 'Ativar parceiro'}
+              {saving === 'active' ? 'Salvando...' : 'Ativar parceiro'}
             </button>
           </div>
         </div>
