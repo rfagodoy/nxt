@@ -3,6 +3,7 @@ import { InstancesService } from './instances.service'
 import { InstancesController } from './instances.controller'
 import { WorkflowSchedulerService } from './workflow-scheduler.service'
 import { WorkflowCalendarService } from './workflow-calendar.service'
+import { WorkflowCalendarController } from './workflow-calendar.controller'
 import { PrismaService } from '../prisma.service'
 import { WorkflowRolesModule } from '../workflow-roles/workflow-roles.module'
 import { ContractsModule } from '../contracts/contracts.module'
@@ -13,7 +14,7 @@ import { SettingsModule } from '../settings/settings.module'
 
 @Module({
   imports: [WorkflowRolesModule, ContractsModule, PartnersModule, RoleAssignmentsModule, NotificationsModule, SettingsModule],
-  controllers: [InstancesController],
+  controllers: [InstancesController, WorkflowCalendarController],
   providers: [InstancesService, WorkflowSchedulerService, WorkflowCalendarService, PrismaService],
   exports: [InstancesService, WorkflowCalendarService],
 })

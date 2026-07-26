@@ -173,8 +173,12 @@ model WorkflowEvent {
   id         String   @id @default(cuid())
   instanceId String
   taskId     String? // tarefa afetada (delegação); nulo quando o evento é da instância
-  event      String // DELEGADO | CANCELADO
+  event      String // DELEGADO | CANCELADO | REATIVADO
   detail     String? // rótulo do alvo no momento (nome da tarefa; snapshot)
+  // [JSON] o que o evento precisa para ser DESFEITO. No cancelamento guarda o estado
+  // do motor e as tarefas que estavam pendentes: `cancelProcess` zera os tokens, então
+  // sem esta foto não há como reabrir o processo depois.
+  payload    String?  @db.NVarChar(Max)
   fromUser   String? // de quem (delegação) — snapshot do nome
   toUser     String? // para quem — snapshot do nome
   toUserId   String? // id estável do destinatário (sem FK, de propósito)

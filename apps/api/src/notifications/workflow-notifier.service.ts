@@ -249,6 +249,28 @@ export class WorkflowNotifierService {
     return this.push(organizationId, rows)
   }
 
+  /** Processo reaberto: a tarefa volta para a caixa de quem a tinha. Sem este aviso,
+   *  ela reapareceria em silêncio — possivelmente já vencida, porque o prazo original
+   *  é mantido e o tempo de cancelamento não é devolvido. */
+  async taskResumed(
+    organizationId: string,
+    tasks: TaskNotice[],
+    ctx: { reason: string; by: string },
+  ): Promise<number> {
+    const rows = tasks.flatMap((t) =>
+      this.fanOut(t, (userId) => ({
+        dedupKey: dedupKeyFor('tarefa', t.id, userId),
+        tipo: 'TAREFA_ATRIBUIDA',
+        severidade: 'ALERTA',
+        titulo: `Processo reaberto: ${taskLabel(t)}`,
+        mensagem: `${ofTask(t)}: ${ctx.by} desfez o cancelamento e a atividade "${taskLabel(t)}" está de volta com você. Motivo: ${ctx.reason}`,
+        instanceId: t.instanceId,
+        taskId: t.id,
+      })),
+    )
+    return this.push(organizationId, rows)
+  }
+
   /** Delegação: o novo responsável precisa saber que a tarefa é dele agora. */
   async taskDelegated(
     organizationId: string,

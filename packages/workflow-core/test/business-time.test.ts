@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { addBusinessTime, businessMinutesBetween, isBusinessDay, DEFAULT_BUSINESS_CALENDAR, type BusinessCalendar } from '../src/business-time'
+import { addBusinessTime, businessMinutesBetween, workdayMinutes, isBusinessDay, DEFAULT_BUSINESS_CALENDAR, type BusinessCalendar } from '../src/business-time'
 
 // Datas de referência (UTC). 2026-07-20 é SEGUNDA; 2026-07-21 terça; 2026-07-24 sexta;
 // 2026-07-25/26 fim de semana; 2026-07-27 segunda.
@@ -88,5 +88,43 @@ describe('businessMinutesBetween', () => {
     const inicio = at(2026, 6, 24, 15) // sexta 15:00
     const due = addBusinessTime(inicio, 1, 2, cal) // +1 dia útil e 2h
     expect(businessMinutesBetween(inicio, due, cal)).toBe(9 * 60 + 2 * 60)
+  })
+})
+
+/* Intervalo (almoço): o dia útil deixa de ser "do início ao fim do expediente".
+   Sem isto, "prazo de 8 horas úteis" num expediente 9–18 significava 9 horas. */
+const comAlmoco: BusinessCalendar = { ...cal, breakStartMinute: 12 * 60, breakEndMinute: 13 * 60 }
+
+describe('expediente com intervalo', () => {
+  it('o dia útil encurta pelo tamanho do intervalo', () => {
+    expect(workdayMinutes(cal)).toBe(9 * 60)
+    expect(workdayMinutes(comAlmoco)).toBe(8 * 60)
+  })
+
+  it('somar horas atravessando o almoço pula o intervalo', () => {
+    // seg 11:00 + 2h úteis → 11:00–12:00 (1h) + 13:00–14:00 (1h) = 14:00
+    expect(addBusinessTime(at(2026, 6, 20, 11), 0, 2, comAlmoco).toISOString()).toBe(at(2026, 6, 20, 14).toISOString())
+  })
+
+  it('começar DENTRO do almoço vale como começar na volta', () => {
+    // seg 12:30 + 1h útil → conta a partir das 13:00 → 14:00
+    expect(addBusinessTime(at(2026, 6, 20, 12, 30), 0, 1, comAlmoco).toISOString()).toBe(at(2026, 6, 20, 14).toISOString())
+  })
+
+  it('"+1 dia útil" continua caindo no mesmo horário do dia seguinte', () => {
+    // com 8h de dia útil: seg 10:00 + 1 dia → ter 10:00
+    expect(addBusinessTime(at(2026, 6, 20, 10), 1, 0, comAlmoco).toISOString()).toBe(at(2026, 6, 21, 10).toISOString())
+  })
+
+  it('o tempo até o prazo desconta o almoço', () => {
+    // seg 11:00 → seg 15:00: 1h + 2h = 3h úteis (a hora do almoço não conta)
+    expect(businessMinutesBetween(at(2026, 6, 20, 11), at(2026, 6, 20, 15), comAlmoco)).toBe(180)
+  })
+
+  it('intervalo inválido é ignorado (não encurta nem quebra o dia)', () => {
+    const invertido: BusinessCalendar = { ...cal, breakStartMinute: 14 * 60, breakEndMinute: 13 * 60 }
+    const foraDoExpediente: BusinessCalendar = { ...cal, breakStartMinute: 20 * 60, breakEndMinute: 21 * 60 }
+    expect(workdayMinutes(invertido)).toBe(9 * 60)
+    expect(workdayMinutes(foraDoExpediente)).toBe(9 * 60)
   })
 })
