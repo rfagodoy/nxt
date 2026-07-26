@@ -13,6 +13,15 @@ interface Efeito {
   aviso?: string
 }
 
+/** Outro processo em andamento que usa o que este produziu. */
+interface Dependente {
+  instanceId: string
+  numero: number | null
+  processName: string
+  status: string
+  etapaAtual: string | null
+}
+
 /** Cancela uma instância de processo, com MOTIVO obrigatório. Substitui o antigo
  *  `confirm()` do painel de erros: cancelar interrompe o trabalho de outras pessoas,
  *  então o porquê precisa ficar no histórico — e quem tinha tarefa pendente é avisado.
@@ -32,13 +41,15 @@ export function CancelInstanceButton({ instanceId, processName, onCancelled, com
   /* O que o cancelamento vai desfazer no domínio. Cancelar um processo de contrato
      mexe no contrato — quem clica precisa ver isso ANTES, não descobrir depois. */
   const [efeitos, setEfeitos] = useState<Efeito[] | null>(null)
+  const [dependentes, setDependentes] = useState<Dependente[]>([])
   const [ciente, setCiente] = useState(false)
   useEffect(() => { setMounted(true) }, [])
 
   const carregarPrevia = useCallback(async () => {
-    setEfeitos(null); setCiente(false)
-    const p = await apiJson<{ efeitos: Efeito[] }>(`/api/instances/${instanceId}/cancel-preview`).catch(() => null)
+    setEfeitos(null); setDependentes([]); setCiente(false)
+    const p = await apiJson<{ efeitos: Efeito[]; dependentes: Dependente[] }>(`/api/instances/${instanceId}/cancel-preview`).catch(() => null)
     setEfeitos(p?.efeitos ?? [])
+    setDependentes(p?.dependentes ?? [])
   }, [instanceId])
 
   const submit = async () => {
@@ -106,12 +117,34 @@ export function CancelInstanceButton({ instanceId, processName, onCancelled, com
                     </li>
                   ))}
                 </ul>
-                {efeitos.some((e) => e.requerConfirmacao) && (
+                {efeitos.some((e) => e.requerConfirmacao) && dependentes.length === 0 && (
                   <label className="flex items-start gap-2 pt-1 text-[11px] cursor-pointer">
                     <input type="checkbox" className="mt-0.5 h-3.5 w-3.5 accent-primary" checked={ciente} onChange={(ev) => setCiente(ev.target.checked)} />
                     <span>Estou ciente de que isto altera um contrato que já vale para fora da empresa.</span>
                   </label>
                 )}
+              </div>
+            )}
+
+            {/* outros processos usando o mesmo contrato — o risco que não se vê */}
+            {dependentes.length > 0 && (
+              <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-2.5 space-y-1.5 dark:border-amber-900 dark:bg-amber-950/40">
+                <p className="text-[11px] font-medium text-amber-800 dark:text-amber-300">
+                  <AlertTriangle className="h-3 w-3 inline mr-1" />
+                  {dependentes.length === 1 ? 'Outro processo em andamento usa' : `${dependentes.length} processos em andamento usam`} o que este produziu:
+                </p>
+                <ul className="space-y-0.5">
+                  {dependentes.map((d) => (
+                    <li key={d.instanceId} className="text-[11px] text-amber-800 dark:text-amber-300">
+                      · {d.numero != null ? `#${d.numero} ` : ''}<span className="font-medium">{d.processName}</span>
+                      {d.etapaAtual && <span className="opacity-80"> — parado em &quot;{d.etapaAtual}&quot;</span>}
+                    </li>
+                  ))}
+                </ul>
+                <label className="flex items-start gap-2 pt-1 text-[11px] cursor-pointer text-amber-900 dark:text-amber-200">
+                  <input type="checkbox" className="mt-0.5 h-3.5 w-3.5 accent-primary" checked={ciente} onChange={(ev) => setCiente(ev.target.checked)} />
+                  <span>Estou ciente de que esses processos ficarão apontando para algo que deixou de valer.</span>
+                </label>
               </div>
             )}
 
@@ -127,7 +160,8 @@ export function CancelInstanceButton({ instanceId, processName, onCancelled, com
             <div className="mt-4 flex items-center justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={submitting}>Voltar</Button>
               <Button size="sm" onClick={submit}
-                disabled={submitting || !reason.trim() || (!!efeitos?.some((e) => e.requerConfirmacao) && !ciente)}>
+                disabled={submitting || !reason.trim()
+                  || ((!!efeitos?.some((e) => e.requerConfirmacao) || dependentes.length > 0) && !ciente)}>
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}Cancelar processo
               </Button>
             </div>

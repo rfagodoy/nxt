@@ -12,7 +12,10 @@
     "test": "turbo test",
     "lint": "turbo lint",
     "type-check": "turbo type-check",
-    "clean": "turbo clean"
+    "clean": "turbo clean",
+    "db:deploy": "dotenv -e apps/api/.env -- prisma migrate deploy --schema packages/database/prisma/schema.prisma",
+    "db:status": "dotenv -e apps/api/.env -- prisma migrate status --schema packages/database/prisma/schema.prisma",
+    "db:migrate": "dotenv -e apps/api/.env -- prisma migrate dev --schema packages/database/prisma/schema.prisma"
   },
   "devDependencies": {
     "turbo": "^2.3.3",

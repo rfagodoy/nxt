@@ -1,0 +1,48 @@
+<!--
+  Serviço do Windows para a API do Nxt, via WinSW (github.com/winsw/winsw, MIT).
+
+  Por que existe: o Node encerra o processo em falhas fatais (fast-fail) e, sem
+  supervisor, a API cai e NÃO volta — fica fora do ar até alguém perceber. O Windows
+  não sabe reiniciar um processo comum; um SERVIÇO ele sabe.
+
+  Instalação: veja deploy/README.md (ou rode deploy/windows/install-services.ps1).
+  Ajuste os caminhos abaixo se a instalação não estiver em C:\nxt.
+-->
+<service>
+  <id>nxt-api</id>
+  <name>Nxt — API</name>
+  <description>API do Nxt (processos, contratos e parceiros).</description>
+
+  <executable>node</executable>
+  <arguments>dist\apps\api\src\main</arguments>
+  <workingdirectory>C:\nxt\apps\api</workingdirectory>
+
+  <!-- O .env fica fora do repositório e com permissão restrita: contém segredos. -->
+  <envfile>C:\nxt\config\api.env</envfile>
+  <env name="NODE_ENV" value="production" />
+
+  <!--
+    Reinício automático com espera crescente. O teto de 5 tentativas evita o laço
+    infinito quando a causa é permanente (banco fora, migração pendente): melhor o
+    serviço parar e aparecer no monitoramento do que reiniciar para sempre em
+    silêncio.
+  -->
+  <onfailure action="restart" delay="5 sec" />
+  <onfailure action="restart" delay="15 sec" />
+  <onfailure action="restart" delay="60 sec" />
+  <resetfailure>1 hour</resetfailure>
+
+  <log mode="roll-by-size-time">
+    <sizeThreshold>10240</sizeThreshold>
+    <pattern>yyyyMMdd</pattern>
+    <autoRollAtTime>00:00:00</autoRollAtTime>
+    <keepFiles>14</keepFiles>
+  </log>
+  <logpath>C:\nxt\logs</logpath>
+
+  <startmode>Automatic</startmode>
+  <!-- Sobe depois da rede; se o SQL Server for local, acrescente MSSQLSERVER. -->
+  <depend>Tcpip</depend>
+
+  <stoptimeout>20 sec</stoptimeout>
+</service>

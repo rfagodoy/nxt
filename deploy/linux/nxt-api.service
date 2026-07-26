@@ -1,0 +1,52 @@
+# Serviço da API do Nxt (systemd).
+#
+# Existe por um motivo concreto: o Node encerra o processo em falhas fatais
+# (fast-fail), e sem supervisor a API cai e NÃO volta — o sistema fica fora do ar
+# até alguém perceber. Restart=always resolve isso; RestartSec evita laço de
+# reinício instantâneo quando a causa é permanente (banco fora, por exemplo).
+#
+# Instalação:
+#   sudo cp deploy/linux/nxt-api.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now nxt-api
+#   systemctl status nxt-api        # estado
+#   journalctl -u nxt-api -f        # logs ao vivo
+
+[Unit]
+Description=Nxt — API
+Documentation=https://github.com/rfagodoy/nxt
+# A API não sobe sem banco; se o SQL Server for local, descomente a linha abaixo.
+# Requires=mssql-server.service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nxt
+Group=nxt
+WorkingDirectory=/opt/nxt/apps/api
+# O .env fica FORA do repositório e com permissão restrita (contém segredos).
+EnvironmentFile=/etc/nxt/api.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node dist/apps/api/src/main
+
+Restart=always
+RestartSec=5
+# Se reiniciar 5 vezes em 60s, para de tentar: a causa é permanente e o laço só
+# esconde o problema nos logs.
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nxt-api
+
+# Endurecimento básico: o serviço não precisa de mais nada além do que usa.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/nxt/storage
+
+[Install]
+WantedBy=multi-user.target

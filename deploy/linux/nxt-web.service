@@ -1,0 +1,41 @@
+# Serviço da interface web do Nxt (systemd).
+#
+# Sobe DEPOIS da API: a web serve páginas que consultam a API no primeiro acesso, e
+# começar na frente só produz erro na tela de quem entrou cedo.
+#
+# Instalação:
+#   sudo cp deploy/linux/nxt-web.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now nxt-web
+
+[Unit]
+Description=Nxt — Web
+Documentation=https://github.com/rfagodoy/nxt
+After=network-online.target nxt-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nxt
+Group=nxt
+WorkingDirectory=/opt/nxt/apps/web
+EnvironmentFile=/etc/nxt/web.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npm run start
+
+Restart=always
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nxt-web
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
