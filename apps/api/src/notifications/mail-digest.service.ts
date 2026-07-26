@@ -34,11 +34,14 @@ export class MailDigestService implements OnModuleInit {
   }
 
   private async tick() {
-    if (this.rodando || !this.mailer.enabled) return
+    if (this.rodando) return
     this.rodando = true
     try {
       const orgs = await this.prisma.organization.findMany({ select: { id: true } })
-      for (const org of orgs) await this.runOrg(org.id)
+      // o canal é POR ORGANIZAÇÃO: uma pode ter SMTP e outra não
+      for (const org of orgs) {
+        if (await this.mailer.enabled(org.id)) await this.runOrg(org.id)
+      }
     } catch (e) {
       this.logger.error(`resumo diário falhou: ${String(e)}`)
     } finally {
@@ -98,7 +101,7 @@ export class MailDigestService implements OnModuleInit {
           </td>
         </tr>`).join('')
 
-      const ok = await this.mailer.send({
+      const ok = await this.mailer.send(organizationId, {
         to: u.email,
         subject: `[Nxt] Seu resumo: ${itens.length} aviso${itens.length === 1 ? '' : 's'}`,
         text: `Olá, ${u.name}.\n\n${itens.map((n) => `- ${n.titulo}: ${n.mensagem}`).join('\n')}\n\nAbra o Nxt para agir.`,

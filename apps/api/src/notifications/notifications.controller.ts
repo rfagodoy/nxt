@@ -1,9 +1,10 @@
-import { Controller, Get, Post, Param, Query, UseGuards } from '@nestjs/common'
+import { Controller, Get, Post, Put, Delete, Param, Query, Body, UseGuards, BadRequestException } from '@nestjs/common'
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger'
 import { NotificationsService } from './notifications.service'
 import { ContractSchedulerService } from './contract-scheduler.service'
 import { MailerService } from './mailer.service'
 import { MailDigestService } from './mail-digest.service'
+import { MailSettingsService, type StoredMailConfig } from './mail-settings.service'
 import { CurrentOrg } from '../auth/current-org.decorator'
 import { CurrentUser, CurrentUserData } from '../auth/current-user.decorator'
 import { Roles } from '../auth/roles.decorator'
@@ -18,6 +19,7 @@ export class NotificationsController {
     private readonly scheduler: ContractSchedulerService,
     private readonly mailer: MailerService,
     private readonly digest: MailDigestService,
+    private readonly mailSettings: MailSettingsService,
   ) {}
 
   @Get()
@@ -65,23 +67,51 @@ export class NotificationsController {
     return this.scheduler.runNow(org, dryRun === '1' || dryRun === 'true')
   }
 
-  @Get('email-status')
+  @Get('email-config')
   @Roles('admin')
   @UseGuards(RolesGuard)
-  @ApiOperation({ summary: 'Como está a configuração de envio de e-mail (sem expor segredo) — admin' })
-  emailStatus() {
-    return this.mailer.status
+  @ApiOperation({ summary: 'Configuração do servidor de e-mail (sem a senha) — admin' })
+  emailConfig(@CurrentOrg() org: string) {
+    return this.mailSettings.view(org)
+  }
+
+  @Put('email-config')
+  @Roles('admin')
+  @UseGuards(RolesGuard)
+  @ApiOperation({ summary: 'Grava a configuração do servidor de e-mail — admin' })
+  async saveEmailConfig(@CurrentOrg() org: string, @Body() body: Partial<StoredMailConfig> & { password?: string }) {
+    try {
+      return await this.mailSettings.put(org, body)
+    } catch (e) {
+      throw new BadRequestException(e instanceof Error ? e.message : 'Não foi possível salvar a configuração.')
+    }
+  }
+
+  @Delete('email-config')
+  @Roles('admin')
+  @UseGuards(RolesGuard)
+  @ApiOperation({ summary: 'Remove a configuração de e-mail da organização — admin' })
+  clearEmailConfig(@CurrentOrg() org: string) {
+    return this.mailSettings.clear(org)
+  }
+
+  @Post('email-verify')
+  @Roles('admin')
+  @UseGuards(RolesGuard)
+  @ApiOperation({ summary: 'Testa a conexão com o servidor (handshake + autenticação), sem enviar mensagem — admin' })
+  emailVerify(@CurrentOrg() org: string) {
+    return this.mailer.verify(org)
   }
 
   @Post('email-test')
   @Roles('admin')
   @UseGuards(RolesGuard)
   @ApiOperation({ summary: 'Dispara um e-mail de teste para o próprio usuário — admin' })
-  async emailTest(@CurrentUser() user: CurrentUserData) {
+  async emailTest(@CurrentOrg() org: string, @CurrentUser() user: CurrentUserData) {
     // manda para quem pediu — testar envio para terceiro seria porta para usar o
     // servidor como disparador de mensagem a endereço arbitrário
     if (!user.email) return { ok: false, error: 'Seu usuário não tem e-mail cadastrado.' }
-    return this.mailer.sendTest(user.email)
+    return this.mailer.sendTest(org, user.email)
   }
 
   @Post('email-digest')

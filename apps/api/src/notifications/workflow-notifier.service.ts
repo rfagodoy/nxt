@@ -131,7 +131,7 @@ export class WorkflowNotifierService {
     novos: Array<{ id: string; userId: string; titulo: string; mensagem: string; severidade: string }>,
   ): Promise<void> {
     try {
-      if (!this.mailer.enabled) return
+      if (!(await this.mailer.enabled(organizationId))) return
       const params = emailParams((await this.settings.get(organizationId, NOTIF_PARAMS_KEY)).value)
       if (!params.imediato) return
 
@@ -146,7 +146,7 @@ export class WorkflowNotifierService {
       for (const n of novos) {
         const u = byId.get(n.userId)
         if (!u?.email) continue
-        const ok = await this.mailer.send({
+        const ok = await this.mailer.send(organizationId, {
           to: u.email,
           subject: `[Nxt] ${n.titulo}`,
           text: `${n.titulo}\n\n${n.mensagem}\n\nAbra o Nxt para agir.`,

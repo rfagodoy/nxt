@@ -1,15 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { createTransport, type Transporter } from 'nodemailer'
+import { MailSettingsService, type EffectiveMailConfig } from './mail-settings.service'
 
-/* Envio de e-mail. NASCE DESLIGADO: sem `MAIL_HOST` no ambiente, o serviço não
-   tenta conectar em lugar nenhum e o sistema segue funcionando só com o sininho.
-   Isso é deliberado — instalação on-premise sem servidor de e-mail é o caso comum,
-   e um sistema que falha ao subir porque não achou SMTP é um sistema que ninguém
-   instala duas vezes.
+/* Envio de e-mail. NASCE DESLIGADO: sem servidor configurado (nem na tela, nem no
+   ambiente), o serviço não tenta conectar em lugar nenhum e o sistema segue
+   funcionando só com o sininho. Instalação on-premise sem servidor de e-mail é o
+   caso comum, e um sistema que falha ao subir porque não achou SMTP é um sistema que
+   ninguém instala duas vezes.
 
-   A configuração vem do AMBIENTE, não do banco: credencial de SMTP é segredo de
-   infraestrutura ([[project_security_hardening]]), não parâmetro de tela. A tela
-   liga/desliga o uso e testa o envio; a senha nunca passa pelo front. */
+   A configuração é POR ORGANIZAÇÃO (tela) com fallback no ambiente. */
 
 export interface MailMessage {
   to: string
@@ -21,54 +20,49 @@ export interface MailMessage {
 @Injectable()
 export class MailerService {
   private readonly logger = new Logger('Mailer')
-  private transporter: Transporter | null = null
-  private avisouDesligado = false
+  /** transporte por assinatura da config: trocar o servidor na tela troca o transporte
+   *  sem reiniciar o serviço, e configurações iguais reaproveitam a conexão. */
+  private transports = new Map<string, Transporter>()
 
-  get host(): string { return process.env.MAIL_HOST ?? '' }
-  get from(): string { return process.env.MAIL_FROM || 'Nxt <nao-responda@nxt.local>' }
-  get enabled(): boolean { return this.host.trim() !== '' }
+  constructor(private readonly settings: MailSettingsService) {}
 
-  /** Resumo do que está configurado (sem expor segredo) — a tela mostra para o admin
-   *  entender por que o envio está ou não acontecendo. */
-  get status() {
-    return {
-      enabled: this.enabled,
-      host: this.host,
-      port: Number(process.env.MAIL_PORT ?? 587),
-      secure: process.env.MAIL_SECURE === 'true',
-      from: this.from,
-      user: process.env.MAIL_USER ? `${process.env.MAIL_USER.slice(0, 2)}***` : '',
-    }
+  private assinatura(c: EffectiveMailConfig): string {
+    return [c.host, c.port, c.secure, c.requireTLS, c.user, c.pass ? 'auth' : 'anon', c.allowSelfSigned].join('|')
   }
 
-  private get client(): Transporter | null {
-    if (!this.enabled) {
-      if (!this.avisouDesligado) {
-        this.logger.log('envio de e-mail desligado (MAIL_HOST ausente) — avisos ficam só no sininho')
-        this.avisouDesligado = true
-      }
-      return null
-    }
-    if (!this.transporter) {
-      this.transporter = createTransport({
-        host: this.host,
-        port: Number(process.env.MAIL_PORT ?? 587),
-        secure: process.env.MAIL_SECURE === 'true',
-        auth: process.env.MAIL_USER
-          ? { user: process.env.MAIL_USER, pass: process.env.MAIL_PASS ?? '' }
-          : undefined,
-      })
-    }
-    return this.transporter
+  private transportFor(c: EffectiveMailConfig): Transporter {
+    const chave = this.assinatura(c)
+    const existente = this.transports.get(chave)
+    if (existente) return existente
+    const t = createTransport({
+      host: c.host,
+      port: c.port,
+      secure: c.secure,
+      requireTLS: c.requireTLS,
+      auth: c.user ? { user: c.user, pass: c.pass } : undefined,
+      // SMTP interno com certificado próprio é comum; só quando o admin pede
+      tls: c.allowSelfSigned ? { rejectUnauthorized: false } : undefined,
+    })
+    // um transporte por config basta; o mapa não cresce com o uso, só com mudança
+    this.transports.set(chave, t)
+    return t
   }
 
-  /** Envia uma mensagem. Nunca lança: e-mail é canal SECUNDÁRIO — o aviso já está no
-   *  sininho, e uma falha de SMTP não pode derrubar a conclusão de uma tarefa. */
-  async send(msg: MailMessage): Promise<boolean> {
-    const client = this.client
-    if (!client) return false
+  /** Há canal de e-mail para esta organização? */
+  async enabled(organizationId: string): Promise<boolean> {
+    return (await this.settings.resolve(organizationId)) !== null
+  }
+
+  /** Envia. Nunca lança: e-mail é canal SECUNDÁRIO — o aviso já está no sininho, e
+   *  uma falha de SMTP não pode derrubar a conclusão de uma tarefa. */
+  async send(organizationId: string, msg: MailMessage): Promise<boolean> {
+    const cfg = await this.settings.resolve(organizationId)
+    if (!cfg) return false
     try {
-      await client.sendMail({ from: this.from, to: msg.to, subject: msg.subject, text: msg.text, html: msg.html })
+      await this.transportFor(cfg).sendMail({
+        from: cfg.from, to: msg.to, replyTo: cfg.replyTo,
+        subject: msg.subject, text: msg.text, html: msg.html,
+      })
       return true
     } catch (e) {
       this.logger.error(`falha ao enviar para ${msg.to}: ${String(e)}`)
@@ -76,23 +70,57 @@ export class MailerService {
     }
   }
 
-  /** Envio de teste, disparado pelo admin na tela de parâmetros. Diferente do envio
-   *  normal, aqui o erro INTERESSA: quem clicou quer saber o que está errado. */
-  async sendTest(to: string): Promise<{ ok: boolean; error?: string }> {
-    if (!this.enabled) return { ok: false, error: 'Envio de e-mail desligado: defina MAIL_HOST no ambiente do servidor.' }
+  /** Testa a conexão SEM enviar mensagem (handshake + autenticação). É o teste que
+   *  responde "o servidor aceita minhas credenciais?" sem encher a caixa de ninguém. */
+  async verify(organizationId: string): Promise<{ ok: boolean; error?: string }> {
+    const cfg = await this.settings.resolve(organizationId)
+    if (!cfg) return { ok: false, error: 'Nenhum servidor de e-mail configurado.' }
     try {
-      await this.client!.sendMail({
-        from: this.from,
-        to,
+      await this.transportFor(cfg).verify()
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: humanizeMailError(e) }
+    }
+  }
+
+  /** Envio de teste real, disparado pelo admin. Diferente do envio normal, aqui o
+   *  erro INTERESSA: quem clicou quer saber o que está errado. */
+  async sendTest(organizationId: string, to: string): Promise<{ ok: boolean; error?: string }> {
+    const cfg = await this.settings.resolve(organizationId)
+    if (!cfg) return { ok: false, error: 'Nenhum servidor de e-mail configurado.' }
+    try {
+      await this.transportFor(cfg).sendMail({
+        from: cfg.from, to, replyTo: cfg.replyTo,
         subject: 'Nxt — teste de envio',
-        text: 'Envio de e-mail configurado corretamente. Esta mensagem foi disparada pela tela de Notificações.',
-        html: layout('Teste de envio', '<p>Envio de e-mail configurado corretamente.</p><p>Esta mensagem foi disparada pela tela de Notificações.</p>'),
+        text: 'Envio de e-mail configurado corretamente. Esta mensagem foi disparada pela tela de configuração.',
+        html: layout('Teste de envio', '<p>Envio de e-mail configurado corretamente.</p><p>Esta mensagem foi disparada pela tela de configuração do Nxt.</p>'),
       })
       return { ok: true }
     } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+      return { ok: false, error: humanizeMailError(e) }
     }
   }
+}
+
+/** Erro de SMTP em português, com a saída provável. A mensagem crua do nodemailer
+ *  ("535 5.7.8 ...") não diz a ninguém o que fazer. */
+export function humanizeMailError(e: unknown): string {
+  const err = e as { code?: string; responseCode?: number; message?: string }
+  const msg = err?.message ?? String(e)
+  const code = err?.code ?? ''
+  if (code === 'EAUTH' || err?.responseCode === 535) {
+    return 'Usuário ou senha recusados pelo servidor. Em Gmail/Office 365 com verificação em duas etapas, use uma senha de aplicativo.'
+  }
+  if (code === 'EDNS' || code === 'ENOTFOUND' || /ENOTFOUND|EAI_AGAIN/.test(msg)) {
+    return 'Servidor não encontrado: o endereço não existe ou o DNS do servidor não conseguiu resolvê-lo. Confira se digitou certo (ex.: smtp.gmail.com).'
+  }
+  if (code === 'ECONNECTION' || code === 'ECONNREFUSED' || /ECONNREFUSED/.test(msg)) {
+    return 'O servidor recusou a conexão: confira o endereço e a porta.'
+  }
+  if (code === 'ETIMEDOUT' || code === 'ESOCKET') return 'Tempo esgotado ao conectar. Verifique a porta, o tipo de criptografia e se o firewall libera a saída.'
+  if (/self.signed|unable to verify/i.test(msg)) return 'O certificado do servidor não pôde ser validado. Se for um SMTP interno, marque "aceitar certificado autoassinado".'
+  if (code === 'EENVELOPE') return 'O servidor recusou o remetente ou o destinatário. Confira o e-mail do remetente.'
+  return msg
 }
 
 /* ─── layout das mensagens ────────────────────────────────────────────────────
