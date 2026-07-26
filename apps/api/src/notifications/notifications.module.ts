@@ -4,6 +4,7 @@ import { NotificationsService } from './notifications.service'
 import { ContractSchedulerService } from './contract-scheduler.service'
 import { WorkflowNotifierService } from './workflow-notifier.service'
 import { MailerService } from './mailer.service'
+import { MailSettingsService } from './mail-settings.service'
 import { MailDigestService } from './mail-digest.service'
 import { SettingsModule } from '../settings/settings.module'
 import { ContractsModule } from '../contracts/contracts.module'
@@ -13,7 +14,7 @@ import { PrismaService } from '../prisma.service'
 @Module({
   imports: [SettingsModule, ContractsModule, FilesModule],
   controllers: [NotificationsController],
-  providers: [NotificationsService, ContractSchedulerService, WorkflowNotifierService, MailerService, MailDigestService, PrismaService],
+  providers: [NotificationsService, ContractSchedulerService, WorkflowNotifierService, MailerService, MailSettingsService, MailDigestService, PrismaService],
   // o motor de workflow (InstancesModule) emite avisos por aqui; o agendador dele
   // também roda o expurgo do histórico (NotificationsService.purgeOld)
   exports: [WorkflowNotifierService, NotificationsService],

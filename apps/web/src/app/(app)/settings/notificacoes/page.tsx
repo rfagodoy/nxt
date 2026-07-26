@@ -126,30 +126,17 @@ function Card({ icon: Icon, color, title, desc, on, onToggle, children }: {
    usá-lo e permite provar o caminho com um envio de teste — que é a única forma
    honesta de dizer "está funcionando". */
 function EmailCard({ p, setP, isAdmin }: { p: Params; setP: (v: Params) => void; isAdmin: boolean }) {
-  const [status, setStatus] = useState<{ enabled: boolean; host: string; from: string } | null>(null)
-  const [testing, setTesting] = useState(false)
-  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [status, setStatus] = useState<{ pronto: boolean; host: string; origem: string } | null>(null)
 
   useEffect(() => {
     if (!isAdmin) return
-    void apiFetch('/api/notifications/email-status')
+    void apiFetch('/api/notifications/email-config')
       .then(r => r.ok ? r.json() : null)
       .then(s => setStatus(s))
       .catch(() => setStatus(null))
   }, [isAdmin])
 
-  const testar = async () => {
-    setTesting(true); setResult(null)
-    try {
-      const res = await apiFetch('/api/notifications/email-test', { method: 'POST' })
-      const body = await res.json().catch(() => null) as { ok?: boolean; error?: string } | null
-      setResult(body?.ok
-        ? { ok: true, msg: 'Enviado — confira sua caixa de entrada.' }
-        : { ok: false, msg: body?.error || 'Não foi possível enviar.' })
-    } finally { setTesting(false) }
-  }
-
-  const ligado = status?.enabled ?? false
+  const ligado = status?.pronto ?? false
 
   return (
     <div className="rounded-xl border bg-card p-4 shadow-sm">
@@ -188,13 +175,9 @@ function EmailCard({ p, setP, isAdmin }: { p: Params; setP: (v: Params) => void;
                   <span className="text-[11px]">hora local do servidor</span>
                 </label>
               )}
-              <div className="flex items-center gap-2 pt-1">
-                <button type="button" onClick={() => { void testar() }} disabled={testing}
-                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium hover:bg-muted disabled:opacity-40 transition-colors">
-                  {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}Enviar teste para mim
-                </button>
-                {result && <span className={cn('text-[11px]', result.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive')}>{result.msg}</span>}
-              </div>
+              <a href="/settings/email" className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium hover:bg-muted transition-colors">
+                <Mail className="h-3.5 w-3.5" />Configurar servidor de e-mail
+              </a>
             </div>
           )}
         </div>
