@@ -12,8 +12,15 @@ describe('tarefasParams', () => {
   })
 
   it('respeita valores configurados', () => {
-    expect(tarefasParams({ tarefas: { enabled: false, antecedenciaHoras: 4 } }))
-      .toEqual({ enabled: false, antecedenciaHoras: 4 })
+    expect(tarefasParams({ tarefas: { enabled: false, antecedenciaHoras: 4, reavisoDias: 3 } }))
+      .toEqual({ enabled: false, antecedenciaHoras: 4, reavisoDias: 3 })
+  })
+
+  it('reaviso: 0 é escolha válida (desliga), negativo/lixo cai no padrão', () => {
+    expect(tarefasParams({ tarefas: { enabled: true, antecedenciaHoras: 24, reavisoDias: 0 } }).reavisoDias).toBe(0)
+    expect(tarefasParams({ tarefas: { enabled: true, antecedenciaHoras: 24, reavisoDias: -2 } }).reavisoDias).toBe(DEFAULT_TAREFAS.reavisoDias)
+    expect(tarefasParams({ tarefas: { enabled: true, antecedenciaHoras: 24, reavisoDias: 'sempre' as unknown as number } }).reavisoDias)
+      .toBe(DEFAULT_TAREFAS.reavisoDias)
   })
 
   it('rejeita antecedência inválida e cai no padrão', () => {
@@ -25,6 +32,6 @@ describe('tarefasParams', () => {
 
   it('desligar o aviso preventivo não mexe na antecedência gravada', () => {
     expect(tarefasParams({ tarefas: { enabled: false, antecedenciaHoras: 48 } }))
-      .toEqual({ enabled: false, antecedenciaHoras: 48 })
+      .toEqual({ enabled: false, antecedenciaHoras: 48, reavisoDias: DEFAULT_TAREFAS.reavisoDias })
   })
 })

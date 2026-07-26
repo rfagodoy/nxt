@@ -1,5 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
+import { SettingsService } from '../settings/settings.service'
+import { MailerService, layout, escapeHtml } from './mailer.service'
+import { NOTIF_PARAMS_KEY, emailParams } from './notification-params'
+import { WORKFLOW_TIPOS, fanOutTargets, dedupKeyFor } from './notification-rules'
 
 /* Avisos do WORKFLOW no sininho. O motor sabe QUANDO algo acontece; este serviço
    decide QUEM precisa saber e com que urgência.
@@ -42,14 +46,7 @@ interface Push {
   taskId?: string
 }
 
-/** Tipos emitidos aqui — usado também para limpar sem tocar nos avisos de contrato. */
-export const WORKFLOW_TIPOS = [
-  'TAREFA_ATRIBUIDA',
-  'TAREFA_A_VENCER',
-  'TAREFA_VENCIDA',
-  'PROCESSO_DEVOLVIDO',
-  'PROCESSO_CANCELADO',
-]
+export { WORKFLOW_TIPOS } from './notification-rules'
 
 const fmtPrazo = (d: Date | null): string =>
   d
@@ -68,23 +65,32 @@ const ofTask = (t: TaskNotice): string => processLabel(t.process ?? { name: 'Pro
 export class WorkflowNotifierService {
   private readonly logger = new Logger('WorkflowNotifier')
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settings: SettingsService,
+    private readonly mailer: MailerService,
+  ) {}
 
   /** Uma linha por destinatário; sem executor resolvido, uma linha sem dono. */
   private fanOut(task: TaskNotice, make: (userId: string | null) => Omit<Push, 'userId'>): Push[] {
-    const targets: Array<string | null> = task.assignees.length > 0 ? [...task.assignees] : [null]
-    return targets.map((userId) => ({ ...make(userId), userId }))
+    return fanOutTargets(task.assignees).map((userId) => ({ ...make(userId), userId }))
   }
 
-  /** Grava os avisos (idempotente pelo dedupKey). Nunca lança: um sininho mudo não
-   *  pode derrubar a conclusão de uma tarefa nem a varredura de prazos. */
+  /** Grava os avisos (idempotente pelo dedupKey) e, para os que NASCERAM agora e têm
+   *  destinatário, dispara o e-mail imediato. Nunca lança: um sininho mudo — ou um
+   *  SMTP fora do ar — não pode derrubar a conclusão de uma tarefa nem a varredura.
+   *
+   *  Cria-e-depois-atualiza em vez de `upsert` porque a diferença IMPORTA: só o aviso
+   *  novo vira e-mail. Um upsert que atualiza o texto de um aviso já lido não é fato
+   *  novo para a pessoa, e mandaria e-mail toda varredura. */
   private async push(organizationId: string, rows: Push[]): Promise<number> {
     let ok = 0
+    const novos: Array<{ id: string; userId: string; titulo: string; mensagem: string; severidade: string }> = []
+
     for (const r of rows) {
       try {
-        await this.prisma.notification.upsert({
-          where: { organizationId_dedupKey: { organizationId, dedupKey: r.dedupKey } },
-          create: {
+        const criado = await this.prisma.notification.create({
+          data: {
             organizationId,
             dedupKey: r.dedupKey,
             userId: r.userId,
@@ -95,21 +101,72 @@ export class WorkflowNotifierService {
             titulo: r.titulo,
             mensagem: r.mensagem,
           },
-          update: { severidade: r.severidade, titulo: r.titulo, mensagem: r.mensagem },
+          select: { id: true },
         })
         ok++
-      } catch (e) {
-        this.logger.error(`falha ao notificar (${r.dedupKey}): ${String(e)}`)
+        if (r.userId) novos.push({ id: criado.id, userId: r.userId, titulo: r.titulo, mensagem: r.mensagem, severidade: r.severidade })
+      } catch {
+        // já existia (unique de dedupKey): atualiza o texto, sem e-mail
+        try {
+          await this.prisma.notification.update({
+            where: { organizationId_dedupKey: { organizationId, dedupKey: r.dedupKey } },
+            data: { severidade: r.severidade, titulo: r.titulo, mensagem: r.mensagem },
+          })
+          ok++
+        } catch (e) {
+          this.logger.error(`falha ao notificar (${r.dedupKey}): ${String(e)}`)
+        }
       }
     }
+
+    if (novos.length > 0) await this.emailNow(organizationId, novos)
     return ok
+  }
+
+  /** E-mail imediato dos avisos PESSOAIS recém-criados. Aviso sem dono (tarefa aberta)
+   *  não vira e-mail de propósito: mandaria mensagem para a organização inteira sobre
+   *  algo que não é responsabilidade de ninguém em particular. */
+  private async emailNow(
+    organizationId: string,
+    novos: Array<{ id: string; userId: string; titulo: string; mensagem: string; severidade: string }>,
+  ): Promise<void> {
+    try {
+      if (!this.mailer.enabled) return
+      const params = emailParams((await this.settings.get(organizationId, NOTIF_PARAMS_KEY)).value)
+      if (!params.imediato) return
+
+      const ids = [...new Set(novos.map((n) => n.userId))]
+      const users = await this.prisma.user.findMany({
+        where: { id: { in: ids }, organizationId, status: 'ATIVO' },
+        select: { id: true, email: true, name: true },
+      })
+      const byId = new Map(users.map((u) => [u.id, u]))
+
+      const enviados: string[] = []
+      for (const n of novos) {
+        const u = byId.get(n.userId)
+        if (!u?.email) continue
+        const ok = await this.mailer.send({
+          to: u.email,
+          subject: `[Nxt] ${n.titulo}`,
+          text: `${n.titulo}\n\n${n.mensagem}\n\nAbra o Nxt para agir.`,
+          html: layout(n.titulo, `<p>${escapeHtml(n.mensagem)}</p><p style="color:#6b7772">Abra o Nxt para agir.</p>`),
+        })
+        if (ok) enviados.push(n.id)
+      }
+      if (enviados.length > 0) {
+        await this.prisma.notification.updateMany({ where: { id: { in: enviados } }, data: { emailedAt: new Date() } })
+      }
+    } catch (e) {
+      this.logger.error(`falha no envio imediato de e-mail: ${String(e)}`)
+    }
   }
 
   /** Caiu uma tarefa para alguém. */
   async taskAssigned(organizationId: string, tasks: TaskNotice[], process: ProcessNotice): Promise<number> {
     const rows = tasks.flatMap((t) =>
       this.fanOut(t, (userId) => ({
-        dedupKey: `wf-tarefa:${t.id}:${userId ?? 'org'}`,
+        dedupKey: dedupKeyFor('tarefa', t.id, userId),
         tipo: 'TAREFA_ATRIBUIDA',
         severidade: 'INFO',
         titulo: `Nova tarefa: ${taskLabel(t)}`,
@@ -135,7 +192,7 @@ export class WorkflowNotifierService {
     const origem = ctx.fromName ? ` de "${ctx.fromName}"` : ''
     const rows = tasks.flatMap((t) =>
       this.fanOut(t, (userId) => ({
-        dedupKey: `wf-tarefa:${t.id}:${userId ?? 'org'}`,
+        dedupKey: dedupKeyFor('tarefa', t.id, userId),
         tipo: 'PROCESSO_DEVOLVIDO',
         severidade: 'ALERTA',
         titulo: `Devolvido: ${taskLabel(t)}`,
@@ -151,7 +208,7 @@ export class WorkflowNotifierService {
   async taskDueSoon(organizationId: string, tasks: TaskNotice[]): Promise<number> {
     const rows = tasks.flatMap((t) =>
       this.fanOut(t, (userId) => ({
-        dedupKey: `wf-vence:${t.id}:${userId ?? 'org'}`,
+        dedupKey: dedupKeyFor('vence', t.id, userId),
         tipo: 'TAREFA_A_VENCER',
         severidade: 'ALERTA',
         titulo: `Prazo próximo: ${taskLabel(t)}`,
@@ -163,8 +220,10 @@ export class WorkflowNotifierService {
     return this.push(organizationId, rows)
   }
 
-  /** O prazo estourou. Some o aviso preventivo: ele já não descreve a realidade. */
-  async taskOverdue(organizationId: string, tasks: TaskNotice[]): Promise<number> {
+  /** O prazo estourou. Some o aviso preventivo: ele já não descreve a realidade.
+   *  Em `reaviso`, o texto assume que a pessoa já foi avisada — repetir a mesma frase
+   *  faria o lembrete parecer defeito do sistema, e não insistência deliberada. */
+  async taskOverdue(organizationId: string, tasks: TaskNotice[], opts: { reaviso?: boolean } = {}): Promise<number> {
     const ids = tasks.map((t) => t.id)
     if (ids.length > 0) {
       await this.prisma.notification
@@ -173,11 +232,16 @@ export class WorkflowNotifierService {
     }
     const rows = tasks.flatMap((t) =>
       this.fanOut(t, (userId) => ({
-        dedupKey: `wf-vencida:${t.id}:${userId ?? 'org'}`,
+        /* O reaviso carrega o DIA na chave: com a chave estável ele apenas atualizaria
+           a linha existente — que a pessoa já leu — e o lembrete nasceria "lido", sem
+           chamar atenção nenhuma. Um por dia de insistência, visível no histórico. */
+        dedupKey: dedupKeyFor('vencida', t.id, userId, opts.reaviso ? new Date().toISOString().slice(0, 10) : undefined),
         tipo: 'TAREFA_VENCIDA',
         severidade: 'CRITICO',
-        titulo: `Prazo vencido: ${taskLabel(t)}`,
-        mensagem: `${ofTask(t)}: a atividade "${taskLabel(t)}" venceu em ${fmtPrazo(t.dueAt)} e continua pendente.`,
+        titulo: opts.reaviso ? `Ainda vencida: ${taskLabel(t)}` : `Prazo vencido: ${taskLabel(t)}`,
+        mensagem: opts.reaviso
+          ? `${ofTask(t)}: a atividade "${taskLabel(t)}" continua pendente desde ${fmtPrazo(t.dueAt)}.`
+          : `${ofTask(t)}: a atividade "${taskLabel(t)}" venceu em ${fmtPrazo(t.dueAt)} e continua pendente.`,
         instanceId: t.instanceId,
         taskId: t.id,
       })),
@@ -194,7 +258,7 @@ export class WorkflowNotifierService {
   ): Promise<number> {
     return this.push(organizationId, [
       {
-        dedupKey: `wf-tarefa:${task.id}:${ctx.toUserId}`,
+        dedupKey: dedupKeyFor('tarefa', task.id, ctx.toUserId),
         userId: ctx.toUserId,
         tipo: 'TAREFA_ATRIBUIDA',
         severidade: 'ALERTA',
@@ -221,7 +285,7 @@ export class WorkflowNotifierService {
     return this.push(
       organizationId,
       targets.map((userId) => ({
-        dedupKey: `wf-cancelado:${instanceId}:${userId ?? 'org'}`,
+        dedupKey: dedupKeyFor('cancelado', instanceId, userId),
         userId,
         tipo: 'PROCESSO_CANCELADO',
         severidade: 'ALERTA',
@@ -237,7 +301,7 @@ export class WorkflowNotifierService {
     if (taskIds.length === 0) return
     try {
       await this.prisma.notification.deleteMany({
-        where: { taskId: { in: taskIds }, tipo: { in: WORKFLOW_TIPOS } },
+        where: { taskId: { in: taskIds }, tipo: { in: [...WORKFLOW_TIPOS] } },
       })
     } catch (e) {
       this.logger.error(`falha ao limpar avisos das tarefas: ${String(e)}`)

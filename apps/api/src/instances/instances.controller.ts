@@ -6,6 +6,7 @@ import { CompleteTaskDto } from './dto/complete-task.dto'
 import { ReturnTaskDto } from './dto/return-task.dto'
 import { AssignTaskDto } from './dto/assign-task.dto'
 import { CancelInstanceDto } from './dto/cancel-instance.dto'
+import { TransferTasksDto } from './dto/transfer-tasks.dto'
 import { CurrentOrg } from '../auth/current-org.decorator'
 import { CurrentUser, type CurrentUserData } from '../auth/current-user.decorator'
 import { Roles } from '../auth/roles.decorator'
@@ -90,6 +91,27 @@ export class InstancesController {
     return this.instancesService.returnTask(taskId, dto, organizationId, actor)
   }
 
+  // Rotas estáticas de transferência em massa — antes de qualquer `:id`.
+  @Get('transfer-preview')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Tarefas pendentes que seriam movidas de um usuário — admin' })
+  transferPreview(@CurrentOrg() organizationId: string, @Query('fromUserId') fromUserId: string) {
+    return this.instancesService.previewTransfer(organizationId, fromUserId)
+  }
+
+  @Post('transfer')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Transfere todas as tarefas pendentes de um usuário para outro (motivo obrigatório) — admin' })
+  transfer(
+    @Body() dto: TransferTasksDto,
+    @CurrentOrg() organizationId: string,
+    @CurrentUser() actor: CurrentUserData,
+  ) {
+    return this.instancesService.transferTasks(dto, organizationId, actor)
+  }
+
   @Patch('tasks/:taskId/assign')
   @ApiOperation({ summary: 'Delega a tarefa a outro usuário (motivo obrigatório) — executor atual ou admin' })
   assignTask(
@@ -135,6 +157,7 @@ export class InstancesController {
   async sweepOverdue(@CurrentOrg() organizationId: string) {
     const avisadas = await this.instancesService.sweepDueSoon(organizationId)
     const escalated = await this.instancesService.sweepOverdue(organizationId)
-    return { avisadas, escalated }
+    const reavisadas = await this.instancesService.sweepOverdueReminders(organizationId)
+    return { avisadas, escalated, reavisadas }
   }
 }

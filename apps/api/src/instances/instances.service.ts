@@ -30,6 +30,7 @@ import { CompleteTaskDto } from './dto/complete-task.dto'
 import { ReturnTaskDto } from './dto/return-task.dto'
 import { AssignTaskDto } from './dto/assign-task.dto'
 import { CancelInstanceDto } from './dto/cancel-instance.dto'
+import { TransferTasksDto } from './dto/transfer-tasks.dto'
 import type { CurrentUserData } from '../auth/current-user.decorator'
 import { ContractsService } from '../contracts/contracts.service'
 import { PartnersService } from '../partners/partners.service'
@@ -37,6 +38,8 @@ import { RoleAssignmentsService } from '../role-assignments/role-assignments.ser
 import { SettingsService } from '../settings/settings.service'
 import { WorkflowCalendarService, type StoredCalendar } from './workflow-calendar.service'
 import { WorkflowNotifierService, type TaskNotice, type ProcessNotice } from '../notifications/workflow-notifier.service'
+import { recipientsOf } from '../notifications/notification-rules'
+import { canCancelInstance, isCancelable } from './instance-access'
 import { NOTIF_PARAMS_KEY, tarefasParams } from '../notifications/notification-params'
 
 /** Ids de token únicos para o motor (viram WorkflowTask.tokenId). */
@@ -48,18 +51,9 @@ interface ConnectorCtx {
   actor?: CurrentUserData
 }
 
-/** Quem deve ser avisado de uma tarefa: o pool resolvido do executor (papel+entidade)
- *  ou, na sua falta, o responsável direto (modelo antigo). Lista vazia = tarefa aberta,
- *  que o notificador transforma em aviso sem dono (visível para a org). */
-const recipientsOf = (t: { assignees: unknown; assignee?: string | null }): string[] => {
-  const pool = Array.isArray(t.assignees) ? (t.assignees as string[]) : []
-  if (pool.length > 0) return pool
-  return t.assignee ? [t.assignee] : []
-}
-
 /** Linha de tarefa (com o processo junto) → o que o sininho precisa saber. */
 const toNotice = (t: {
-  id: string; name: string | null; assignees: unknown; assignee?: string | null; dueAt: Date | null
+  id: string; name: string | null; assignees: string[] | string | null; assignee?: string | null; dueAt: Date | null
   instance: { id: string; numero: number | null; processDefinition: { name: string } }
 }): TaskNotice => ({
   id: t.id,
@@ -531,6 +525,96 @@ export class InstancesService {
     return { taskId: task.id, assignedTo: target.id, assignedToName: target.name }
   }
 
+  /** Tarefas PENDENTES que hoje pesam sobre um usuário — as que ele executaria.
+   *  Base da transferência em massa e da pré-visualização que a antecede. */
+  private async pendingTasksOf(organizationId: string, userId: string) {
+    const rows = await this.prisma.workflowTask.findMany({
+      where: { status: 'PENDING', instance: { processDefinition: { organizationId }, status: 'RUNNING' } },
+      include: {
+        instance: {
+          select: { id: true, numero: true, processDefinition: { select: { name: true } } },
+        },
+      },
+      orderBy: { dueAt: 'asc' },
+    })
+    return rows.filter((t) => recipientsOf(t).includes(userId))
+  }
+
+  /** O que a transferência vai mover, ANTES de mover. Uma ação que mexe no trabalho
+   *  de duas pessoas de uma vez não pode ser um botão que só diz "pronto". */
+  async previewTransfer(organizationId: string, fromUserId: string) {
+    const tarefas = await this.pendingTasksOf(organizationId, fromUserId)
+    return {
+      total: tarefas.length,
+      tasks: tarefas.map((t) => ({
+        id: t.id,
+        name: t.name ?? t.nodeId,
+        dueAt: t.dueAt,
+        instanceId: t.instance.id,
+        numero: t.instance.numero,
+        processName: t.instance.processDefinition.name,
+      })),
+    }
+  }
+
+  /** Transfere TODAS as tarefas pendentes de um usuário para outro. Existe para o
+   *  caso banal que trava um workflow inteiro: férias, afastamento, desligamento.
+   *  Só admin — é uma ação sobre o trabalho de terceiros, não sobre o próprio. */
+  async transferTasks(dto: TransferTasksDto, organizationId: string, actor?: CurrentUserData) {
+    if (!this.isAdmin(actor)) throw new ForbiddenException('Só um administrador pode transferir tarefas em massa')
+    const reason = (dto.reason ?? '').trim()
+    if (!reason) throw new BadRequestException('Informe o motivo da transferência')
+    if (dto.fromUserId === dto.toUserId) throw new BadRequestException('Escolha usuários diferentes')
+
+    const [from, to] = await Promise.all([
+      this.prisma.user.findFirst({ where: { id: dto.fromUserId, organizationId }, select: { id: true, name: true } }),
+      this.prisma.user.findFirst({ where: { id: dto.toUserId, organizationId }, select: { id: true, name: true, status: true } }),
+    ])
+    if (!from) throw new NotFoundException('Usuário de origem não encontrado nesta organização')
+    if (!to) throw new NotFoundException('Usuário de destino não encontrado nesta organização')
+    if (to.status !== 'ATIVO') throw new BadRequestException('Usuário inativo não pode receber tarefas')
+
+    const tarefas = await this.pendingTasksOf(organizationId, from.id)
+    if (tarefas.length === 0) return { moved: 0, from: from.name, to: to.name }
+
+    // Uma transação por tarefa seria mais lento e não daria garantia melhor: o que
+    // importa é que cada tarefa mude junto com seu registro de histórico.
+    for (const t of tarefas) {
+      await this.prisma.$transaction([
+        this.prisma.workflowTask.update({
+          where: { id: t.id },
+          data: { assignees: [to.id] as never, assignee: to.id },
+        }),
+        this.prisma.workflowEvent.create({
+          data: {
+            instanceId: t.instanceId,
+            taskId: t.id,
+            event: 'DELEGADO',
+            detail: t.name,
+            fromUser: from.name,
+            toUser: to.name,
+            toUserId: to.id,
+            reason,
+            user: actor?.name ?? 'Usuário do sistema',
+            userId: actor?.sub ?? null,
+          },
+        }),
+      ])
+    }
+
+    await this.notifier.clearForTasks(tarefas.map((t) => t.id))
+    for (const t of tarefas) {
+      await this.notifier.taskDelegated(
+        organizationId,
+        { id: t.id, name: t.name, instanceId: t.instanceId, assignees: [to.id], dueAt: t.dueAt },
+        { name: t.instance.processDefinition.name, numero: t.instance.numero },
+        { toUserId: to.id, reason, by: actor?.name ?? 'Usuário do sistema' },
+      )
+    }
+
+    return { moved: tarefas.length, from: from.name, to: to.name }
+  }
+
   // ── Consultas ────────────────────────────────────────────────────────────────
   /** Lista instâncias da org para MONITORAMENTO (visão gerencial — admin). Filtra por
    *  status quando informado (ex.: ERROR, para o painel de instâncias com erro). Deriva
@@ -821,13 +905,51 @@ export class InstancesService {
     for (const [org, rows] of this.byOrg(upcoming)) {
       const params = tarefasParams((await this.settings.get(org, NOTIF_PARAMS_KEY)).value)
       if (!params.enabled) continue
-      const limite = now.getTime() + params.antecedenciaHoras * 3_600_000
-      const perto = rows.filter((t) => t.dueAt !== null && t.dueAt.getTime() <= limite)
+      // Antecedência em tempo ÚTIL, no mesmo calendário que define o prazo: às 17h de
+      // sexta, um prazo de segunda às 10h está a 2 horas de trabalho — avisar por horas
+      // de relógio mandaria o alerta no sábado, quando ninguém pode agir.
+      const cal = await this.calendar.get(org)
+      const perto = rows.filter((t) =>
+        t.dueAt !== null && this.calendar.businessMinutesUntil(now, t.dueAt, cal) <= params.antecedenciaHoras * 60)
       if (perto.length === 0) continue
       await this.notifier.taskDueSoon(org, perto.map(toNotice))
       avisadas += perto.length
     }
     return avisadas
+  }
+
+  /** Reaviso das tarefas que continuam vencidas. O primeiro aviso sai na varredura que
+   *  detecta o vencimento; depois disso o silêncio faria a tarefa sumir do radar de quem
+   *  pode resolvê-la. Insiste com o RESPONSÁVEL (não escala para terceiros), no intervalo
+   *  configurado — `reavisoDias: 0` desliga. */
+  async sweepOverdueReminders(organizationId?: string): Promise<number> {
+    const where: Record<string, unknown> = {
+      status: 'PENDING',
+      dueAt: { lt: new Date() },
+      escalatedAt: { not: null }, // já escalonadas: o 1º aviso saiu
+    }
+    if (organizationId) where.instance = { processDefinition: { organizationId } }
+
+    const vencidas = await this.tasksWithDue(where)
+    if (vencidas.length === 0) return 0
+
+    let reavisadas = 0
+    for (const [org, rows] of this.byOrg(vencidas)) {
+      const params = tarefasParams((await this.settings.get(org, NOTIF_PARAMS_KEY)).value)
+      if (params.reavisoDias <= 0) continue
+      const janela = params.reavisoDias * 86_400_000
+      // reavisa quando o último aviso já tem mais de `reavisoDias`
+      const alvo = rows.filter((t) => Date.now() - (t.escalatedAt as Date).getTime() >= janela)
+      if (alvo.length === 0) continue
+      await this.notifier.taskOverdue(org, alvo.map(toNotice), { reaviso: true })
+      // o carimbo marca o ÚLTIMO aviso, não o primeiro — é ele que agenda o próximo
+      await this.prisma.workflowTask.updateMany({
+        where: { id: { in: alvo.map((t) => t.id) } },
+        data: { escalatedAt: new Date() },
+      })
+      reavisadas += alvo.length
+    }
+    return reavisadas
   }
 
   /** Cancela a instância, com MOTIVO registrado no histórico e aviso a quem tinha
@@ -841,10 +963,10 @@ export class InstancesService {
     })
     if (!instance) throw new NotFoundException('Instância não encontrada')
     // Também cancela instâncias em ERRO (antes ficavam presas para sempre).
-    if (instance.status !== 'RUNNING' && instance.status !== 'ERROR') {
+    if (!isCancelable(instance.status)) {
       throw new BadRequestException('Só é possível cancelar instâncias em execução ou com erro')
     }
-    if (!this.isAdmin(actor) && instance.startedById && instance.startedById !== actor?.sub) {
+    if (!canCancelInstance(instance, actor?.sub ?? '', this.isAdmin(actor))) {
       throw new ForbiddenException('Só um administrador ou quem iniciou o processo pode cancelá-lo')
     }
     const reason = (dto?.reason ?? '').trim()

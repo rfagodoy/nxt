@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { CalendarClock, RefreshCw, Gauge, RotateCw, Save, ShieldAlert, Check, CloudDownload, Play, Loader2, Eye, PauseCircle, AlarmClock } from 'lucide-react'
+import { CalendarClock, RefreshCw, Gauge, RotateCw, Save, ShieldAlert, Check, CloudDownload, Play, Loader2, Eye, PauseCircle, AlarmClock, Repeat, Mail } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/lib/session-context'
 import { cacheRead, pullSetting, pushSetting } from '@/lib/settings-store'
@@ -18,8 +18,10 @@ interface Params {
   indicesAutoImport: boolean
   /** freio de emergência — quem autoriza o reajuste automático é a linha do contrato */
   reajustePausado: boolean
-  /** aviso PREVENTIVO de prazo das tarefas de workflow (o de vencido é sempre enviado) */
-  tarefas: { enabled: boolean; antecedenciaHoras: number }
+  /** avisos de prazo das tarefas de workflow (o de vencido é sempre enviado) */
+  tarefas: { enabled: boolean; antecedenciaHoras: number; reavisoDias: number }
+  /** envio por e-mail (só funciona com SMTP configurado no servidor) */
+  email: { imediato: boolean; resumoDiario: boolean; horaResumo: number }
 }
 const DEFAULT: Params = {
   vigencia: { enabled: true, dias: [60, 30, 7] },
@@ -28,7 +30,8 @@ const DEFAULT: Params = {
   renovacaoAutomatica: true,
   indicesAutoImport: true,
   reajustePausado: false,
-  tarefas: { enabled: true, antecedenciaHoras: 24 },
+  tarefas: { enabled: true, antecedenciaHoras: 24, reavisoDias: 1 },
+  email: { imediato: true, resumoDiario: true, horaResumo: 8 },
 }
 
 /** Resumo retornado por POST /api/notifications/run */
@@ -78,6 +81,7 @@ function normalize(r: Partial<Params> | null | undefined): Params {
     reajuste: { enabled, dias },
     consumo:  { ...DEFAULT.consumo,  ...r.consumo },
     tarefas:  { ...DEFAULT.tarefas,  ...r.tarefas },
+    email:    { ...DEFAULT.email,    ...r.email },
     reajustePausado: r.reajustePausado ?? false,
   }
 }
@@ -111,6 +115,88 @@ function Card({ icon: Icon, color, title, desc, on, onToggle, children }: {
           </div>
           <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{desc}</p>
           {on && children && <div className="mt-3">{children}</div>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* Envio por e-mail. A CREDENCIAL não mora aqui: SMTP é segredo de infraestrutura e
+   vem do ambiente do servidor. A tela mostra se o canal está de pé, escolhe COMO
+   usá-lo e permite provar o caminho com um envio de teste — que é a única forma
+   honesta de dizer "está funcionando". */
+function EmailCard({ p, setP, isAdmin }: { p: Params; setP: (v: Params) => void; isAdmin: boolean }) {
+  const [status, setStatus] = useState<{ enabled: boolean; host: string; from: string } | null>(null)
+  const [testing, setTesting] = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null)
+
+  useEffect(() => {
+    if (!isAdmin) return
+    void apiFetch('/api/notifications/email-status')
+      .then(r => r.ok ? r.json() : null)
+      .then(s => setStatus(s))
+      .catch(() => setStatus(null))
+  }, [isAdmin])
+
+  const testar = async () => {
+    setTesting(true); setResult(null)
+    try {
+      const res = await apiFetch('/api/notifications/email-test', { method: 'POST' })
+      const body = await res.json().catch(() => null) as { ok?: boolean; error?: string } | null
+      setResult(body?.ok
+        ? { ok: true, msg: 'Enviado — confira sua caixa de entrada.' }
+        : { ok: false, msg: body?.error || 'Não foi possível enviar.' })
+    } finally { setTesting(false) }
+  }
+
+  const ligado = status?.enabled ?? false
+
+  return (
+    <div className="rounded-xl border bg-card p-4 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"><Mail className="h-4.5 w-4.5" /></div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold">Envio por e-mail</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+            Leva os avisos pessoais para fora do sistema. O servidor precisa ter SMTP configurado
+            (variável <code className="font-mono text-[11px]">MAIL_HOST</code>) — sem isso, os avisos ficam só no sininho.
+          </p>
+
+          <div className={cn('mt-2 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium',
+            ligado ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-muted text-muted-foreground')}>
+            <span className={cn('h-1.5 w-1.5 rounded-full', ligado ? 'bg-emerald-500' : 'bg-muted-foreground/50')} />
+            {ligado ? `Servidor configurado: ${status?.host}` : 'Nenhum servidor de e-mail configurado'}
+          </div>
+
+          {ligado && (
+            <div className="mt-3 space-y-2">
+              <label className="flex items-center gap-2 text-xs">
+                <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={p.email.imediato}
+                  onChange={e => setP({ ...p, email: { ...p.email, imediato: e.target.checked } })} />
+                Enviar na hora os avisos pessoais (tarefa sua, devolução, prazo)
+              </label>
+              <label className="flex items-center gap-2 text-xs">
+                <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={p.email.resumoDiario}
+                  onChange={e => setP({ ...p, email: { ...p.email, resumoDiario: e.target.checked } })} />
+                Enviar um resumo diário com o que ainda não foi enviado
+              </label>
+              {p.email.resumoDiario && (
+                <label className="flex items-center gap-2 text-xs text-muted-foreground pl-5">
+                  Horário do resumo:
+                  <input type="number" min={0} max={23} className={cn(inputCls, 'w-20')} value={p.email.horaResumo}
+                    onChange={e => setP({ ...p, email: { ...p.email, horaResumo: Math.min(23, Math.max(0, Number(e.target.value) || 0)) } })} />
+                  <span className="text-[11px]">hora local do servidor</span>
+                </label>
+              )}
+              <div className="flex items-center gap-2 pt-1">
+                <button type="button" onClick={() => { void testar() }} disabled={testing}
+                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium hover:bg-muted disabled:opacity-40 transition-colors">
+                  {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}Enviar teste para mim
+                </button>
+                {result && <span className={cn('text-[11px]', result.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive')}>{result.msg}</span>}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -346,9 +432,24 @@ export default function NotificacoesParams() {
         title="Aviso de prazo das tarefas" desc="Avisa o responsável antes de a tarefa do processo vencer. O aviso de prazo VENCIDO é sempre enviado, independentemente deste ajuste."
         on={p.tarefas.enabled} onToggle={v => setP({ ...p, tarefas: { ...p.tarefas, enabled: v } })}>
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
-          Antecedência (horas):
+          Antecedência (horas úteis):
           <input type="number" min={1} className={cn(inputCls, 'w-24')} value={p.tarefas.antecedenciaHoras}
             onChange={e => setP({ ...p, tarefas: { ...p.tarefas, antecedenciaHoras: Math.max(1, Number(e.target.value) || 1) } })} />
+          <span className="text-[11px] text-muted-foreground/80">contadas no expediente do calendário comercial</span>
+        </label>
+      </Card>
+
+      <EmailCard p={p} setP={setP} isAdmin={isAdmin} />
+
+      {/* O reaviso não tem interruptor próprio: "0 dia" já significa desligado, e um
+          toggle a mais faria o usuário configurar a mesma coisa em dois lugares. */}
+      <Card icon={Repeat} color="bg-orange-500/10 text-orange-600 dark:text-orange-400"
+        title="Insistir em tarefa vencida" desc="Enquanto a tarefa continuar vencida, o responsável volta a ser avisado neste intervalo. Não escala para outras pessoas."
+        on={p.tarefas.reavisoDias > 0} onToggle={v => setP({ ...p, tarefas: { ...p.tarefas, reavisoDias: v ? (DEFAULT.tarefas.reavisoDias || 1) : 0 } })}>
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          Reavisar a cada (dias):
+          <input type="number" min={1} className={cn(inputCls, 'w-24')} value={p.tarefas.reavisoDias || 1}
+            onChange={e => setP({ ...p, tarefas: { ...p.tarefas, reavisoDias: Math.max(1, Number(e.target.value) || 1) } })} />
         </label>
       </Card>
     </div>

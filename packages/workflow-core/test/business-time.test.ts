@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { addBusinessTime, isBusinessDay, DEFAULT_BUSINESS_CALENDAR, type BusinessCalendar } from '../src/business-time'
+import { addBusinessTime, businessMinutesBetween, isBusinessDay, DEFAULT_BUSINESS_CALENDAR, type BusinessCalendar } from '../src/business-time'
 
 // Datas de referência (UTC). 2026-07-20 é SEGUNDA; 2026-07-21 terça; 2026-07-24 sexta;
 // 2026-07-25/26 fim de semana; 2026-07-27 segunda.
@@ -51,5 +51,42 @@ describe('addBusinessTime', () => {
     expect(isBusinessDay(at(2026, 6, 20), cal)).toBe(true) // segunda
     expect(isBusinessDay(at(2026, 6, 25), cal)).toBe(false) // sábado
     expect(isBusinessDay(at(2026, 6, 21), { ...cal, holidays: ['2026-07-21'] })).toBe(false) // feriado
+  })
+})
+
+/* businessMinutesBetween é a operação INVERSA de addBusinessTime: responde "quanto
+   tempo de trabalho ainda falta?", que é o que decide quando o aviso preventivo sai.
+   Medir em horas de relógio mandaria o alerta de uma segunda-feira no sábado. */
+describe('businessMinutesBetween', () => {
+  it('conta só o que cabe no expediente do mesmo dia', () => {
+    // seg 10:00 → seg 14:00 = 4h úteis
+    expect(businessMinutesBetween(at(2026, 6, 20, 10), at(2026, 6, 20, 14), cal)).toBe(240)
+  })
+
+  it('ignora a madrugada entre dois dias úteis', () => {
+    // seg 17:00 → ter 10:00: 1h (até as 18) + 1h (das 9 às 10) = 2h úteis, não 17
+    expect(businessMinutesBetween(at(2026, 6, 20, 17), at(2026, 6, 21, 10), cal)).toBe(120)
+  })
+
+  it('atravessa o fim de semana sem contá-lo', () => {
+    // sex 17:00 → seg 10:00 = 2h úteis (o sábado e o domingo não existem para o prazo)
+    expect(businessMinutesBetween(at(2026, 6, 24, 17), at(2026, 6, 27, 10), cal)).toBe(120)
+  })
+
+  it('não conta feriado', () => {
+    const comFeriado: BusinessCalendar = { ...cal, holidays: ['2026-07-21'] }
+    // seg 17:00 → qua 10:00, com terça feriada = 2h úteis
+    expect(businessMinutesBetween(at(2026, 6, 20, 17), at(2026, 6, 22, 10), comFeriado)).toBe(120)
+  })
+
+  it('devolve 0 quando o prazo já passou', () => {
+    expect(businessMinutesBetween(at(2026, 6, 21, 10), at(2026, 6, 20, 10), cal)).toBe(0)
+    expect(businessMinutesBetween(at(2026, 6, 20, 10), at(2026, 6, 20, 10), cal)).toBe(0)
+  })
+
+  it('é coerente com addBusinessTime (ida e volta)', () => {
+    const inicio = at(2026, 6, 24, 15) // sexta 15:00
+    const due = addBusinessTime(inicio, 1, 2, cal) // +1 dia útil e 2h
+    expect(businessMinutesBetween(inicio, due, cal)).toBe(9 * 60 + 2 * 60)
   })
 })

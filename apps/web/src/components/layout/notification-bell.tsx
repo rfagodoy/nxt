@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Bell, CalendarClock, RefreshCw, Gauge, CheckCheck, Inbox, Clock, AlarmClock, Undo2, Ban, type LucideIcon } from 'lucide-react'
+import { Bell, CalendarClock, RefreshCw, Gauge, CheckCheck, Inbox, Clock, AlarmClock, Undo2, Ban, History, type LucideIcon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { apiFetch, apiJson } from '@/lib/http'
@@ -52,13 +52,22 @@ export function NotificationBell({ className }: { className?: string }) {
   const ws = useWorkspace()
   const router = useRouter()
   const [items, setItems] = useState<Notif[]>([])
+  const [unread, setUnread] = useState(0)
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ left: number; bottom: number } | null>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
 
+  /* O painel pede um LOTE (não lidas primeiro) e o contador vem do banco — antes
+     baixava a tabela inteira da organização a cada 2 minutos, por usuário. */
   const load = useCallback(async () => {
-    try { const res = await apiFetch('/api/notifications'); if (res.ok) setItems(await res.json() as Notif[]) } catch { /* ignore */ }
+    try {
+      const res = await apiFetch('/api/notifications')
+      if (!res.ok) return
+      const data = await res.json() as { items: Notif[]; unread: number }
+      setItems(data.items ?? [])
+      setUnread(data.unread ?? 0)
+    } catch { /* ignore */ }
   }, [])
   useEffect(() => { void load() }, [load])
   useEffect(() => {
@@ -93,7 +102,6 @@ export function NotificationBell({ className }: { className?: string }) {
     return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey) }
   }, [open])
 
-  const unread = items.filter(i => !i.read).length
 
   /* Clique: marca como lida e leva ao ALVO. Contrato abre na aba com o mínimo (a
      view busca o resto por id); tarefa precisa do objeto da caixa — se ela já não
@@ -103,6 +111,7 @@ export function NotificationBell({ className }: { className?: string }) {
     setOpen(false)
     if (!n.read) {
       setItems(p => p.map(i => i.id === n.id ? { ...i, read: true } : i))
+      setUnread(u => Math.max(0, u - 1))
       try { await apiFetch(`/api/notifications/${n.id}/read`, { method: 'POST' }) } catch { /* ignore */ }
     }
     if (n.contractId) {
@@ -118,6 +127,7 @@ export function NotificationBell({ className }: { className?: string }) {
   }
   const markAll = async () => {
     setItems(p => p.map(i => ({ ...i, read: true })))
+    setUnread(0)
     try { await apiFetch('/api/notifications/read-all', { method: 'POST' }) } catch { /* ignore */ }
   }
 
@@ -150,7 +160,7 @@ export function NotificationBell({ className }: { className?: string }) {
                 <Bell className="h-7 w-7 opacity-30" />
                 <p className="text-xs">Nenhuma notificação.</p>
               </div>
-            ) : items.map(n => {
+            ) : items.map((n) => {
               const Icon = TIPO_ICON[n.tipo] ?? Bell
               return (
                 <button key={n.id} onClick={() => void openNotif(n)}
@@ -170,6 +180,13 @@ export function NotificationBell({ className }: { className?: string }) {
               )
             })}
           </div>
+          {/* o painel mostra um lote; o passado inteiro vive na tela de histórico */}
+          <button
+            onClick={() => { setOpen(false); router.push('/notificacoes') }}
+            className="flex w-full items-center justify-center gap-1 border-t px-3 py-2 text-[11px] font-medium text-primary hover:bg-muted/50 transition-colors"
+          >
+            <History className="h-3.5 w-3.5" />Ver todas
+          </button>
         </div>,
         document.body,
       )}

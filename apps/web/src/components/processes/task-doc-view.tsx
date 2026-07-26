@@ -26,7 +26,6 @@ export function TaskDocView({ task, onDone, onNotice }: {
   onNotice?: (msg: string) => void
 }) {
   const [step, setStep] = useState<StepFormSchema | null>(null)
-  const [variables, setVariables] = useState<Record<string, unknown>>({})
   const [timeline, setTimeline] = useState<TimelineTask[]>([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -48,7 +47,6 @@ export function TaskDocView({ task, onDone, onNotice }: {
         const fs = ctx?.instance?.processDefinition?.formSchema
         const found = fs?.steps?.find((s) => s.stepId === task.nodeId)
         const vars = ctx?.state?.variables ?? {}
-        setVariables(vars)
         setTimeline(ctx?.instance?.tasks ?? [])
         setStep(found ?? { stepId: task.nodeId, stepName: task.name || task.nodeId, fields: [] })
         // tarefa que EDITA uma entidade já tem o id na variável → "Avançar" liberado
