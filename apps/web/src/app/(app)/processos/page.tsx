@@ -32,14 +32,14 @@ const COLS: Col[] = [
       </>
     ),
   },
-  {
-    key: 'situacao', label: 'Situação', text: (i) => STATUS[i.status]?.label ?? i.status,
-    node: (i) => { const st = STATUS[i.status] ?? STATUS.RUNNING; return (
-      <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium', st.cls)}><st.icon className="h-3 w-3" />{st.label}</span>
-    ) },
-  },
-  { key: 'iniciadoPor', label: 'Iniciado por', text: (i) => i.startedBy || '—', node: (i) => <span className="text-muted-foreground">{i.startedBy || '—'}</span> },
   { key: 'inicio', label: 'Início', text: (i) => fmt(i.startedAt), sortVal: (i) => new Date(i.startedAt).getTime(), node: (i) => <span className="text-muted-foreground whitespace-nowrap">{fmt(i.startedAt)}</span> },
+  {
+    // prazo do PROCESSO (derivado da soma das atividades) — não confundir com o
+    // vencimento da etapa atual, que vive na coluna "Etapa atual / conclusão".
+    key: 'prevista', label: 'Data prevista para término',
+    text: (i) => fmt(i.processDueAt), sortVal: (i) => (i.processDueAt ? new Date(i.processDueAt).getTime() : 0),
+    node: (i) => <span className={cn('whitespace-nowrap', i.processOverdue ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground')}>{fmt(i.processDueAt)}</span>,
+  },
   {
     key: 'etapa', label: 'Etapa atual / conclusão',
     text: (i) => i.status === 'RUNNING' ? (i.currentStep || '—') : i.status === 'ERROR' ? (i.error || i.stepName || 'erro') : i.status === 'COMPLETED' ? `concluído em ${fmt(i.completedAt)}` : i.cancelReason ? `cancelado · motivo: ${i.cancelReason}` : '—',
@@ -73,8 +73,23 @@ const COLS: Col[] = [
       </span>
     ),
   },
+  { key: 'iniciadoPor', label: 'Iniciado por', text: (i) => i.startedBy || '—', node: (i) => <span className="text-muted-foreground">{i.startedBy || '—'}</span> },
+  {
+    key: 'situacao', label: 'Situação', text: (i) => STATUS[i.status]?.label ?? i.status,
+    node: (i) => { const st = STATUS[i.status] ?? STATUS.RUNNING; return (
+      <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium', st.cls)}><st.icon className="h-3 w-3" />{st.label}</span>
+    ) },
+  },
 ]
-const HIDDEN_KEY = 'nxt:cols:processos:hidden'
+/* v2: a disposição padrão das colunas mudou (Nº · Processo · Início · Data prevista ·
+   Pontualidade · Iniciado por · Situação). A chave é versionada porque a preferência
+   antiga guardada no navegador venceria o novo padrão — e o usuário veria a tela
+   velha sem saber por quê. */
+const HIDDEN_KEY = 'nxt:cols:processos:hidden:v2'
+/* "Etapa atual / conclusão" sai da visão padrão (ordem de colunas definida pelo PO),
+   mas continua disponível em Configurações — é onde aparecem o vencimento da etapa
+   corrente, a causa do erro e o motivo do cancelamento. */
+const HIDDEN_DEFAULT = ['etapa']
 
 export default function ProcessosPage() {
   const ws = useWorkspace()
@@ -88,7 +103,7 @@ export default function ProcessosPage() {
   const [activeViewId, setActiveViewId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
-  const [hidden, setHidden] = useState<Set<string>>(new Set())
+  const [hidden, setHidden] = useState<Set<string>>(new Set(HIDDEN_DEFAULT))
   const [showConfig, setShowConfig] = useState(false)
   const configRef = useRef<HTMLDivElement>(null)
   const mounted = useRef(false)

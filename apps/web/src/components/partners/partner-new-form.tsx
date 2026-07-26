@@ -26,7 +26,7 @@ import {
   type PartnerCategory, type PartnerFormValues,
 } from './partner-fields'
 
-export interface PartnerSaveResult { id: string; razaoSocial: string }
+export interface PartnerSaveResult { id: string; razaoSocial: string; documento?: string }
 
 /* ─── seção accordion (chrome do cadastro) ───────────────── */
 
@@ -172,8 +172,12 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
     }
   }
 
+  /* Fim de salvamento. Embutido (drawer do contrato, tarefa de workflow) → devolve o
+   *  parceiro a quem chamou. Pela rota `?from=contratos` → volta ao contrato; o
+   *  parceiro AGORA já está gravado (antes esse caminho não salvava nada). */
   const afterSave = (result?: PartnerSaveResult) => {
-    if (onSaved) { onSaved(result) } else { router.push('/modules/parceiros') }
+    if (onSaved) { onSaved(result); return }
+    router.push(fromContratos ? '/modules/contratos/new' : '/modules/parceiros')
   }
 
   /* R2 — grava os valores dos campos personalizados da tela ligados ao novo parceiro. */
@@ -208,7 +212,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
       })
       if (!res.ok) { setSaveError(`Erro ao salvar (${res.status}). Verifique a conexão com o servidor.`); return }
       const created = await res.json() as { id?: string }
-      if (created.id) { await persistScreen(created.id); afterSave({ id: created.id, razaoSocial }) } else { afterSave() }
+      if (created.id) { await persistScreen(created.id); afterSave({ id: created.id, razaoSocial, documento: v.documento.trim() }) } else { afterSave() }
     } catch {
       setSaveError('Não foi possível conectar ao servidor. Verifique se o serviço está disponível.')
     } finally { setSaving(null) }
@@ -254,13 +258,6 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
       return
     }
 
-    if (!embedded && fromContratos) {
-      const novoParceiro = { id: `p_${Date.now()}`, nome: razaoSocial, documento: v.documento.trim() }
-      sessionStorage.setItem('nxt:contract:newParceiro', JSON.stringify(novoParceiro))
-      router.push('/modules/contratos/new')
-      return
-    }
-
     setSaving('active'); setSaveError(null)
     try {
       const res = await apiFetch(`/api/partners`, {
@@ -269,7 +266,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
       })
       if (!res.ok) { setSaveError(`Erro ao ativar (${res.status}). Verifique a conexão com o servidor.`); return }
       const created = await res.json() as { id?: string }
-      if (created.id) { await persistScreen(created.id); afterSave({ id: created.id, razaoSocial }) } else { afterSave() }
+      if (created.id) { await persistScreen(created.id); afterSave({ id: created.id, razaoSocial, documento: v.documento.trim() }) } else { afterSave() }
     } catch {
       setSaveError('Não foi possível conectar ao servidor. Verifique se o serviço está disponível.')
     } finally { setSaving(null) }

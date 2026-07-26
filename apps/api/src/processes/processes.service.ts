@@ -46,6 +46,13 @@ export class ProcessesService {
   async activate(id: string, organizationId: string) {
     const process = await this.findOne(id, organizationId)
 
+    // TIPO obrigatório para ativar: é ele que decide onde o workflow aparece no
+    // "Novo processo" (Contratos mostra CONTRATO/ADITIVO, Parceiros mostra PARCEIRO).
+    // Sem tipo, o workflow nasce ativo e invisível — só o Dashboard o lista.
+    if (!process.kind) {
+      throw new BadRequestException('Informe o tipo do workflow (contrato, aditivo ou parceiro) antes de ativar.')
+    }
+
     // Compila o BPMN → grafo executável. É AQUI que o diagrama deixa de ser
     // cosmético: se o desenho for inválido (seta órfã, sem início, construção
     // não suportada), a ativação FALHA com a causa — em vez de "ativar" algo

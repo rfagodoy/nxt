@@ -12,7 +12,8 @@ import { pickDefaultScreen, resolveContractSections } from '@/lib/screen-contrac
 import { reconcileNative } from '@/lib/screen-native-structure'
 import type { Screen } from '@/lib/screen-types'
 import { ContractSectionNative, ContractCustomFields } from './contract-screen-body'
-import { EntitySearchModal } from './entity-search-modal'
+import { EntitySearchModal, type EntityRef } from './entity-search-modal'
+import { NewPartnerPanel } from './new-partner-panel'
 import {
   useContractForm, IdentificacaoFields, VigenciaFields, ValoresFields,
   ReajustesFields, PartesFields, DocumentosFields, LancamentosFields,
@@ -61,10 +62,23 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
   const [empresas,    setEmpresas]    = useState<{ id: string; nome: string; documento: string }[]>([])
   const [numbering,   setNumbering]   = useState<NumberingCfg | null>(null)
   const [searchModal, setSearchModal] = useState<{ parteId: string; origem: string; excludeIds: string[] } | null>(null)
+  /* cadastro de parceiro sobre o contrato; `parteId` guarda a parte que espera a
+     entidade (vazio = veio do rodapé da seção, sem parte de destino definida) */
+  const [newPartner, setNewPartner] = useState<{ parteId: string } | null>(null)
   const [open,        setOpen]        = useState<Set<string>>(new Set(['dados_gerais']))
   const [errors,      setErrors]      = useState<Set<string>>(new Set())
   const [saveError,   setSaveError]   = useState<string | null>(null)
   const [saving,      setSaving]      = useState<'draft' | 'active' | null>(null)
+
+  /** Liga o parceiro recém-criado a uma parte: à parte que pediu o cadastro, senão à
+   *  primeira parte ainda sem entidade, senão numa parte nova. O que não pode é o
+   *  parceiro voltar e o contrato fingir que nada aconteceu. */
+  const attachPartner = (e: EntityRef) => {
+    const alvo = newPartner?.parteId || v.partes.find((p) => !p.ref_id)?.id
+    if (alvo) form.setParteEntity(alvo, e)
+    else form.set('partes', [...v.partes, { ...newCParte(''), ...e }])
+    setNewPartner(null)
+  }
 
   /* R3 — a tela padrão (isDefault/ACTIVE) desenha o cadastro: seções, ordem, rótulos e
      campos personalizados capturados nas seções. Sem tela padrão → form nativo (fallback). */
@@ -190,7 +204,7 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
               <ContractSectionNative section={s} ctx={{
                 form, moedaCode: v.moeda, autoNumero, numeroPreview, dualView: true,
                 onOpenSearch: (parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds }),
-                onNewPartner: () => router.push('/modules/parceiros/new?from=contratos'),
+                onNewPartner: () => setNewPartner({ parteId: '' }),
               }} />
               <ContractCustomFields fields={s.customFields} screenValues={screenValues} onScreenChange={onScreenChange} />
             </Section>
@@ -203,7 +217,7 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
         <Section icon={Users} title="Partes Envolvidas" isOpen={open.has('partes')} onToggle={() => toggleSection('partes')} hasError={errors.has('partes')}>
           <PartesFields form={form}
             onOpenSearch={(parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds })}
-            onNewPartner={() => router.push('/modules/parceiros/new?from=contratos')} />
+            onNewPartner={() => setNewPartner({ parteId: '' })} />
         </Section>
 
         <Section icon={Calendar} title="Vigência" isOpen={open.has('vigencia')} onToggle={() => toggleSection('vigencia')} hasError={errors.has('vigencia')}>
@@ -265,9 +279,11 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
           excludeIds={searchModal.excludeIds}
           onSelect={(e) => { form.setParteEntity(searchModal.parteId, e); setSearchModal(null) }}
           onClose={() => setSearchModal(null)}
-          onNewPartner={() => router.push('/modules/parceiros/new?from=contratos')}
+          onNewPartner={() => { const parteId = searchModal.parteId; setSearchModal(null); setNewPartner({ parteId }) }}
         />
       )}
+
+      {newPartner && <NewPartnerPanel onCreated={attachPartner} onClose={() => setNewPartner(null)} />}
     </div>
   )
 }
