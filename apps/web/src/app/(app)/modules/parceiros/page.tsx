@@ -4,7 +4,6 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { Plus, ArrowUp, ArrowDown, ChevronsUpDown, Settings2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
-import { StartProcessButton } from '@/components/processes/start-process-button'
 import { useViews, type ViewState } from '@/hooks/use-views'
 import { cacheRead, pushSetting, pullSetting } from '@/lib/settings-store'
 import { exportExcel } from '@/lib/export-excel'
@@ -477,7 +476,6 @@ export default function ParceirosPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <StartProcessButton kinds={['PARCEIRO']} />
           <button
             type="button"
             onClick={openNewPartner}

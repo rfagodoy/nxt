@@ -18,8 +18,9 @@ interface ProcRow {
 /** Botão "+ Novo processo" (iniciar uma execução). Abre um modal com os workflows
  *  ATIVOS; escolher um leva ao runner (`/processes/[id]?iniciar=1`). Reutilizável no
  *  Dashboard, Contratos e Parceiros. `variant='hero'` casa com o card escuro do topo.
- *  `kinds` filtra por tipo de workflow: Contratos passa ['CONTRATO','ADITIVO'], Parceiros
- *  ['PARCEIRO']; sem `kinds` (Dashboard) mostra TODOS. Workflows sem tipo só no Dashboard. */
+ *  `kinds` filtra por tipo de workflow: Contratos passa ['CONTRATO','ADITIVO']; sem
+ *  `kinds` (Dashboard) mostra TODOS. Workflows sem tipo só aparecem no Dashboard.
+ *  (Parceiros não tem mais botão: workflow de parceiro foi descontinuado.) */
 export function StartProcessButton({ variant = 'outline', className, kinds }: {
   variant?: 'hero' | 'outline'
   className?: string

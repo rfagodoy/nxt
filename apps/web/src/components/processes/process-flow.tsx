@@ -31,7 +31,6 @@ const PANEL_KEY = 'nxt:workflow:panel-collapsed'
 export const WORKFLOW_KINDS = [
   { value: 'CONTRATO', label: 'Contrato' },
   { value: 'ADITIVO', label: 'Aditivo' },
-  { value: 'PARCEIRO', label: 'Parceiro' },
 ] as const
 
 type NType = FlowNodeType

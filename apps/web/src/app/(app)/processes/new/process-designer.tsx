@@ -34,7 +34,6 @@ function BpmnLoading() {
 export const WORKFLOW_KINDS = [
   { value: 'CONTRATO', label: 'Contrato' },
   { value: 'ADITIVO', label: 'Aditivo' },
-  { value: 'PARCEIRO', label: 'Parceiro' },
 ] as const
 
 /** Dados iniciais para editar um processo existente. Ausente = criação. */
