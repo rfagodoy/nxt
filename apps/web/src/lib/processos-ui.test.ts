@@ -108,3 +108,21 @@ describe('buildHistory', () => {
     expect(h[0].task).toBeUndefined()
   })
 })
+
+/* Reabertura: o evento precisa aparecer na MESMA trilha do cancelamento, senão o
+   histórico conta que o processo foi cancelado e nunca explica por que voltou. */
+describe('buildHistory — reabertura', () => {
+  it('inclui a reabertura como evento próprio', () => {
+    const h = buildHistory([], [], [ev({ id: 'e3', event: 'REATIVADO', detail: 'Solicitação de contrato', reason: 'cancelado por engano' })])
+    expect(h).toHaveLength(1)
+    expect(h[0]).toMatchObject({ kind: 'reopen', reason: 'cancelado por engano', by: 'Rafael' })
+  })
+
+  it('cancelamento e reabertura convivem, do mais recente para o mais antigo', () => {
+    const eventos = [
+      ev({ id: 'c1', event: 'CANCELADO', reason: 'duplicado', createdAt: '2026-07-26T12:00:00Z' }),
+      ev({ id: 'u1', event: 'REATIVADO', reason: 'engano', createdAt: '2026-07-26T15:00:00Z' }),
+    ]
+    expect(buildHistory([], [], eventos).map((e) => e.kind)).toEqual(['reopen', 'cancel'])
+  })
+})

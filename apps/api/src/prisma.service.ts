@@ -22,6 +22,7 @@ const JSON_FIELDS: Record<string, string[]> = {
   AppSetting: ['value'],
   ScreenField: ['options', 'validation', 'hiddenCategories', 'requiredCategories'],
   WorkflowCompensation: ['undoData'],
+  WorkflowEvent: ['payload'],
 }
 
 function serialize(model: string | undefined, data: unknown) {

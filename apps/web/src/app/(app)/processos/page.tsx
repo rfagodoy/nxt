@@ -5,6 +5,7 @@ import { Loader2, RefreshCw, CheckCircle2, AlertTriangle, Clock, Settings2, Chev
 import { Button } from '@/components/ui/button'
 import { StartProcessButton } from '@/components/processes/start-process-button'
 import { CancelInstanceButton } from '@/components/processes/cancel-instance-button'
+import { UncancelInstanceButton } from '@/components/processes/uncancel-instance-button'
 import { cn } from '@/lib/utils'
 import { apiJson } from '@/lib/http'
 import { useViews } from '@/hooks/use-views'
@@ -274,6 +275,10 @@ export default function ProcessosPage() {
                   <td className="px-3 py-2 align-top whitespace-nowrap">
                     {(i.status === 'RUNNING' || i.status === 'ERROR') && (
                       <CancelInstanceButton instanceId={i.id} processName={i.processName} onCancelled={load} compact />
+                    )}
+                    {/* cancelar por engano acontece; sem isto, a saída seria recomeçar o processo do zero */}
+                    {i.status === 'CANCELLED' && (
+                      <UncancelInstanceButton instanceId={i.id} processName={i.processName} onDone={load} compact />
                     )}
                   </td>
                 </tr>

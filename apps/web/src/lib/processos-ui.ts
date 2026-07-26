@@ -94,7 +94,7 @@ export function pontualidadeLabel(i: Inst): string {
 export interface HistoryEvent {
   key: string
   ts: string
-  kind: 'done' | 'return' | 'delegate' | 'cancel'
+  kind: 'done' | 'return' | 'delegate' | 'cancel' | 'reopen'
   /** a atividade envolvida; ausente no cancelamento, que é da INSTÂNCIA, não de uma etapa */
   task?: TaskRow
   /** retrocesso: para onde voltou; delegação: para quem foi */
@@ -137,6 +137,8 @@ export function buildHistory(tasks: TaskRow[], returns: ReturnRow[], events: Eve
       })
     } else if (e.event === 'CANCELADO') {
       evs.push({ key: `c:${e.id}`, ts: e.createdAt, kind: 'cancel', label: e.detail ?? undefined, reason: e.reason, by: e.user })
+    } else if (e.event === 'REATIVADO') {
+      evs.push({ key: `u:${e.id}`, ts: e.createdAt, kind: 'reopen', label: e.detail ?? undefined, reason: e.reason, by: e.user })
     }
   }
   return evs.sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0))

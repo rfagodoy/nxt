@@ -7,7 +7,7 @@
    eventos (concluída / retrocedida). */
 
 import { useEffect, useState, type ReactNode } from 'react'
-import { Loader2, User, GitBranch, CheckCircle2, Undo2, Clock, UserPlus, Ban } from 'lucide-react'
+import { Loader2, User, GitBranch, CheckCircle2, Undo2, Clock, UserPlus, Ban, RotateCcw } from 'lucide-react'
 import { apiJson } from '@/lib/http'
 import { cn } from '@/lib/utils'
 import { TableToolbar } from '@/components/list/table-toolbar'
@@ -108,12 +108,14 @@ export function ProcessInstanceDocView({ inst }: { inst: Inst }) {
     return:   { label: 'Retrocedida', icon: Undo2,        cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
     delegate: { label: 'Delegada',    icon: UserPlus,     cls: 'bg-sky-500/10 text-sky-600 dark:text-sky-400' },
     cancel:   { label: 'Cancelado',   icon: Ban,          cls: 'bg-muted text-muted-foreground' },
+    reopen:   { label: 'Reaberto',    icon: RotateCcw,    cls: 'bg-primary/10 text-primary' },
   }
   const activityOf = (e: HistoryEvent) => e.task ? (e.task.name || e.task.nodeId) : (e.label || '—')
   const detailText = (e: HistoryEvent) =>
     e.kind === 'return'   ? `para ${e.to || '—'}${e.reason ? ` · motivo: ${e.reason}` : ''}`
     : e.kind === 'delegate' ? `de ${e.from || 'tarefa aberta'} para ${e.to || '—'}${e.reason ? ` · motivo: ${e.reason}` : ''}`
     : e.kind === 'cancel'   ? `cancelado por ${e.by || '—'}${e.reason ? ` · motivo: ${e.reason}` : ''}`
+    : e.kind === 'reopen'   ? `reaberto por ${e.by || '—'}${e.reason ? ` · motivo: ${e.reason}` : ''}`
     : '—'
   const histCols: Col<HistoryEvent>[] = [
     { key: 'atividade', label: 'Atividade', vcenter: true, get: activityOf, cell: (e) => <span className="font-medium">{activityOf(e)}</span> },
@@ -143,6 +145,7 @@ export function ProcessInstanceDocView({ inst }: { inst: Inst }) {
             {e.kind === 'return' && <>para <span className="font-medium text-foreground">{e.to || '—'}</span></>}
             {e.kind === 'delegate' && <>de <span className="font-medium text-foreground">{e.from || 'tarefa aberta'}</span> para <span className="font-medium text-foreground">{e.to || '—'}</span></>}
             {e.kind === 'cancel' && <>cancelado por <span className="font-medium text-foreground">{e.by || '—'}</span></>}
+            {e.kind === 'reopen' && <>reaberto por <span className="font-medium text-foreground">{e.by || '—'}</span></>}
             {e.reason && <span className="block text-[11px] italic mt-0.5">motivo: {e.reason}</span>}
           </span>
         )

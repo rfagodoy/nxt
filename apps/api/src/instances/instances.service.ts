@@ -712,10 +712,12 @@ export class InstancesService {
         // num processo devolvido (a soma não conta as reaberturas) → a UI usa isto para
         // ressalvar a Pontualidade.
         returnCount: inst._count?.returns ?? 0,
-        // cancelamento: motivo e autor (vazios quando o processo não foi cancelado)
-        cancelReason: inst.events?.[0]?.reason ?? null,
-        cancelledBy: inst.events?.[0]?.user ?? null,
-        cancelledAt: inst.events?.[0]?.createdAt ?? null,
+        // Cancelamento: motivo e autor. Só valem enquanto o processo ESTIVER cancelado —
+        // o evento continua no histórico depois de reaberto, e exibi-lo na lista faria
+        // um processo em andamento parecer cancelado.
+        cancelReason: inst.status === 'CANCELLED' ? (inst.events?.[0]?.reason ?? null) : null,
+        cancelledBy: inst.status === 'CANCELLED' ? (inst.events?.[0]?.user ?? null) : null,
+        cancelledAt: inst.status === 'CANCELLED' ? (inst.events?.[0]?.createdAt ?? null) : null,
       }
     })
   }
@@ -998,6 +1000,13 @@ export class InstancesService {
           reason,
           user: actor?.name ?? 'Usuário do sistema',
           userId: actor?.sub ?? null,
+          // foto para o desfazer: `cancelProcess` zera os tokens, então sem guardar o
+          // estado aqui o processo não teria como voltar de onde parou.
+          payload: {
+            state: instance.state,
+            taskIds: pendentes.map((t) => t.id),
+            status: instance.status,
+          } as never,
         },
       }),
     ])
@@ -1012,6 +1021,80 @@ export class InstancesService {
     )
 
     return updated
+  }
+
+  /** Desfaz o cancelamento: o processo volta de onde parou. Existe porque cancelar é
+   *  irreversível demais para um clique — engano acontece, e sem isto a saída seria
+   *  recomeçar o processo do zero, perdendo tudo o que já tinha sido feito.
+   *
+   *  Os prazos voltam COMO ERAM (decisão do PO): se o cancelamento durou dias, a
+   *  tarefa reaparece atrasada — que é a verdade, o relógio do negócio não parou.
+   *  Quem pode: a mesma regra do cancelamento (admin ou quem iniciou). */
+  async uncancel(instanceId: string, dto: CancelInstanceDto, organizationId: string, actor?: CurrentUserData) {
+    const instance = await this.prisma.processInstance.findFirst({
+      where: { id: instanceId, processDefinition: { organizationId } },
+      include: { processDefinition: { select: { name: true, status: true } } },
+    })
+    if (!instance) throw new NotFoundException('Instância não encontrada')
+    if (instance.status !== 'CANCELLED') throw new BadRequestException('Só é possível reabrir um processo cancelado')
+    if (!canCancelInstance(instance, actor?.sub ?? '', this.isAdmin(actor))) {
+      throw new ForbiddenException('Só um administrador ou quem iniciou o processo pode reabri-lo')
+    }
+    const reason = (dto?.reason ?? '').trim()
+    if (!reason) throw new BadRequestException('Informe o motivo da reabertura')
+
+    const evento = await this.prisma.workflowEvent.findFirst({
+      where: { instanceId, event: 'CANCELADO' },
+      orderBy: { createdAt: 'desc' },
+    })
+    const snap = evento?.payload as unknown as { state?: WfState; taskIds?: string[]; status?: string } | null
+    if (!snap?.state) {
+      // cancelamento anterior a esta feature: sem a foto, reabrir "adivinhando" o
+      // estado colocaria o processo num ponto que ele nunca esteve.
+      throw new BadRequestException('Este cancelamento é anterior ao recurso de reabertura e não guardou o estado do processo.')
+    }
+
+    const state: WfState = { ...snap.state, status: 'running' }
+    const taskIds = Array.isArray(snap.taskIds) ? snap.taskIds : []
+
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.processInstance.update({
+        where: { id: instanceId },
+        // volta ao status que tinha ANTES do cancelamento (RUNNING ou ERROR)
+        data: { status: snap.status === 'ERROR' ? 'ERROR' : 'RUNNING', state: state as never, revision: { increment: 1 } },
+      }),
+      this.prisma.workflowTask.updateMany({
+        where: { id: { in: taskIds }, status: 'CANCELED' },
+        data: { status: 'PENDING', escalatedAt: null },
+      }),
+      this.prisma.workflowEvent.create({
+        data: {
+          instanceId,
+          event: 'REATIVADO',
+          detail: instance.processDefinition.name,
+          reason,
+          user: actor?.name ?? 'Usuário do sistema',
+          userId: actor?.sub ?? null,
+        },
+      }),
+    ])
+
+    // o aviso de cancelamento não vale mais; quem tem tarefa de volta precisa saber
+    await this.notifier.clearForInstance(instanceId)
+    await this.prisma.notification
+      .deleteMany({ where: { instanceId, tipo: 'PROCESSO_CANCELADO' } })
+      .catch(() => undefined)
+
+    const reabertas = await this.prisma.workflowTask.findMany({
+      where: { id: { in: taskIds }, status: 'PENDING' },
+      include: { instance: { select: { id: true, numero: true, processDefinition: { select: { name: true } } } } },
+    })
+    await this.notifier.taskResumed(organizationId, reabertas.map(toNotice), {
+      reason,
+      by: actor?.name ?? 'Usuário do sistema',
+    })
+
+    return { instanceId, status: updated.status, reabertas: reabertas.length }
   }
 
   /** Reprocessa a(s) etapa(s) automática(s) de uma instância em ERRO: reexecuta os

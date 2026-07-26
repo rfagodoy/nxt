@@ -142,6 +142,18 @@ export class InstancesController {
     return this.instancesService.cancel(id, organizationId, dto, actor)
   }
 
+  // Mesma regra do cancelamento (admin ou quem iniciou) — validada no service.
+  @Patch(':id/uncancel')
+  @ApiOperation({ summary: 'Desfaz o cancelamento: o processo volta de onde parou, com motivo — admin ou quem iniciou' })
+  uncancel(
+    @Param('id') id: string,
+    @Body() dto: CancelInstanceDto,
+    @CurrentOrg() organizationId: string,
+    @CurrentUser() actor: CurrentUserData,
+  ) {
+    return this.instancesService.uncancel(id, dto, organizationId, actor)
+  }
+
   @Post(':id/retry')
   @UseGuards(RolesGuard)
   @Roles('admin')
