@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from 'react'
-import { Loader2, RefreshCw, CheckCircle2, AlertTriangle, Clock, Settings2, ChevronsUpDown, ArrowUp, ArrowDown, Undo2 } from 'lucide-react'
+import { Loader2, RefreshCw, CheckCircle2, AlertTriangle, Clock, Settings2, ChevronsUpDown, ArrowUp, ArrowDown, Undo2, Ban } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StartProcessButton } from '@/components/processes/start-process-button'
 import { CancelInstanceButton } from '@/components/processes/cancel-instance-button'
@@ -61,7 +61,8 @@ const COLS: Col[] = [
     key: 'pontualidade', label: 'Pontualidade', text: (i) => pontualidadeLabel(i) + (i.returnCount > 0 ? ` · reaberta ${i.returnCount}×` : ''),
     node: (i) => (
       <span className="inline-flex items-center gap-1.5">
-        {i.processOnTime == null ? <span className="text-muted-foreground">sem prazo</span>
+        {i.status === 'CANCELLED' ? <span className="inline-flex items-center gap-1 text-muted-foreground"><Ban className="h-3 w-3" />cancelado</span>
+          : i.processOnTime == null ? <span className="text-muted-foreground">sem prazo</span>
           : i.processOnTime ? <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="h-3 w-3" />no prazo</span>
           : <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400"><AlertTriangle className="h-3 w-3" />atrasado</span>}
         {/* prazo derivado NÃO conta reaberturas → é otimista; o badge ressalva o número */}

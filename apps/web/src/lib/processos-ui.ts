@@ -79,7 +79,15 @@ export function humanDuration(ms: number | null): string {
   return rh ? `${d}d ${rh}h` : `${d}d`
 }
 
-export function pontualidadeLabel(i: Inst): string { return i.processOnTime == null ? 'sem prazo' : i.processOnTime ? 'no prazo' : 'atrasado' }
+/** Rótulo da Pontualidade do processo.
+ *  "sem prazo" agora significa UMA coisa só: workflow sem SLA configurado. Antes o
+ *  mesmo texto cobria também cancelado e em erro — a linha exibia "Data prevista"
+ *  preenchida e "sem prazo" ao lado, contradizendo a si mesma.
+ *  Cancelado tem rótulo próprio: não houve entrega para julgar pontualidade. */
+export function pontualidadeLabel(i: Inst): string {
+  if (i.status === 'CANCELLED') return 'cancelado'
+  return i.processOnTime == null ? 'sem prazo' : i.processOnTime ? 'no prazo' : 'atrasado'
+}
 
 /** Um registro do HISTÓRICO do processo (trilha cronológica de eventos). Carrega a
  *  TAREFA da atividade (para as colunas Início/Prazo/Data prevista/Pontualidade/Executor). */
@@ -136,6 +144,10 @@ export function buildHistory(tasks: TaskRow[], returns: ReturnRow[], events: Eve
 
 export function taskPunctuality(t: TaskRow): { label: string; cls: string } {
   const now = Date.now()
+  // tarefa cancelada (o processo foi cancelado ou o ramo descartado) não entregou nem
+  // deixou de entregar — cobrá-la de pontualidade seria culpar alguém por um trabalho
+  // que o próprio sistema tirou da frente dela.
+  if (t.status === 'CANCELED') return { label: 'cancelada', cls: 'text-muted-foreground' }
   if (!t.dueAt) return { label: 'sem prazo', cls: 'text-muted-foreground' }
   const due = new Date(t.dueAt).getTime()
   if (t.completedAt) return new Date(t.completedAt).getTime() <= due

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildHistory, taskExecutor, type TaskRow, type ReturnRow, type EventRow } from './processos-ui'
+import { buildHistory, taskExecutor, pontualidadeLabel, taskPunctuality, type Inst, type TaskRow, type ReturnRow, type EventRow } from './processos-ui'
 
 const task = (over: Partial<TaskRow> & { id: string }): TaskRow => ({
   nodeId: `n-${over.id}`, status: 'DONE', createdAt: '2026-07-26T10:00:00Z', ...over,
@@ -7,6 +7,47 @@ const task = (over: Partial<TaskRow> & { id: string }): TaskRow => ({
 
 const ev = (over: Partial<EventRow> & { id: string; event: string }): EventRow => ({
   instanceId: 'i1', reason: 'motivo', user: 'Rafael', createdAt: '2026-07-26T12:00:00Z', ...over,
+})
+
+const inst = (over: Partial<Inst>): Inst => ({
+  id: 'i1', numero: 1, processName: 'P', version: 1, status: 'RUNNING',
+  error: null, stepName: null, startedBy: null, startedAt: '2026-07-26T10:00:00Z',
+  completedAt: null, updatedAt: '2026-07-26T10:00:00Z',
+  currentStep: null, currentDueAt: null, currentOverdue: false,
+  totalSteps: 1, doneSteps: 0, hasSla: true, onTime: true, durationMs: null,
+  processDueAt: '2026-07-28T18:00:00Z', processOverdue: false, processOnTime: true,
+  returnCount: 0, ...over,
+})
+
+/* "sem prazo" precisa significar UMA coisa só: workflow sem SLA. Enquanto cobria
+   também cancelado, a linha exibia "Data prevista" preenchida ao lado de "sem prazo". */
+describe('pontualidadeLabel', () => {
+  it('processo cancelado tem rótulo próprio, mesmo tendo prazo', () => {
+    expect(pontualidadeLabel(inst({ status: 'CANCELLED', processOnTime: null }))).toBe('cancelado')
+  })
+  it('cancelado NÃO é julgado pelo prazo (nem no prazo, nem atrasado)', () => {
+    expect(pontualidadeLabel(inst({ status: 'CANCELLED', processOnTime: false }))).toBe('cancelado')
+    expect(pontualidadeLabel(inst({ status: 'CANCELLED', processOnTime: true }))).toBe('cancelado')
+  })
+  it('"sem prazo" fica só para workflow sem SLA', () => {
+    expect(pontualidadeLabel(inst({ status: 'RUNNING', processOnTime: null }))).toBe('sem prazo')
+  })
+  it('em andamento e concluído seguem avaliados', () => {
+    expect(pontualidadeLabel(inst({ processOnTime: true }))).toBe('no prazo')
+    expect(pontualidadeLabel(inst({ processOnTime: false }))).toBe('atrasado')
+    expect(pontualidadeLabel(inst({ status: 'COMPLETED', processOnTime: false }))).toBe('atrasado')
+  })
+})
+
+describe('taskPunctuality', () => {
+  it('tarefa cancelada não é cobrada de pontualidade', () => {
+    const t: TaskRow = { id: 't', nodeId: 'n', status: 'CANCELED', createdAt: '2026-07-20T10:00:00Z', dueAt: '2026-07-21T10:00:00Z' }
+    expect(taskPunctuality(t).label).toBe('cancelada')
+  })
+  it('tarefa pendente vencida continua atrasada', () => {
+    const t: TaskRow = { id: 't', nodeId: 'n', status: 'PENDING', createdAt: '2026-07-20T10:00:00Z', dueAt: '2020-01-01T10:00:00Z' }
+    expect(taskPunctuality(t).label).toBe('atrasada')
+  })
 })
 
 /* O histórico do processo é a única tela onde a troca de responsável e o

@@ -584,10 +584,19 @@ export class InstancesService {
       const hasProcessSla = slaDays > 0 || slaHours > 0
       const processDueAt = hasProcessSla && startMs != null ? this.calendar.computeDue(new Date(startMs), slaDays, slaHours, cal) : null
       const processDueMs = ms(processDueAt)
-      const processOverdue = processDueMs != null && inst.status === 'RUNNING' && processDueMs < now
+      // Instância em ERRO ainda está VIVA (dá retry) e o prazo dela segue correndo —
+      // por isso conta como em andamento aqui, e não como caso encerrado.
+      const emCurso = inst.status === 'RUNNING' || inst.status === 'ERROR'
+      const processOverdue = processDueMs != null && emCurso && processDueMs < now
+      /* Pontualidade mede ENTREGA:
+         - concluído → cumpriu ou não o prazo;
+         - em curso  → está ou não atrasado agora;
+         - CANCELADO → não se avalia (o front rotula "cancelado"): não houve entrega
+           para julgar, e o prazo do processo não some por isso;
+         - sem SLA configurado → não há o que medir. */
       const processOnTime = !hasProcessSla ? null
         : inst.status === 'COMPLETED' ? (endMs == null || processDueMs == null || endMs <= processDueMs)
-        : inst.status === 'RUNNING' ? !processOverdue
+        : emCurso ? !processOverdue
         : null
 
       return {
