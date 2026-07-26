@@ -21,7 +21,7 @@ export interface TaskRow {
 
 /** Prazo configurado da atividade em dias/horas/minutos ÚTEIS → texto humano. */
 export function formatSla(t: Pick<TaskRow, 'slaBusinessDays' | 'slaBusinessHours' | 'slaBusinessMinutes'>): string {
-  const plural = (n: number, s: string) => `${n} ${s}${n === 1 ? '' : 's'} úte${n === 1 ? 'l' : 'is'}`
+  const plural = (n: number, s: string) => `${n} ${s}${n === 1 ? '' : 's'} ${n === 1 ? 'útil' : 'úteis'}`
   if (t.slaBusinessDays != null) return plural(t.slaBusinessDays, 'dia')
   if (t.slaBusinessHours != null) return plural(t.slaBusinessHours, 'hora')
   if (t.slaBusinessMinutes != null) return plural(t.slaBusinessMinutes, 'minuto')

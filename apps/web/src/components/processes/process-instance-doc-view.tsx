@@ -7,7 +7,7 @@
    eventos (concluída / retrocedida). */
 
 import { useEffect, useState, type ReactNode } from 'react'
-import { Loader2, User, GitBranch, CheckCircle2, AlertTriangle, Undo2, Clock } from 'lucide-react'
+import { Loader2, User, GitBranch, CheckCircle2, Undo2, Clock } from 'lucide-react'
 import { apiJson } from '@/lib/http'
 import { cn } from '@/lib/utils'
 import { TableToolbar } from '@/components/list/table-toolbar'
@@ -21,9 +21,9 @@ const execOf = (t: TaskRow) => t.completedBy || t.role || t.assignee || '—'
 
 interface Col<T> { key: string; label: string; get: (r: T) => string; cell: (r: T) => ReactNode; vcenter?: boolean }
 
-/** Tabela de seção com busca + filtros (E/OU), no padrão do sistema. */
-function FilteredTable<T>({ title, icon, cols, rows, rowKey, emptyText }: {
-  title: string; icon: ReactNode
+/** Tabela de seção com busca + filtros (E/OU), no padrão do sistema. Sem título
+ *  próprio — o rótulo é a sub-aba que a contém (padrão de contrato/parceiro). */
+function FilteredTable<T>({ cols, rows, rowKey, emptyText }: {
   cols: Col<T>[]
   rows: T[] | null
   rowKey: (r: T) => string
@@ -36,9 +36,6 @@ function FilteredTable<T>({ title, icon, cols, rows, rowKey, emptyText }: {
 
   return (
     <section className="rounded-xl border bg-card shadow-sm">
-      <div className="px-3 py-2 border-b text-[11px] font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-        {icon}{title}
-      </div>
       <div className="px-3 pt-2.5">
         <TableToolbar search={search} onSearch={setSearch} columns={cols} filters={filters} onFiltersChange={setFilters}
           logic={logic} onLogicChange={setLogic} filteredCount={filtered.length} totalCount={rows?.length ?? 0} />
@@ -70,6 +67,9 @@ function FilteredTable<T>({ title, icon, cols, rows, rowKey, emptyText }: {
 export function ProcessInstanceDocView({ inst }: { inst: Inst }) {
   const [tasks, setTasks] = useState<TaskRow[] | null>(null)
   const [returns, setReturns] = useState<ReturnRow[]>([])
+  // Sub-aba ativa (padrão contrato/parceiro): sempre abre em "Andamento"; o Histórico
+  // é destino deliberado — sinalizado por um contador/realce, mas nunca aberto sozinho.
+  const [tab, setTab] = useState<'andamento' | 'historico'>('andamento')
 
   useEffect(() => {
     let cancel = false
@@ -118,9 +118,12 @@ export function ProcessInstanceDocView({ inst }: { inst: Inst }) {
         : <span className="text-muted-foreground">—</span> },
   ]
 
+  const hasReturn = inst.returnCount > 0
+
   return (
-    <div className="mx-auto h-full max-w-[1200px] overflow-y-auto">
-      <div className="flex flex-col gap-3 pb-6">
+    <div className="mx-auto h-full max-w-[1200px] flex flex-col">
+      {/* cabeçalho FIXO: identidade + situação + sub-abas (não rola) */}
+      <div className="flex flex-col gap-3 shrink-0">
         {/* identidade */}
         <div className="flex items-start gap-3">
           <span className="flex h-11 w-11 items-center justify-center rounded-xl shrink-0 bg-primary/10 text-primary"><GitBranch className="h-5 w-5" /></span>
@@ -136,24 +139,45 @@ export function ProcessInstanceDocView({ inst }: { inst: Inst }) {
           </span>
         </div>
 
-        {/* chips de situação */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px]">
-          {inst.status === 'COMPLETED' && <span className="text-muted-foreground">Concluído em {fmt(inst.completedAt)} · durou {humanDuration(inst.durationMs)}</span>}
-          {inst.status === 'ERROR' && inst.error && <span className="text-red-600 dark:text-red-400">{inst.error}</span>}
-          {inst.processOnTime != null && (
-            <span className={cn('inline-flex items-center gap-1', inst.processOnTime ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400')}>
-              {inst.processOnTime ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
-              {inst.processOnTime ? 'no prazo do processo' : 'fora do prazo'}{inst.processDueAt ? ` · prazo ${fmt(inst.processDueAt)}` : ''}
-            </span>
-          )}
-          {inst.returnCount > 0 && <span className="inline-flex items-center gap-0.5 text-amber-700 dark:text-amber-300"><Undo2 className="h-3 w-3" />reaberta {inst.returnCount}×</span>}
+        {/* chips de situação — só conclusão/erro (prazo do processo e "reaberta N×"
+            foram removidos a pedido; o detalhe de retrocesso vive no Histórico). */}
+        {(inst.status === 'COMPLETED' || (inst.status === 'ERROR' && inst.error)) && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px]">
+            {inst.status === 'COMPLETED' && <span className="text-muted-foreground">Concluído em {fmt(inst.completedAt)} · durou {humanDuration(inst.durationMs)}</span>}
+            {inst.status === 'ERROR' && inst.error && <span className="text-red-600 dark:text-red-400">{inst.error}</span>}
+          </div>
+        )}
+
+        {/* sub-abas: Andamento (estado atual) | Histórico (trilha de auditoria). O
+            Histórico ganha um contador; quando houve retrocesso o badge fica âmbar
+            para sinalizar "aqui há o que consultar" sem trocar de aba automaticamente. */}
+        <div className="flex items-center gap-1 flex-wrap border-b pb-2">
+          <button type="button" onClick={() => setTab('andamento')}
+            className={cn('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+              tab === 'andamento' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-muted')}>
+            <GitBranch className="h-3.5 w-3.5" />Andamento
+          </button>
+          <button type="button" onClick={() => setTab('historico')}
+            className={cn('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+              tab === 'historico' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-muted')}>
+            <Clock className="h-3.5 w-3.5" />Histórico
+            {history && history.length > 0 && (
+              <span className={cn('ml-0.5 inline-flex items-center justify-center rounded-full px-1.5 h-4 min-w-4 text-[10px] font-semibold tabular-nums',
+                hasReturn ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300' : 'bg-muted-foreground/15 text-muted-foreground')}>
+                {history.length}
+              </span>
+            )}
+          </button>
         </div>
+      </div>
 
-        <FilteredTable title="Linha do tempo das atividades" icon={<GitBranch className="h-3 w-3" />}
-          cols={timelineCols} rows={tasks} rowKey={(t) => t.id} emptyText="Nenhuma atividade registrada ainda." />
-
-        <FilteredTable title="Histórico" icon={<Clock className="h-3 w-3" />}
-          cols={histCols} rows={history} rowKey={(e) => e.key} emptyText="Nenhum evento registrado ainda." />
+      {/* corpo ROLÁVEL — só a sub-aba ativa */}
+      <div className="flex-1 min-h-0 overflow-y-auto pt-3 pb-6">
+        {tab === 'andamento' ? (
+          <FilteredTable cols={timelineCols} rows={tasks} rowKey={(t) => t.id} emptyText="Nenhuma atividade registrada ainda." />
+        ) : (
+          <FilteredTable cols={histCols} rows={history} rowKey={(e) => e.key} emptyText="Nenhum evento registrado ainda." />
+        )}
       </div>
     </div>
   )

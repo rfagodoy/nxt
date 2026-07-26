@@ -15,7 +15,6 @@ import { type FilterRow, matchOp, norm } from '@/lib/list-filter'
 import { STATUS, fmt, humanDuration, pontualidadeLabel, type Inst } from '@/lib/processos-ui'
 
 interface SortState { col: string; dir: 'asc' | 'desc' }
-interface StepMetric { name: string; avgMs: number; count: number }
 
 interface Col { key: string; label: string; align?: 'right'; text: (i: Inst) => string; sortVal?: (i: Inst) => string | number; node: (i: Inst) => ReactNode }
 const COLS: Col[] = [
@@ -77,7 +76,6 @@ export default function ProcessosPage() {
   const ws = useWorkspace()
   const { views, saveView, deleteView } = useViews('processos')
   const [rows, setRows] = useState<Inst[] | null>(null)
-  const [slowest, setSlowest] = useState<StepMetric[]>([])
 
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SortState | null>({ col: 'inicio', dir: 'desc' })
@@ -92,12 +90,8 @@ export default function ProcessosPage() {
   const mounted = useRef(false)
 
   const load = useCallback(async () => {
-    const [insts, m] = await Promise.all([
-      apiJson<Inst[]>('/api/instances'),
-      apiJson<{ slowest: StepMetric[] }>('/api/instances/metrics'),
-    ])
+    const insts = await apiJson<Inst[]>('/api/instances')
     setRows(insts ?? [])
-    setSlowest(m?.slowest ?? [])
   }, [])
   useEffect(() => { load() }, [load])
 
@@ -118,21 +112,12 @@ export default function ProcessosPage() {
 
   const visibleCols = useMemo(() => COLS.filter((c) => !hidden.has(c.key)), [hidden])
   const all = useMemo(() => rows ?? [], [rows])
-  const stats = useMemo(() => {
-    const completed = all.filter((i) => i.status === 'COMPLETED')
-    const durs = completed.map((i) => i.durationMs).filter((d): d is number => d != null)
-    const withSla = completed.filter((i) => i.processOnTime != null)
-    const onTime = withSla.filter((i) => i.processOnTime === true).length
-    return {
-      total: all.length,
-      running: all.filter((i) => i.status === 'RUNNING').length,
-      completed: completed.length,
-      error: all.filter((i) => i.status === 'ERROR').length,
-      overdue: all.filter((i) => i.processOverdue).length,
-      avgMs: durs.length ? durs.reduce((a, b) => a + b, 0) / durs.length : null,
-      onTimePct: withSla.length ? Math.round((onTime / withSla.length) * 100) : null,
-    }
-  }, [all])
+  const stats = useMemo(() => ({
+    total: all.length,
+    running: all.filter((i) => i.status === 'RUNNING').length,
+    completed: all.filter((i) => i.status === 'COMPLETED').length,
+    overdue: all.filter((i) => i.processOverdue).length,
+  }), [all])
 
   const filtered = useMemo(() => {
     const q = norm(search)
@@ -210,12 +195,11 @@ export default function ProcessosPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {[
           { label: 'Total', value: stats.total, cls: 'text-foreground' },
           { label: 'Em andamento', value: stats.running, cls: 'text-sky-600 dark:text-sky-400' },
           { label: 'Concluídos', value: stats.completed, cls: 'text-emerald-600 dark:text-emerald-400' },
-          { label: 'Com erro', value: stats.error, cls: 'text-red-600 dark:text-red-400' },
           { label: 'Atrasados', value: stats.overdue, cls: 'text-amber-600 dark:text-amber-400' },
         ].map(({ label, value, cls }) => (
           <div key={label} className="rounded-xl border bg-card px-3 py-2 flex items-center justify-between shadow-sm">
@@ -224,41 +208,6 @@ export default function ProcessosPage() {
           </div>
         ))}
       </div>
-
-      {/* Métricas agregadas (Fase 2): tempo médio + pontualidade por PROCESSO
-          (prazo derivado da soma dos SLAs das atividades). */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-        {[
-          { label: 'Tempo médio de execução', value: humanDuration(stats.avgMs), hint: 'média dos concluídos', cls: 'text-foreground' },
-          { label: 'Pontualidade', value: stats.onTimePct == null ? '—' : `${stats.onTimePct}%`, hint: 'concluídos no prazo do processo', cls: stats.onTimePct == null ? 'text-muted-foreground' : stats.onTimePct >= 80 ? 'text-emerald-600 dark:text-emerald-400' : stats.onTimePct >= 50 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400' },
-          { label: 'Em atraso agora', value: stats.overdue, hint: 'em andamento além do prazo', cls: stats.overdue > 0 ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground' },
-        ].map(({ label, value, hint, cls }) => (
-          <div key={label} className="rounded-xl border bg-card px-3 py-2.5 shadow-sm">
-            <div className="flex items-baseline justify-between gap-2">
-              <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
-              <p className={cn('text-lg font-bold tabular-nums leading-none', cls)}>{value}</p>
-            </div>
-            <p className="text-[10px] text-muted-foreground/70 mt-1">{hint}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Gargalos (Fase 3): etapas com maior tempo médio de execução. */}
-      {slowest.length > 0 && (
-        <div className="rounded-xl border bg-card shadow-sm px-3 py-2.5">
-          <p className="text-[11px] font-medium text-muted-foreground mb-2">Gargalos — etapas mais lentas (tempo médio)</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1.5">
-            {slowest.map((s, i) => (
-              <div key={s.name} className="flex items-center gap-2 text-xs min-w-0">
-                <span className={cn('flex h-5 w-5 items-center justify-center rounded text-[10px] font-bold shrink-0', i === 0 ? 'bg-red-500/15 text-red-600 dark:text-red-400' : 'bg-muted text-muted-foreground')}>{i + 1}</span>
-                <span className="flex-1 truncate">{s.name}</span>
-                <span className="tabular-nums font-semibold shrink-0">{humanDuration(s.avgMs)}</span>
-                <span className="text-[10px] text-muted-foreground/70 shrink-0">({s.count})</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       <ListToolbar
         search={search} onSearch={setSearch}
