@@ -7,16 +7,19 @@ const SEV_RANK: Record<string, number> = { CRITICO: 0, ALERTA: 1, INFO: 2 }
 export class NotificationsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Notificações ativas da org, com status de leitura DO usuário atual. */
+  /** Notificações ativas para o usuário, com status de leitura dele. Avisos de
+   *  workflow nascem endereçados (`userId`); os de contrato nascem sem dono e
+   *  seguem visíveis para toda a organização. */
   async list(organizationId: string, userId: string) {
     const rows = await this.prisma.notification.findMany({
-      where:   { organizationId },
+      where:   { organizationId, OR: [{ userId: null }, { userId }] },
       include: { reads: { where: { userId }, select: { id: true } }, contract: { select: { numero: true, titulo: true } } },
     })
     return rows
       .map(n => ({
         id: n.id, tipo: n.tipo, severidade: n.severidade, titulo: n.titulo, mensagem: n.mensagem,
-        contractId: n.contractId, contractNumero: n.contract?.numero ?? '', contractTitulo: n.contract?.titulo ?? '',
+        contractId: n.contractId ?? '', contractNumero: n.contract?.numero ?? '', contractTitulo: n.contract?.titulo ?? '',
+        instanceId: n.instanceId ?? '', taskId: n.taskId ?? '',
         createdAt: n.createdAt, read: n.reads.length > 0,
       }))
       .sort((a, b) => {
@@ -39,7 +42,11 @@ export class NotificationsService {
   }
 
   async markAllRead(organizationId: string, userId: string) {
-    const rows = await this.prisma.notification.findMany({ where: { organizationId }, select: { id: true } })
+    // só o que o usuário de fato vê (não marca por ele o que é de outro destinatário)
+    const rows = await this.prisma.notification.findMany({
+      where: { organizationId, OR: [{ userId: null }, { userId }] },
+      select: { id: true },
+    })
     for (const r of rows) {
       await this.prisma.notificationRead.upsert({
         where:  { notificationId_userId: { notificationId: r.id, userId } },

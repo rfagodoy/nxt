@@ -7,17 +7,17 @@
    eventos (concluída / retrocedida). */
 
 import { useEffect, useState, type ReactNode } from 'react'
-import { Loader2, User, GitBranch, CheckCircle2, Undo2, Clock } from 'lucide-react'
+import { Loader2, User, GitBranch, CheckCircle2, Undo2, Clock, UserPlus, Ban } from 'lucide-react'
 import { apiJson } from '@/lib/http'
 import { cn } from '@/lib/utils'
 import { TableToolbar } from '@/components/list/table-toolbar'
 import { filterRows, type FilterRow } from '@/lib/list-filter'
 import {
-  STATUS, fmt, humanDuration, taskPunctuality, formatSla, taskStatusMeta, buildHistory,
-  type Inst, type TaskRow, type ReturnRow, type HistoryEvent,
+  STATUS, fmt, humanDuration, taskPunctuality, formatSla, taskStatusMeta, buildHistory, taskExecutor,
+  type Inst, type TaskRow, type ReturnRow, type EventRow, type HistoryEvent,
 } from '@/lib/processos-ui'
 
-const execOf = (t: TaskRow) => t.completedBy || t.role || t.assignee || '—'
+const execOf = (t: TaskRow) => taskExecutor(t)
 
 interface Col<T> { key: string; label: string; get: (r: T) => string; cell: (r: T) => ReactNode; vcenter?: boolean }
 
@@ -67,24 +67,26 @@ function FilteredTable<T>({ cols, rows, rowKey, emptyText }: {
 export function ProcessInstanceDocView({ inst }: { inst: Inst }) {
   const [tasks, setTasks] = useState<TaskRow[] | null>(null)
   const [returns, setReturns] = useState<ReturnRow[]>([])
+  const [events, setEvents] = useState<EventRow[]>([])
   // Sub-aba ativa (padrão contrato/parceiro): sempre abre em "Andamento"; o Histórico
   // é destino deliberado — sinalizado por um contador/realce, mas nunca aberto sozinho.
   const [tab, setTab] = useState<'andamento' | 'historico'>('andamento')
 
   useEffect(() => {
     let cancel = false
-    setTasks(null); setReturns([])
+    setTasks(null); setReturns([]); setEvents([])
     void (async () => {
-      const ctx = await apiJson<{ instance?: { tasks?: TaskRow[] }; returns?: ReturnRow[] }>(`/api/instances/${inst.id}`)
+      const ctx = await apiJson<{ instance?: { tasks?: TaskRow[] }; returns?: ReturnRow[]; events?: EventRow[] }>(`/api/instances/${inst.id}`)
       if (cancel) return
       setTasks(ctx?.instance?.tasks ?? [])
       setReturns(ctx?.returns ?? [])
+      setEvents(ctx?.events ?? [])
     })()
     return () => { cancel = true }
   }, [inst.id])
 
   const st = STATUS[inst.status] ?? STATUS.RUNNING
-  const history = tasks ? buildHistory(tasks, returns) : null
+  const history = tasks ? buildHistory(tasks, returns, events) : null
 
   // colunas da LINHA DO TEMPO (estado das atividades)
   const timelineCols: Col<TaskRow>[] = [
@@ -98,24 +100,53 @@ export function ProcessInstanceDocView({ inst }: { inst: Inst }) {
     { key: 'situacao', label: 'Situação', get: (t) => taskStatusMeta(t.status).label, cell: (t) => <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[10.5px] font-medium', taskStatusMeta(t.status).pill)}>{taskStatusMeta(t.status).label}</span> },
   ]
 
-  // colunas do HISTÓRICO (eventos) — Evento, Atividade, Início, Prazo, Data prevista, Pontualidade, Executor, Detalhe
-  const eventLabel = (e: HistoryEvent) => e.kind === 'done' ? 'Concluída' : 'Retrocedida'
-  const detailText = (e: HistoryEvent) => e.kind === 'return' ? `para ${e.to || '—'}${e.reason ? ` · motivo: ${e.reason}` : ''}` : '—'
+  // colunas do HISTÓRICO (eventos) — Evento, Atividade, Início, Prazo, Data prevista, Pontualidade, Executor, Detalhe.
+  // Delegação e cancelamento entram na mesma tabela: o cancelamento é da INSTÂNCIA (não
+  // tem atividade), então as colunas de tarefa caem para "—" em vez de sumir a linha.
+  const EVENT_META: Record<HistoryEvent['kind'], { label: string; icon: typeof CheckCircle2; cls: string }> = {
+    done:     { label: 'Concluída',   icon: CheckCircle2, cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
+    return:   { label: 'Retrocedida', icon: Undo2,        cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
+    delegate: { label: 'Delegada',    icon: UserPlus,     cls: 'bg-sky-500/10 text-sky-600 dark:text-sky-400' },
+    cancel:   { label: 'Cancelado',   icon: Ban,          cls: 'bg-muted text-muted-foreground' },
+  }
+  const activityOf = (e: HistoryEvent) => e.task ? (e.task.name || e.task.nodeId) : (e.label || '—')
+  const detailText = (e: HistoryEvent) =>
+    e.kind === 'return'   ? `para ${e.to || '—'}${e.reason ? ` · motivo: ${e.reason}` : ''}`
+    : e.kind === 'delegate' ? `de ${e.from || 'tarefa aberta'} para ${e.to || '—'}${e.reason ? ` · motivo: ${e.reason}` : ''}`
+    : e.kind === 'cancel'   ? `cancelado por ${e.by || '—'}${e.reason ? ` · motivo: ${e.reason}` : ''}`
+    : '—'
   const histCols: Col<HistoryEvent>[] = [
-    { key: 'atividade', label: 'Atividade', vcenter: true, get: (e) => e.task.name || e.task.nodeId, cell: (e) => <span className="font-medium">{e.task.name || e.task.nodeId}</span> },
-    { key: 'inicio', label: 'Início', vcenter: true, get: (e) => fmt(e.task.createdAt), cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{fmt(e.task.createdAt)}</span> },
-    { key: 'prazo', label: 'Prazo', vcenter: true, get: (e) => formatSla(e.task), cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{formatSla(e.task)}</span> },
-    { key: 'prevista', label: 'Data prevista', vcenter: true, get: (e) => fmt(e.task.dueAt), cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{fmt(e.task.dueAt)}</span> },
-    { key: 'pontualidade', label: 'Pontualidade', vcenter: true, get: (e) => taskPunctuality(e.task).label, cell: (e) => <span className={cn('whitespace-nowrap', taskPunctuality(e.task).cls)}>{taskPunctuality(e.task).label}</span> },
-    { key: 'executor', label: 'Executor', vcenter: true, get: (e) => execOf(e.task), cell: (e) => execOf(e.task) !== '—' ? <span className="inline-flex items-center gap-1 text-muted-foreground"><User className="h-3 w-3 shrink-0" />{execOf(e.task)}</span> : <span className="text-muted-foreground">—</span> },
-    { key: 'situacao', label: 'Situação', vcenter: true, get: eventLabel,
-      cell: (e) => <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10.5px] font-medium whitespace-nowrap',
-        e.kind === 'done' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400')}>
-        {e.kind === 'done' ? <CheckCircle2 className="h-3 w-3" /> : <Undo2 className="h-3 w-3" />}{eventLabel(e)}</span> },
+    { key: 'atividade', label: 'Atividade', vcenter: true, get: activityOf, cell: (e) => <span className="font-medium">{activityOf(e)}</span> },
+    { key: 'inicio', label: 'Início', vcenter: true, get: (e) => fmt(e.task?.createdAt), cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{fmt(e.task?.createdAt)}</span> },
+    { key: 'prazo', label: 'Prazo', vcenter: true, get: (e) => e.task ? formatSla(e.task) : '—', cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{e.task ? formatSla(e.task) : '—'}</span> },
+    { key: 'prevista', label: 'Data prevista', vcenter: true, get: (e) => fmt(e.task?.dueAt), cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{fmt(e.task?.dueAt)}</span> },
+    { key: 'pontualidade', label: 'Pontualidade', vcenter: true, get: (e) => e.task ? taskPunctuality(e.task).label : '—',
+      cell: (e) => e.task ? <span className={cn('whitespace-nowrap', taskPunctuality(e.task).cls)}>{taskPunctuality(e.task).label}</span> : <span className="text-muted-foreground">—</span> },
+    { key: 'executor', label: 'Executor', vcenter: true, get: (e) => e.task ? execOf(e.task) : (e.by || '—'),
+      cell: (e) => {
+        const who = e.task ? execOf(e.task) : (e.by || '—')
+        return who !== '—' ? <span className="inline-flex items-center gap-1 text-muted-foreground"><User className="h-3 w-3 shrink-0" />{who}</span> : <span className="text-muted-foreground">—</span>
+      } },
+    { key: 'situacao', label: 'Situação', vcenter: true, get: (e) => EVENT_META[e.kind].label,
+      cell: (e) => {
+        const m = EVENT_META[e.kind]
+        return <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10.5px] font-medium whitespace-nowrap', m.cls)}>
+          <m.icon className="h-3 w-3" />{m.label}</span>
+      } },
     { key: 'detalhe', label: 'Detalhe', get: detailText,
-      cell: (e) => e.kind === 'return'
-        ? <span className="text-muted-foreground"><Undo2 className="h-3 w-3 inline mr-1 text-amber-600 dark:text-amber-400" />para <span className="font-medium text-foreground">{e.to || '—'}</span>{e.reason && <span className="block text-[11px] italic mt-0.5">motivo: {e.reason}</span>}</span>
-        : <span className="text-muted-foreground">—</span> },
+      cell: (e) => {
+        if (e.kind === 'done') return <span className="text-muted-foreground">—</span>
+        const m = EVENT_META[e.kind]
+        return (
+          <span className="text-muted-foreground">
+            <m.icon className={cn('h-3 w-3 inline mr-1', e.kind === 'return' ? 'text-amber-600 dark:text-amber-400' : e.kind === 'delegate' ? 'text-sky-600 dark:text-sky-400' : '')} />
+            {e.kind === 'return' && <>para <span className="font-medium text-foreground">{e.to || '—'}</span></>}
+            {e.kind === 'delegate' && <>de <span className="font-medium text-foreground">{e.from || 'tarefa aberta'}</span> para <span className="font-medium text-foreground">{e.to || '—'}</span></>}
+            {e.kind === 'cancel' && <>cancelado por <span className="font-medium text-foreground">{e.by || '—'}</span></>}
+            {e.reason && <span className="block text-[11px] italic mt-0.5">motivo: {e.reason}</span>}
+          </span>
+        )
+      } },
   ]
 
   const hasReturn = inst.returnCount > 0
@@ -141,10 +172,14 @@ export function ProcessInstanceDocView({ inst }: { inst: Inst }) {
 
         {/* chips de situação — só conclusão/erro (prazo do processo e "reaberta N×"
             foram removidos a pedido; o detalhe de retrocesso vive no Histórico). */}
-        {(inst.status === 'COMPLETED' || (inst.status === 'ERROR' && inst.error)) && (
+        {(inst.status === 'COMPLETED' || (inst.status === 'ERROR' && inst.error) || (inst.status === 'CANCELLED' && inst.cancelReason)) && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px]">
             {inst.status === 'COMPLETED' && <span className="text-muted-foreground">Concluído em {fmt(inst.completedAt)} · durou {humanDuration(inst.durationMs)}</span>}
             {inst.status === 'ERROR' && inst.error && <span className="text-red-600 dark:text-red-400">{inst.error}</span>}
+            {/* cancelamento sem motivo à vista é um fim de linha inexplicável */}
+            {inst.status === 'CANCELLED' && inst.cancelReason && (
+              <span className="text-muted-foreground">Cancelado por {inst.cancelledBy || '—'} em {fmt(inst.cancelledAt)} · motivo: <span className="italic">{inst.cancelReason}</span></span>
+            )}
           </div>
         )}
 

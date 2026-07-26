@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
+import { CancelInstanceButton } from '@/components/processes/cancel-instance-button'
 import { apiFetch, apiJson } from '@/lib/http'
 
 interface ErrInstance {
@@ -58,23 +59,8 @@ export default function InstanciasErroPage() {
     }
   }
 
-  const cancel = async (inst: ErrInstance) => {
-    if (!confirm(`Cancelar definitivamente esta instância de "${inst.processName}"? Isso encerra o processo e não pode ser desfeito.`)) return
-    setBusy(inst.id)
-    setNotice(null)
-    try {
-      const res = await apiFetch(`/api/instances/${inst.id}/cancel`, { method: 'PATCH' })
-      if (!res.ok) {
-        const body = await res.json().catch(() => null)
-        setNotice({ kind: 'err', text: body?.message || 'Não foi possível cancelar.' })
-        return
-      }
-      setNotice({ kind: 'ok', text: `Instância de "${inst.processName}" cancelada.` })
-      await load()
-    } finally {
-      setBusy(null)
-    }
-  }
+  // O cancelamento mora no CancelInstanceButton (motivo obrigatório) — antes era um
+  // `confirm()` nativo, que além de não registrar o porquê trava a automação do navegador.
 
   return (
     <div className="space-y-4">
@@ -150,10 +136,11 @@ export default function InstanciasErroPage() {
                         {busy === inst.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
                         Reprocessar
                       </Button>
-                      <Button size="sm" variant="outline" disabled={busy === inst.id} onClick={() => cancel(inst)} title="Cancelar a instância">
-                        <XCircle className="h-3.5 w-3.5" />
-                        Cancelar
-                      </Button>
+                      <CancelInstanceButton
+                        instanceId={inst.id}
+                        processName={inst.processName}
+                        onCancelled={() => { setNotice({ kind: 'ok', text: `Instância de "${inst.processName}" cancelada.` }); void load() }}
+                      />
                     </div>
                   </td>
                 </tr>

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { CalendarClock, RefreshCw, Gauge, RotateCw, Save, ShieldAlert, Check, CloudDownload, Play, Loader2, Eye, PauseCircle } from 'lucide-react'
+import { CalendarClock, RefreshCw, Gauge, RotateCw, Save, ShieldAlert, Check, CloudDownload, Play, Loader2, Eye, PauseCircle, AlarmClock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/lib/session-context'
 import { cacheRead, pullSetting, pushSetting } from '@/lib/settings-store'
@@ -18,6 +18,8 @@ interface Params {
   indicesAutoImport: boolean
   /** freio de emergência — quem autoriza o reajuste automático é a linha do contrato */
   reajustePausado: boolean
+  /** aviso PREVENTIVO de prazo das tarefas de workflow (o de vencido é sempre enviado) */
+  tarefas: { enabled: boolean; antecedenciaHoras: number }
 }
 const DEFAULT: Params = {
   vigencia: { enabled: true, dias: [60, 30, 7] },
@@ -26,6 +28,7 @@ const DEFAULT: Params = {
   renovacaoAutomatica: true,
   indicesAutoImport: true,
   reajustePausado: false,
+  tarefas: { enabled: true, antecedenciaHoras: 24 },
 }
 
 /** Resumo retornado por POST /api/notifications/run */
@@ -58,6 +61,25 @@ const MOTIVO: Record<ReajustePendente['motivo'], { texto: string; acao: string }
   SEM_AGENDA:        { texto: 'Linha sem índice ou sem data base', acao: 'Complete o cadastro do reajuste no contrato.' },
   INTERROMPIDO:      { texto: 'Renovação não pôde avançar', acao: 'Verifique o prazo de renovação do contrato.' },
   NAO_VENCIDO:       { texto: 'Competência ainda no futuro', acao: '' },
+}
+
+/** Completa um valor gravado (banco ou cache) com os padrões, bloco a bloco. Um
+ *  parâmetro salvo antes de um cartão existir chega sem ele; sem esta normalização
+ *  a tela lê `undefined.enabled` e morre.
+ *  ⚠️ `reajuste.automatico` do modelo antigo é descartado de propósito: era o gate
+ *  global, hoje a decisão é da linha do contrato — reaproveitá-lo como "pausado"
+ *  herdaria um default como se fosse escolha de alguém. */
+function normalize(r: Partial<Params> | null | undefined): Params {
+  if (!r) return DEFAULT
+  const { enabled, dias } = { ...DEFAULT.reajuste, ...r.reajuste }
+  return {
+    ...DEFAULT, ...r,
+    vigencia: { ...DEFAULT.vigencia, ...r.vigencia },
+    reajuste: { enabled, dias },
+    consumo:  { ...DEFAULT.consumo,  ...r.consumo },
+    tarefas:  { ...DEFAULT.tarefas,  ...r.tarefas },
+    reajustePausado: r.reajustePausado ?? false,
+  }
 }
 
 /* parse "60, 30, 7" → [60,30,7] (positivos, únicos, ordenados desc) */
@@ -99,7 +121,10 @@ export default function NotificacoesParams() {
   const { data: session } = useSession()
   const isAdmin = session?.user?.role === 'admin'
 
-  const [p, setP] = useState<Params>(() => cacheRead<Params>(KEY, DEFAULT))
+  // O estado inicial vem do CACHE local, que pode ter sido gravado por uma versão
+  // anterior (sem os blocos mais novos). Normalizar aqui — e não só no load — evita
+  // que a tela quebre no primeiro render lendo um bloco que ainda não existia.
+  const [p, setP] = useState<Params>(() => normalize(cacheRead<Params>(KEY, DEFAULT)))
   const [saved, setSaved] = useState(false)
   const [mounted, setMounted] = useState(false)
   /* Espelho do que está GRAVADO. O motor roda no backend e lê o banco, não este formulário:
@@ -120,10 +145,7 @@ export default function NotificacoesParams() {
       /* `reajuste.automatico` do modelo antigo é descartado: era o gate global, hoje a
          decisão é da linha do contrato. Reaproveitá-lo como "pausado" herdaria um default
          como se fosse escolha de alguém. */
-      const { enabled, dias } = { ...DEFAULT.reajuste, ...r?.reajuste }
-      const merged: Params = r
-        ? { ...DEFAULT, ...r, vigencia: { ...DEFAULT.vigencia, ...r.vigencia }, reajuste: { enabled, dias }, consumo: { ...DEFAULT.consumo, ...r.consumo }, reajustePausado: r.reajustePausado ?? false }
-        : DEFAULT
+      const merged = r ? normalize(r) : DEFAULT
       setP(merged)
       setPersistido(merged)
     })()
@@ -315,6 +337,18 @@ export default function NotificacoesParams() {
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
           Limites (%):
           <input className={inputCls} defaultValue={p.consumo.percentuais.join(', ')} onBlur={e => { const d = parseList(e.target.value); setP({ ...p, consumo: { ...p.consumo, percentuais: d.length ? d : DEFAULT.consumo.percentuais } }) }} placeholder="80, 100" />
+        </label>
+      </Card>
+
+      {/* Workflow: o aviso DEPOIS do vencimento sempre existe (a varredura escalona a
+          tarefa); este cartão liga o aviso ANTES, que é o que ainda dá tempo de agir. */}
+      <Card icon={AlarmClock} color="bg-sky-500/10 text-sky-600 dark:text-sky-400"
+        title="Aviso de prazo das tarefas" desc="Avisa o responsável antes de a tarefa do processo vencer. O aviso de prazo VENCIDO é sempre enviado, independentemente deste ajuste."
+        on={p.tarefas.enabled} onToggle={v => setP({ ...p, tarefas: { ...p.tarefas, enabled: v } })}>
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          Antecedência (horas):
+          <input type="number" min={1} className={cn(inputCls, 'w-24')} value={p.tarefas.antecedenciaHoras}
+            onChange={e => setP({ ...p, tarefas: { ...p.tarefas, antecedenciaHoras: Math.max(1, Number(e.target.value) || 1) } })} />
         </label>
       </Card>
     </div>

@@ -2,17 +2,28 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Bell, CalendarClock, RefreshCw, Gauge, CheckCheck, type LucideIcon } from 'lucide-react'
+import { Bell, CalendarClock, RefreshCw, Gauge, CheckCheck, Inbox, Clock, AlarmClock, Undo2, Ban, type LucideIcon } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { apiFetch } from '@/lib/http'
+import { apiFetch, apiJson } from '@/lib/http'
 import { useWorkspace } from '@/contexts/workspace-context'
+import type { Task } from '@/lib/tasks-ui'
+
+type TaskLike = Task
 
 interface Notif {
   id: string; tipo: string; severidade: string; titulo: string; mensagem: string
-  contractId: string; contractNumero: string; contractTitulo: string; createdAt: string; read: boolean
+  contractId: string; contractNumero: string; contractTitulo: string
+  /** alvo de workflow (vazios nos avisos de contrato) */
+  instanceId: string; taskId: string
+  createdAt: string; read: boolean
 }
 
-const TIPO_ICON: Record<string, LucideIcon> = { VIGENCIA: CalendarClock, REAJUSTE: RefreshCw, CONSUMO: Gauge }
+const TIPO_ICON: Record<string, LucideIcon> = {
+  VIGENCIA: CalendarClock, REAJUSTE: RefreshCw, CONSUMO: Gauge,
+  TAREFA_ATRIBUIDA: Inbox, TAREFA_A_VENCER: Clock, TAREFA_VENCIDA: AlarmClock,
+  PROCESSO_DEVOLVIDO: Undo2, PROCESSO_CANCELADO: Ban,
+}
 const SEV_CLS: Record<string, string> = {
   CRITICO: 'bg-red-500/10 text-red-600 dark:text-red-400',
   ALERTA:  'bg-amber-500/10 text-amber-600 dark:text-amber-400',
@@ -39,6 +50,7 @@ function minimalRow(n: Notif) {
 
 export function NotificationBell({ className }: { className?: string }) {
   const ws = useWorkspace()
+  const router = useRouter()
   const [items, setItems] = useState<Notif[]>([])
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ left: number; bottom: number } | null>(null)
@@ -83,13 +95,26 @@ export function NotificationBell({ className }: { className?: string }) {
 
   const unread = items.filter(i => !i.read).length
 
-  const openContract = async (n: Notif) => {
+  /* Clique: marca como lida e leva ao ALVO. Contrato abre na aba com o mínimo (a
+     view busca o resto por id); tarefa precisa do objeto da caixa — se ela já não
+     estiver lá (concluída por outro, devolvida), cai na página de Tarefas em vez de
+     abrir uma aba morta. Aviso sem alvo acessível (processo cancelado) só é lido. */
+  const openNotif = async (n: Notif) => {
     setOpen(false)
     if (!n.read) {
       setItems(p => p.map(i => i.id === n.id ? { ...i, read: true } : i))
       try { await apiFetch(`/api/notifications/${n.id}/read`, { method: 'POST' }) } catch { /* ignore */ }
     }
-    ws.open({ id: `contract:${n.contractId}`, kind: 'contract', mode: 'detail', label: n.contractNumero || 'Contrato', data: minimalRow(n) })
+    if (n.contractId) {
+      ws.open({ id: `contract:${n.contractId}`, kind: 'contract', mode: 'detail', label: n.contractNumero || 'Contrato', data: minimalRow(n) })
+      return
+    }
+    if (n.taskId) {
+      const tasks = await apiJson<TaskLike[]>('/api/instances/tasks').catch(() => null)
+      const t = tasks?.find(x => x.id === n.taskId)
+      if (t) ws.open({ id: `task:${t.id}`, kind: 'task', mode: 'detail', label: t.name || t.nodeId, data: t })
+      else router.push('/tarefas')
+    }
   }
   const markAll = async () => {
     setItems(p => p.map(i => ({ ...i, read: true })))
@@ -128,7 +153,7 @@ export function NotificationBell({ className }: { className?: string }) {
             ) : items.map(n => {
               const Icon = TIPO_ICON[n.tipo] ?? Bell
               return (
-                <button key={n.id} onClick={() => void openContract(n)}
+                <button key={n.id} onClick={() => void openNotif(n)}
                   className={cn('flex w-full items-start gap-2.5 border-b px-3 py-2.5 text-left transition-colors last:border-0 hover:bg-muted/50', !n.read && 'bg-primary/[0.04]')}>
                   <span className={cn('mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full', SEV_CLS[n.severidade] ?? SEV_CLS.INFO)}>
                     <Icon className="h-3.5 w-3.5" />
@@ -139,7 +164,7 @@ export function NotificationBell({ className }: { className?: string }) {
                       {!n.read && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}
                     </span>
                     <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{n.mensagem}</span>
-                    <span className="mt-0.5 block text-[10px] text-muted-foreground/70">{n.contractNumero} · {relTime(n.createdAt)}</span>
+                    <span className="mt-0.5 block text-[10px] text-muted-foreground/70">{n.contractNumero ? `${n.contractNumero} · ` : ''}{relTime(n.createdAt)}</span>
                   </span>
                 </button>
               )

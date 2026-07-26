@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } fro
 import { Loader2, RefreshCw, CheckCircle2, AlertTriangle, Clock, Settings2, ChevronsUpDown, ArrowUp, ArrowDown, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StartProcessButton } from '@/components/processes/start-process-button'
+import { CancelInstanceButton } from '@/components/processes/cancel-instance-button'
 import { cn } from '@/lib/utils'
 import { apiJson } from '@/lib/http'
 import { useViews } from '@/hooks/use-views'
@@ -41,7 +42,7 @@ const COLS: Col[] = [
   { key: 'inicio', label: 'Início', text: (i) => fmt(i.startedAt), sortVal: (i) => new Date(i.startedAt).getTime(), node: (i) => <span className="text-muted-foreground whitespace-nowrap">{fmt(i.startedAt)}</span> },
   {
     key: 'etapa', label: 'Etapa atual / conclusão',
-    text: (i) => i.status === 'RUNNING' ? (i.currentStep || '—') : i.status === 'ERROR' ? (i.error || i.stepName || 'erro') : i.status === 'COMPLETED' ? `concluído em ${fmt(i.completedAt)}` : '—',
+    text: (i) => i.status === 'RUNNING' ? (i.currentStep || '—') : i.status === 'ERROR' ? (i.error || i.stepName || 'erro') : i.status === 'COMPLETED' ? `concluído em ${fmt(i.completedAt)}` : i.cancelReason ? `cancelado · motivo: ${i.cancelReason}` : '—',
     node: (i) => i.status === 'RUNNING' ? (
       <div className="flex items-center gap-2">
         <span>{i.currentStep || '—'}</span>
@@ -51,6 +52,9 @@ const COLS: Col[] = [
       <span className="inline-flex items-start gap-1 text-red-700 dark:text-red-300"><AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" /><span className="max-w-xs truncate">{i.error || i.stepName || 'erro'}</span></span>
     ) : i.status === 'COMPLETED' ? (
       <span className="text-muted-foreground">em {fmt(i.completedAt)} · durou {humanDuration(i.durationMs)}</span>
+    ) : i.cancelReason ? (
+      // um processo que termina em silêncio é um processo que ninguém sabe explicar
+      <span className="text-muted-foreground">cancelado por {i.cancelledBy || '—'} <span className="block text-[11px] italic max-w-xs truncate">motivo: {i.cancelReason}</span></span>
     ) : <span className="text-muted-foreground">—</span>,
   },
   {
@@ -234,6 +238,9 @@ export default function ProcessosPage() {
                     </button>
                   </th>
                 ))}
+                {/* Ações fica FORA do sistema de colunas: não é dado (não filtra, não
+                    ordena, não exporta) e não deve aparecer em "Colunas visíveis". */}
+                <th className="w-0 px-3 py-1.5 bg-muted" />
               </tr>
             </thead>
             <tbody>
@@ -248,6 +255,11 @@ export default function ProcessosPage() {
                   {visibleCols.map((col) => (
                     <td key={col.key} className={cn('px-3 py-2 align-top', col.align === 'right' && 'text-right')}>{col.node(i)}</td>
                   ))}
+                  <td className="px-3 py-2 align-top whitespace-nowrap">
+                    {(i.status === 'RUNNING' || i.status === 'ERROR') && (
+                      <CancelInstanceButton instanceId={i.id} processName={i.processName} onCancelled={load} compact />
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

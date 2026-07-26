@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { DynamicForm } from '@/components/modules/dynamic-form'
 import { WorkflowScreenTask } from '@/components/processes/workflow-screen-task'
 import { ReturnTaskButton, type ReturnTarget } from '@/components/processes/return-task-button'
+import { DelegateTaskButton } from '@/components/processes/delegate-task-button'
 import { apiFetch, apiJson } from '@/lib/http'
 import { cn } from '@/lib/utils'
 import { kindMeta, type Task, type TimelineTask, type InstanceContext } from '@/lib/tasks-ui'
@@ -110,6 +111,9 @@ export function TaskDocView({ task, onDone, onNotice }: {
             {km.label} · {task.instance?.processDefinition?.name}{task.role ? ` · ${task.role}` : ''}
           </p>
         </div>
+        {/* Delegar está sempre disponível: a tarefa é sua, passá-la adiante não depende
+            do desenho do processo (ao contrário de Retroceder, que exige etapa anterior). */}
+        <DelegateTaskButton taskId={task.id} onDelegated={onDone} />
         {/* Retroceder só quando há etapa anterior (item 4) */}
         {hasReturn && <ReturnTaskButton taskId={task.id} onReturned={onDone} label="Retroceder" targets={returnTargets ?? undefined} />}
         <Button

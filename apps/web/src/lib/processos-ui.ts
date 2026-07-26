@@ -12,11 +12,23 @@ export interface Inst {
   totalSteps: number; doneSteps: number; hasSla: boolean; onTime: boolean; durationMs: number | null
   processDueAt: string | null; processOverdue: boolean; processOnTime: boolean | null
   returnCount: number
+  /** cancelamento (nulos quando o processo não foi cancelado) */
+  cancelReason?: string | null; cancelledBy?: string | null; cancelledAt?: string | null
 }
 export interface TaskRow {
   id: string; nodeId: string; name?: string | null; role?: string | null; assignee?: string | null
   status: string; createdAt: string; dueAt?: string | null; completedAt?: string | null; completedBy?: string | null
   slaBusinessDays?: number | null; slaBusinessHours?: number | null; slaBusinessMinutes?: number | null
+  /** nomes dos responsáveis, resolvidos ao vivo pelo backend (o banco guarda ids) */
+  assigneeNames?: string[]
+}
+
+/** Quem aparece na coluna "Executor": quem concluiu, senão quem é responsável hoje,
+ *  senão o papel. Nunca um id — id é chave, não rótulo. */
+export function taskExecutor(t: TaskRow): string {
+  if (t.completedBy) return t.completedBy
+  if (t.assigneeNames?.length) return t.assigneeNames.join(', ')
+  return t.role || '—'
 }
 
 /** Prazo configurado da atividade em dias/horas/minutos ÚTEIS → texto humano. */
@@ -38,6 +50,12 @@ export function taskStatusMeta(status: string): { label: string; dot: string; pi
   }
 }
 export interface ReturnRow { id: string; fromNodeId?: string | null; fromName?: string | null; toName?: string | null; reason: string; user: string; createdAt: string }
+/** Evento de processo que não é execução de etapa: delegação e cancelamento. */
+export interface EventRow {
+  id: string; instanceId: string; taskId?: string | null; event: 'DELEGADO' | 'CANCELADO' | string
+  detail?: string | null; fromUser?: string | null; toUser?: string | null; toUserId?: string | null
+  reason: string; user: string; createdAt: string
+}
 
 export const STATUS: Record<string, { label: string; icon: LucideIcon; cls: string }> = {
   RUNNING:   { label: 'Em andamento', icon: PlayCircle,   cls: 'bg-sky-500/10 text-sky-600 dark:text-sky-400' },
@@ -68,17 +86,26 @@ export function pontualidadeLabel(i: Inst): string { return i.processOnTime == n
 export interface HistoryEvent {
   key: string
   ts: string
-  kind: 'done' | 'return'
-  task: TaskRow
-  /** retrocesso: para onde voltou + motivo */
+  kind: 'done' | 'return' | 'delegate' | 'cancel'
+  /** a atividade envolvida; ausente no cancelamento, que é da INSTÂNCIA, não de uma etapa */
+  task?: TaskRow
+  /** retrocesso: para onde voltou; delegação: para quem foi */
   to?: string
+  /** delegação: de quem saiu */
+  from?: string
   reason?: string
+  /** quem executou a AÇÃO (devolveu/delegou/cancelou) */
+  by?: string
+  /** rótulo quando não há tarefa (cancelamento) */
+  label?: string
 }
 
 /** Monta o histórico: cada atividade CONCLUÍDA (DONE) ou RETROCEDIDA (RETURNED) vira um
  *  evento, carregando a tarefa (colunas de atividade). No retrocesso, casa o WorkflowReturn
- *  pelo nó de origem (mais próximo no tempo) para o destino + motivo. Mais recente primeiro. */
-export function buildHistory(tasks: TaskRow[], returns: ReturnRow[]): HistoryEvent[] {
+ *  pelo nó de origem (mais próximo no tempo) para o destino + motivo. As delegações e o
+ *  cancelamento (WorkflowEvent) entram na MESMA trilha — quem consulta quer a história do
+ *  processo, não uma aba por tipo de registro. Mais recente primeiro. */
+export function buildHistory(tasks: TaskRow[], returns: ReturnRow[], events: EventRow[] = []): HistoryEvent[] {
   const evs: HistoryEvent[] = []
   for (const t of tasks) {
     if (!t.completedAt) continue
@@ -88,7 +115,20 @@ export function buildHistory(tasks: TaskRow[], returns: ReturnRow[]): HistoryEve
       const cands = returns.filter((r) => r.fromNodeId === t.nodeId)
       const ret = cands.sort((a, b) =>
         Math.abs(+new Date(a.createdAt) - +new Date(t.completedAt!)) - Math.abs(+new Date(b.createdAt) - +new Date(t.completedAt!)))[0]
-      evs.push({ key: `r:${t.id}`, ts: t.completedAt, kind: 'return', task: t, to: ret?.toName ?? '', reason: ret?.reason ?? '' })
+      evs.push({ key: `r:${t.id}`, ts: t.completedAt, kind: 'return', task: t, to: ret?.toName ?? '', reason: ret?.reason ?? '', by: ret?.user })
+    }
+  }
+  const byId = new Map(tasks.map((t) => [t.id, t]))
+  for (const e of events) {
+    if (e.event === 'DELEGADO') {
+      evs.push({
+        key: `g:${e.id}`, ts: e.createdAt, kind: 'delegate',
+        task: e.taskId ? byId.get(e.taskId) : undefined,
+        label: e.detail ?? undefined,
+        from: e.fromUser ?? '', to: e.toUser ?? '', reason: e.reason, by: e.user,
+      })
+    } else if (e.event === 'CANCELADO') {
+      evs.push({ key: `c:${e.id}`, ts: e.createdAt, kind: 'cancel', label: e.detail ?? undefined, reason: e.reason, by: e.user })
     }
   }
   return evs.sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0))
