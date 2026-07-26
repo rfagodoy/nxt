@@ -154,6 +154,12 @@ export class InstancesController {
     return this.instancesService.uncancel(id, dto, organizationId, actor)
   }
 
+  @Get(':id/cancel-preview')
+  @ApiOperation({ summary: 'O que o cancelamento deste processo fará no domínio (contratos/parceiros afetados)' })
+  cancelPreview(@Param('id') id: string, @CurrentOrg() organizationId: string) {
+    return this.instancesService.cancelPreview(id, organizationId)
+  }
+
   @Post(':id/retry')
   @UseGuards(RolesGuard)
   @Roles('admin')

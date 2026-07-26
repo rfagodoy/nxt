@@ -155,9 +155,20 @@ model WorkflowCompensation {
   instanceId String
   nodeId     String // serviceTask que executou
   connector  String // ex.: contracts.aditivo
-  undoData   String    @db.NVarChar(Max) // [JSON] como desfazer
-  undoneAt   DateTime? // preenchido quando a compensação roda (na devolução)
+  undoData   String    @db.NVarChar(Max) // [JSON] como desfazer (+ estados antes/depois)
+  undoneAt   DateTime? // preenchido quando a reversão roda (devolução ou cancelamento)
   createdAt  DateTime  @default(now())
+  // ── vínculo processo → entidade ────────────────────────────────────────────
+  // Antes, o contrato criado por um processo não sabia de onde tinha vindo: o id
+  // ficava só numa variável do estado. Sem isto não há como responder "o que este
+  // processo produziu?" — pergunta que o cancelamento precisa fazer.
+  entityType String? // CONTRACT | PARTNER
+  entityId   String?
+  kind       String? // CREATE | ADITIVO | DISTRATO | ACTIVATE
+  // A DEVOLUÇÃO só desfaz o que o desenhista marcou como compensável; o
+  // CANCELAMENTO desfaz tudo que tem inversa — por isso os dois casos convivem
+  // na mesma tabela com esta distinção explícita.
+  compensable Boolean  @default(false)
 
   instance ProcessInstance @relation(fields: [instanceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 

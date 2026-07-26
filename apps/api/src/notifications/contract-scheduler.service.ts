@@ -370,6 +370,8 @@ export class ContractSchedulerService implements OnModuleInit {
    *  É a guarda mais importante daqui — um erro nela compõe juros diários sobre o contrato. */
   private avancarContrato(c: any, params: Params, series: Record<string, Record<string, number>>, rotulo: Map<string, string>, today: string): Evolucao {
     const ev: Evolucao = { reajustes: [], pendentes: [], renovados: 0, encerrados: 0, campoLanc: campoRenovacao(c.natureza), gerouParcelas: false }
+    // encerrado, rescindido ou CANCELADO não avança no tempo: sem reajuste,
+    // renovação ou encerramento automático.
     if (c.situacao !== 'VIGENTE') return ev
 
     const anos = Number(c.renovacaoAnos) || 0, meses = Number(c.renovacaoMeses) || 0, dias = Number(c.renovacaoDias) || 0

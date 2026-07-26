@@ -40,10 +40,26 @@ import { WorkflowCalendarService, type StoredCalendar } from './workflow-calenda
 import { WorkflowNotifierService, type TaskNotice, type ProcessNotice } from '../notifications/workflow-notifier.service'
 import { recipientsOf } from '../notifications/notification-rules'
 import { canCancelInstance, isCancelable } from './instance-access'
+import {
+  planContractCreate, describeRevert, isRevertible, isUntouched,
+  type ContractSnapshot, type EffectPlanItem, type EffectKind, type EntityType,
+} from './process-effects'
 import { NOTIF_PARAMS_KEY, tarefasParams } from '../notifications/notification-params'
 
 /** Ids de token únicos para o motor (viram WorkflowTask.tokenId). */
 const runtime: WfRuntime = { genId: () => randomUUID() }
+
+/** O que uma ação automática PRODUZIU no domínio. Guardado sempre (não só quando
+ *  compensável): é o vínculo entre o processo e o contrato/parceiro que ele criou ou
+ *  alterou, e a base do que o cancelamento precisa desfazer. */
+export interface ProcessEffect {
+  connector: string
+  entityType: 'CONTRACT' | 'PARTNER'
+  entityId: string
+  kind: 'CREATE' | 'ADITIVO' | 'DISTRATO' | 'ACTIVATE'
+  /** dados da inversa (ids e estados anteriores) */
+  undoData: Record<string, unknown>
+}
 
 /** Contexto passado aos conectores de domínio (quem e qual org). */
 interface ConnectorCtx {
@@ -372,7 +388,10 @@ export class InstancesService {
     // não causa dano.
     const discarded = new Set(nodesReachableFrom(graph, dto.targetNodeId))
     const comps = (await this.prisma.workflowCompensation.findMany({
-      where: { instanceId: task.instanceId, undoneAt: null },
+      // `compensable`: a DEVOLUÇÃO desfaz só o que o desenhista marcou (onReturn=
+      // COMPENSATE). O cancelamento é outra história — lá o processo inteiro é
+      // abortado e tudo que tem inversa é desfeito.
+      where: { instanceId: task.instanceId, undoneAt: null, compensable: true },
       orderBy: { createdAt: 'desc' }, // desfaz o mais recente primeiro
     })).filter((c) => discarded.has(c.nodeId))
 
@@ -981,6 +1000,46 @@ export class InstancesService {
     })
     const atingidos = pendentes.flatMap(recipientsOf)
 
+    /* DESFAZER O QUE O PROCESSO FEZ. Sem isto, cancelar um processo de contrato
+       deixava o contrato ativo indevidamente — o processo morria e o efeito ficava.
+       O que exige confirmação (contrato vigente ou com movimento) só passa com
+       `confirmar: true`, e a recusa devolve a lista para a tela explicar. */
+    const plano = await this.cancelPreview(instanceId, organizationId)
+    if (plano.requerConfirmacao && !dto?.confirmar) {
+      throw new ConflictException({
+        message: 'Este processo produziu efeitos que precisam de confirmação para serem desfeitos.',
+        efeitos: plano.efeitos,
+      })
+    }
+
+    const efeitos = await this.prisma.workflowCompensation.findMany({
+      where: { instanceId, undoneAt: null },
+      orderBy: { createdAt: 'desc' }, // desfaz o mais recente primeiro
+    })
+    const revertidos: string[] = []
+    try {
+      for (const e of efeitos) {
+        const r = await this.revertEffect(e, { organizationId, actor })
+        if (!r) continue
+        // guarda a foto: `revertedFrom` é o estado que a reabertura restaura,
+        // `revertedTo` é o que ela confere para saber se ninguém mexeu no meio.
+        await this.prisma.workflowCompensation.update({
+          where: { id: e.id },
+          data: {
+            undoneAt: new Date(),
+            undoData: { ...(e.undoData as unknown as Record<string, unknown>), revertedFrom: r.before, revertedTo: r.after } as never,
+          },
+        })
+        revertidos.push(e.id)
+      }
+    } catch (err) {
+      // mesma regra da devolução: se não dá para desfazer, nada é feito. Processo
+      // cancelado com efeito pela metade é pior do que cancelamento recusado.
+      throw new BadRequestException(
+        `Não foi possível desfazer um efeito deste processo: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+
     const state = cancelProcess(instance.state as unknown as WfState)
 
     const [updated] = await this.prisma.$transaction([
@@ -1006,6 +1065,7 @@ export class InstancesService {
             state: instance.state,
             taskIds: pendentes.map((t) => t.id),
             status: instance.status,
+            effectIds: revertidos,
           } as never,
         },
       }),
@@ -1047,7 +1107,7 @@ export class InstancesService {
       where: { instanceId, event: 'CANCELADO' },
       orderBy: { createdAt: 'desc' },
     })
-    const snap = evento?.payload as unknown as { state?: WfState; taskIds?: string[]; status?: string } | null
+    const snap = evento?.payload as unknown as { state?: WfState; taskIds?: string[]; status?: string; effectIds?: string[] } | null
     if (!snap?.state) {
       // cancelamento anterior a esta feature: sem a foto, reabrir "adivinhando" o
       // estado colocaria o processo num ponto que ele nunca esteve.
@@ -1056,6 +1116,29 @@ export class InstancesService {
 
     const state: WfState = { ...snap.state, status: 'running' }
     const taskIds = Array.isArray(snap.taskIds) ? snap.taskIds : []
+
+    /* RESTAURA O QUE O CANCELAMENTO DESFEZ. Simetria exata: o desfazer anula o
+       cancelamento e nada mais — aditivo volta a valer, contrato volta à situação
+       que tinha. Se alguém mexeu na entidade nesse meio-tempo, recusa: restaurar por
+       cima apagaria uma decisão mais recente sem ninguém saber. */
+    const effectIds = Array.isArray(snap.effectIds) ? snap.effectIds : []
+    if (effectIds.length > 0) {
+      const efeitos = await this.prisma.workflowCompensation.findMany({
+        where: { id: { in: effectIds } },
+        orderBy: { createdAt: 'asc' }, // refaz na ordem original
+      })
+      const conflitos: string[] = []
+      for (const e of efeitos) {
+        const r = await this.restoreEffect(e, { organizationId, actor })
+        if (!r.ok) { conflitos.push(r.conflito ?? 'entidade alterada'); continue }
+        await this.prisma.workflowCompensation.update({ where: { id: e.id }, data: { undoneAt: null } })
+      }
+      if (conflitos.length > 0) {
+        throw new ConflictException(
+          `Não é possível reabrir: o que o cancelamento desfez mudou depois. ${conflitos.join(' ')}`,
+        )
+      }
+    }
 
     const [updated] = await this.prisma.$transaction([
       this.prisma.processInstance.update({
@@ -1172,13 +1255,13 @@ export class InstancesService {
   ): Promise<{
     state: WfState
     tasksToCreate: Array<{ token: { id: string; nodeId: string }; node: WfNode }>
-    compensations: Array<{ nodeId: string; connector: string; undoData: Record<string, unknown> }>
+    compensations: Array<{ nodeId: string; connector: string; undoData: Record<string, unknown>; entityType?: string; entityId?: string; kind?: string; compensable?: boolean }>
     completed: boolean
     errored?: string
   }> {
     let state: WfState = fallbackState
     const tasksToCreate: Array<{ token: { id: string; nodeId: string }; node: WfNode }> = []
-    const compensations: Array<{ nodeId: string; connector: string; undoData: Record<string, unknown> }> = []
+    const compensations: Array<{ nodeId: string; connector: string; undoData: Record<string, unknown>; entityType?: string; entityId?: string; kind?: string; compensable?: boolean }> = []
     const serviceQueue: Array<{ token: { id: string; nodeId: string }; node: WfNode }> = []
     let completed = false
 
@@ -1212,7 +1295,7 @@ export class InstancesService {
 
     while (serviceQueue.length > 0) {
       const svc = serviceQueue.shift() as { token: { id: string; nodeId: string }; node: WfNode }
-      let out: { outputs: Record<string, unknown>; compensation?: Record<string, unknown> }
+      let out: { outputs: Record<string, unknown>; effect?: ProcessEffect }
       try {
         out = await this.runConnector(svc.node, state.variables, ctx)
       } catch (e) {
@@ -1222,10 +1305,20 @@ export class InstancesService {
         state = { ...state, variables: { ...state.variables, __connectorError: msg } }
         return { state, tasksToCreate, compensations, completed: false, errored: msg }
       }
-      // Registra COMO desfazer este passo, se for uma ação compensável (COMPENSATE).
-      // Só grava quando o conector produziu dados de inversa (create não produz).
-      if (svc.node.onReturn === 'COMPENSATE' && out.compensation) {
-        compensations.push({ nodeId: svc.node.id, connector: String(out.compensation.connector ?? svc.node.connector ?? ''), undoData: out.compensation })
+      // Registra o EFEITO deste passo — sempre, não só quando compensável. É este
+      // registro que liga o processo ao contrato/parceiro que ele produziu, e é dele
+      // que o cancelamento parte para desfazer. `compensable` guarda a marcação do
+      // desenhista, que continua governando só a DEVOLUÇÃO.
+      if (out.effect) {
+        compensations.push({
+          nodeId: svc.node.id,
+          connector: out.effect.connector,
+          undoData: out.effect.undoData as Record<string, unknown>,
+          entityType: out.effect.entityType,
+          entityId: out.effect.entityId,
+          kind: out.effect.kind,
+          compensable: svc.node.onReturn === 'COMPENSATE',
+        })
       }
       // Retomada do token após o conector: erro do motor aqui também vira ERRO.
       try {
@@ -1249,7 +1342,7 @@ export class InstancesService {
     node: WfNode,
     rawVars: Record<string, unknown>,
     ctx: ConnectorCtx,
-  ): Promise<{ outputs: Record<string, unknown>; compensation?: Record<string, unknown> }> {
+  ): Promise<{ outputs: Record<string, unknown>; effect?: ProcessEffect }> {
     const actorName = ctx.actor?.name
     const actorId = ctx.actor?.sub
     // Re-liga as variáveis mapeadas no designer ao nome que o conector espera; sem
@@ -1277,7 +1370,13 @@ export class InstancesService {
           actorName,
           actorId,
         )
-        return { outputs: { partnerId: created.id, partnerStatus: created.status } }
+        return {
+          outputs: { partnerId: created.id, partnerStatus: created.status },
+          effect: {
+            connector: 'partners.create', entityType: 'PARTNER', entityId: created.id, kind: 'CREATE',
+            undoData: { connector: 'partners.create', partnerId: created.id },
+          },
+        }
       }
 
       case 'contracts.create': {
@@ -1297,7 +1396,13 @@ export class InstancesService {
           actorName,
           actorId,
         )
-        return { outputs: { contratoId: created.id, contratoNumero: created.numero } }
+        return {
+          outputs: { contratoId: created.id, contratoNumero: created.numero },
+          effect: {
+            connector: 'contracts.create', entityType: 'CONTRACT', entityId: created.id, kind: 'CREATE',
+            undoData: { connector: 'contracts.create', contratoId: created.id, numero: created.numero },
+          },
+        }
       }
 
       case 'contracts.aditivo': {
@@ -1322,10 +1427,13 @@ export class InstancesService {
           actorName,
           actorId,
         )
-        // compensação: remover ESTE aditivo (por id) do contrato-alvo
+        // inversa: devolver ESTE aditivo (por id) para rascunho no contrato-alvo
         return {
           outputs: { contratoId, aditivoId: novo.id, contratoSituacao: updated.situacao },
-          compensation: { connector: 'contracts.aditivo', contratoId, aditivoId: novo.id },
+          effect: {
+            connector: 'contracts.aditivo', entityType: 'CONTRACT', entityId: contratoId, kind: 'ADITIVO',
+            undoData: { connector: 'contracts.aditivo', contratoId, aditivoId: novo.id },
+          },
         }
       }
 
@@ -1349,7 +1457,10 @@ export class InstancesService {
         )
         return {
           outputs: { contratoId, contratoSituacao: updated.situacao },
-          compensation: prev?.situacao ? { connector: 'contracts.distrato', contratoId, prevSituacao: prev.situacao } : undefined,
+          effect: {
+            connector: 'contracts.distrato', entityType: 'CONTRACT', entityId: contratoId, kind: 'DISTRATO',
+            undoData: { connector: 'contracts.distrato', contratoId, prevSituacao: prev?.situacao ?? 'VIGENTE' },
+          },
         }
       }
 
@@ -1372,7 +1483,10 @@ export class InstancesService {
         )
         return {
           outputs: { partnerId, partnerStatus: updated.status },
-          compensation: prevP?.status ? { connector: 'partners.activate', partnerId, prevStatus: prevP.status } : undefined,
+          effect: {
+            connector: 'partners.activate', entityType: 'PARTNER', entityId: partnerId, kind: 'ACTIVATE',
+            undoData: { connector: 'partners.activate', partnerId, prevStatus: prevP?.status ?? 'EM_CADASTRAMENTO' },
+          },
         }
       }
 
@@ -1385,6 +1499,173 @@ export class InstancesService {
    *  A ativação valida contra esta lista; a devolução chama `runCompensator`. */
   private static readonly COMPENSABLE = new Set(['contracts.aditivo', 'contracts.distrato', 'partners.activate'])
 
+  // ── Efeitos do processo sobre o domínio ─────────────────────────────────────
+
+  /** Foto do contrato para decidir se dá para cancelá-lo sem perguntar. */
+  private async contractSnapshot(contratoId: string, organizationId: string): Promise<ContractSnapshot | null> {
+    const c = await this.prisma.contract.findFirst({
+      where: { id: contratoId, organizationId },
+      select: { situacao: true, aditivos: true, pagamentos: true, recebimentos: true, documentos: true },
+    })
+    if (!c) return null
+    const tem = (v: unknown) => Array.isArray(v) && v.length > 0
+    return {
+      situacao: c.situacao,
+      temMovimento: tem(c.aditivos) || tem(c.pagamentos) || tem(c.recebimentos) || tem(c.documentos),
+    }
+  }
+
+  /** Rótulo humano da entidade, para as telas de confirmação. */
+  private async labelOf(entityType: string, entityId: string, organizationId: string): Promise<string> {
+    if (entityType === 'CONTRACT') {
+      const c = await this.prisma.contract.findFirst({ where: { id: entityId, organizationId }, select: { numero: true, titulo: true } })
+      return c ? (c.numero || c.titulo || entityId) : '(removido)'
+    }
+    const p = await this.prisma.partner.findFirst({ where: { id: entityId, organizationId }, select: { razaoSocial: true } })
+    return p?.razaoSocial ?? '(removido)'
+  }
+
+  /** O que o cancelamento deste processo vai fazer no domínio — ANTES de fazer.
+   *  Uma ação que mexe em contrato não pode ser um botão que só responde "pronto". */
+  async cancelPreview(instanceId: string, organizationId: string) {
+    const efeitos = await this.prisma.workflowCompensation.findMany({
+      where: { instanceId, undoneAt: null },
+      orderBy: { createdAt: 'asc' },
+    })
+    const itens: EffectPlanItem[] = []
+    for (const e of efeitos) {
+      const kind = (e.kind ?? '') as EffectKind
+      const entityType = (e.entityType ?? '') as EntityType
+      if (!kind || !entityType || !e.entityId) continue
+      const rotulo = await this.labelOf(entityType, e.entityId, organizationId)
+      if (!isRevertible(kind, entityType)) {
+        itens.push({ effectId: e.id, kind, entityType, entityId: e.entityId, descricao: describeRevert(kind, entityType, rotulo), requerConfirmacao: false })
+        continue
+      }
+      let requerConfirmacao = false
+      let aviso: string | undefined
+      if (kind === 'CREATE' && entityType === 'CONTRACT') {
+        const snap = await this.contractSnapshot(e.entityId, organizationId)
+        if (snap) ({ requerConfirmacao, aviso } = planContractCreate(snap))
+      }
+      itens.push({ effectId: e.id, kind, entityType, entityId: e.entityId, descricao: describeRevert(kind, entityType, rotulo), requerConfirmacao, aviso })
+    }
+    return { efeitos: itens, requerConfirmacao: itens.some((i) => i.requerConfirmacao) }
+  }
+
+  /** Desfaz UM efeito e devolve o estado em que a entidade ficou (a "foto" que a
+   *  reabertura confere antes de restaurar). */
+  private async revertEffect(
+    e: { id: string; kind: string | null; entityType: string | null; entityId: string | null; undoData: unknown },
+    ctx: ConnectorCtx,
+  ): Promise<{ before?: string; after?: string } | null> {
+    const undo = (e.undoData ?? {}) as Record<string, unknown>
+    const kind = (e.kind ?? '') as EffectKind
+    const entityType = (e.entityType ?? '') as EntityType
+    if (!e.entityId || !isRevertible(kind, entityType)) return null
+    const actorName = ctx.actor?.name
+    const actorId = ctx.actor?.sub
+    const motivo = 'Processo cancelado'
+
+    switch (kind) {
+      case 'CREATE': {
+        // contrato criado pelo processo → situação CANCELADO (não apaga: o número
+        // já foi emitido e o histórico precisa explicar o que houve com ele)
+        const atual = await this.prisma.contract.findFirst({ where: { id: e.entityId, organizationId: ctx.organizationId }, select: { situacao: true } })
+        if (!atual) return null
+        await this.contracts.update(e.entityId, { situacao: 'CANCELADO', motivo } as never, ctx.organizationId, actorName, actorId)
+        return { before: atual.situacao, after: 'CANCELADO' }
+      }
+      case 'ADITIVO': {
+        // volta o aditivo para RASCUNHO em vez de apagá-lo: preserva o preenchimento
+        // e o núcleo já garante que rascunho não aplica efeito no contrato.
+        const contratoId = String(undo.contratoId ?? e.entityId)
+        const aditivoId = String(undo.aditivoId ?? '')
+        const c = await this.prisma.contract.findFirst({ where: { id: contratoId, organizationId: ctx.organizationId }, select: { aditivos: true } })
+        if (!c) return null
+        const lista = Array.isArray(c.aditivos) ? (c.aditivos as Array<Record<string, unknown>>) : []
+        const alvo = lista.find((a) => a?.id === aditivoId)
+        if (!alvo) return null
+        const before = String(alvo.situacao ?? 'ATIVO')
+        if (before === 'RASCUNHO') return { before, after: 'RASCUNHO' }
+        const novos = lista.map((a) => (a?.id === aditivoId ? { ...a, situacao: 'RASCUNHO' } : a))
+        await this.contracts.update(contratoId, { aditivos: novos, motivo } as never, ctx.organizationId, actorName, actorId)
+        return { before, after: 'RASCUNHO' }
+      }
+      case 'DISTRATO': {
+        const contratoId = String(undo.contratoId ?? e.entityId)
+        const prevSituacao = String(undo.prevSituacao ?? 'VIGENTE')
+        const atual = await this.prisma.contract.findFirst({ where: { id: contratoId, organizationId: ctx.organizationId }, select: { situacao: true } })
+        if (!atual) return null
+        await this.contracts.update(contratoId, { situacao: prevSituacao, motivo } as never, ctx.organizationId, actorName, actorId)
+        return { before: atual.situacao, after: prevSituacao }
+      }
+      case 'ACTIVATE': {
+        const partnerId = String(undo.partnerId ?? e.entityId)
+        const prevStatus = String(undo.prevStatus ?? 'EM_CADASTRAMENTO')
+        const atual = await this.prisma.partner.findFirst({ where: { id: partnerId, organizationId: ctx.organizationId }, select: { status: true } })
+        if (!atual) return null
+        await this.partners.update(partnerId, { status: prevStatus, motivo } as never, ctx.organizationId, actorName, actorId)
+        return { before: atual.status, after: prevStatus }
+      }
+      default:
+        return null
+    }
+  }
+
+  /** Refaz UM efeito desfeito pelo cancelamento — restaura o estado do INSTANTE do
+   *  cancelamento (não reexecuta o conector: reexecutar duplicaria aditivo).
+   *  Recusa quando a entidade mudou por outra via nesse meio-tempo. */
+  private async restoreEffect(
+    e: { kind: string | null; entityType: string | null; entityId: string | null; undoData: unknown },
+    ctx: ConnectorCtx,
+  ): Promise<{ ok: boolean; conflito?: string }> {
+    const undo = (e.undoData ?? {}) as Record<string, unknown>
+    const kind = (e.kind ?? '') as EffectKind
+    const entityType = (e.entityType ?? '') as EntityType
+    if (!e.entityId || !isRevertible(kind, entityType)) return { ok: true }
+    const before = undo.revertedFrom as string | undefined // estado antes do cancelamento
+    const after = undo.revertedTo as string | undefined    // estado deixado pelo cancelamento
+    if (!before) return { ok: true } // cancelamento anterior a esta feature: nada a refazer
+    const actorName = ctx.actor?.name
+    const actorId = ctx.actor?.sub
+    const motivo = 'Cancelamento do processo desfeito'
+
+    if (kind === 'ADITIVO') {
+      const contratoId = String(undo.contratoId ?? e.entityId)
+      const aditivoId = String(undo.aditivoId ?? '')
+      const c = await this.prisma.contract.findFirst({ where: { id: contratoId, organizationId: ctx.organizationId }, select: { aditivos: true } })
+      if (!c) return { ok: false, conflito: 'O contrato deste aditivo não existe mais.' }
+      const lista = Array.isArray(c.aditivos) ? (c.aditivos as Array<Record<string, unknown>>) : []
+      const alvo = lista.find((a) => a?.id === aditivoId)
+      if (!alvo) return { ok: false, conflito: 'O aditivo foi removido depois do cancelamento.' }
+      if (!isUntouched(String(alvo.situacao ?? ''), after)) {
+        return { ok: false, conflito: `O aditivo está como ${String(alvo.situacao)} — alguém o alterou depois do cancelamento.` }
+      }
+      const novos = lista.map((a) => (a?.id === aditivoId ? { ...a, situacao: before } : a))
+      await this.contracts.update(contratoId, { aditivos: novos, motivo } as never, ctx.organizationId, actorName, actorId)
+      return { ok: true }
+    }
+
+    if (entityType === 'CONTRACT') {
+      const atual = await this.prisma.contract.findFirst({ where: { id: e.entityId, organizationId: ctx.organizationId }, select: { situacao: true } })
+      if (!atual) return { ok: false, conflito: 'O contrato não existe mais.' }
+      if (!isUntouched(atual.situacao, after)) {
+        return { ok: false, conflito: `O contrato está ${atual.situacao} — alguém o alterou depois do cancelamento.` }
+      }
+      await this.contracts.update(e.entityId, { situacao: before, motivo } as never, ctx.organizationId, actorName, actorId)
+      return { ok: true }
+    }
+
+    const atual = await this.prisma.partner.findFirst({ where: { id: e.entityId, organizationId: ctx.organizationId }, select: { status: true } })
+    if (!atual) return { ok: false, conflito: 'O parceiro não existe mais.' }
+    if (!isUntouched(atual.status, after)) {
+      return { ok: false, conflito: `O parceiro está ${atual.status} — alguém o alterou depois do cancelamento.` }
+    }
+    await this.partners.update(e.entityId, { status: before, motivo } as never, ctx.organizationId, actorName, actorId)
+    return { ok: true }
+  }
+
   /** Roda a inversa de uma ação compensável (desfaz o efeito de domínio). Usada na
    *  devolução, ANTES de reabrir a etapa anterior. Idempotente onde dá (ex.: remover
    *  um aditivo que já não existe é no-op). */
@@ -1394,15 +1675,19 @@ export class InstancesService {
     const connector = String(undoData.connector ?? '')
     switch (connector) {
       case 'contracts.aditivo': {
-        // remove ESTE aditivo (por id) do contrato-alvo
+        /* Devolve ESTE aditivo para RASCUNHO em vez de APAGÁ-LO (era o comportamento
+           anterior). Rascunho não aplica efeito no contrato — o núcleo garante —, e
+           preserva o que alguém preencheu: devolver o processo é pedir correção, não
+           mandar refazer do zero. Se a etapa rodar de novo, o aditivo volta a ATIVO. */
         const contratoId = String(undoData.contratoId ?? '')
         const aditivoId = String(undoData.aditivoId ?? '')
         const atual = await this.prisma.contract.findFirst({ where: { id: contratoId, organizationId: ctx.organizationId }, select: { aditivos: true } })
         if (!atual) return // contrato sumiu → nada a desfazer
-        const existentes = Array.isArray(atual.aditivos) ? (atual.aditivos as Array<{ id?: string }>) : []
-        const restante = existentes.filter((a) => a?.id !== aditivoId)
-        if (restante.length === existentes.length) return // já não estava lá (no-op)
-        await this.contracts.update(contratoId, { aditivos: restante, motivo: 'Compensação: devolução do processo' } as unknown as Parameters<ContractsService['update']>[1], ctx.organizationId, actorName, actorId)
+        const existentes = Array.isArray(atual.aditivos) ? (atual.aditivos as Array<Record<string, unknown>>) : []
+        const alvo = existentes.find((a) => a?.id === aditivoId)
+        if (!alvo || alvo.situacao === 'RASCUNHO') return // já não vale (no-op)
+        const novos = existentes.map((a) => (a?.id === aditivoId ? { ...a, situacao: 'RASCUNHO' } : a))
+        await this.contracts.update(contratoId, { aditivos: novos, motivo: 'Compensação: devolução do processo' } as unknown as Parameters<ContractsService['update']>[1], ctx.organizationId, actorName, actorId)
         return
       }
       case 'contracts.distrato': {
@@ -1428,15 +1713,24 @@ export class InstancesService {
 
   // ── Persistência auxiliar ────────────────────────────────────────────────────
 
-  /** Grava o log de compensação (como desfazer) das ações COMPENSATE que rodaram. */
+  /** Grava o log de EFEITOS das ações automáticas que rodaram (o que produziram e
+   *  como desfazer). `compensable` marca as que a DEVOLUÇÃO pode desfazer; o
+   *  cancelamento desfaz todas que tenham inversa. */
   private async persistCompensations(
     client: Pick<PrismaService, 'workflowCompensation'>,
     instanceId: string,
-    comps: Array<{ nodeId: string; connector: string; undoData: Record<string, unknown> }>,
+    comps: Array<{
+      nodeId: string; connector: string; undoData: Record<string, unknown>
+      entityType?: string; entityId?: string; kind?: string; compensable?: boolean
+    }>,
   ) {
     if (comps.length === 0) return
     await client.workflowCompensation.createMany({
-      data: comps.map((c) => ({ instanceId, nodeId: c.nodeId, connector: c.connector, undoData: c.undoData })) as never,
+      data: comps.map((c) => ({
+        instanceId, nodeId: c.nodeId, connector: c.connector, undoData: c.undoData,
+        entityType: c.entityType ?? null, entityId: c.entityId ?? null, kind: c.kind ?? null,
+        compensable: c.compensable ?? false,
+      })) as never,
     })
   }
 

@@ -51,10 +51,13 @@ export const SIT_CLS: Record<string, string> = {
   VENCIDO:     'bg-amber-500/10 text-amber-600 dark:text-amber-400',
   ENCERRADO:   'bg-muted text-muted-foreground',
   RESCINDIDO:  'bg-red-500/10 text-red-600 dark:text-red-400',
+  // cancelado: contrato que nunca chegou a valer (o processo que o criou foi
+  // cancelado). Cinza de propósito — não é falha nem ato entre as partes.
+  CANCELADO:   'bg-muted text-muted-foreground',
 }
 export const SIT_LABEL: Record<string, string> = {
   EM_CADASTRO: 'Em cadastro/revisão', VIGENTE: 'Vigente', VENCIDO: 'Vencido',
-  ENCERRADO: 'Encerrado', RESCINDIDO: 'Rescindido',
+  ENCERRADO: 'Encerrado', RESCINDIDO: 'Rescindido', CANCELADO: 'Cancelado',
 }
 export const SIT_DOT_CLS: Record<string, string> = {
   EM_CADASTRO: 'bg-blue-500 animate-pulse',
@@ -62,6 +65,7 @@ export const SIT_DOT_CLS: Record<string, string> = {
   VENCIDO:     'bg-amber-500',
   ENCERRADO:   'bg-muted-foreground/50',
   RESCINDIDO:  'bg-red-500',
+  CANCELADO:   'bg-muted-foreground/40',
 }
 
 /* painel de aba: só renderiza quando a aba está ativa */
