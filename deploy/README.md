@@ -77,6 +77,25 @@ Os arquivos de configuração ficam fora da pasta da aplicação, com permissão
 (Windows: só SYSTEM e Administradores; Linux: `640 root:nxt`). **Não anexe `api.env` em
 chamado de suporte** — ele tem a senha do banco e o segredo de assinatura dos tokens.
 
+### Rotacionar a chave de criptografia do e-mail
+
+A senha do SMTP é cifrada com `MAIL_ENCRYPTION_KEY` ou, na falta dela, com o
+`AUTH_JWT_SECRET`. Trocar essa chave — inclusive **passar a ter** uma dedicada — torna a
+senha já gravada ilegível.
+
+```bash
+node tools/rotate-mail-key.mjs --gerar                 # sugere uma chave forte
+node tools/rotate-mail-key.mjs --nova "<chave nova>"   # recifra a senha guardada
+# só então: defina MAIL_ENCRYPTION_KEY no ambiente e reinicie a API
+```
+
+Com a API **parada**, para ninguém gravar no meio. O script decifra com a chave atual,
+recifra com a nova e **confere antes de gravar**; se a conferência falhar, não grava.
+
+Sem ele, "reconfigure o e-mail" pode custar caro: provedor com senha de aplicativo
+(Gmail, por exemplo) mostra a senha **uma única vez**, então quem não guardou precisa
+gerar outra credencial.
+
 ### Administrador inicial
 
 O seed **recusa** subir em produção com os valores de exemplo (`admin@nxt.local` /
