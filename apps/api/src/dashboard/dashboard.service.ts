@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { effectiveSituacao, terminoVigente, todayISO, valorVigente, type CoreContract } from '@nxt/contracts-core'
 import { PrismaService } from '../prisma.service'
+import { InstancesService } from '../instances/instances.service'
 
 const DAY = 86_400_000
 
@@ -35,9 +36,16 @@ function buildSeries(dates: Date[], months = 6): { series: number[]; deltaPct: n
   return { series: buckets, deltaPct }
 }
 
+/** Em curso = ainda pode andar. ERROR entra: a instância dá retry e o prazo segue
+ *  correndo — é assim que a tela de Processos também a trata. */
+const emCurso = (i: { status: string }) => i.status === 'RUNNING' || i.status === 'ERROR'
+
 @Injectable()
 export class DashboardService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly instances: InstancesService,
+  ) {}
 
   async getSummary(organizationId: string) {
     const today = new Date()
@@ -50,6 +58,7 @@ export class DashboardService {
       processTotal,
       processActive,
       runningCount,
+      instanciasDerivadas,
       stuckRaw,
       auditLogs,
       recentContractLogs,
@@ -72,6 +81,9 @@ export class DashboardService {
       this.prisma.processDefinition.count({ where: { organizationId } }),
       this.prisma.processDefinition.count({ where: { organizationId, status: 'ACTIVE' } }),
       this.prisma.processInstance.count({ where: { status: 'RUNNING', processDefinition: { organizationId } } }),
+      /* Instâncias JÁ DERIVADAS (situação efetiva + atraso do processo) — mesma fonte
+         que a tela de Processos usa, para os números baterem entre as duas telas. */
+      this.instances.listInstances(organizationId),
       this.prisma.processInstance.findMany({
         where:   { status: 'RUNNING', processDefinition: { organizationId }, updatedAt: { lt: stuckThreshold } },
         include: { processDefinition: { select: { name: true } } },
@@ -190,7 +202,19 @@ export class DashboardService {
         deltaPct: partnerSeries.deltaPct,
       },
       processes: { total: processTotal, active: processActive },
-      instances: { running: runningCount, stuck },
+      instances: {
+        running: runningCount,
+        stuck,
+        /* Composição do que EXISTE de execução, para o gráfico: em andamento (no prazo
+           e atrasadas), concluídas, canceladas e com erro. "Atrasado" aqui é o MESMO
+           conceito da tela de Processos — nunca um segundo cálculo. */
+        total: instanciasDerivadas.length,
+        emAndamentoNoPrazo: instanciasDerivadas.filter((i) => emCurso(i) && !i.processOverdue).length,
+        emAndamentoAtrasadas: instanciasDerivadas.filter((i) => emCurso(i) && i.processOverdue).length,
+        concluidas: instanciasDerivadas.filter((i) => i.status === 'COMPLETED').length,
+        canceladas: instanciasDerivadas.filter((i) => i.status === 'CANCELLED').length,
+        comErro: instanciasDerivadas.filter((i) => i.status === 'ERROR').length,
+      },
       activity,
       attentionCount,
     }

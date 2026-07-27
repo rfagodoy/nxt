@@ -4,9 +4,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSession } from '@/lib/session-context'
 import {
-  FileText, Users, GitBranch, Loader2, Plus, TrendingUp, TrendingDown, Sparkles, ListChecks,
+  FileText, Users, Loader2, Plus, Sparkles, ListChecks,
 } from 'lucide-react'
-import { Area, AreaChart, ResponsiveContainer } from 'recharts'
+import { ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { cn } from '@/lib/utils'
 import { apiFetch, apiJson } from '@/lib/http'
 import { dueInfo, DUE_CHIP, valorCurto, type Task } from '@/lib/tasks-ui'
@@ -25,16 +25,23 @@ interface Summary {
   }
   partners:  { total: number; byStatus: Record<string, number>; series: number[]; deltaPct: number | null }
   processes: { total: number; active: number }
-  instances: { running: number; stuck: { id: string; processName: string; currentStep: string; daysStuck: number }[] }
+  instances: {
+    running: number
+    stuck: { id: string; processName: string; currentStep: string; daysStuck: number }[]
+    total: number
+    emAndamentoNoPrazo: number
+    emAndamentoAtrasadas: number
+    concluidas: number
+    canceladas: number
+    comErro: number
+  }
   activity:  { id: string; kind: 'partner' | 'contract'; title: string; detail: string; user: string | null; at: string }[]
   attentionCount: number
 }
 
 /* ─────────────────────────── helpers ─────────────────────────────────────── */
-const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }) // 2 casas (centavos) por padrão
 const NUM = new Intl.NumberFormat('pt-BR')
 
-const ACCENT = 'hsl(154 70% 40%)' // Emerald da marca (sparklines, séries)
 
 function greeting(): string {
   const h = new Date().getHours()
@@ -67,39 +74,6 @@ function useCountUp(target: number, duration = 900): number {
 }
 
 /* ─────────────────────────── micro-componentes ───────────────────────────── */
-function Sparkline({ data, color = ACCENT }: { data: number[]; color?: string }) {
-  const chartData = data.map((v, i) => ({ i, v }))
-  const id = useMemo(() => `sp-${Math.random().toString(36).slice(2)}`, [])
-  return (
-    <ResponsiveContainer width="100%" height="100%">
-      <AreaChart data={chartData} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
-        <defs>
-          <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity={0.28} />
-            <stop offset="100%" stopColor={color} stopOpacity={0} />
-          </linearGradient>
-        </defs>
-        <Area type="monotone" dataKey="v" stroke={color} strokeWidth={2}
-          fill={`url(#${id})`} isAnimationActive dot={false} />
-      </AreaChart>
-    </ResponsiveContainer>
-  )
-}
-
-function Delta({ pct }: { pct: number | null }) {
-  if (pct === null) return null
-  const up = pct >= 0
-  return (
-    <span className={cn(
-      'inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
-      up ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-red-500/10 text-red-600 dark:text-red-400',
-    )}>
-      {up ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-      {up ? '+' : ''}{pct}%
-    </span>
-  )
-}
-
 function CountUp({ value, format }: { value: number; format?: (n: number) => string }) {
   const v = useCountUp(value)
   const rounded = Math.round(v)
@@ -170,11 +144,6 @@ export default function DashboardPage() {
 
   const c = data?.contracts
   const p = data?.partners
-  /* VENCIDO é um VIGENTE cujo término passou (derivado). No card ele conta como vigente:
-     vigentes = em dia, vencidos = a renovar, "em vigência" = a soma dos dois. */
-  const vigentes   = c?.byStatus.VIGENTE ?? 0
-  const vencidos   = c?.byStatus.VENCIDO ?? 0
-  const emVigencia = vigentes + vencidos
 
   return (
     /* Três faixas de dois blocos, cada bloco com metade da largura. O layout
@@ -261,84 +230,123 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* ── Contratos (destaque, com sparkline) ── */}
-        <Tile className="sm:col-span-2 flex flex-col" onClick={() => router.push('/modules/contratos')}>
-          <div className="flex items-start justify-between">
-            <div className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <FileText className="h-4 w-4" />
-              </span>
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">Contratos</p>
-                <p className="text-[11px] text-muted-foreground/70">
-                  <span className="font-medium text-emerald-600 dark:text-emerald-400">{vigentes}</span> vigente{vigentes === 1 ? '' : 's'} · <span className={cn('font-medium', vencidos > 0 && 'text-amber-600 dark:text-amber-500')}>{vencidos}</span> vencido{vencidos === 1 ? '' : 's'} · <span className="font-medium text-foreground">{emVigencia}</span> em vigência · {BRL.format(c?.valorAtivos ?? 0)}
-                </p>
-              </div>
-            </div>
-            <Delta pct={c?.deltaPct ?? null} />
-          </div>
-          <div className="mt-2 flex items-end justify-between gap-3">
-            {/* número grande = TOTAL GERAL do cadastro (todas as situações) */}
-            <p className="text-2xl font-bold tabular-nums leading-none">
-              <CountUp value={c?.total ?? 0} />
-            </p>
-            <div className="h-12 flex-1 max-w-[180px]">
-              {c && <Sparkline data={c.series} />}
-            </div>
-          </div>
-        </Tile>
-
-        {/* ── tiles menores ── */}
-        <MiniStat
-          className="sm:col-span-2"
-          icon={<Users className="h-4 w-4" />} label="Parceiros"
-          value={p?.total ?? 0} delta={p?.deltaPct ?? null} series={p?.series}
-          onClick={() => router.push('/modules/parceiros')}
-          sub={`${p?.byStatus.ATIVO ?? 0} ativos`}
-        />
-        <MiniStat
-          className="sm:col-span-2"
-          icon={<GitBranch className="h-4 w-4" />} label="Workflows ativos"
-          value={data?.processes.active ?? 0}
-          onClick={() => router.push('/processes')}
-          sub={`de ${data?.processes.total ?? 0} desenhados`}
-        />
-        <MiniStat
-          className="sm:col-span-2"
-          icon={<Loader2 className="h-4 w-4" />} label="Processos em execução"
-          value={data?.instances.running ?? 0}
-          onClick={() => router.push('/processos')}
-          sub={(data?.instances.stuck.length ?? 0) > 0 ? `${data?.instances.stuck.length} parado(s)` : 'em andamento'}
-          subWarn={(data?.instances.stuck.length ?? 0) > 0}
-        />
+        {/* ── Composição da carteira ──
+            Três cards de mesmo peso, abaixo de "Seu trabalho" e visivelmente menores:
+            eles respondem "como está a carteira?", que é pergunta de acompanhamento,
+            não de ação. Cada um mostra o TOTAL grande e a composição em rosca — o
+            número sozinho não diz se 128 contratos são saúde ou problema. */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:col-span-2 lg:col-span-4">
+          <Composicao
+            icon={<FileText className="h-4 w-4" />}
+            label="Contratos"
+            total={c?.total ?? 0}
+            onClick={() => router.push('/modules/contratos')}
+            fatias={[
+              { nome: 'Vigentes',    valor: c?.byStatus.VIGENTE ?? 0,     cor: 'hsl(154 70% 40%)' },
+              { nome: 'Vencidos',    valor: c?.byStatus.VENCIDO ?? 0,     cor: 'hsl(38 92% 50%)'  },
+              { nome: 'Em cadastro', valor: c?.byStatus.EM_CADASTRO ?? 0, cor: 'hsl(210 90% 55%)' },
+              { nome: 'Encerrados',  valor: c?.byStatus.ENCERRADO ?? 0,   cor: 'hsl(215 15% 55%)' },
+              { nome: 'Rescindidos', valor: c?.byStatus.RESCINDIDO ?? 0,  cor: 'hsl(0 72% 55%)'   },
+              { nome: 'Cancelados',  valor: c?.byStatus.CANCELADO ?? 0,   cor: 'hsl(215 12% 40%)' },
+            ]}
+          />
+          <Composicao
+            icon={<Users className="h-4 w-4" />}
+            label="Parceiros"
+            total={p?.total ?? 0}
+            onClick={() => router.push('/modules/parceiros')}
+            fatias={[
+              { nome: 'Ativos',        valor: p?.byStatus.ATIVO ?? 0,             cor: 'hsl(154 70% 40%)' },
+              { nome: 'Em cadastro',   valor: p?.byStatus.EM_CADASTRAMENTO ?? 0,  cor: 'hsl(210 90% 55%)' },
+              { nome: 'Inativos',      valor: p?.byStatus.INATIVO ?? 0,           cor: 'hsl(215 15% 55%)' },
+            ]}
+          />
+          <Composicao
+            icon={<Loader2 className="h-4 w-4" />}
+            label="Processos"
+            total={data?.instances.total ?? 0}
+            onClick={() => router.push('/processos')}
+            fatias={[
+              { nome: 'Em dia',     valor: data?.instances.emAndamentoNoPrazo ?? 0,   cor: 'hsl(154 70% 40%)' },
+              { nome: 'Atrasados',  valor: data?.instances.emAndamentoAtrasadas ?? 0, cor: 'hsl(0 72% 55%)'   },
+              { nome: 'Concluídos', valor: data?.instances.concluidas ?? 0,           cor: 'hsl(215 15% 55%)' },
+              { nome: 'Com erro',   valor: data?.instances.comErro ?? 0,              cor: 'hsl(24 90% 50%)'  },
+              { nome: 'Cancelados', valor: data?.instances.canceladas ?? 0,           cor: 'hsl(215 12% 40%)' },
+            ]}
+          />
+        </div>
 
     </div>
   )
 }
 
+
 /* ─────────────────────────── sub-componentes ─────────────────────────────── */
-function MiniStat({ icon, label, value, sub, subWarn, delta, series, onClick, className }: {
-  icon: React.ReactNode; label: string; value: number; sub?: string; subWarn?: boolean
-  delta?: number | null; series?: number[]; onClick?: () => void; className?: string
+
+interface Fatia { nome: string; valor: number; cor: string }
+
+/** Card de composição: o total em número grande e a repartição em rosca.
+ *
+ *  Rosca (e não barra ou pizza cheia) por dois motivos: o buraco do meio abriga o
+ *  total, então o número e a composição ocupam o mesmo espaço; e a leitura aqui é
+ *  "quanto de cada", não "qual é maior" — comparação fina fica na tela do módulo.
+ *
+ *  Fatia zerada é OMITIDA do gráfico e da legenda: uma situação sem nenhum registro
+ *  não é informação, é ruído — e com seis situações possíveis a legenda ficaria mais
+ *  alta que o próprio gráfico. */
+function Composicao({ icon, label, total, fatias, onClick }: {
+  icon: React.ReactNode; label: string; total: number; fatias: Fatia[]; onClick?: () => void
 }) {
+  const visiveis = fatias.filter((f) => f.valor > 0)
+  const soma = visiveis.reduce((acc, f) => acc + f.valor, 0)
+
   return (
-    <Tile onClick={onClick} highlight className={cn('flex flex-col', className)}>
-      <div className="flex items-center justify-between">
+    <Tile onClick={onClick} highlight className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">{icon}</span>
-        {delta !== undefined && <Delta pct={delta ?? null} />}
+        <p className="text-xs font-medium text-muted-foreground">{label}</p>
       </div>
-      <p className="mt-2 text-xl font-bold tabular-nums leading-none"><CountUp value={value} /></p>
-      <div className="mt-1 flex items-end justify-between gap-2">
-        <div>
-          <p className="text-xs font-medium text-muted-foreground">{label}</p>
-          {sub && <p className={cn('text-[10px]', subWarn ? 'text-orange-500 font-medium' : 'text-muted-foreground/70')}>{sub}</p>}
+
+      {soma === 0 ? (
+        <div className="flex flex-1 items-center gap-3 py-2">
+          <p className="text-2xl font-bold tabular-nums leading-none text-muted-foreground/60">0</p>
+          <p className="text-[11px] text-muted-foreground">Nenhum registro ainda.</p>
         </div>
-        {series && <div className="h-7 w-16 shrink-0"><Sparkline data={series} /></div>}
-      </div>
+      ) : (
+        <div className="flex items-center gap-3">
+          <div className="relative h-[88px] w-[88px] shrink-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={visiveis} dataKey="valor" nameKey="nome"
+                  innerRadius={28} outerRadius={42} paddingAngle={visiveis.length > 1 ? 2 : 0}
+                  stroke="none" isAnimationActive
+                >
+                  {visiveis.map((f) => <Cell key={f.nome} fill={f.cor} />)}
+                </Pie>
+              </PieChart>
+            </ResponsiveContainer>
+            {/* total no miolo: o dado principal fica no centro do gráfico, não ao lado */}
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-lg font-bold leading-none tabular-nums"><CountUp value={total} /></span>
+              <span className="text-[9px] uppercase tracking-wide text-muted-foreground">total</span>
+            </div>
+          </div>
+
+          <ul className="min-w-0 flex-1 space-y-0.5">
+            {visiveis.map((f) => (
+              <li key={f.nome} className="flex items-center gap-1.5 text-[11px]">
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: f.cor }} />
+                <span className="min-w-0 flex-1 truncate text-muted-foreground">{f.nome}</span>
+                <span className="shrink-0 font-semibold tabular-nums">{f.valor}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </Tile>
   )
 }
-
 function DashboardSkeleton() {
   return (
     <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 animate-pulse">
