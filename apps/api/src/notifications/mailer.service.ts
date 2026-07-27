@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { createTransport, type Transporter } from 'nodemailer'
 import { MailSettingsService, type EffectiveMailConfig } from './mail-settings.service'
+import { motivoInentregavel, explicaInentregavel } from './email-address'
 
 /* Envio de e-mail. NASCE DESLIGADO: sem servidor configurado (nem na tela, nem no
    ambiente), o serviço não tenta conectar em lugar nenhum e o sistema segue
@@ -58,6 +59,14 @@ export class MailerService {
   async send(organizationId: string, msg: MailMessage): Promise<boolean> {
     const cfg = await this.settings.resolve(organizationId)
     if (!cfg) return false
+    /* Endereço comprovadamente morto não vai para o servidor: cada quique conta contra
+       a reputação do remetente, e um usuário de teste mal cadastrado não pode custar a
+       entrega dos avisos de todo mundo. Fica no log — não é para sumir em silêncio. */
+    const motivo = motivoInentregavel(msg.to)
+    if (motivo) {
+      this.logger.warn(`envio ignorado — ${explicaInentregavel(msg.to, motivo)}`)
+      return false
+    }
     try {
       await this.transportFor(cfg).sendMail({
         from: cfg.from, to: msg.to, replyTo: cfg.replyTo,
@@ -88,6 +97,8 @@ export class MailerService {
   async sendTest(organizationId: string, to: string): Promise<{ ok: boolean; error?: string }> {
     const cfg = await this.settings.resolve(organizationId)
     if (!cfg) return { ok: false, error: 'Nenhum servidor de e-mail configurado.' }
+    const motivo = motivoInentregavel(to)
+    if (motivo) return { ok: false, error: explicaInentregavel(to, motivo) }
     try {
       await this.transportFor(cfg).sendMail({
         from: cfg.from, to, replyTo: cfg.replyTo,

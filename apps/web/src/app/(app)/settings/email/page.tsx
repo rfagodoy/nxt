@@ -16,6 +16,8 @@ import { apiFetch, apiJson } from '@/lib/http'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/lib/session-context'
 
+type Destinatario = { id: string; name: string; email: string; motivo: string }
+
 type Security = 'NONE' | 'SSL' | 'STARTTLS'
 
 interface Config {
@@ -63,11 +65,17 @@ export default function EmailConfigPage() {
   const [testando, setTestando] = useState<'conexao' | 'envio' | null>(null)
   const [resultado, setResultado] = useState<{ ok: boolean; msg: string } | null>(null)
   const [erro, setErro] = useState<string | null>(null)
+  const [invalidos, setInvalidos] = useState<Destinatario[]>([])
 
   const load = useCallback(async () => {
     const data = await apiJson<Config>('/api/notifications/email-config').catch(() => null)
     setCfg(data ?? VAZIO)
     setTrocarSenha(!(data?.hasPassword))
+    /* Quem tem e-mail impossível de entregar. Sem isto, o canal parece funcionando
+       (o teste chega na SUA caixa) e o silêncio dos outros só aparece quando alguém
+       perde um prazo. */
+    const check = await apiJson<Destinatario[]>('/api/notifications/email-recipients-check').catch(() => null)
+    setInvalidos(Array.isArray(check) ? check : [])
   }, [])
   useEffect(() => { void load() }, [load])
 
@@ -157,6 +165,30 @@ export default function EmailConfigPage() {
         </span>
         {cfg.origem === 'AMBIENTE' && <span className="text-[10.5px] opacity-80">definido por variáveis de ambiente</span>}
       </div>
+
+      {invalidos.length > 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-px" />
+            <div className="space-y-1">
+              <p>
+                <strong>{invalidos.length} usuário{invalidos.length > 1 ? 's' : ''} ativo{invalidos.length > 1 ? 's' : ''} não receberá{invalidos.length > 1 ? 'ão' : ''} e-mail</strong> — o endereço
+                cadastrado nunca chegaria ao destino. O sistema nem tenta enviar: mensagem devolvida repetidamente
+                custa a reputação do remetente e acaba derrubando o aviso de todo mundo.
+              </p>
+              <ul className="space-y-0.5">
+                {invalidos.map((u) => (
+                  <li key={u.id} className="flex flex-wrap items-baseline gap-x-1.5">
+                    <span className="font-medium">{u.name}</span>
+                    <code className="font-mono text-[11px] opacity-90">{u.email || '(sem e-mail)'}</code>
+                  </li>
+                ))}
+              </ul>
+              <p className="opacity-90">Corrija em Configurações → Usuários.</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {!cfg.podeGuardarSenha && (
         <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-[12px] text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">

@@ -202,7 +202,10 @@ export class MailSettingsService {
       requireTLS: cfg.security === 'STARTTLS',
       user: cfg.user,
       pass,
-      from: from || 'Nxt <nao-responda@nxt.local>',
+      /* Sem remetente configurado, cai na PRÓPRIA conta autenticada — que é o único
+         endereço que o servidor com certeza aceita. O antigo padrão `nao-responda@nxt.local`
+         é um domínio que não existe: provedor sério recusa o envio ou entrega no spam. */
+      from: from || cfg.user || 'nao-responda@localhost',
       replyTo: cfg.replyTo || undefined,
       allowSelfSigned: !!cfg.allowSelfSigned,
     }
