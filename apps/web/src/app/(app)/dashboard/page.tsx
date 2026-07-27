@@ -148,11 +148,14 @@ export default function DashboardPage() {
   const p = data?.partners
 
   return (
-    /* Três faixas: hero (fina), "Seu trabalho" (ELÁSTICA) e a composição da carteira
-       (fina). A do meio recebe toda a sobra de altura e mostra mais tarefas — sobra de
-       tela no rodapé é área útil desperdiçada, e o que falta ali é justamente
-       trabalho visível. Abaixo de lg o layout volta a fluir e rolar normalmente. */
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:h-full lg:min-h-[520px] lg:[grid-template-rows:auto_minmax(0,1fr)_auto]">
+    /* Três faixas: hero (fina) e duas ELÁSTICAS — "Seu trabalho" e a composição da
+       carteira — repartindo a altura em ~55/45.
+       Não é 50/50 exato de propósito: o painel de trabalho tem conteúdo VARIÁVEL (mais
+       altura = mais tarefas visíveis), enquanto o card de composição tem conteúdo FIXO
+       (um gráfico e sua legenda). Metade rígida para conteúdo fixo não mostraria mais
+       nada — só criaria vazio DENTRO do card, que é pior que vazio no rodapé porque
+       fica disfarçado. Abaixo de lg tudo volta a fluir e rolar normalmente. */
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:h-full lg:min-h-[520px] lg:[grid-template-rows:auto_minmax(0,1.15fr)_minmax(0,1fr)]">
 
       {/* ── Hero ──
           Faixa fina de largura total. Ele entrega saudação e três atalhos; ocupar
@@ -236,7 +239,7 @@ export default function DashboardPage() {
             eles respondem "como está a carteira?", que é pergunta de acompanhamento,
             não de ação. Cada um mostra o TOTAL grande e a composição em rosca — o
             número sozinho não diz se 128 contratos são saúde ou problema. */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:col-span-2 lg:col-span-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:col-span-2 lg:col-span-4 lg:min-h-0">
           <Composicao
             icon={<FileText className="h-4 w-4" />}
             label="Contratos"
@@ -302,39 +305,43 @@ function Composicao({ icon, label, total, fatias, onClick }: {
   const soma = visiveis.reduce((acc, f) => acc + f.valor, 0)
 
   return (
-    <Tile onClick={onClick} highlight className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
+    <Tile onClick={onClick} highlight className="flex flex-col gap-2 lg:min-h-0">
+      <div className="flex shrink-0 items-center gap-2">
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">{icon}</span>
         <p className="text-xs font-medium text-muted-foreground">{label}</p>
       </div>
 
       {soma === 0 ? (
-        <div className="flex flex-1 items-center gap-3 py-2">
-          <p className="text-2xl font-bold tabular-nums leading-none text-muted-foreground/60">0</p>
+        <div className="flex flex-1 flex-col items-center justify-center gap-1 py-2 text-center">
+          <p className="text-3xl font-bold leading-none tabular-nums text-muted-foreground/40">0</p>
           <p className="text-[11px] text-muted-foreground">Nenhum registro ainda.</p>
         </div>
       ) : (
-        <div className="flex items-center gap-3">
-          <div className="relative h-[88px] w-[88px] shrink-0">
+        <div className="flex flex-1 flex-col gap-2 lg:min-h-0">
+          {/* O gráfico ocupa a altura livre do card e ESCALA com ela: raios em % em vez
+              de pixels, senão o card cresce e o donut fica pequeno no meio do vazio. */}
+          <div className="relative min-h-[104px] flex-1">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
                   data={visiveis} dataKey="valor" nameKey="nome"
-                  innerRadius={28} outerRadius={42} paddingAngle={visiveis.length > 1 ? 2 : 0}
+                  innerRadius="58%" outerRadius="88%" paddingAngle={visiveis.length > 1 ? 2 : 0}
                   stroke="none" isAnimationActive
                 >
                   {visiveis.map((f) => <Cell key={f.nome} fill={f.cor} />)}
                 </Pie>
               </PieChart>
             </ResponsiveContainer>
-            {/* total no miolo: o dado principal fica no centro do gráfico, não ao lado */}
+            {/* total no miolo: o dado principal no centro do gráfico, não ao lado */}
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-lg font-bold leading-none tabular-nums"><CountUp value={total} /></span>
+              <span className="text-2xl font-bold leading-none tabular-nums"><CountUp value={total} /></span>
               <span className="text-[9px] uppercase tracking-wide text-muted-foreground">total</span>
             </div>
           </div>
 
-          <ul className="min-w-0 flex-1 space-y-0.5">
+          {/* Legenda EMBAIXO, em duas colunas. Ao lado do gráfico ela espremeria os
+              dois: o card agora é mais alto que largo. */}
+          <ul className="grid shrink-0 grid-cols-2 gap-x-3 gap-y-0.5">
             {visiveis.map((f) => (
               <li key={f.nome} className="flex items-center gap-1.5 text-[11px]">
                 <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: f.cor }} />
@@ -348,6 +355,7 @@ function Composicao({ icon, label, total, fatias, onClick }: {
     </Tile>
   )
 }
+
 function DashboardSkeleton() {
   return (
     <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 animate-pulse">
