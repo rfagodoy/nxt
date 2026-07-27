@@ -105,11 +105,21 @@ export class MailerService {
 /** Erro de SMTP em português, com a saída provável. A mensagem crua do nodemailer
  *  ("535 5.7.8 ...") não diz a ninguém o que fazer. */
 export function humanizeMailError(e: unknown): string {
-  const err = e as { code?: string; responseCode?: number; message?: string }
+  const err = e as { code?: string; responseCode?: number; message?: string; response?: string }
   const msg = err?.message ?? String(e)
   const code = err?.code ?? ''
+  const resposta = (err?.response ?? '').trim()
+  /* A resposta crua do servidor é anexada nas recusas de autenticação: é ela que
+     separa "senha errada" (o usuário conserta) de "o provedor desligou o acesso por
+     senha" (o usuário NÃO conserta — só trocando de provedor). Sem isso, os dois
+     casos chegam ao suporte com a mesma frase e a investigação recomeça do zero. */
+  const detalhe = resposta && resposta !== msg ? ` · Resposta do servidor: ${resposta}` : ''
   if (code === 'EAUTH' || err?.responseCode === 535) {
-    return 'Usuário ou senha recusados pelo servidor. Em Gmail/Office 365 com verificação em duas etapas, use uma senha de aplicativo.'
+    const alvo = `${msg} ${resposta}`
+    if (/basic auth\w*\s+(is\s+)?disabled|5\.7\.139|SmtpClientAuthentication|authentication is disabled/i.test(alvo)) {
+      return 'O servidor recusou a autenticação por senha: este provedor desligou o acesso por usuário e senha (autenticação básica) para esta conta. Senha de aplicativo não resolve — é preciso liberar o SMTP autenticado na conta ou usar outro servidor de envio.' + detalhe
+    }
+    return 'Usuário ou senha recusados pelo servidor. Em Gmail/Office 365 com verificação em duas etapas, use uma senha de aplicativo.' + detalhe
   }
   if (code === 'EDNS' || code === 'ENOTFOUND' || /ENOTFOUND|EAI_AGAIN/.test(msg)) {
     return 'Servidor não encontrado: o endereço não existe ou o DNS do servidor não conseguiu resolvê-lo. Confira se digitou certo (ex.: smtp.gmail.com).'

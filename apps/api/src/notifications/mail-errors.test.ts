@@ -19,6 +19,22 @@ describe('humanizeMailError', () => {
       .toMatch(/senha de aplicativo/i)
   })
 
+  it('autenticação: anexa a resposta crua do servidor (é ela que diagnostica)', () => {
+    const m = humanizeMailError(erro({ code: 'EAUTH', message: 'Invalid login', response: '535 5.7.3 Authentication unsuccessful' }))
+    expect(m).toMatch(/Resposta do servidor: 535 5\.7\.3/)
+  })
+
+  it('autenticação básica desligada não vira "senha errada" — senha de aplicativo NÃO resolve', () => {
+    const m = humanizeMailError(erro({
+      code: 'EAUTH',
+      message: 'Invalid login',
+      response: '535 5.7.139 Authentication unsuccessful, basic authentication is disabled',
+    }))
+    expect(m).toMatch(/autenticação básica/i)
+    expect(m).toMatch(/não resolve/i)
+    expect(m).toMatch(/5\.7\.139/)
+  })
+
   it('tempo esgotado: fala de porta, criptografia e firewall', () => {
     const m = humanizeMailError(erro({ code: 'ETIMEDOUT' }))
     expect(m).toMatch(/porta/i)

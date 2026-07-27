@@ -31,7 +31,8 @@ interface Config {
  *  criptografia; errar essa combinação é a causa nº 1 de "não envia". */
 const PRESETS: Array<{ nome: string; host: string; port: number; security: Security; dica?: string }> = [
   { nome: 'Gmail / Google Workspace', host: 'smtp.gmail.com', port: 587, security: 'STARTTLS', dica: 'Com verificação em duas etapas, use uma Senha de app (não a senha da conta).' },
-  { nome: 'Microsoft 365 / Outlook',  host: 'smtp.office365.com', port: 587, security: 'STARTTLS', dica: 'A conta precisa ter o envio SMTP autenticado liberado pelo administrador.' },
+  { nome: 'Outlook.com (pessoal)',    host: 'smtp-mail.outlook.com', port: 587, security: 'STARTTLS', dica: 'Conta @outlook.com/@hotmail.com: exige senha de aplicativo com verificação em duas etapas ativa.' },
+  { nome: 'Microsoft 365 (empresa)',  host: 'smtp.office365.com', port: 587, security: 'STARTTLS', dica: 'O SMTP autenticado precisa estar liberado pelo administrador do tenant E na caixa.' },
   { nome: 'Zoho Mail',                host: 'smtp.zoho.com', port: 465, security: 'SSL' },
   { nome: 'Amazon SES',               host: 'email-smtp.us-east-1.amazonaws.com', port: 587, security: 'STARTTLS', dica: 'Use as credenciais SMTP do SES (diferentes da chave de API).' },
   { nome: 'Servidor interno',         host: '', port: 25, security: 'NONE', dica: 'SMTP da empresa costuma dispensar autenticação e usar certificado próprio.' },
