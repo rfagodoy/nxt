@@ -17,6 +17,7 @@ import { PrismaService } from '../prisma.service'
   providers: [NotificationsService, ContractSchedulerService, WorkflowNotifierService, MailerService, MailSettingsService, MailDigestService, PrismaService],
   // o motor de workflow (InstancesModule) emite avisos por aqui; o agendador dele
   // também roda o expurgo do histórico (NotificationsService.purgeOld)
-  exports: [WorkflowNotifierService, NotificationsService],
+  // MailerService sai daqui para o AuthModule usar na recuperação de senha.
+  exports: [WorkflowNotifierService, NotificationsService, MailerService],
 })
 export class NotificationsModule {}

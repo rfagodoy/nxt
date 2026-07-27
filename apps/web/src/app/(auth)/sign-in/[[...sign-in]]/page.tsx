@@ -1,6 +1,7 @@
 'use client'
 
 import { Suspense, useState } from 'react'
+import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { LogIn, Loader2, AlertCircle } from 'lucide-react'
 import { Logo } from '@/components/layout/logo'
@@ -61,7 +62,12 @@ function SignInForm() {
       </div>
 
       <div className="space-y-1.5">
-        <label htmlFor="password" className="text-xs font-medium text-white/80">Senha</label>
+        <div className="flex items-baseline justify-between gap-2">
+          <label htmlFor="password" className="text-xs font-medium text-white/80">Senha</label>
+          <Link href="/esqueci-senha" className="text-xs text-white/50 hover:text-primary transition-colors">
+            Esqueci minha senha
+          </Link>
+        </div>
         <input
           id="password" type="password" autoComplete="current-password" required
           value={password} onChange={(e) => setPassword(e.target.value)} disabled={loading}

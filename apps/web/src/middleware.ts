@@ -14,14 +14,22 @@ export function middleware(req: NextRequest) {
   const hasValidAccess = !!decoded && !isExpired(decoded.exp)
   const hasRefresh = !!req.cookies.get(REFRESH_COOKIE)?.value
   const isAuthed = hasValidAccess || hasRefresh
-  const isAuthRoute = pathname.startsWith('/sign-in') || pathname.startsWith('/sign-up')
 
-  if (!isAuthed && !isAuthRoute) {
+  /* Quem chega para ENTRAR. Estando autenticado, não faz sentido ver estas telas. */
+  const isEntrada = pathname.startsWith('/sign-in') || pathname.startsWith('/sign-up')
+
+  /* Recuperação de senha precisa funcionar sem sessão — é exatamente quem não
+     consegue entrar que a usa. E continua acessível para quem ESTÁ autenticado: o
+     link do e-mail pode ser aberto no navegador onde a sessão antiga ainda existe, e
+     mandar a pessoa para o dashboard esconderia a única tela que ela quer. */
+  const isRecuperacao = pathname.startsWith('/esqueci-senha') || pathname.startsWith('/redefinir-senha')
+
+  if (!isAuthed && !isEntrada && !isRecuperacao) {
     const url = new URL('/sign-in', origin)
     url.searchParams.set('callbackUrl', pathname)
     return NextResponse.redirect(url)
   }
-  if (isAuthed && isAuthRoute) {
+  if (isAuthed && isEntrada) {
     return NextResponse.redirect(new URL('/dashboard', origin))
   }
   return NextResponse.next()

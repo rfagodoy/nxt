@@ -31,7 +31,14 @@ node tools/smoke/run-with-env.mjs tools/smoke/smoke-prazos.mjs
 
 # 4) ativação exige tipo do workflow  (5 verificações)
 node tools/smoke/smoke-ativar-tipo.mjs
+
+# 5) recuperação de senha  (14 verificações)
+node tools/smoke/run-with-env.mjs tools/smoke/smoke-reset-senha.mjs
 ```
+
+O smoke 5 cria e **remove** o próprio usuário de teste, e não envia e-mail: insere o
+token direto no banco, como o serviço faria. Mandar mensagem de verdade para um
+endereço inventado geraria quique e sujaria a reputação do remetente.
 
 `run-with-env.mjs` existe porque o Prisma standalone não enxerga o `.env` do app:
 ele carrega o `DATABASE_URL` de `apps/api/.env` antes de chamar o script. Os smokes
