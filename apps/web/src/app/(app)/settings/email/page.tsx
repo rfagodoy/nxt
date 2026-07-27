@@ -29,17 +29,6 @@ interface Config {
   pronto: boolean
 }
 
-/** Atalhos dos provedores mais usados — o que muda entre eles é só endereço, porta e
- *  criptografia; errar essa combinação é a causa nº 1 de "não envia". */
-const PRESETS: Array<{ nome: string; host: string; port: number; security: Security; dica?: string }> = [
-  { nome: 'Gmail / Google Workspace', host: 'smtp.gmail.com', port: 587, security: 'STARTTLS', dica: 'Com verificação em duas etapas, use uma Senha de app (não a senha da conta).' },
-  { nome: 'Outlook.com (pessoal)',    host: 'smtp-mail.outlook.com', port: 587, security: 'STARTTLS', dica: 'Conta @outlook.com/@hotmail.com: exige senha de aplicativo com verificação em duas etapas ativa.' },
-  { nome: 'Microsoft 365 (empresa)',  host: 'smtp.office365.com', port: 587, security: 'STARTTLS', dica: 'O SMTP autenticado precisa estar liberado pelo administrador do tenant E na caixa.' },
-  { nome: 'Zoho Mail',                host: 'smtp.zoho.com', port: 465, security: 'SSL' },
-  { nome: 'Amazon SES',               host: 'email-smtp.us-east-1.amazonaws.com', port: 587, security: 'STARTTLS', dica: 'Use as credenciais SMTP do SES (diferentes da chave de API).' },
-  { nome: 'Servidor interno',         host: '', port: 25, security: 'NONE', dica: 'SMTP da empresa costuma dispensar autenticação e usar certificado próprio.' },
-]
-
 const SEGURANCA: Array<{ value: Security; label: string; hint: string }> = [
   { value: 'STARTTLS', label: 'STARTTLS', hint: 'Porta 587 — o padrão hoje' },
   { value: 'SSL',      label: 'SSL/TLS',  hint: 'Porta 465 — conexão cifrada desde o início' },
@@ -80,11 +69,6 @@ export default function EmailConfigPage() {
   useEffect(() => { void load() }, [load])
 
   const patch = (p: Partial<Config>) => setCfg((c) => (c ? { ...c, ...p } : c))
-
-  const aplicarPreset = (i: number) => {
-    const p = PRESETS[i]
-    patch({ host: p.host, port: p.port, security: p.security })
-  }
 
   const salvar = async () => {
     if (!cfg) return
@@ -206,14 +190,9 @@ export default function EmailConfigPage() {
               <h2 className="text-sm font-semibold">Servidor</h2>
             </div>
 
-            <div className="flex flex-wrap gap-1.5">
-              {PRESETS.map((p, i) => (
-                <button key={p.nome} type="button" disabled={!isAdmin} onClick={() => aplicarPreset(i)}
-                  className="h-7 px-2.5 rounded-md border text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-60">
-                  {p.nome}
-                </button>
-              ))}
-            </div>
+            <p className="text-[11px] text-muted-foreground -mt-2">
+              Peça ao provedor ou ao administrador do servidor de e-mail o endereço, a porta e o tipo de criptografia.
+            </p>
 
             <div className="grid gap-3 sm:grid-cols-[1fr_7rem]">
               <label className="space-y-1">
@@ -341,7 +320,8 @@ export default function EmailConfigPage() {
 
           <section className="rounded-xl border bg-muted/20 p-4 space-y-2 text-[11px] text-muted-foreground">
             <p className="text-xs font-semibold text-foreground">Não está enviando?</p>
-            <p>· <span className="text-foreground">Gmail/Microsoft com duas etapas</span>: a senha da conta não funciona — gere uma senha de aplicativo.</p>
+            <p>· <span className="text-foreground">Autenticação recusada</span>: em conta com verificação em duas etapas, a senha da conta não funciona — gere uma senha de aplicativo.</p>
+            <p>· <span className="text-foreground">Autenticação básica desativada</span>: alguns provedores desligaram o acesso por senha. Senha de aplicativo não resolve — é preciso liberar o SMTP autenticado na conta ou usar outro servidor.</p>
             <p>· <span className="text-foreground">Tempo esgotado</span>: porta bloqueada pelo firewall de saída, ou criptografia trocada (587 = STARTTLS, 465 = SSL).</p>
             <p>· <span className="text-foreground">Certificado não validado</span>: servidor interno — marque a opção de certificado autoassinado.</p>
             <p>· <span className="text-foreground">Remetente recusado</span>: muitos provedores exigem que o remetente seja o mesmo usuário autenticado.</p>
