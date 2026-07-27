@@ -4,6 +4,7 @@ import { AuthService } from './auth.service'
 import { LoginDto } from './dto/login.dto'
 import { RefreshDto } from './dto/refresh.dto'
 import { ChangePasswordDto } from './dto/change-password.dto'
+import { ForgotPasswordDto, ResetPasswordDto } from './dto/password-reset.dto'
 import { Public } from './public.decorator'
 import { CurrentUser, CurrentUserData } from './current-user.decorator'
 import { CurrentOrg } from './current-org.decorator'
@@ -35,6 +36,23 @@ export class AuthController {
   @HttpCode(200)
   logout(@Body() dto: RefreshDto) {
     return this.auth.logout(dto.refreshToken)
+  }
+
+  /** Pede o link de redefinição. Responde SEMPRE igual, exista a conta ou não: um
+   *  endpoint público que diferencia os casos vira detector de quem tem conta aqui. */
+  @Public()
+  @Post('forgot-password')
+  @HttpCode(200)
+  forgotPassword(@Body() dto: ForgotPasswordDto, @Req() req: Request) {
+    return this.auth.requestPasswordReset(dto.email, clientContext(req))
+  }
+
+  /** Aplica a nova senha a partir do token do e-mail (uso único) e revoga as sessões. */
+  @Public()
+  @Post('reset-password')
+  @HttpCode(200)
+  resetPassword(@Body() dto: ResetPasswordDto, @Req() req: Request) {
+    return this.auth.resetPassword(dto.token, dto.newPassword, clientContext(req))
   }
 
   /** Dados do usuário autenticado (a partir das claims do token). */

@@ -45,28 +45,11 @@ export interface Row {
 export const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 export const fmtDate = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-BR') : '—'
 
-export const SIT_CLS: Record<string, string> = {
-  EM_CADASTRO: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-  VIGENTE:     'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  VENCIDO:     'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  ENCERRADO:   'bg-muted text-muted-foreground',
-  RESCINDIDO:  'bg-red-500/10 text-red-600 dark:text-red-400',
-  // cancelado: contrato que nunca chegou a valer (o processo que o criou foi
-  // cancelado). Cinza de propósito — não é falha nem ato entre as partes.
-  CANCELADO:   'bg-muted text-muted-foreground',
-}
-export const SIT_LABEL: Record<string, string> = {
-  EM_CADASTRO: 'Em cadastro/revisão', VIGENTE: 'Vigente', VENCIDO: 'Vencido',
-  ENCERRADO: 'Encerrado', RESCINDIDO: 'Rescindido', CANCELADO: 'Cancelado',
-}
-export const SIT_DOT_CLS: Record<string, string> = {
-  EM_CADASTRO: 'bg-blue-500 animate-pulse',
-  VIGENTE:     'bg-emerald-500',
-  VENCIDO:     'bg-amber-500',
-  ENCERRADO:   'bg-muted-foreground/50',
-  RESCINDIDO:  'bg-red-500',
-  CANCELADO:   'bg-muted-foreground/40',
-}
+/* Rótulos e cores das situações moram em lib/contract-situacao (puro, testável sem
+   React). Importados aqui para uso próprio e reexportados porque várias telas já os
+   pegam deste módulo. */
+import { SIT_CLS, SIT_LABEL, SIT_DOT_CLS } from '@/lib/contract-situacao'
+export { SIT_CLS, SIT_LABEL, SIT_DOT_CLS }
 
 /* painel de aba: só renderiza quando a aba está ativa */
 export function DSection({ active, children }: { active: boolean; children: React.ReactNode }) {

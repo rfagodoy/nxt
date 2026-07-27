@@ -120,6 +120,21 @@ export function consumo(c: CoreContract): number {
    cancelado é o contrato que NUNCA chegou a valer, porque o processo que o criou
    foi cancelado. Misturar os dois mentiria no relatório. */
 
+/** Situações que o contrato pode ter GRAVADAS. Fonte única: quem monta filtro,
+ *  rótulo ou card de resumo deve partir daqui.
+ *
+ *  Existe porque `CANCELADO` nasceu depois e foi esquecido em três lugares ao mesmo
+ *  tempo — filtro da listagem, card de resumo e rótulo da auditoria. O contrato
+ *  cancelado aparecia na tela, entrava no Total e não se encaixava em nenhuma
+ *  categoria: a soma dos cards não fechava e não havia como isolá-lo. */
+export const SITUACOES_PERSISTIDAS = ['EM_CADASTRO', 'VIGENTE', 'ENCERRADO', 'RESCINDIDO', 'CANCELADO'] as const
+
+/** A única situação DERIVADA: VIGENTE cujo término já passou. Nunca é gravada. */
+export const SITUACAO_DERIVADA = 'VENCIDO' as const
+
+/** Tudo que pode APARECER para o usuário (gravadas + derivada). */
+export const SITUACOES_EXIBIVEIS = [...SITUACOES_PERSISTIDAS, SITUACAO_DERIVADA] as const
+
 /** Converte situações do modelo antigo para o ciclo atual. */
 export function normalizeSituacao(s: string): string {
   switch (s) {

@@ -16,7 +16,7 @@ Resumo da postura de segurança e **checklist obrigatório antes de produção**
 
 ### Segredos
 - [ ] `AUTH_JWT_SECRET` **único por ambiente**, aleatório 64+ chars (`openssl rand -base64 48`). Nunca reutilizar entre ambientes; nunca commitar.
-- [ ] Senha do banco: usuário **least-privilege** (NÃO usar `sa`); rotacionável.
+- [x] Senha do banco: usuário **least-privilege** (NÃO usar `sa`) — script pronto e verificado em `deploy/sql/criar-usuario-aplicacao.sql`. **Falta aplicar** nos ambientes: a criação do usuário é do DBA do cliente.
 - [ ] Chaves de storage (R2/S3) e demais segredos via **cofre/variáveis de ambiente** do orquestrador — nunca no repositório nem em imagem.
 
 ### Transporte
@@ -24,7 +24,7 @@ Resumo da postura de segurança e **checklist obrigatório antes de produção**
 - [ ] `secure: true` nos cookies (já ligado quando `NODE_ENV=production`).
 
 ### Dados
-- [ ] **Backup** automatizado do banco + teste de restauração.
+- [x] **Backup** automatizado do banco + teste de restauração — `deploy/backup/` (backup + `test-restore`, exercitado de verdade). **Falta** levar a cópia para fora da máquina, que é rotina de infraestrutura do cliente.
 - [ ] **Encryption at rest** do banco e do storage de anexos.
 - [ ] Retenção/limpeza de PII (LGPD): política para dados de parceiros e logs de auditoria.
 

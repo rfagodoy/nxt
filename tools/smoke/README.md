@@ -31,7 +31,25 @@ node tools/smoke/run-with-env.mjs tools/smoke/smoke-prazos.mjs
 
 # 4) ativação exige tipo do workflow  (5 verificações)
 node tools/smoke/smoke-ativar-tipo.mjs
+
+# 5) recuperação de senha  (14 verificações)
+node tools/smoke/run-with-env.mjs tools/smoke/smoke-reset-senha.mjs
+
+# 6) importação de planilha  (22 verificações)
+node tools/smoke/run-with-env.mjs tools/smoke/smoke-import.mjs
+
+# 7) ESCALA — gera massa, mede e limpa (padrão 2000; passe outro número)
+node tools/smoke/run-with-env.mjs tools/smoke/smoke-escala.mjs 2000
 ```
+
+O smoke 7 é o único que **cria milhares de registros**. Ele limpa tudo ao final (marca
+`ESCALA-TESTE`), mas leva alguns minutos e não deve rodar em base real. Medições com
+2000 contratos + 2000 parceiros (máquina de desenvolvimento, SQL Server em contêiner):
+listagem 1,3s · dashboard 260ms · relatório completo 263ms · import ~40ms por registro.
+
+O smoke 5 cria e **remove** o próprio usuário de teste, e não envia e-mail: insere o
+token direto no banco, como o serviço faria. Mandar mensagem de verdade para um
+endereço inventado geraria quique e sujaria a reputação do remetente.
 
 `run-with-env.mjs` existe porque o Prisma standalone não enxerga o `.env` do app:
 ele carrega o `DATABASE_URL` de `apps/api/.env` antes de chamar o script. Os smokes

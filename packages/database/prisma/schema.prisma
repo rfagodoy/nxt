@@ -51,12 +51,32 @@ model User {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
-  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  refreshTokens RefreshToken[]
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  refreshTokens  RefreshToken[]
+  passwordResets PasswordResetToken[]
 
   @@unique([organizationId, email])
   @@index([organizationId])
   @@map("users")
+}
+
+// Recuperação de senha. Guardamos só o HASH do token: quem ler o banco não consegue
+// redefinir a senha de ninguém — o valor que abre a porta existe apenas no e-mail
+// enviado, e some depois de usado ou vencido.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  ipAddress String?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
 
 // Refresh tokens (opacos) para renovar o access token sem novo login. Guardamos

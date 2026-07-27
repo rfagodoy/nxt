@@ -13,9 +13,9 @@
     "lint": "turbo lint",
     "type-check": "turbo type-check",
     "clean": "turbo clean",
-    "db:deploy": "dotenv -e apps/api/.env -- prisma migrate deploy --schema packages/database/prisma/schema.prisma",
-    "db:status": "dotenv -e apps/api/.env -- prisma migrate status --schema packages/database/prisma/schema.prisma",
-    "db:migrate": "dotenv -e apps/api/.env -- prisma migrate dev --schema packages/database/prisma/schema.prisma",
+    "db:deploy": "node tools/prisma-env.mjs migrate deploy",
+    "db:status": "node tools/prisma-env.mjs migrate status",
+    "db:migrate": "node tools/prisma-env.mjs migrate dev",
     "audit:gate": "npm audit --omit=dev --json | node tools/audit-gate.mjs"
   },
   "devDependencies": {
