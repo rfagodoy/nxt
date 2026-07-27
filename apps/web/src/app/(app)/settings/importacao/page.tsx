@@ -318,12 +318,19 @@ export default function ImportacaoPage() {
                 </div>
 
                 {podeImportar && (
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <button type="button" onClick={() => chamar('aplicar')} disabled={!!ocupado}
                       className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
                       {ocupado === 'importando' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
                       Importar {resultado.criar + resultado.atualizar} registro(s)
                     </button>
+                    {/* medido: ~40ms por registro (cada um é gravado com sua auditoria).
+                        Dizer antes evita que a pessoa ache que travou e feche a aba. */}
+                    {resultado.criar + resultado.atualizar > 300 && (
+                      <span className="text-[11px] text-muted-foreground">
+                        Cerca de {Math.ceil(((resultado.criar + resultado.atualizar) * 40) / 1000 / 60)} min — não feche esta aba.
+                      </span>
+                    )}
                     {resultado.erro > 0 && (
                       <span className="text-[11px] text-amber-700 dark:text-amber-400">
                         <AlertTriangle className="inline h-3 w-3 mr-1" />

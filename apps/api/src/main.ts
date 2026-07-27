@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core'
 import { ValidationPipe } from '@nestjs/common'
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
 import helmet from 'helmet'
+import { json, urlencoded } from 'express'
 import { AppModule } from './app.module'
 import { assertJwtSecret } from './auth/secret'
 import { PrismaService } from './prisma.service'
@@ -12,7 +13,26 @@ async function bootstrap() {
   /* Logger próprio desde o create(): assim TODA linha — inclusive as que o Nest emite
      sozinho no boot e nos erros — sai no mesmo formato. Em produção, JSON de uma linha
      por evento, porque log de produção é lido por ferramenta, não por gente. */
-  const app = await NestFactory.create(AppModule, { logger: new StructuredLogger() })
+  /* bodyParser: false para configurar os limites à mão logo abaixo — o padrão do
+     Express (100 kB) inviabiliza o import de planilha. */
+  const app = await NestFactory.create(AppModule, { logger: new StructuredLogger(), bodyParser: false })
+
+  /* Limite de corpo POR ROTA.
+   *
+   * O import envia a planilha inteira como JSON: 100 kB (padrão do Express) morre em
+   * ~400 linhas de contrato, com um "413 Payload Too Large" que não explica nada — e o
+   * teto anunciado pelo próprio import é de 5000 linhas. Era promessa falsa, encontrada
+   * no teste de escala.
+   *
+   * O limite maior vale SÓ para /api/import: subir o teto global aumentaria de graça a
+   * memória que uma requisição qualquer pode consumir. Esta rota é de admin e o volume
+   * é esperado; as outras não têm por que receber megabytes.
+   *
+   * Ordem importa: o parser específico entra ANTES do geral, senão o geral consome o
+   * corpo primeiro e o específico nunca é aplicado. */
+  app.use('/api/import', json({ limit: '12mb' }))
+  app.use(json({ limit: '1mb' }))
+  app.use(urlencoded({ extended: true, limit: '1mb' }))
 
   // Fail-fast: não sobe com segredo de auth ausente/fraco em produção.
   // (Depois do create() para o ConfigModule já ter carregado o .env.)

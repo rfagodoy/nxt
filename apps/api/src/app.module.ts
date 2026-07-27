@@ -21,6 +21,7 @@ import { FilesModule } from './files/files.module'
 import { DashboardModule } from './dashboard/dashboard.module'
 import { UsersModule } from './users/users.module'
 import { ImportModule } from './import/import.module'
+import { ReportsModule } from './reports/reports.module'
 import { NotificationsModule } from './notifications/notifications.module'
 import { CatalogsModule } from './catalogs/catalogs.module'
 import { ScreensModule } from './screens/screens.module'
@@ -54,6 +55,7 @@ const throttleLimit = Number(process.env.THROTTLE_LIMIT ?? 300)
     UsersModule,
     NotificationsModule,
     ImportModule,
+    ReportsModule,
     CatalogsModule,
     ScreensModule,
     CepModule,
