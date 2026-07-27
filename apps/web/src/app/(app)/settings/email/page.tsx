@@ -314,7 +314,7 @@ export default function EmailConfigPage() {
         {/* provas */}
         <aside className="space-y-3">
           <section className="rounded-xl border bg-card p-4 shadow-sm space-y-2.5">
-            <h2 className="text-sm font-semibold">Provar que funciona</h2>
+            <h2 className="text-sm font-semibold">Diagnóstico</h2>
             <p className="text-[11px] text-muted-foreground -mt-1">Salve antes de testar — o teste usa o que está gravado.</p>
 
             <Button variant="outline" size="sm" className="w-full justify-start" disabled={!isAdmin || testando !== null} onClick={() => void testar('conexao')}>
