@@ -34,6 +34,9 @@ node tools/smoke/smoke-ativar-tipo.mjs
 
 # 5) recuperação de senha  (14 verificações)
 node tools/smoke/run-with-env.mjs tools/smoke/smoke-reset-senha.mjs
+
+# 6) importação de planilha  (22 verificações)
+node tools/smoke/run-with-env.mjs tools/smoke/smoke-import.mjs
 ```
 
 O smoke 5 cria e **remove** o próprio usuário de teste, e não envia e-mail: insere o
