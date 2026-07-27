@@ -133,12 +133,14 @@ export default function DashboardPage() {
     return () => { mounted.current = false }
   }, [])
 
-  /* Urgentes primeiro. Seis é o teto: cabem em duas colunas sem empurrar a carteira
-     para fora da primeira dobra, e o board continua sendo o lugar de ver TUDO — o
-     dashboard não pode virar uma segunda tela de tarefas. */
+  /* Urgentes primeiro. O teto é generoso porque o painel agora ESTICA e rola por
+     dentro: numa tela grande cabem doze sem empurrar nada. Ainda existe teto — o
+     board é que responde "o que eu tenho?", com agrupamento por prazo e filtros; o
+     dashboard responde "o que é mais urgente agora?" e não deve virar a segunda
+     tela de tarefas. */
   const tarefasUrgentes = [...minhasTarefas]
     .sort((a, b) => (a.dueAt ? new Date(a.dueAt).getTime() : Infinity) - (b.dueAt ? new Date(b.dueAt).getTime() : Infinity))
-    .slice(0, 6)
+    .slice(0, 12)
 
   if (loading) return <DashboardSkeleton />
 
@@ -146,12 +148,11 @@ export default function DashboardPage() {
   const p = data?.partners
 
   return (
-    /* Três faixas de dois blocos, cada bloco com metade da largura. O layout
-       anterior era um cockpit de altura travada, feito para painéis que rolavam por
-       dentro; sem eles, travar a altura só produzia espaço morto no rodapé.
-       Agora as linhas crescem com o conteúdo e a tela fica simétrica em qualquer
-       altura de monitor. */
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 auto-rows-min">
+    /* Três faixas: hero (fina), "Seu trabalho" (ELÁSTICA) e a composição da carteira
+       (fina). A do meio recebe toda a sobra de altura e mostra mais tarefas — sobra de
+       tela no rodapé é área útil desperdiçada, e o que falta ali é justamente
+       trabalho visível. Abaixo de lg o layout volta a fluir e rolar normalmente. */
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:h-full lg:min-h-[520px] lg:[grid-template-rows:auto_minmax(0,1fr)_auto]">
 
       {/* ── Hero ──
           Faixa fina de largura total. Ele entrega saudação e três atalhos; ocupar
@@ -185,7 +186,7 @@ export default function DashboardPage() {
             Vem antes da carteira de propósito: quem abre o sistema de manhã pergunta
             "o que preciso fazer hoje?", não "como está a carteira?". A resposta existia,
             mas só uma tela adiante — e esta é a única tela que todo usuário vê todo dia. */}
-        <div className="rounded-xl border bg-card p-4 shadow-sm sm:col-span-2 lg:col-span-4 flex flex-col gap-2.5">
+        <div className="rounded-xl border bg-card p-4 shadow-sm sm:col-span-2 lg:col-span-4 flex flex-col gap-2.5 lg:min-h-0">
           <div className="flex items-center gap-2">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
               <ListChecks className="h-4 w-4" />
@@ -207,7 +208,7 @@ export default function DashboardPage() {
               <Sparkles className="h-3.5 w-3.5 text-primary" />Tudo em dia por aqui.
             </p>
           ) : (
-            <div className="grid grid-cols-1 gap-1.5 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-1.5 lg:grid-cols-2 lg:flex-1 lg:min-h-0 lg:content-start lg:overflow-y-auto">
               {tarefasUrgentes.map((t) => {
                 const info = dueInfo(t.dueAt)
                 const valor = valorCurto(t.assunto?.valor, t.assunto?.moeda)
