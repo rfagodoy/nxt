@@ -1,0 +1,23 @@
+# Fim de linha por tipo de arquivo.
+#
+# Sem isto, o Git desta máquina (core.autocrlf) converte os scripts de shell para CRLF
+# no checkout — e no Linux o resultado é `bad interpreter: /bin/bash^M`. O script fica
+# correto no repositório e quebrado na máquina que vai executá-lo.
+
+*.sh   text eol=lf
+*.bash text eol=lf
+
+# Unidades do systemd são lidas pelo Linux; CRLF confunde o parser.
+*.service text eol=lf
+*.conf    text eol=lf
+
+# PowerShell roda no Windows: CRLF é o natural. O BOM UTF-8 (exigido pelo PowerShell
+# 5.1 do Windows Server) é conteúdo do arquivo e sobrevive à normalização.
+*.ps1 text eol=crlf
+
+# Binários não passam por conversão nenhuma.
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.pdf  binary
+*.xlsx binary

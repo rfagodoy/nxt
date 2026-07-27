@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Registra API e Web do Nxt como serviços do Windows (com reinício automático).
 

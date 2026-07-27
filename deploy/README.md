@@ -1,20 +1,66 @@
 # Implantação do Nxt
 
-O que existe aqui resolve um problema específico e concreto: **o Node encerra o
-processo em falhas fatais**. Sem supervisor, a API cai e não volta — o sistema fica
-fora do ar até alguém perceber e reiniciar à mão. Serviço do Windows e unit do
-systemd fazem o sistema operacional cuidar disso.
+Como o Nxt chega numa máquina que não é a de quem o escreveu — e sobrevive lá.
 
-## Ordem de instalação
+| Pasta | O que é |
+|---|---|
+| `windows/` | Instalador PowerShell + serviços via WinSW |
+| `linux/` | Instalador shell + units do systemd |
+| `nginx/` | Proxy reverso com TLS (serve aos dois sistemas) |
+| `backup/` | Backup do banco e dos anexos + **teste de restore** |
 
-1. Copiar a aplicação já construída para o servidor (`npm run build` na origem).
-2. Criar os arquivos de ambiente **fora do repositório** (segredos).
-3. **Aplicar as migrações**: `npm run db:deploy`.
-4. Registrar e iniciar os serviços (API primeiro, web depois).
+## Instalação em um comando
 
-O passo 3 não é opcional: a API tem trava de boot e **recusa subir** com migração
-pendente, dizendo qual falta e o comando que resolve. É deliberado — sem a trava, ela
-subiria e quebraria na primeira consulta que tocasse a coluna nova, em produção.
+Os instaladores são **idempotentes**: rodar de novo **atualiza** a aplicação sem
+recriar segredo, sem reprovisionar o administrador e sem tocar no banco além das
+migrações pendentes. É o mesmo comando para instalar e para atualizar.
+
+**Windows** (como Administrador):
+
+```powershell
+.\deploy\windows\install-nxt.ps1 `
+   -DatabaseUrl "sqlserver://SRVSQL:1433;database=nxt;user=nxt_app;password=***;encrypt=true" `
+   -AdminEmail "ti@empresa.com.br" -AdminPassword "<senha forte>" -OrgName "Empresa LTDA" `
+   -WinSwPath C:\nxt\tools\WinSW.exe
+```
+
+**Linux** (como root):
+
+```bash
+sudo ./deploy/linux/install-nxt.sh \
+   --database-url 'sqlserver://SRVSQL:1433;database=nxt;user=nxt_app;password=***;encrypt=true' \
+   --admin-email ti@empresa.com.br --admin-password '<senha forte>' --org-name 'Empresa LTDA'
+```
+
+O que o instalador faz: confere pré-requisitos → cria a estrutura → copia a aplicação
+(espelhando, para não deixar restos da versão anterior) → **gera os segredos e os
+preserva** → aplica as migrações → provisiona o administrador → registra os serviços.
+
+O que ele **não** faz, de propósito: instalar Node, SQL Server ou Nginx; emitir
+certificado; mexer em firewall. Política de infraestrutura é do cliente.
+
+### Antes de rodar
+
+1. `npm run build` na origem — o instalador recusa origem sem build.
+2. Node 20+ instalado na máquina de destino.
+3. Banco criado e alcançável, com um usuário de aplicação (não use `sa`).
+
+### Sobre os segredos
+
+`AUTH_JWT_SECRET` e `MAIL_ENCRYPTION_KEY` são gerados na primeira instalação e
+**preservados** nas seguintes. Não é detalhe: regerar o primeiro desloga todos os
+usuários; regerar o segundo torna a senha de e-mail guardada impossível de decifrar.
+
+Os arquivos de configuração ficam fora da pasta da aplicação, com permissão restrita
+(Windows: só SYSTEM e Administradores; Linux: `640 root:nxt`). **Não anexe `api.env` em
+chamado de suporte** — ele tem a senha do banco e o segredo de assinatura dos tokens.
+
+### Administrador inicial
+
+O seed **recusa** subir em produção com os valores de exemplo (`admin@nxt.local` /
+senha publicada neste repositório), e também recusa e-mail de domínio que não existe
+fora da máquina. Falhar na instalação custa um minuto; descobrir depois custa um
+incidente — foi o que aconteceu aqui, com aviso do sistema quicando de volta.
 
 ## Banco de dados
 
@@ -22,73 +68,106 @@ subiria e quebraria na primeira consulta que tocasse a coluna nova, em produçã
 |---|---|
 | `npm run db:deploy` | **No servidor**, a cada atualização. Aplica migrações pendentes. |
 | `npm run db:status` | Conferir se o banco está na versão do código. |
-| `npm run db:migrate` | **Só em desenvolvimento**: cria uma migração nova a partir do schema. |
+| `npm run db:migrate` | **Só em desenvolvimento**: cria migração nova a partir do schema. |
 
-⚠️ `prisma db push` não deve mais ser usado: ele altera o banco sem registrar
-histórico, e foi exatamente o que impedia saber em que versão o banco do cliente
-estava.
+A API tem trava de boot e **recusa subir** com migração pendente, dizendo qual falta e
+o comando que resolve. Sem a trava, ela subiria e quebraria na primeira consulta que
+tocasse a coluna nova — em produção.
 
-### Banco vindo de instalação antiga (que usava `db push`)
+⚠️ `prisma db push` não deve mais ser usado: altera o banco sem registrar histórico.
 
-O schema já está correto, mas o banco não tem o registro das migrações. Marque a
-migração inicial como aplicada, **uma única vez**:
+**Banco vindo de instalação antiga (que usava `db push`)** — marque a migração inicial
+como aplicada, uma única vez:
 
 ```bash
 npx prisma migrate resolve --applied 0_init --schema packages/database/prisma/schema.prisma
 ```
 
-## Windows Server
+## TLS
 
-Usa [WinSW](https://github.com/winsw/winsw) (MIT) — um executável que embrulha um
-processo comum num serviço do Windows. Baixe o `WinSW.exe` **antes** e leve para o
-servidor: instalação on-premise costuma ser em máquina sem internet.
+`nginx/nxt.conf` termina o TLS e distribui entre web (3000) e API (3001). Ajuste
+`server_name` e os caminhos do certificado antes de subir.
 
-```powershell
-# Como Administrador
-.\deploy\windows\install-services.ps1 -WinSwPath C:\nxt\tools\WinSW.exe -Root C:\nxt
+Sem isso, senha e token trafegam em claro — é o item que reprova homologação de
+segurança antes de qualquer conversa sobre funcionalidade.
 
-npm run db:deploy
-Start-Service nxt-api
-Start-Service nxt-web
-```
+Dois cuidados registrados no próprio arquivo: o HSTS fica **comentado** até o HTTPS
+estar funcionando (ligado cedo com certificado errado, tranca o navegador do cliente
+fora do sistema e não há como desfazer do servidor); e os cabeçalhos de segurança
+**não** são repetidos no Nginx, porque a aplicação já os emite e duplicar quebraria a CSP.
 
-Estrutura esperada:
+## Backup — e a prova de que ele presta
 
 ```
-C:\nxt\
-  apps\api\        aplicação construída (dist)
-  apps\web\        aplicação construída (.next)
-  config\api.env   segredos da API   (fora do repositório)
-  config\web.env   ambiente da web
-  logs\            logs dos serviços, com rotação diária (14 dias)
-  services\        WinSW.exe + XML de cada serviço
+backup/backup-sqlserver.sql    BACKUP DATABASE + RESTORE VERIFYONLY (a lógica mora aqui)
+backup/restore-sqlserver.sql   restore com MOVE lido do próprio backup
+backup/backup-nxt.{sh,ps1}     agendável: banco + anexos + retenção
+backup/test-restore.{sh,ps1}   restaura num banco paralelo e CONFERE
 ```
 
-Verificação: `Get-Service nxt-*` · logs em `C:\nxt\logs\nxt-api.out.log`.
-
-## Linux (systemd)
+Agendar as duas rotinas:
 
 ```bash
-sudo cp deploy/linux/nxt-*.service /etc/systemd/system/
-sudo systemctl daemon-reload
-npm run db:deploy
-sudo systemctl enable --now nxt-api nxt-web
+# Linux (root)
+0 2 * * * /opt/nxt/deploy/backup/backup-nxt.sh    >> /opt/nxt/logs/backup.log 2>&1
+0 3 1 * * /opt/nxt/deploy/backup/test-restore.sh  >> /opt/nxt/logs/restore-teste.log 2>&1
 ```
 
-Verificação: `systemctl status nxt-api` · logs em `journalctl -u nxt-api -f`.
+No Windows, as mesmas duas no Agendador de Tarefas, executando como SYSTEM.
 
-## Reinício: o que está configurado e por quê
+**O `test-restore` não é opcional.** Backup nunca restaurado é esperança, não proteção:
+ele restaura em `<banco>_restore_teste`, confere que os dados chegaram lá e remove o
+banco de teste. Nunca toca produção — e o `restore-sqlserver.sql` **recusa** ter o banco
+de produção como alvo a menos que se passe `PERMITIR_PRODUCAO="sim"`, porque o script
+derruba o destino antes de restaurar.
 
-Nos dois sistemas, o serviço reinicia sozinho em caso de queda, com **espera
-crescente** e **teto de tentativas** (5 falhas seguidas param o serviço).
+Três coisas que o backup cobre e costumam faltar em rotina caseira:
 
-O teto é proposital. Quando a causa é permanente — banco fora, migração pendente,
-segredo ausente — reiniciar para sempre não conserta nada e ainda esconde o problema
-num log que ninguém lê. Serviço parado aparece no monitoramento; serviço em laço, não.
+- **Os anexos vão junto.** Documentos ficam fora do banco; restaurar só o banco devolve
+  um sistema com links apontando para arquivos que não existem mais.
+- **A retenção só apaga depois** de o backup novo existir e passar na verificação —
+  apagar antes deixa uma janela sem nenhuma cópia válida.
+- **O arquivo é conferido** (`CHECKSUM` + `RESTORE VERIFYONLY`): corrupção que só
+  aparece no restore aparece no pior dia possível.
 
-## Ainda não coberto aqui
+⚠️ O `DESTINO` precisa ser um caminho que **o serviço do SQL Server** enxergue — quem
+grava o `.bak` é ele, não o script. Com o banco em outra máquina, use um caminho de rede
+ao qual a conta do serviço tenha acesso. O script detecta esse caso e falha com essa
+explicação em vez de dizer que deu certo.
 
-Estes pontos continuam abertos no roadmap de implantação e **não** são resolvidos por
-estes arquivos: TLS/HTTPS na frente da aplicação, rotina de backup e restore testada,
-usuário de banco com privilégio mínimo, e o instalador propriamente dito (hoje a
-cópia dos arquivos é manual).
+⚠️ E o mais importante: **backup que não sai da máquina não protege contra a perda da
+máquina.** Copiar a pasta para fora (fita, NAS, objeto) é rotina de infraestrutura do
+cliente e está fora do escopo destes scripts.
+
+## Reinício automático
+
+Nos dois sistemas o serviço volta sozinho após queda, com espera crescente e **teto de
+5 tentativas**. O teto é proposital: quando a causa é permanente — banco fora, migração
+pendente, segredo ausente — reiniciar para sempre não conserta e ainda esconde o
+problema. Serviço parado aparece no monitoramento; serviço em laço, não.
+
+## Verificação depois de instalar
+
+```powershell
+Get-Service nxt-*                       # Windows
+Get-Content C:\nxt\logs\nxt-api.out.log -Tail 50
+```
+```bash
+systemctl status nxt-api nxt-web        # Linux
+journalctl -u nxt-api -f
+```
+
+## Ainda não coberto
+
+TLS **emitido** (o `.conf` existe, o certificado é do cliente) · cópia do backup para
+fora da máquina · usuário de banco com privilégio mínimo documentado · retenção/LGPD ·
+pacote de instalação (hoje se copia a pasta construída) · monitoramento externo.
+
+## Nota para quem for editar estes scripts
+
+`.ps1` **precisa** de BOM UTF-8: o PowerShell 5.1 do Windows Server lê arquivo sem BOM
+como ANSI e o parser quebra em qualquer acento — o instalador nem chega a rodar. O
+pwsh 7 da máquina de desenvolvimento aceita sem BOM, então o erro só aparece no cliente.
+`.sh` precisa de fim de linha LF, senão vira `bad interpreter: /bin/bash^M`.
+
+O CI confere os dois (`tools/check-deploy-scripts.mjs`).

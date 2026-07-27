@@ -40,6 +40,12 @@ jobs:
       - name: Build (api + web + packages)
         run: npm run build
 
+      # Os scripts de implantação só rodam na máquina do cliente, onde não há ninguém
+      # para depurar: .ps1 sem BOM quebra no PowerShell 5.1 do Windows Server, e .sh
+      # com CRLF vira "bad interpreter". Os dois passam despercebidos no desenvolvimento.
+      - name: Scripts de implantação (encoding)
+        run: node tools/check-deploy-scripts.mjs
+
       # Gate de segurança do RUNTIME (produção; devdeps ficam de fora — CVE de
       # ferramenta de build não chega ao cliente).
       #
