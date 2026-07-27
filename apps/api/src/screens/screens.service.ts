@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
 import { SaveScreenDto, ScreenValueDto } from './dto/screen.dto'
 import { screenBaseFlags } from './screen-policy'
+import { diffCustom, type CampoCustom, type OpcaoCampo } from './custom-audit'
 
 /**
  * Personalização de telas (Screens). Definições (Screen/Section/Field) e valores
@@ -11,6 +12,8 @@ import { screenBaseFlags } from './screen-policy'
  */
 @Injectable()
 export class ScreensService {
+  private readonly logger = new Logger('Screens')
+
   constructor(private readonly prisma: PrismaService) {}
 
   /* ─── definições ─── */
@@ -194,12 +197,28 @@ export class ScreensService {
     return out
   }
 
-  async putValues(organizationId: string, subjectType: string, subjectId: string, values: ScreenValueDto[]) {
+  async putValues(
+    organizationId: string,
+    subjectType: string,
+    subjectId: string,
+    values: ScreenValueDto[],
+    autor?: { nome: string; id?: string },
+  ) {
     const ids = values.map(v => v.fieldId)
     const fields = await this.prisma.screenField.findMany({
       where: { id: { in: ids.length ? ids : ['__none__'] } },
     })
     const byId = new Map(fields.map(f => [f.id, f]))
+
+    /* Foto do ANTES, para o histórico. Precisa ser lida aqui: depois do upsert o valor
+       anterior não existe mais em lugar nenhum — campo personalizado não tem versão. */
+    const antes = new Map<string, string>()
+    for (const r of await this.prisma.screenFieldValue.findMany({
+      where: { organizationId, subjectType, subjectId },
+      select: { fieldId: true, value: true },
+    })) {
+      antes.set(r.fieldId, r.value)
+    }
 
     for (const v of values) {
       const f = byId.get(v.fieldId)
@@ -218,6 +237,60 @@ export class ScreensService {
         update: { value: v.value, fieldNameSnapshot: f.name, fieldLabelSnapshot: f.label },
       })
     }
+
+    await this.auditarCustom(subjectType, subjectId, antes, values, byId, autor)
     return this.getValues(organizationId, subjectType, subjectId)
+  }
+
+  /** Registra no histórico da entidade o que mudou nos campos personalizados.
+   *
+   *  Antes disto, campo personalizado mudava em SILÊNCIO: o histórico do parceiro
+   *  mostrava "razão social alterada" e escondia "classificação de risco alterada" — o
+   *  que é pior do que não ter histórico, porque dá confiança de que está tudo lá.
+   *
+   *  Nunca derruba a gravação: o valor já foi salvo, e falhar aqui só perderia o
+   *  registro. Falha vira log, não exceção. */
+  private async auditarCustom(
+    subjectType: string,
+    subjectId: string,
+    antes: Map<string, string>,
+    values: ScreenValueDto[],
+    campos: Map<string, { id: string; label: string; type: string; options: unknown }>,
+    autor?: { nome: string; id?: string },
+  ): Promise<void> {
+    try {
+      const depois = new Map<string, string>()
+      for (const v of values) if (campos.has(v.fieldId)) depois.set(v.fieldId, v.value ?? '')
+
+      const defs = new Map<string, CampoCustom>()
+      for (const [id, f] of campos) {
+        defs.set(id, {
+          id,
+          label: f.label,
+          type: f.type,
+          options: Array.isArray(f.options) ? (f.options as OpcaoCampo[]) : [],
+        })
+      }
+
+      const mudancas = diffCustom(antes, depois, defs)
+      if (mudancas.length === 0) return
+
+      const user = autor?.nome ?? 'Usuário do sistema'
+      const userId = autor?.id ?? null
+
+      if (subjectType === 'PARTNER') {
+        await this.prisma.partnerAuditLog.create({
+          data: { partnerId: subjectId, user, userId, event: 'ALTERADO', changes: mudancas as never },
+        })
+      } else if (subjectType === 'CONTRACT') {
+        await this.prisma.contractAuditLog.create({
+          data: { contractId: subjectId, user, userId, event: 'ALTERADO', changes: mudancas as never },
+        })
+      }
+      /* PROCESS_INSTANCE fica de fora: o processo já registra cada passo em
+         workflow_events, e duplicar ali produziria histórico em dobro. */
+    } catch (e) {
+      this.logger.error(`falha ao auditar campos personalizados de ${subjectType}/${subjectId}: ${String(e)}`)
+    }
   }
 }

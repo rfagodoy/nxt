@@ -40,6 +40,9 @@ node tools/smoke/run-with-env.mjs tools/smoke/smoke-import.mjs
 
 # 7) ESCALA — gera massa, mede e limpa (padrão 2000; passe outro número)
 node tools/smoke/run-with-env.mjs tools/smoke/smoke-escala.mjs 2000
+
+# 8) auditoria de campos personalizados  (11 verificações)
+node tools/smoke/run-with-env.mjs tools/smoke/smoke-auditoria-custom.mjs
 ```
 
 O smoke 7 é o único que **cria milhares de registros**. Ele limpa tudo ao final (marca
