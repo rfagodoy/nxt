@@ -50,7 +50,6 @@ export class DashboardService {
       processTotal,
       processActive,
       runningCount,
-      recordsTotal,
       stuckRaw,
       auditLogs,
       recentContractLogs,
@@ -73,7 +72,6 @@ export class DashboardService {
       this.prisma.processDefinition.count({ where: { organizationId } }),
       this.prisma.processDefinition.count({ where: { organizationId, status: 'ACTIVE' } }),
       this.prisma.processInstance.count({ where: { status: 'RUNNING', processDefinition: { organizationId } } }),
-      this.prisma.moduleRecord.count({ where: { module: { organizationId } } }),
       this.prisma.processInstance.findMany({
         where:   { status: 'RUNNING', processDefinition: { organizationId }, updatedAt: { lt: stuckThreshold } },
         include: { processDefinition: { select: { name: true } } },
@@ -193,7 +191,6 @@ export class DashboardService {
       },
       processes: { total: processTotal, active: processActive },
       instances: { running: runningCount, stuck },
-      records:   { total: recordsTotal },
       activity,
       attentionCount,
     }

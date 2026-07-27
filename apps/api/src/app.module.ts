@@ -10,7 +10,6 @@ import { PrismaService } from './prisma.service'
 import { RequestLogMiddleware } from './observability/request-log.middleware'
 import { MailSettingsService } from './notifications/mail-settings.service'
 import { ProcessesModule } from './processes/processes.module'
-import { ModulesModule } from './modules/modules.module'
 import { OrganizationsModule } from './organizations/organizations.module'
 import { InstancesModule } from './instances/instances.module'
 import { PartnersModule } from './partners/partners.module'
@@ -44,7 +43,6 @@ const throttleLimit = Number(process.env.THROTTLE_LIMIT ?? 300)
     AuthModule,
     OrganizationsModule,
     ProcessesModule,
-    ModulesModule,
     InstancesModule,
     PartnersModule,
     ContractsModule,

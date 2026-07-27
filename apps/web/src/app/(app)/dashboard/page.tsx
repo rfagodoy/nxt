@@ -28,7 +28,6 @@ interface Summary {
   partners:  { total: number; byStatus: Record<string, number>; series: number[]; deltaPct: number | null }
   processes: { total: number; active: number }
   instances: { running: number; stuck: { id: string; processName: string; currentStep: string; daysStuck: number }[] }
-  records:   { total: number }
   activity:  { id: string; kind: 'partner' | 'contract'; title: string; detail: string; user: string | null; at: string }[]
   attentionCount: number
 }
@@ -191,12 +190,12 @@ export default function DashboardPage() {
   const emVigencia = vigentes + vencidos
 
   return (
-    // Cockpit de tela única no desktop: ocupa a altura disponível e NÃO rola a
-    // página (o hero fica sempre ancorado). As linhas são auto/auto/1fr — a 3ª
-    // (painéis) estica e rola por dentro. `lg:min-h` é o piso de segurança:
-    // em telas muito baixas o conteúdo volta a rolar via <main>. Abaixo de lg
-    // (tablet/mobile) o layout flui e rola normalmente.
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:h-full lg:min-h-[560px] lg:grid-cols-4 lg:[grid-template-rows:auto_auto_minmax(0,1fr)]">
+    /* Três faixas de dois blocos, cada bloco com metade da largura. O layout
+       anterior era um cockpit de altura travada, feito para painéis que rolavam por
+       dentro; sem eles, travar a altura só produzia espaço morto no rodapé.
+       Agora as linhas crescem com o conteúdo e a tela fica simétrica em qualquer
+       altura de monitor. */
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 auto-rows-min">
 
       {/* ── Hero ── */}
         <div className="relative overflow-hidden rounded-xl p-5 text-white shadow-sm sm:col-span-2
@@ -305,108 +304,39 @@ export default function DashboardPage() {
 
         {/* ── tiles menores ── */}
         <MiniStat
+          className="sm:col-span-2"
           icon={<Users className="h-4 w-4" />} label="Parceiros"
           value={p?.total ?? 0} delta={p?.deltaPct ?? null} series={p?.series}
           onClick={() => router.push('/modules/parceiros')}
           sub={`${p?.byStatus.ATIVO ?? 0} ativos`}
         />
         <MiniStat
-          icon={<GitBranch className="h-4 w-4" />} label="Processos ativos"
+          className="sm:col-span-2"
+          icon={<GitBranch className="h-4 w-4" />} label="Workflows ativos"
           value={data?.processes.active ?? 0}
           onClick={() => router.push('/processes')}
-          sub={`de ${data?.processes.total ?? 0} no total`}
+          sub={`de ${data?.processes.total ?? 0} desenhados`}
         />
         <MiniStat
-          icon={<Database className="h-4 w-4" />} label="Registros"
-          value={data?.records.total ?? 0}
-          sub="gerados pelos módulos"
-        />
-        <MiniStat
-          icon={<Loader2 className="h-4 w-4" />} label="Em execução"
+          className="sm:col-span-2"
+          icon={<Loader2 className="h-4 w-4" />} label="Processos em execução"
           value={data?.instances.running ?? 0}
           onClick={() => router.push('/processos')}
-          sub={(data?.instances.stuck.length ?? 0) > 0 ? `${data?.instances.stuck.length} parada(s)` : 'fluxos rodando'}
+          sub={(data?.instances.stuck.length ?? 0) > 0 ? `${data?.instances.stuck.length} parado(s)` : 'em andamento'}
           subWarn={(data?.instances.stuck.length ?? 0) > 0}
         />
 
-        {/* ── Precisa da sua atenção ── */}
-        <Tile className="sm:col-span-2 lg:flex lg:flex-col lg:min-h-0">
-          <div className="mb-2 flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-500" />
-            <h2 className="text-xs font-semibold">Precisa da sua atenção</h2>
-            {attention > 0 && (
-              <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500/15 px-1.5 text-[10px] font-bold text-amber-600 dark:text-amber-400">
-                {attention}
-              </span>
-            )}
-          </div>
-          <div className="space-y-1 lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
-            {c?.expiring.map(e => (
-              <AttentionRow key={e.id}
-                icon={<CalendarClock className="h-3.5 w-3.5 text-amber-500" />}
-                title={e.titulo || `Contrato ${e.numero}`}
-                badge={e.daysLeft === 0 ? 'vence hoje' : `vence em ${e.daysLeft}d`}
-                badgeWarn
-                onClick={() => router.push('/modules/contratos')}
-              />
-            ))}
-            {data?.instances.stuck.map(s => (
-              <AttentionRow key={s.id}
-                icon={<PauseCircle className="h-3.5 w-3.5 text-orange-500" />}
-                title={s.processName}
-                sub={`parada em "${s.currentStep}"`}
-                badge={`há ${s.daysStuck}d`}
-                onClick={() => router.push('/processes')}
-              />
-            ))}
-            {attention === 0 && (
-              <div className="flex flex-col items-center justify-center gap-1.5 py-6 text-center lg:h-full">
-                <CheckCircle2 className="h-7 w-7 text-emerald-500/80" />
-                <p className="text-xs text-muted-foreground">Nenhuma pendência. Tudo em dia! 🎉</p>
-              </div>
-            )}
-          </div>
-        </Tile>
-
-        {/* ── Atividade recente ── */}
-        <Tile className="sm:col-span-2 lg:flex lg:flex-col lg:min-h-0">
-          <div className="mb-2 flex items-center gap-2">
-            <Clock className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-xs font-semibold">Atividade recente</h2>
-          </div>
-          <div className="space-y-1 max-h-72 overflow-y-auto pr-1 lg:max-h-none lg:flex-1 lg:min-h-0">
-            {data && data.activity.length > 0 ? data.activity.map(a => (
-              <div key={`${a.kind}-${a.id}`} className="flex items-center gap-2.5 rounded-md px-1.5 py-1.5 hover:bg-muted/50 transition-colors">
-                <span className={cn('flex h-6 w-6 shrink-0 items-center justify-center rounded-full',
-                  a.kind === 'partner' ? 'bg-primary/10 text-primary' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400')}>
-                  {a.kind === 'partner' ? <Users className="h-3 w-3" /> : <FileText className="h-3 w-3" />}
-                </span>
-                <div className="min-w-0 flex-1">
-                  {/* padrão do card: Usuário + Ação + Descrição */}
-                  <p className="truncate text-xs">
-                    {a.user && <><span className="font-medium">{a.user}</span> </>}
-                    <span className="text-muted-foreground">{a.detail}</span>{' '}
-                    <span className="font-medium text-foreground">{a.title}</span>
-                  </p>
-                </div>
-                <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">{relativeTime(a.at)}</span>
-              </div>
-            )) : (
-              <div className="py-6 text-center text-xs text-muted-foreground">Sem atividade ainda.</div>
-            )}
-          </div>
-        </Tile>
     </div>
   )
 }
 
 /* ─────────────────────────── sub-componentes ─────────────────────────────── */
-function MiniStat({ icon, label, value, sub, subWarn, delta, series, onClick }: {
+function MiniStat({ icon, label, value, sub, subWarn, delta, series, onClick, className }: {
   icon: React.ReactNode; label: string; value: number; sub?: string; subWarn?: boolean
-  delta?: number | null; series?: number[]; onClick?: () => void
+  delta?: number | null; series?: number[]; onClick?: () => void; className?: string
 }) {
   return (
-    <Tile onClick={onClick} highlight className="flex flex-col">
+    <Tile onClick={onClick} highlight className={cn('flex flex-col', className)}>
       <div className="flex items-center justify-between">
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">{icon}</span>
         {delta !== undefined && <Delta pct={delta ?? null} />}

@@ -24,7 +24,6 @@ model Organization {
   updatedAt DateTime @updatedAt
 
   processes ProcessDefinition[]
-  modules   Module[]
   users     User[]
 
   @@map("organizations")
@@ -133,7 +132,6 @@ model ProcessDefinition {
 
   organization Organization      @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   instances    ProcessInstance[]
-  module       Module?
 
   @@map("process_definitions")
 }
@@ -156,7 +154,6 @@ model ProcessInstance {
   updatedAt           DateTime  @updatedAt
 
   processDefinition ProcessDefinition @relation(fields: [processDefinitionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  records           ModuleRecord[]
   tasks             WorkflowTask[]
   returns           WorkflowReturn[]
   compensations     WorkflowCompensation[]
@@ -311,41 +308,6 @@ model RoleAssignment {
   @@index([organizationId, papelId])
   @@index([organizationId, userId])
   @@map("role_assignments")
-}
-
-// ─── Módulos gerados ─────────────────────────────────────────────────────────
-
-model Module {
-  id                  String   @id @default(cuid())
-  organizationId      String
-  processDefinitionId String   @unique
-  name                String
-  slug                String
-  schema              String   @db.NVarChar(Max) // [JSON] estrutura das colunas/campos gerados
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-
-  organization      Organization      @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  processDefinition ProcessDefinition @relation(fields: [processDefinitionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  records           ModuleRecord[]
-
-  @@unique([organizationId, slug])
-  @@map("modules")
-}
-
-model ModuleRecord {
-  id                String   @id @default(cuid())
-  moduleId          String
-  processInstanceId String   @unique
-  data              String   @db.NVarChar(Max) // [JSON] dados dinâmicos coletados pelo processo
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  module          Module          @relation(fields: [moduleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  processInstance ProcessInstance @relation(fields: [processInstanceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  documents       Document[]
-
-  @@map("module_records")
 }
 
 // ─── Parceiros ───────────────────────────────────────────────────────────────
@@ -525,22 +487,6 @@ model NotificationRead {
   @@unique([notificationId, userId])
   @@index([notificationId])
   @@map("notification_reads")
-}
-
-// ─── Documentos ──────────────────────────────────────────────────────────────
-
-model Document {
-  id             String   @id @default(cuid())
-  moduleRecordId String
-  name           String
-  fileKey        String   // chave no Cloudflare R2
-  fileSize       Int
-  mimeType       String
-  uploadedAt     DateTime @default(now())
-
-  moduleRecord ModuleRecord @relation(fields: [moduleRecordId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@map("documents")
 }
 
 // ─── Configurações da aplicação (KV genérico) ────────────────────────────────

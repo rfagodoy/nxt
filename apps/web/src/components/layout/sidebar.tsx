@@ -7,10 +7,9 @@ import { useSession, logout } from '@/lib/session-context'
 import { useTheme } from 'next-themes'
 import {
   LayoutDashboard, GitBranch, PanelLeft, Activity,
-  Table2, Sun, Moon, LogOut, Users, KeyRound, BellRing, LayoutTemplate, ListChecks, CalendarDays, Mail, Upload, HeartPulse, FileBarChart, Database } from 'lucide-react'
+  Table2, Sun, Moon, LogOut, Users, KeyRound, BellRing, LayoutTemplate, ListChecks, CalendarDays, Mail, Upload, HeartPulse, FileBarChart, FileText, Handshake, Building2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSidebar } from '@/contexts/sidebar-context'
-import { SYSTEM_MODULES } from '@/lib/modules-catalog'
 import { Logo } from './logo'
 import { ChangePasswordModal } from './change-password-modal'
 import { NotificationBell } from './notification-bell'
@@ -30,11 +29,10 @@ const sections: NavSection[] = [
     items: [
       { href: '/tarefas', label: 'Tarefas', icon: ListChecks },
       { href: '/processos', label: 'Processos', icon: Activity },
-      ...SYSTEM_MODULES.map((m) => ({ href: m.href, label: m.name, icon: m.icon })),
+      { href: '/modules/contratos',  label: 'Contratos',  icon: FileText },
+      { href: '/modules/parceiros',  label: 'Parceiros',  icon: Handshake },
+      { href: '/modules/estrutura',  label: 'Estrutura organizacional', icon: Building2 },
       { href: '/modules/relatorios', label: 'Relatórios', icon: FileBarChart },
-      /* Módulos gerados por processos não apareciam em lugar nenhum da navegação: a
-         tela existia e só era alcançável digitando a URL. */
-      { href: '/modules', label: 'Módulos', icon: Database },
     ],
   },
   /* Dois grupos por FREQUÊNCIA de uso, não por assunto. A lista tinha nove itens em
