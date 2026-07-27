@@ -26,7 +26,11 @@
   "overrides": {
     "sharp": "^0.35.3",
     "postcss": "^8.5.19",
-    "js-yaml": "^5.2.2"
+    "js-yaml": "^5.2.2",
+    "exceljs": {
+      "archiver": "^8.0.0",
+      "unzipper": "^0.12.3"
+    }
   },
   "engines": {
     "node": ">=20.0.0"

@@ -3,6 +3,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger'
 import { ScreensService } from './screens.service'
 import { SaveScreenDto, PutValuesDto, BatchValuesDto } from './dto/screen.dto'
 import { CurrentOrg } from '../auth/current-org.decorator'
+import { CurrentUser, CurrentUserData } from '../auth/current-user.decorator'
 
 @ApiTags('screens')
 @ApiBearerAuth()
@@ -59,8 +60,13 @@ export class ScreensController {
 
   @Put('screen-values')
   @ApiOperation({ summary: 'Grava (upsert) os valores preenchidos de um subject' })
-  putValues(@CurrentOrg() org: string, @Body() dto: PutValuesDto) {
-    return this.service.putValues(org, dto.subjectType, dto.subjectId, dto.values)
+  putValues(@CurrentOrg() org: string, @Body() dto: PutValuesDto, @CurrentUser() user: CurrentUserData) {
+    /* O autor vem do TOKEN, nunca do corpo: é ele que assina o histórico, e cliente
+       não pode escolher em nome de quem grava. */
+    return this.service.putValues(org, dto.subjectType, dto.subjectId, dto.values, {
+      nome: user.name ?? user.email ?? 'Usuário do sistema',
+      id: user.sub,
+    })
   }
 
   @Post('screen-values/batch')

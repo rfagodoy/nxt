@@ -3,39 +3,31 @@
     "Advisories de PRODUÇÃO aceitos conscientemente, com prazo de revisão.",
     "Só entra aqui o que NÃO tem correção compatível — nunca o que dá trabalho corrigir.",
     "Qualquer HIGH/CRITICAL fora desta lista REPROVA o CI (tools/audit-gate.mjs).",
-    "Rever na data indicada: se saiu correção, some daqui; se não, renove com nova justificativa."
+    "Rever na data indicada: se saiu correção, some daqui; se não, renove com nova justificativa.",
+    "",
+    "REVISÃO DE 2026-07-27: a lista caiu de 9 itens para 1. A revisão encontrou saída onde",
+    "antes não havia — `archiver` 8 e `unzipper` 0.12 substituem, por override, as versões",
+    "antigas que o exceljs fixa, e com elas saiu a cadeia inteira",
+    "(archiver, archiver-utils, zip-stream, readdir-glob, glob, rimraf, minimatch,",
+    "brace-expansion). PRODUÇÃO ESTÁ SEM NENHUM HIGH.",
+    "A lição vale para a próxima revisão: o item estava marcado como 'sem correção",
+    "possível' e a correção existia — só não vinha do mantenedor do exceljs, e sim de",
+    "atualizar o que ELE consome."
   ],
   "aceitos": [
     {
-      "modulo": "brace-expansion",
-      "advisory": "GHSA-v6h2-p8h4-qcjw",
-      "titulo": "DoS por expansão ilimitada (out-of-memory)",
-      "severidade": "high",
-      "chega_por": "exceljs > archiver > readdir-glob > minimatch > brace-expansion",
+      "modulo": "uuid",
+      "advisory": "GHSA-w5hq-g745-h8pq",
+      "titulo": "Falta de verificação de limites de buffer em v3/v5/v6 quando `buf` é informado",
+      "severidade": "moderate",
+      "chega_por": "exceljs > uuid",
       "porque_aceito": [
-        "Não existe versão compatível corrigida: o advisory condena TODA a linha <=5.0.7, e a 5.0.8 muda a API — forçá-la quebra o minimatch 3.x (comprovado: 'expand is not a function').",
-        "Explorar exige controlar o PADRÃO GLOB. No Nxt nenhum glob vem de entrada de usuário: o exceljs monta o .xlsx com caminhos internos fixos.",
-        "Corrigir de verdade depende do mantenedor do exceljs, que está parado desde a 4.4.0."
+        "Só afeta quem chama uuid.v3/v5/v6 passando um buffer de saída próprio. O exceljs usa v4 (aleatório, sem buffer externo), então o caminho vulnerável não é exercitado.",
+        "O `npm audit fix --force` propõe DOWNGRADE do exceljs para 3.4.0 — trocar uma falha teórica por uma biblioteca mais velha e com menos correções.",
+        "Severidade moderate: não bloqueia o portão, que corta em `high`. Fica aqui para não ser esquecido."
       ],
-      "sai_daqui_quando": "exceljs publicar versão com archiver/glob atualizados, ou trocarmos a biblioteca de Excel",
-      "revisar_em": "2026-10-01"
-    },
-    {
-      "modulo": "minimatch",
-      "advisory": "transitivo-de-brace-expansion",
-      "titulo": "Depende de brace-expansion vulnerável",
-      "severidade": "high",
-      "chega_por": "exceljs > archiver > readdir-glob > minimatch",
-      "porque_aceito": ["Não tem falha própria: herda a de brace-expansion, acima."],
-      "sai_daqui_quando": "o item de brace-expansion sair",
-      "revisar_em": "2026-10-01"
-    },
-    { "modulo": "glob", "advisory": "transitivo-de-minimatch", "titulo": "Depende de minimatch vulnerável", "severidade": "high", "chega_por": "exceljs > archiver > archiver-utils > glob", "porque_aceito": ["Sem falha própria."], "sai_daqui_quando": "o item de brace-expansion sair", "revisar_em": "2026-10-01" },
-    { "modulo": "readdir-glob", "advisory": "transitivo-de-minimatch", "titulo": "Depende de minimatch vulnerável", "severidade": "high", "chega_por": "exceljs > archiver > readdir-glob", "porque_aceito": ["Sem falha própria."], "sai_daqui_quando": "o item de brace-expansion sair", "revisar_em": "2026-10-01" },
-    { "modulo": "rimraf", "advisory": "transitivo-de-glob", "titulo": "Depende de glob vulnerável", "severidade": "high", "chega_por": "exceljs > archiver > archiver-utils > rimraf", "porque_aceito": ["Sem falha própria."], "sai_daqui_quando": "o item de brace-expansion sair", "revisar_em": "2026-10-01" },
-    { "modulo": "archiver-utils", "advisory": "transitivo", "titulo": "Depende de glob/rimraf vulneráveis", "severidade": "high", "chega_por": "exceljs > archiver > archiver-utils", "porque_aceito": ["Sem falha própria."], "sai_daqui_quando": "o item de brace-expansion sair", "revisar_em": "2026-10-01" },
-    { "modulo": "zip-stream", "advisory": "transitivo", "titulo": "Depende de archiver-utils vulnerável", "severidade": "high", "chega_por": "exceljs > archiver > zip-stream", "porque_aceito": ["Sem falha própria."], "sai_daqui_quando": "o item de brace-expansion sair", "revisar_em": "2026-10-01" },
-    { "modulo": "archiver", "advisory": "transitivo", "titulo": "Depende da cadeia acima", "severidade": "high", "chega_por": "exceljs > archiver", "porque_aceito": ["Sem falha própria."], "sai_daqui_quando": "o item de brace-expansion sair", "revisar_em": "2026-10-01" },
-    { "modulo": "exceljs", "advisory": "transitivo", "titulo": "Depende de archiver e uuid vulneráveis", "severidade": "high", "chega_por": "dependência direta da web (exportação para Excel)", "porque_aceito": ["Sem falha própria. O 'npm audit fix --force' propõe DOWNGRADE para 3.4.0 — trocar uma falha teórica por uma biblioteca mais velha e com menos correções."], "sai_daqui_quando": "exceljs publicar 4.5+ ou trocarmos de biblioteca", "revisar_em": "2026-10-01" }
+      "sai_daqui_quando": "exceljs publicar versão com uuid >= 11.1.1, ou trocarmos a biblioteca de Excel",
+      "revisar_em": "2027-01-31"
+    }
   ]
 }
