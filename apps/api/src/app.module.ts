@@ -1,10 +1,14 @@
-import { Module } from '@nestjs/common'
+import { Module, type MiddlewareConsumer, type NestModule } from '@nestjs/common'
 import { ConfigModule } from '@nestjs/config'
 import { APP_GUARD } from '@nestjs/core'
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler'
 import { AuthModule } from './auth/auth.module'
 import { JwtAuthGuard } from './auth/jwt-auth.guard'
 import { HealthController } from './health/health.controller'
+import { DiagnosticoService } from './health/diagnostico.service'
+import { PrismaService } from './prisma.service'
+import { RequestLogMiddleware } from './observability/request-log.middleware'
+import { MailSettingsService } from './notifications/mail-settings.service'
 import { ProcessesModule } from './processes/processes.module'
 import { ModulesModule } from './modules/modules.module'
 import { OrganizationsModule } from './organizations/organizations.module'
@@ -63,6 +67,15 @@ const throttleLimit = Number(process.env.THROTTLE_LIMIT ?? 300)
     // (login/refresh) e para requisições não autenticadas.
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    DiagnosticoService,
+    MailSettingsService,
+    PrismaService,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  /* Log de acesso em TODAS as rotas: o id de correlação precisa existir desde a
+     primeira linha da requisição, senão o rastro começa pela metade. */
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(RequestLogMiddleware).forRoutes('*')
+  }
+}

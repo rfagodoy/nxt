@@ -6,9 +6,13 @@ import { AppModule } from './app.module'
 import { assertJwtSecret } from './auth/secret'
 import { PrismaService } from './prisma.service'
 import { assertMigrations } from './database/migrations-guard'
+import { StructuredLogger } from './observability/structured-logger'
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule)
+  /* Logger próprio desde o create(): assim TODA linha — inclusive as que o Nest emite
+     sozinho no boot e nos erros — sai no mesmo formato. Em produção, JSON de uma linha
+     por evento, porque log de produção é lido por ferramenta, não por gente. */
+  const app = await NestFactory.create(AppModule, { logger: new StructuredLogger() })
 
   // Fail-fast: não sobe com segredo de auth ausente/fraco em produção.
   // (Depois do create() para o ConfigModule já ter carregado o .env.)

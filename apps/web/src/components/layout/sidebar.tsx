@@ -7,7 +7,7 @@ import { useSession, logout } from '@/lib/session-context'
 import { useTheme } from 'next-themes'
 import {
   LayoutDashboard, GitBranch, PanelLeft, Activity,
-  Table2, Sun, Moon, LogOut, Users, KeyRound, BellRing, LayoutTemplate, ListChecks, CalendarDays, Mail, Upload } from 'lucide-react'
+  Table2, Sun, Moon, LogOut, Users, KeyRound, BellRing, LayoutTemplate, ListChecks, CalendarDays, Mail, Upload, HeartPulse } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSidebar } from '@/contexts/sidebar-context'
 import { SYSTEM_MODULES } from '@/lib/modules-catalog'
@@ -44,6 +44,7 @@ const sections: NavSection[] = [
       { href: '/settings/email',      label: 'E-mail',       icon: Mail      },
       { href: '/settings/importacao', label: 'Importação',   icon: Upload    },
       { href: '/settings/usuarios',   label: 'Usuários',     icon: Users     },
+      { href: '/settings/diagnostico', label: 'Diagnóstico',  icon: HeartPulse },
     ],
   },
 ]
