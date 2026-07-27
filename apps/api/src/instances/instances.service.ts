@@ -25,6 +25,7 @@ import {
   type WfRunResult,
   type WfRuntime,
 } from '@nxt/workflow-core'
+import { valorVigente } from '@nxt/contracts-core'
 import { StartInstanceDto } from './dto/start-instance.dto'
 import { CompleteTaskDto } from './dto/complete-task.dto'
 import { ReturnTaskDto } from './dto/return-task.dto'
@@ -87,6 +88,20 @@ const numOr = (v: unknown): number | undefined => {
   if (v == null || v === '') return undefined
   const n = Number(v)
   return Number.isFinite(n) ? n : undefined
+}
+
+/** Sobre o que a tarefa É — o que a fila precisa mostrar além do nome da etapa. */
+export interface AssuntoTarefa {
+  tipo: 'CONTRATO' | 'PARCEIRO'
+  titulo: string
+  valor?: number
+  moeda?: string
+  contraparte?: string
+}
+
+/** JSON que pode estar malformado no banco não pode derrubar a lista de tarefas. */
+function safeJson(txt: string): Record<string, unknown> | null {
+  try { return JSON.parse(txt) as Record<string, unknown> } catch { return null }
 }
 
 @Injectable()
@@ -844,13 +859,90 @@ export class InstancesService {
       orderBy: { createdAt: 'asc' },
     })
 
-    if (opts.mine === false) return tasks
+    if (opts.mine === false) return this.comAssunto(tasks, organizationId)
 
     // "minhas tarefas": lista pessoal (isAdmin=false de propósito — o admin também
     // tem a SUA caixa; a visão de tudo é o mine=false).
     const userId = opts.actor?.sub ?? ''
     const roleKeys = await this.roles.roleKeysForUser(organizationId, userId)
-    return tasks.filter((t) => canActOnTask(t, userId, roleKeys, false))
+    return this.comAssunto(tasks.filter((t) => canActOnTask(t, userId, roleKeys, false)), organizationId)
+  }
+
+  /** Anexa a cada tarefa o ASSUNTO: sobre o que ela é, com valor e contraparte.
+   *
+   *  Sem isto, a fila diz "Aprovar minuta" e nada mais — e duas tarefas com o mesmo
+   *  prazo chegam com o mesmo peso, sendo que uma vale R$ 4 mil e outra R$ 400 mil.
+   *  Quem prioriza precisa da consequência, não só do relógio.
+   *
+   *  Custa DUAS consultas por listagem (não por tarefa), sobre ids já conhecidos. */
+  private async comAssunto<T extends { instance?: { state?: unknown } | null }>(
+    tasks: T[],
+    organizationId: string,
+  ): Promise<Array<T & { assunto?: AssuntoTarefa }>> {
+    if (tasks.length === 0) return []
+
+    const varsDe = (t: T): Record<string, unknown> => {
+      const st = t.instance?.state
+      const obj = typeof st === 'string' ? safeJson(st) : (st as Record<string, unknown> | null)
+      const vars = obj && typeof obj === 'object' ? (obj as { variables?: unknown }).variables : null
+      return vars && typeof vars === 'object' ? (vars as Record<string, unknown>) : {}
+    }
+
+    const contratoIds = new Set<string>()
+    const parceiroIds = new Set<string>()
+    const porTarefa = tasks.map((t) => {
+      const v = varsDe(t)
+      const c = resolveContractId(v)
+      const p = resolvePartnerId(v)
+      if (c) contratoIds.add(c)
+      if (p) parceiroIds.add(p)
+      return { c, p }
+    })
+
+    const [contratos, parceiros] = await Promise.all([
+      contratoIds.size
+        ? this.prisma.contract.findMany({
+            where: { organizationId, id: { in: [...contratoIds] } },
+            select: { id: true, numero: true, titulo: true, valorTotal: true, moeda: true, partes: true, aditivos: true, renovacoes: true, reajustesRealizados: true, valorParcela: true, qtdParcelas: true, pagamentos: true, recebimentos: true, natureza: true },
+          })
+        : Promise.resolve([]),
+      parceiroIds.size
+        ? this.prisma.partner.findMany({
+            where: { organizationId, id: { in: [...parceiroIds] } },
+            select: { id: true, razaoSocial: true },
+          })
+        : Promise.resolve([]),
+    ])
+    const porContrato = new Map(contratos.map((c) => [c.id, c]))
+    const porParceiro = new Map(parceiros.map((p) => [p.id, p]))
+
+    return tasks.map((t, i) => {
+      const { c, p } = porTarefa[i]
+      const contrato = c ? porContrato.get(c) : undefined
+      if (contrato) {
+        const partes = Array.isArray(contrato.partes) ? contrato.partes : []
+        const nomes = partes
+          .map((x) => (x && typeof x === 'object' ? String((x as { nome?: string }).nome ?? '') : ''))
+          .filter(Boolean)
+        return {
+          ...t,
+          assunto: {
+            tipo: 'CONTRATO' as const,
+            titulo: `${contrato.numero} — ${contrato.titulo}`,
+            /* valor VIGENTE (com aditivos e renovações), não o valor original: é o
+               número que a pessoa reconhece no contrato de hoje. */
+            valor: valorVigente(contrato as never),
+            moeda: contrato.moeda ?? 'BRL',
+            contraparte: nomes[0] ?? undefined,
+          },
+        }
+      }
+      const parceiro = p ? porParceiro.get(p) : undefined
+      if (parceiro) {
+        return { ...t, assunto: { tipo: 'PARCEIRO' as const, titulo: parceiro.razaoSocial, contraparte: parceiro.razaoSocial } }
+      }
+      return t
+    })
   }
 
   /** Tarefas pendentes com prazo, num recorte de tempo, com o processo junto — a

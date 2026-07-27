@@ -5,7 +5,7 @@
    renderiza) porque Next.js proíbe exportar componentes de um page.tsx de rota. */
 
 import { useEffect, useState } from 'react'
-import { Loader2, Info, ArrowRight } from 'lucide-react'
+import { Loader2, Info, ArrowRight, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DynamicForm } from '@/components/modules/dynamic-form'
 import { WorkflowScreenTask } from '@/components/processes/workflow-screen-task'
@@ -13,17 +13,19 @@ import { ReturnTaskButton, type ReturnTarget } from '@/components/processes/retu
 import { DelegateTaskButton } from '@/components/processes/delegate-task-button'
 import { apiFetch, apiJson } from '@/lib/http'
 import { cn } from '@/lib/utils'
-import { kindMeta, type Task, type TimelineTask, type InstanceContext } from '@/lib/tasks-ui'
+import { kindMeta, dueInfo, DUE_CHIP, type Task, type TimelineTask, type InstanceContext } from '@/lib/tasks-ui'
 import type { StepFormSchema } from '@nxt/types'
 
 const FORM_ID = 'task-advance-form'
 
 /** onDone: concluída/devolvida → o host fecha a aba e recarrega o board.
- *  onNotice: mensagem a exibir no board (ex.: etapa automática seguinte falhou). */
+ *  onNotice: mensagem a exibir no board. O tom importa: a aba FECHA ao concluir, então
+ *  esta é a única confirmação que a pessoa recebe — sem ela, o trabalho some da tela e
+ *  resta abrir Processos para conferir se de fato avançou. */
 export function TaskDocView({ task, onDone, onNotice }: {
   task: Task
   onDone: () => void
-  onNotice?: (msg: string) => void
+  onNotice?: (msg: string, tom?: 'aviso' | 'sucesso') => void
 }) {
   const [step, setStep] = useState<StepFormSchema | null>(null)
   const [timeline, setTimeline] = useState<TimelineTask[]>([])
@@ -82,7 +84,15 @@ export function TaskDocView({ task, onDone, onNotice }: {
         return
       }
       const result = await res.json().catch(() => null)
-      if (result?.errored) onNotice?.(`A etapa automática falhou e o processo foi interrompido: ${result.errored}`)
+      if (result?.errored) {
+        onNotice?.(`A etapa automática falhou e o processo foi interrompido: ${result.errored}`, 'aviso')
+      } else {
+        const numero = task.instance?.numero != null ? `#${task.instance.numero}` : 'O processo'
+        onNotice?.(
+          proxima ? `Tarefa concluída — ${numero} seguiu para ${proxima}.` : `Tarefa concluída — ${numero} avançou.`,
+          'sucesso',
+        )
+      }
       onDone()
     } finally {
       setSubmitting(false)
@@ -97,6 +107,25 @@ export function TaskDocView({ task, onDone, onNotice }: {
   const hasReturn = (returnTargets?.length ?? 0) > 0
   const advanceDisabled = submitting || (isScreen && !entityId)
 
+  /* Bloqueio EXPLICADO, não só um botão apagado: antes o motivo vivia num `title`,
+     invisível no toque e para quem não passa o mouse. */
+  const bloqueio = isScreen && !entityId
+    ? `Salve o ${idVar === 'contratoId' ? 'contrato' : 'parceiro'} antes de concluir — o processo precisa da referência para seguir.`
+    : null
+
+  const prazo = task.dueAt ? (() => {
+    const info = dueInfo(task.dueAt)
+    return { label: info.label, cls: DUE_CHIP[info.grp] }
+  })() : null
+
+  /* Próxima etapa pelo desenho do processo: a linha do tempo já traz as etapas em
+     ordem, então a seguinte à atual é o destino provável. É informação, não promessa —
+     um gateway pode desviar, e por isso o texto diz "vai para", não "irá para". */
+  const proxima = (() => {
+    const i = timeline.findIndex((t) => t.id === task.id)
+    return i >= 0 && i + 1 < timeline.length ? (timeline[i + 1].name || null) : null
+  })()
+
   return (
     <div className="mx-auto flex h-full max-w-3xl flex-col">
       {/* cabeçalho de identidade + AÇÕES no topo (Retroceder / Avançar) */}
@@ -109,20 +138,13 @@ export function TaskDocView({ task, onDone, onNotice }: {
             {km.label} · {task.instance?.processDefinition?.name}{task.role ? ` · ${task.role}` : ''}
           </p>
         </div>
-        {/* Delegar está sempre disponível: a tarefa é sua, passá-la adiante não depende
-            do desenho do processo (ao contrário de Retroceder, que exige etapa anterior). */}
-        <DelegateTaskButton taskId={task.id} onDelegated={onDone} />
-        {/* Retroceder só quando há etapa anterior (item 4) */}
-        {hasReturn && <ReturnTaskButton taskId={task.id} onReturned={onDone} label="Retroceder" targets={returnTargets ?? undefined} />}
-        <Button
-          size="sm"
-          onClick={isScreen ? advanceScreen : undefined}
-          {...(!isScreen ? { type: 'submit' as const, form: FORM_ID } : {})}
-          disabled={advanceDisabled}
-          title={isScreen && !entityId ? `Salve o ${idVar === 'contratoId' ? 'contrato' : 'parceiro'} antes de concluir` : 'Concluir a tarefa e avançar o processo'}
-        >
-          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}Concluir
-        </Button>
+        {/* O PRAZO fica onde a decisão acontece. Ele estava na lista e sumia justamente
+            na tela em que a pessoa decide se faz agora ou depois. */}
+        {prazo && (
+          <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-semibold whitespace-nowrap', prazo.cls)}>
+            <Clock className="h-3.5 w-3.5" />{prazo.label}
+          </span>
+        )}
       </div>
 
       {/* contexto: onde você está no processo */}
@@ -158,6 +180,12 @@ export function TaskDocView({ task, onDone, onNotice }: {
                 <p className="text-xs text-foreground/80 leading-snug whitespace-pre-line">{step.instructions.trim()}</p>
               </div>
             )}
+            {isScreen && !entityId && (
+              <div className="mb-3 flex gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-900 dark:bg-amber-950/40">
+                <Info className="h-4 w-4 shrink-0 mt-0.5 text-amber-700 dark:text-amber-400" />
+                <p className="text-xs leading-snug text-amber-900 dark:text-amber-200">{bloqueio}</p>
+              </div>
+            )}
             {isScreen ? (
               <WorkflowScreenTask key={task.id} step={step} entityId={entityId} onEntity={setEntityId} onCancel={onDone} />
             ) : (
@@ -166,6 +194,34 @@ export function TaskDocView({ task, onDone, onNotice }: {
             )}
           </>
         )}
+      </div>
+
+      {/* AÇÃO onde o trabalho termina. Estava no topo: a pessoa preenchia descendo e
+          precisava voltar ao começo para concluir. As secundárias continuam à mão,
+          com menos peso — a ação que 90% vêm fazer não pode competir com elas. */}
+      <div className="shrink-0 border-t bg-muted/40 px-1 py-2.5 flex items-center gap-2 flex-wrap">
+        <div className="flex-1 min-w-[150px]">
+          {bloqueio ? (
+            <p className="text-[11.5px] text-amber-700 dark:text-amber-400">{bloqueio}</p>
+          ) : proxima ? (
+            /* Dizer para onde vai antes de ir: o sistema já mostra o custo antes do ato
+               ao cancelar um processo; concluir merece o mesmo. */
+            <p className="text-[11.5px] text-muted-foreground">Ao concluir, vai para <span className="font-semibold text-foreground">{proxima}</span></p>
+          ) : (
+            <p className="text-[11.5px] text-muted-foreground">Ao concluir, o processo avança.</p>
+          )}
+        </div>
+        <DelegateTaskButton taskId={task.id} onDelegated={onDone} />
+        {hasReturn && <ReturnTaskButton taskId={task.id} onReturned={onDone} label="Retroceder" targets={returnTargets ?? undefined} />}
+        <Button
+          size="sm"
+          onClick={isScreen ? advanceScreen : undefined}
+          {...(!isScreen ? { type: 'submit' as const, form: FORM_ID } : {})}
+          disabled={advanceDisabled}
+          title={bloqueio ?? 'Concluir a tarefa e avançar o processo'}
+        >
+          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}Concluir tarefa
+        </Button>
       </div>
     </div>
   )

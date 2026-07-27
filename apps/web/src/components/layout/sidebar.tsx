@@ -7,7 +7,7 @@ import { useSession, logout } from '@/lib/session-context'
 import { useTheme } from 'next-themes'
 import {
   LayoutDashboard, GitBranch, PanelLeft, Activity,
-  Table2, Sun, Moon, LogOut, Users, KeyRound, BellRing, LayoutTemplate, ListChecks, CalendarDays, Mail, Upload, HeartPulse, FileBarChart } from 'lucide-react'
+  Table2, Sun, Moon, LogOut, Users, KeyRound, BellRing, LayoutTemplate, ListChecks, CalendarDays, Mail, Upload, HeartPulse, FileBarChart, Database } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSidebar } from '@/contexts/sidebar-context'
 import { SYSTEM_MODULES } from '@/lib/modules-catalog'
@@ -32,19 +32,30 @@ const sections: NavSection[] = [
       { href: '/processos', label: 'Processos', icon: Activity },
       ...SYSTEM_MODULES.map((m) => ({ href: m.href, label: m.name, icon: m.icon })),
       { href: '/modules/relatorios', label: 'Relatórios', icon: FileBarChart },
+      /* Módulos gerados por processos não apareciam em lugar nenhum da navegação: a
+         tela existia e só era alcançável digitando a URL. */
+      { href: '/modules', label: 'Módulos', icon: Database },
     ],
   },
+  /* Dois grupos por FREQUÊNCIA de uso, não por assunto. A lista tinha nove itens em
+     ordem de chegada, com "Calendário" (uma vez por ano) pesando o mesmo que
+     "Usuários" (toda semana). Nada foi removido nem renomeado. */
   {
     label: 'Configurações',
     items: [
+      { href: '/settings/usuarios',   label: 'Usuários',     icon: Users     },
       { href: '/processes',           label: 'Workflows',    icon: GitBranch },
       { href: '/settings/telas',      label: 'Telas',        icon: LayoutTemplate },
       { href: '/settings/tabelas',    label: 'Tabelas',      icon: Table2    },
+    ],
+  },
+  {
+    label: 'Instalação',
+    items: [
       { href: '/settings/calendario', label: 'Calendário',   icon: CalendarDays },
-      { href: '/settings/notificacoes', label: 'Notificações', icon: BellRing },
       { href: '/settings/email',      label: 'E-mail',       icon: Mail      },
+      { href: '/settings/notificacoes', label: 'Notificações', icon: BellRing },
       { href: '/settings/importacao', label: 'Importação',   icon: Upload    },
-      { href: '/settings/usuarios',   label: 'Usuários',     icon: Users     },
       { href: '/settings/diagnostico', label: 'Diagnóstico',  icon: HeartPulse },
     ],
   },

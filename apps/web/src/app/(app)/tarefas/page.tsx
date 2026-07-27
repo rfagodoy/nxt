@@ -7,12 +7,12 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { apiJson } from '@/lib/http'
 import { cn } from '@/lib/utils'
 import { useWorkspace } from '@/contexts/workspace-context'
-import { dueInfo, kindMeta, COLUMNS, DUE_CHIP, type Task, type Grp } from '@/lib/tasks-ui'
+import { dueInfo, kindMeta, COLUMNS, DUE_CHIP, type Task, type Grp, valorCurto } from '@/lib/tasks-ui'
 
 export default function TarefasPage() {
   const ws = useWorkspace()
   const [tasks, setTasks] = useState<Task[] | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  const [notice, setNotice] = useState<{ msg: string; tom: 'aviso' | 'sucesso' } | null>(null)
 
   const load = useCallback(async () => {
     const data = await apiJson<Task[]>('/api/instances/tasks')
@@ -25,7 +25,15 @@ export default function TarefasPage() {
   // um erro da etapa automática seguinte chega por 'nxt:tasks:notice'.
   useEffect(() => {
     const onRefresh = () => void load()
-    const onNotice = (e: Event) => setNotice((e as CustomEvent<string>).detail ?? null)
+    const onNotice = (e: Event) => {
+      const d = (e as CustomEvent<{ msg: string; tom: 'aviso' | 'sucesso' } | string>).detail
+      if (!d) return setNotice(null)
+      setNotice(typeof d === 'string' ? { msg: d, tom: 'aviso' } : d)
+      /* Confirmação de sucesso se recolhe sozinha: ela fecha o ciclo e sai de cena.
+         Aviso de FALHA fica até a pessoa dispensar — quem precisa agir não pode
+         perder a mensagem por não estar olhando. */
+      if (typeof d !== 'string' && d.tom === 'sucesso') setTimeout(() => setNotice(null), 6000)
+    }
     window.addEventListener('nxt:workspace:refresh', onRefresh)
     window.addEventListener('nxt:tasks:notice', onNotice as EventListener)
     return () => {
@@ -78,9 +86,16 @@ export default function TarefasPage() {
       </div>
 
       {notice && (
-        <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40 px-3 py-2 text-[12px] text-amber-800 dark:text-amber-200">
-          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-          <span className="flex-1">{notice}</span>
+        <div className={cn(
+          'flex items-start gap-2 rounded-lg border px-3 py-2 text-[12px]',
+          notice.tom === 'sucesso'
+            ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200'
+            : 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200',
+        )}>
+          {notice.tom === 'sucesso'
+            ? <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
+            : <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />}
+          <span className="flex-1">{notice.msg}</span>
           <button onClick={() => setNotice(null)} className="shrink-0 hover:opacity-70" title="Dispensar"><X className="h-3.5 w-3.5" /></button>
         </div>
       )}
@@ -120,6 +135,16 @@ export default function TarefasPage() {
                         <span className={cn('flex h-8 w-8 items-center justify-center rounded-lg shrink-0', m.cls)}><m.Icon className="h-4 w-4" /></span>
                         <span className="text-sm font-medium leading-tight line-clamp-2">{t.name || t.nodeId}</span>
                       </div>
+                      {/* Sobre o que é a tarefa: sem isto, duas tarefas do mesmo prazo
+                          chegam com o mesmo peso — a de R$ 4 mil e a de R$ 400 mil. */}
+                      {t.assunto && (
+                        <p className="mb-1.5 text-[11px] text-foreground/80 truncate" title={t.assunto.titulo}>
+                          {t.assunto.contraparte ?? t.assunto.titulo}
+                          {valorCurto(t.assunto.valor, t.assunto.moeda) && (
+                            <span className="ml-1.5 font-semibold tabular-nums">{valorCurto(t.assunto.valor, t.assunto.moeda)}</span>
+                          )}
+                        </p>
+                      )}
                       <div className="flex items-center gap-2">
                         <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded-md whitespace-nowrap tabular-nums', DUE_CHIP[info.grp])}>{info.label}</span>
                         {t.instance?.numero != null && <span className="text-[10px] font-mono text-muted-foreground shrink-0">#{t.instance.numero}</span>}

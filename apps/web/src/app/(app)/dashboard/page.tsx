@@ -6,11 +6,12 @@ import { useSession } from '@/lib/session-context'
 import {
   FileText, Users, GitBranch, Database, Loader2, AlertTriangle,
   Clock, Plus, ArrowRight, TrendingUp, TrendingDown,
-  CalendarClock, PauseCircle, Sparkles, CheckCircle2,
+  CalendarClock, PauseCircle, Sparkles, CheckCircle2, ListChecks,
 } from 'lucide-react'
 import { Area, AreaChart, ResponsiveContainer } from 'recharts'
 import { cn } from '@/lib/utils'
-import { apiFetch } from '@/lib/http'
+import { apiFetch, apiJson } from '@/lib/http'
+import { dueInfo, DUE_CHIP, valorCurto, type Task } from '@/lib/tasks-ui'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { StartProcessButton } from '@/components/processes/start-process-button'
 
@@ -145,6 +146,7 @@ export default function DashboardPage() {
   const ws = useWorkspace()
   const { data: session } = useSession()
   const [data, setData] = useState<Summary | null>(null)
+  const [minhasTarefas, setMinhasTarefas] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const mounted = useRef(false)
 
@@ -157,13 +159,25 @@ export default function DashboardPage() {
     mounted.current = true
     void (async () => {
       try {
-        const res = await apiFetch('/api/dashboard/summary')
+        /* As DUAS perguntas de quem abre o sistema, lado a lado: "como está a
+           carteira?" (resumo) e "o que preciso fazer?" (tarefas). A segunda vinha
+           sendo respondida só uma tela adiante. */
+        const [res, tarefas] = await Promise.all([
+          apiFetch('/api/dashboard/summary'),
+          apiJson<Task[]>('/api/instances/tasks').catch(() => []),
+        ])
         if (res.ok && mounted.current) setData(await res.json() as Summary)
+        if (mounted.current) setMinhasTarefas(tarefas ?? [])
       } catch { /* silencioso — UI mostra estado vazio */ }
       finally { if (mounted.current) setLoading(false) }
     })()
     return () => { mounted.current = false }
   }, [])
+
+  /* Urgentes primeiro; o board completo continua sendo o lugar de ver tudo. */
+  const tarefasUrgentes = [...minhasTarefas]
+    .sort((a, b) => (a.dueAt ? new Date(a.dueAt).getTime() : Infinity) - (b.dueAt ? new Date(b.dueAt).getTime() : Infinity))
+    .slice(0, 3)
 
   if (loading) return <DashboardSkeleton />
 
@@ -211,6 +225,55 @@ export default function DashboardPage() {
               <StartProcessButton variant="hero" />
             </div>
           </div>
+        </div>
+
+        {/* ── Seu trabalho ──
+            Vem antes da carteira de propósito: quem abre o sistema de manhã pergunta
+            "o que preciso fazer hoje?", não "como está a carteira?". A resposta existia,
+            mas só uma tela adiante — e esta é a única tela que todo usuário vê todo dia. */}
+        <div className="rounded-xl border bg-card p-4 shadow-sm sm:col-span-2 flex flex-col gap-2.5">
+          <div className="flex items-center gap-2">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <ListChecks className="h-4 w-4" />
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold tracking-tight">Seu trabalho</p>
+              <p className="text-[11px] text-muted-foreground">
+                {minhasTarefas.length === 0 ? 'Nenhuma tarefa aguardando você' : `${minhasTarefas.length} tarefa${minhasTarefas.length > 1 ? 's' : ''} na sua caixa`}
+              </p>
+            </div>
+            {minhasTarefas.length > 0 && (
+              <button onClick={() => router.push('/tarefas')}
+                className="text-[11px] font-medium text-primary hover:underline shrink-0">ver todas</button>
+            )}
+          </div>
+
+          {tarefasUrgentes.length === 0 ? (
+            <p className="flex items-center gap-1.5 py-2 text-xs text-muted-foreground">
+              <Sparkles className="h-3.5 w-3.5 text-primary" />Tudo em dia por aqui.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              {tarefasUrgentes.map((t) => {
+                const info = dueInfo(t.dueAt)
+                const valor = valorCurto(t.assunto?.valor, t.assunto?.moeda)
+                return (
+                  <button key={t.id} onClick={() => ws.open({ id: `task:${t.id}`, kind: 'task', mode: 'detail', label: t.name || t.nodeId, data: t })}
+                    className="group flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-colors hover:border-primary/40 hover:bg-muted/50">
+                    <span className={cn('h-6 w-[3px] rounded-full shrink-0', info.grp === 'crit' ? 'bg-red-500' : info.grp === 'warn' ? 'bg-amber-500' : 'bg-muted-foreground/30')} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs font-medium">{t.name || t.nodeId}</span>
+                      <span className="block truncate text-[10.5px] text-muted-foreground">
+                        {t.assunto?.contraparte ?? t.instance?.processDefinition?.name ?? 'Processo'}
+                        {valor && <span className="ml-1.5 font-semibold text-foreground/70 tabular-nums">{valor}</span>}
+                      </span>
+                    </span>
+                    <span className={cn('shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums', DUE_CHIP[info.grp])}>{info.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         {/* ── Contratos (destaque, com sparkline) ── */}
