@@ -43,7 +43,29 @@ certificado; mexer em firewall. Política de infraestrutura é do cliente.
 
 1. `npm run build` na origem — o instalador recusa origem sem build.
 2. Node 20+ instalado na máquina de destino.
-3. Banco criado e alcançável, com um usuário de aplicação (não use `sa`).
+3. Banco criado e alcançável, com **usuário de aplicação** — ver abaixo.
+
+### Usuário de banco (não use `sa`)
+
+```bash
+sqlcmd -S SERVIDOR -U sa -P *** -C -i deploy/sql/criar-usuario-aplicacao.sql \
+       -v BANCO="nxt" LOGIN="nxt_app" SENHA="<senha forte e única>"
+```
+
+Cria um login sem nenhum papel de servidor e um usuário com o mínimo que o Nxt precisa:
+`db_datareader`, `db_datawriter` e `db_ddladmin` (este último porque as migrações rodam
+na implantação). **Não** entra em `db_owner`.
+
+Com `sa`, uma falha de injeção ou o vazamento de um único `.env` entrega a **instância
+inteira** do SQL Server — outros bancos, logins, jobs —, não só o banco do Nxt.
+
+Verificado em SQL Server 2022: com esse usuário, `CREATE LOGIN`, `CREATE DATABASE` e
+`DROP DATABASE` são negados; leitura, gravação e migrações funcionam. Ele ainda enxerga
+o **nome** de alguns logins da instância — metadados que o SQL Server expõe por padrão;
+nome, nunca senha.
+
+Se a política do cliente exigir separar quem migra de quem opera, o próprio arquivo traz
+o bloco pronto no fim, com o custo da escolha.
 
 ### Sobre os segredos
 

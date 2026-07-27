@@ -92,7 +92,7 @@ const aMesAno = (x: unknown): string => {
   const m = /^(\d{4})-(\d{2})/.exec(aVal(x))
   return m ? `${m[2]}/${m[1]}` : aVal(x)
 }
-const SIT_LABEL: Record<string, string> = { EM_CADASTRO: 'Em cadastro/revisão', VIGENTE: 'Vigente', ENCERRADO: 'Encerrado', RESCINDIDO: 'Rescindido', PENDENTE: 'Em cadastro/revisão', ATIVO: 'Vigente' }
+const SIT_LABEL: Record<string, string> = { EM_CADASTRO: 'Em cadastro/revisão', VIGENTE: 'Vigente', ENCERRADO: 'Encerrado', RESCINDIDO: 'Rescindido', CANCELADO: 'Cancelado', PENDENTE: 'Em cadastro/revisão', ATIVO: 'Vigente' }
 const NAT_LABEL: Record<string, string> = { DESPESA: 'Despesa', RECEITA: 'Receita', AMBOS: 'Ambos' }
 const ACAO_LABEL: Record<string, string> = { MANUAL: 'Definir manualmente', RENOVAR: 'Renovar automaticamente', ENCERRAR: 'Encerrar automaticamente' }
 

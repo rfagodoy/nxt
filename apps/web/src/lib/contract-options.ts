@@ -223,18 +223,27 @@ export const ACOES_TERMINO = [
   { value: 'ENCERRAR', label: 'Encerrar automaticamente'},
 ]
 
+/* Ordem de exibição do filtro: segue o ciclo de vida, não a ordem da lista canônica
+   do core. A COBERTURA é garantida por teste — contract-options.test.ts falha se uma
+   situação nova entrar no core e não aparecer aqui. */
 export const SITUACOES = [
   { value: 'EM_CADASTRO', label: 'Em cadastro/revisão' },
   { value: 'VIGENTE',     label: 'Vigente'             },
   { value: 'VENCIDO',     label: 'Vencido'             },  // derivado — nunca gravado (ver effectiveSituacao)
   { value: 'ENCERRADO',   label: 'Encerrado'           },
   { value: 'RESCINDIDO',  label: 'Rescindido'          },
+  { value: 'CANCELADO',   label: 'Cancelado'           },
 ]
 
 /* ─── ciclo de vida da situação ──────────────────────────────
-   Estados persistidos: EM_CADASTRO, VIGENTE, ENCERRADO, RESCINDIDO.
+   Estados persistidos: EM_CADASTRO, VIGENTE, ENCERRADO, RESCINDIDO, CANCELADO.
    VENCIDO é DERIVADO (nunca gravado): contrato VIGENTE cujo término já passou.
-   A regra vive no core; aqui só injetamos "hoje". */
+   A regra vive no core; aqui só injetamos "hoje".
+
+   CANCELADO ≠ RESCINDIDO: rescisão é ato entre as partes, com efeitos jurídicos;
+   cancelado é o contrato que NUNCA chegou a valer, porque o processo que o criou foi
+   cancelado. Ficou de fora desta lista por um tempo, e o efeito era o contrato
+   cancelado não aparecer em filtro nenhum — visível na listagem, impossível de isolar. */
 
 /** Situação exibida: normaliza legado e resolve 'Vencido' (VIGENTE + término < hoje). */
 export const effectiveSituacao = (situacao: string, terminoVigencia?: string | null): string =>

@@ -368,8 +368,10 @@ export default function ContratosPage() {
         </div>
       </div>
 
-      {/* cards de resumo */}
-      <div className="grid grid-cols-6 gap-2">
+      {/* cards de resumo — as categorias precisam FECHAR com o Total: enquanto
+          "Cancelados" faltava aqui, um contrato cancelado entrava no Total e em
+          nenhuma coluna, e a conta simplesmente não batia na tela. */}
+      <div className="grid grid-cols-4 lg:grid-cols-7 gap-2">
         {[
           { label: 'Total',       value: totalAll,                                                          cls: 'text-foreground'  },
           { label: 'Vigentes',    value: allContratos.filter(r => effectiveSituacao(r.situacao, r.termino) === 'VIGENTE').length,     cls: 'text-emerald-600 dark:text-emerald-400' },
@@ -377,6 +379,7 @@ export default function ContratosPage() {
           { label: 'Vencidos',    value: allContratos.filter(r => effectiveSituacao(r.situacao, r.termino) === 'VENCIDO').length,     cls: 'text-amber-600 dark:text-amber-400'     },
           { label: 'Encerrados',  value: allContratos.filter(r => effectiveSituacao(r.situacao, r.termino) === 'ENCERRADO').length,   cls: 'text-muted-foreground'                  },
           { label: 'Rescindidos', value: allContratos.filter(r => effectiveSituacao(r.situacao, r.termino) === 'RESCINDIDO').length,  cls: 'text-red-600 dark:text-red-400'         },
+          { label: 'Cancelados',  value: allContratos.filter(r => effectiveSituacao(r.situacao, r.termino) === 'CANCELADO').length,  cls: 'text-muted-foreground'                  },
         ].map(({ label, value, cls }) => (
           <div key={label} className="rounded-xl border bg-card px-3 py-2 flex items-center justify-between shadow-sm">
             <p className="text-[11px] text-muted-foreground">{label}</p>
