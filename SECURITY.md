@@ -38,21 +38,20 @@ Resumo da postura de segurança e **checklist obrigatório antes de produção**
 
 ## Vulnerabilidades de dependência (aceitas conscientemente)
 A lista viva, com justificativa e prazo de revisão por item, está em
-**`security/audit-allowlist.json`** — é ela que o portão do CI consulta. Hoje são 9
-advisories, todos da mesma raiz: a cadeia do `exceljs` (`archiver` → `glob`/`readdir-glob`
-→ `minimatch` → `brace-expansion`).
+**`security/audit-allowlist.json`** — é ela que o portão do CI consulta.
 
-Duas coisas valem registro porque não são óbvias:
+**Revisão de 2026-07-27: produção está sem NENHUM advisory `high`.** A lista caiu de 9
+itens para 1 (`uuid`, moderate, que não bloqueia o portão).
 
-- **Não há correção compatível.** O advisory do `brace-expansion` condena toda a linha
-  `<=5.0.7`, e a `5.0.8` muda a API: forçá-la por `overrides` quebra o `minimatch` 3.x
-  (`TypeError: expand is not a function` — testado, não suposto). Depende do mantenedor
-  do `exceljs`, parado na 4.4.0.
-- **Explorar exige controlar o padrão glob**, e no Nxt nenhum glob vem de entrada de
-  usuário: o `exceljs` monta o `.xlsx` com caminhos internos fixos.
+O que mudou: a cadeia toda vinha de versões antigas que o `exceljs` fixa. Forçar por
+`overrides` o `archiver` 8 e o `unzipper` 0.12 — que ele consome — eliminou de uma vez
+`archiver`, `archiver-utils`, `zip-stream`, `readdir-glob`, `glob`, `rimraf`,
+`minimatch` e `brace-expansion`. Escrita e releitura de `.xlsx` foram verificadas
+(valores, números e formatação preservados).
 
-O `js-yaml` (via `@nestjs/swagger`) **foi corrigido de verdade** por `overrides` para
-`^5.2.2`, e por isso não está na lista.
+Fica a lição para a próxima revisão: os itens estavam marcados como "sem correção
+possível", e a correção existia — só não vinha do mantenedor do `exceljs` (parado na
+4.4.0 desde dezembro/2024), e sim de atualizar o que **ele consome**.
 
 ⚠️ **NUNCA rodar `npm audit fix --force`** neste repositório: ele propõe downgrade
 destrutivo (`next`→9, `exceljs`→3).
