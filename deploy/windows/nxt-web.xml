@@ -1,0 +1,36 @@
+<!--
+  Serviço do Windows para a interface web do Nxt, via WinSW.
+  Depende do serviço da API: a web serve páginas que consultam a API já no primeiro
+  acesso, e subir na frente só produz erro na tela de quem entrou cedo.
+-->
+<service>
+  <id>nxt-web</id>
+  <name>Nxt — Web</name>
+  <description>Interface web do Nxt.</description>
+
+  <!-- `npm` resolve o script `start` do workspace (next start). -->
+  <executable>cmd.exe</executable>
+  <arguments>/c npm run start</arguments>
+  <workingdirectory>C:\nxt\apps\web</workingdirectory>
+
+  <envfile>C:\nxt\config\web.env</envfile>
+  <env name="NODE_ENV" value="production" />
+
+  <onfailure action="restart" delay="5 sec" />
+  <onfailure action="restart" delay="15 sec" />
+  <onfailure action="restart" delay="60 sec" />
+  <resetfailure>1 hour</resetfailure>
+
+  <log mode="roll-by-size-time">
+    <sizeThreshold>10240</sizeThreshold>
+    <pattern>yyyyMMdd</pattern>
+    <autoRollAtTime>00:00:00</autoRollAtTime>
+    <keepFiles>14</keepFiles>
+  </log>
+  <logpath>C:\nxt\logs</logpath>
+
+  <startmode>Automatic</startmode>
+  <depend>nxt-api</depend>
+
+  <stoptimeout>20 sec</stoptimeout>
+</service>

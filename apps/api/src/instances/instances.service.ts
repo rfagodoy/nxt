@@ -1007,8 +1007,11 @@ export class InstancesService {
     const plano = await this.cancelPreview(instanceId, organizationId)
     if (plano.requerConfirmacao && !dto?.confirmar) {
       throw new ConflictException({
-        message: 'Este processo produziu efeitos que precisam de confirmação para serem desfeitos.',
+        message: plano.dependentes.length > 0
+          ? 'Outros processos em andamento usam o que este produziu. Confirme para prosseguir.'
+          : 'Este processo produziu efeitos que precisam de confirmação para serem desfeitos.',
         efeitos: plano.efeitos,
+        dependentes: plano.dependentes,
       })
     }
 
@@ -1550,7 +1553,70 @@ export class InstancesService {
       }
       itens.push({ effectId: e.id, kind, entityType, entityId: e.entityId, descricao: describeRevert(kind, entityType, rotulo), requerConfirmacao, aviso })
     }
-    return { efeitos: itens, requerConfirmacao: itens.some((i) => i.requerConfirmacao) }
+
+    // OUTROS processos vivos sobre as mesmas entidades. Sem isto, cancelar o processo
+    // que criou o contrato podia CANCELAR um contrato que outro processo está usando
+    // agora — e ninguém ficava sabendo.
+    const alvos = [...new Set(itens.filter((i) => isRevertible(i.kind, i.entityType)).map((i) => i.entityId))]
+    const dependentes = await this.processosVivosSobre(alvos, organizationId, instanceId)
+
+    return {
+      efeitos: itens,
+      dependentes,
+      requerConfirmacao: itens.some((i) => i.requerConfirmacao) || dependentes.length > 0,
+    }
+  }
+
+  /** Processos EM CURSO (fora este) que tocam alguma destas entidades.
+   *
+   *  Duas formas de "tocar": já produziu efeito sobre ela (registro de efeito) ou
+   *  carrega o id nas variáveis do estado — o processo que ainda vai lançar o aditivo
+   *  conta tanto quanto o que já lançou. A busca por variável usa LIKE no JSON do
+   *  estado: não é elegante, mas é o único índice que temos sobre o conteúdo do
+   *  estado, e o conjunto de instâncias vivas é pequeno por natureza. */
+  private async processosVivosSobre(entityIds: string[], organizationId: string, excetoInstanceId: string) {
+    if (entityIds.length === 0) return []
+
+    const vivos = { in: ['RUNNING', 'ERROR'] }
+    const [porEfeito, porVariavel] = await Promise.all([
+      this.prisma.workflowCompensation.findMany({
+        where: {
+          entityId: { in: entityIds },
+          instanceId: { not: excetoInstanceId },
+          instance: { status: vivos, processDefinition: { organizationId } },
+        },
+        select: { instanceId: true, entityId: true },
+      }),
+      this.prisma.processInstance.findMany({
+        where: {
+          id: { not: excetoInstanceId },
+          status: vivos,
+          processDefinition: { organizationId },
+          OR: entityIds.map((id) => ({ state: { contains: id } })),
+        },
+        select: { id: true, state: true },
+      }),
+    ])
+
+    const ids = new Set<string>([...porEfeito.map((e) => e.instanceId), ...porVariavel.map((i) => i.id)])
+    if (ids.size === 0) return []
+
+    const instancias = await this.prisma.processInstance.findMany({
+      where: { id: { in: [...ids] } },
+      include: {
+        processDefinition: { select: { name: true } },
+        tasks: { where: { status: 'PENDING' }, select: { name: true, nodeId: true }, take: 1 },
+      },
+      orderBy: { numero: 'asc' },
+    })
+
+    return instancias.map((i) => ({
+      instanceId: i.id,
+      numero: i.numero,
+      processName: i.processDefinition.name,
+      status: i.status,
+      etapaAtual: i.tasks[0]?.name ?? i.tasks[0]?.nodeId ?? null,
+    }))
   }
 
   /** Desfaz UM efeito e devolve o estado em que a entidade ficou (a "foto" que a

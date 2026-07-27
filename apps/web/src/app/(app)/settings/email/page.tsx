@@ -16,6 +16,8 @@ import { apiFetch, apiJson } from '@/lib/http'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/lib/session-context'
 
+type Destinatario = { id: string; name: string; email: string; motivo: string }
+
 type Security = 'NONE' | 'SSL' | 'STARTTLS'
 
 interface Config {
@@ -26,16 +28,6 @@ interface Config {
   podeGuardarSenha: boolean
   pronto: boolean
 }
-
-/** Atalhos dos provedores mais usados — o que muda entre eles é só endereço, porta e
- *  criptografia; errar essa combinação é a causa nº 1 de "não envia". */
-const PRESETS: Array<{ nome: string; host: string; port: number; security: Security; dica?: string }> = [
-  { nome: 'Gmail / Google Workspace', host: 'smtp.gmail.com', port: 587, security: 'STARTTLS', dica: 'Com verificação em duas etapas, use uma Senha de app (não a senha da conta).' },
-  { nome: 'Microsoft 365 / Outlook',  host: 'smtp.office365.com', port: 587, security: 'STARTTLS', dica: 'A conta precisa ter o envio SMTP autenticado liberado pelo administrador.' },
-  { nome: 'Zoho Mail',                host: 'smtp.zoho.com', port: 465, security: 'SSL' },
-  { nome: 'Amazon SES',               host: 'email-smtp.us-east-1.amazonaws.com', port: 587, security: 'STARTTLS', dica: 'Use as credenciais SMTP do SES (diferentes da chave de API).' },
-  { nome: 'Servidor interno',         host: '', port: 25, security: 'NONE', dica: 'SMTP da empresa costuma dispensar autenticação e usar certificado próprio.' },
-]
 
 const SEGURANCA: Array<{ value: Security; label: string; hint: string }> = [
   { value: 'STARTTLS', label: 'STARTTLS', hint: 'Porta 587 — o padrão hoje' },
@@ -62,20 +54,21 @@ export default function EmailConfigPage() {
   const [testando, setTestando] = useState<'conexao' | 'envio' | null>(null)
   const [resultado, setResultado] = useState<{ ok: boolean; msg: string } | null>(null)
   const [erro, setErro] = useState<string | null>(null)
+  const [invalidos, setInvalidos] = useState<Destinatario[]>([])
 
   const load = useCallback(async () => {
     const data = await apiJson<Config>('/api/notifications/email-config').catch(() => null)
     setCfg(data ?? VAZIO)
     setTrocarSenha(!(data?.hasPassword))
+    /* Quem tem e-mail impossível de entregar. Sem isto, o canal parece funcionando
+       (o teste chega na SUA caixa) e o silêncio dos outros só aparece quando alguém
+       perde um prazo. */
+    const check = await apiJson<Destinatario[]>('/api/notifications/email-recipients-check').catch(() => null)
+    setInvalidos(Array.isArray(check) ? check : [])
   }, [])
   useEffect(() => { void load() }, [load])
 
   const patch = (p: Partial<Config>) => setCfg((c) => (c ? { ...c, ...p } : c))
-
-  const aplicarPreset = (i: number) => {
-    const p = PRESETS[i]
-    patch({ host: p.host, port: p.port, security: p.security })
-  }
 
   const salvar = async () => {
     if (!cfg) return
@@ -157,6 +150,30 @@ export default function EmailConfigPage() {
         {cfg.origem === 'AMBIENTE' && <span className="text-[10.5px] opacity-80">definido por variáveis de ambiente</span>}
       </div>
 
+      {invalidos.length > 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-px" />
+            <div className="space-y-1">
+              <p>
+                <strong>{invalidos.length} usuário{invalidos.length > 1 ? 's' : ''} ativo{invalidos.length > 1 ? 's' : ''} não receberá{invalidos.length > 1 ? 'ão' : ''} e-mail</strong> — o endereço
+                cadastrado nunca chegaria ao destino. O sistema nem tenta enviar: mensagem devolvida repetidamente
+                custa a reputação do remetente e acaba derrubando o aviso de todo mundo.
+              </p>
+              <ul className="space-y-0.5">
+                {invalidos.map((u) => (
+                  <li key={u.id} className="flex flex-wrap items-baseline gap-x-1.5">
+                    <span className="font-medium">{u.name}</span>
+                    <code className="font-mono text-[11px] opacity-90">{u.email || '(sem e-mail)'}</code>
+                  </li>
+                ))}
+              </ul>
+              <p className="opacity-90">Corrija em Configurações → Usuários.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {!cfg.podeGuardarSenha && (
         <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-[12px] text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
           O servidor não tem chave de criptografia, então a senha do e-mail não pode ser guardada com segurança.
@@ -173,14 +190,9 @@ export default function EmailConfigPage() {
               <h2 className="text-sm font-semibold">Servidor</h2>
             </div>
 
-            <div className="flex flex-wrap gap-1.5">
-              {PRESETS.map((p, i) => (
-                <button key={p.nome} type="button" disabled={!isAdmin} onClick={() => aplicarPreset(i)}
-                  className="h-7 px-2.5 rounded-md border text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-60">
-                  {p.nome}
-                </button>
-              ))}
-            </div>
+            <p className="text-[11px] text-muted-foreground -mt-2">
+              Peça ao provedor ou ao administrador do servidor de e-mail o endereço, a porta e o tipo de criptografia.
+            </p>
 
             <div className="grid gap-3 sm:grid-cols-[1fr_7rem]">
               <label className="space-y-1">
@@ -281,7 +293,7 @@ export default function EmailConfigPage() {
         {/* provas */}
         <aside className="space-y-3">
           <section className="rounded-xl border bg-card p-4 shadow-sm space-y-2.5">
-            <h2 className="text-sm font-semibold">Provar que funciona</h2>
+            <h2 className="text-sm font-semibold">Diagnóstico</h2>
             <p className="text-[11px] text-muted-foreground -mt-1">Salve antes de testar — o teste usa o que está gravado.</p>
 
             <Button variant="outline" size="sm" className="w-full justify-start" disabled={!isAdmin || testando !== null} onClick={() => void testar('conexao')}>
@@ -308,7 +320,8 @@ export default function EmailConfigPage() {
 
           <section className="rounded-xl border bg-muted/20 p-4 space-y-2 text-[11px] text-muted-foreground">
             <p className="text-xs font-semibold text-foreground">Não está enviando?</p>
-            <p>· <span className="text-foreground">Gmail/Microsoft com duas etapas</span>: a senha da conta não funciona — gere uma senha de aplicativo.</p>
+            <p>· <span className="text-foreground">Autenticação recusada</span>: em conta com verificação em duas etapas, a senha da conta não funciona — gere uma senha de aplicativo.</p>
+            <p>· <span className="text-foreground">Autenticação básica desativada</span>: alguns provedores desligaram o acesso por senha. Senha de aplicativo não resolve — é preciso liberar o SMTP autenticado na conta ou usar outro servidor.</p>
             <p>· <span className="text-foreground">Tempo esgotado</span>: porta bloqueada pelo firewall de saída, ou criptografia trocada (587 = STARTTLS, 465 = SSL).</p>
             <p>· <span className="text-foreground">Certificado não validado</span>: servidor interno — marque a opção de certificado autoassinado.</p>
             <p>· <span className="text-foreground">Remetente recusado</span>: muitos provedores exigem que o remetente seja o mesmo usuário autenticado.</p>

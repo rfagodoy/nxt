@@ -167,8 +167,38 @@ const run = async () => {
   const comConfirmar = await A(`/instances/${inst4}/cancel`, { method: 'PATCH', body: JSON.stringify({ reason: 'ciente', confirmar: true }) })
   check(comConfirmar.ok, 'com confirmação explícita, o cancelamento acontece', String(comConfirmar.status))
 
+  // ── Encadeamento: processo B usa o contrato que o cancelamento de A afetaria ──
+  const defCreate3 = await criarDef('ZZ Efeito Encadeado (SMOKE)', 'contracts.create')
+  const sA = await A('/instances', { method: 'POST', body: JSON.stringify({ processDefinitionId: defCreate3.id, variables: { titulo: 'Contrato encadeado' } }) })
+  const instA = sA.body?.instance?.id
+  const contratoEnc = (await A(`/instances/${instA}`)).body?.state?.variables?.contratoId
+
+  // B nasce apontando para o MESMO contrato (ainda sem ter produzido efeito nele)
+  const defAdit2 = await criarDef('ZZ Efeito Encadeado B (SMOKE)', 'contracts.aditivo')
+  const sB = await A('/instances', {
+    method: 'POST',
+    body: JSON.stringify({ processDefinitionId: defAdit2.id, variables: { contratoId: contratoEnc, descricao: 'Aditivo do B', alteraTermino: true, novoTermino: '2028-01-01' } }),
+  })
+  const instB = sB.body?.instance?.id
+  check(sB.ok, 'encadeamento: processo B começa sobre o mesmo contrato', String(sB.status))
+
+  const prevEnc = await A(`/instances/${instA}/cancel-preview`)
+  const dep = prevEnc.body?.dependentes ?? []
+  check(dep.some((d) => d.instanceId === instB), 'a prévia AVISA que outro processo usa o contrato', JSON.stringify(dep))
+  check(prevEnc.body?.requerConfirmacao === true, 'com processo dependente, o cancelamento passa a exigir confirmação')
+
+  const semCiencia = await A(`/instances/${instA}/cancel`, { method: 'PATCH', body: JSON.stringify({ reason: 'x' }) })
+  check(semCiencia.status === 409, 'cancelar sem confirmar é recusado (409)', String(semCiencia.status))
+  check((semCiencia.body?.dependentes ?? []).length > 0, 'a recusa devolve quem são os dependentes')
+
+  const comCiencia = await A(`/instances/${instA}/cancel`, { method: 'PATCH', body: JSON.stringify({ reason: 'ciente', confirmar: true }) })
+  check(comCiencia.ok, 'com ciência explícita, o cancelamento acontece', String(comCiencia.status))
+
+  const semDependente = await A(`/instances/${instB}/cancel-preview`)
+  check((semDependente.body?.dependentes ?? []).length === 0, 'processo sem dependentes não inventa aviso', JSON.stringify(semDependente.body?.dependentes))
+
   // limpeza
-  for (const def of [defCreate, defAdit, defDist, defCreate2]) {
+  for (const def of [defCreate, defAdit, defDist, defCreate2, defCreate3, defAdit2]) {
     const insts = await p.processInstance.findMany({ where: { processDefinitionId: def.id }, select: { id: true } })
     const ids = insts.map((i) => i.id)
     if (ids.length) {
@@ -181,8 +211,9 @@ const run = async () => {
     await p.module.deleteMany({ where: { processDefinitionId: def.id } })
     await p.processDefinition.delete({ where: { id: def.id } })
   }
-  await p.contractAuditLog.deleteMany({ where: { contractId: { in: [alvo.id, alvo3.id, contratoId, contrato4].filter(Boolean) } } })
-  await p.contract.deleteMany({ where: { id: { in: [alvo.id, alvo3.id, contratoId, contrato4].filter(Boolean) } } })
+  const contratosDoSmoke = [alvo.id, alvo3.id, contratoId, contrato4, contratoEnc].filter(Boolean)
+  await p.contractAuditLog.deleteMany({ where: { contractId: { in: contratosDoSmoke } } })
+  await p.contract.deleteMany({ where: { id: { in: contratosDoSmoke } } })
 
   console.log(`\n${pass}/${pass + fail} verificações passaram`)
   await p.$disconnect()

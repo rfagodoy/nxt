@@ -114,6 +114,14 @@ export class NotificationsController {
     return this.mailer.sendTest(org, user.email)
   }
 
+  @Get('email-recipients-check')
+  @Roles('admin')
+  @UseGuards(RolesGuard)
+  @ApiOperation({ summary: 'Usuários ativos cujo e-mail nunca seria entregue — admin' })
+  recipientsCheck(@CurrentOrg() org: string) {
+    return this.svc.destinatariosInvalidos(org)
+  }
+
   @Post('email-digest')
   @Roles('admin')
   @UseGuards(RolesGuard)

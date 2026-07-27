@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
+import { motivoInentregavel, explicaInentregavel } from './email-address'
 
 const SEV_RANK: Record<string, number> = { CRITICO: 0, ALERTA: 1, INFO: 2 }
 
@@ -168,5 +169,21 @@ export class NotificationsService {
       this.logger.error(`expurgo de notificações falhou: ${String(e)}`)
       return 0
     }
+  }
+
+  /** Usuários ATIVOS cujo aviso por e-mail nunca chegaria. Quem configura o servidor
+   *  precisa ver isso na hora: e-mail configurado com destinatário morto dá a impressão
+   *  de que está tudo funcionando, e o silêncio só aparece quando alguém perde o prazo. */
+  async destinatariosInvalidos(organizationId: string): Promise<Array<{ id: string; name: string; email: string; motivo: string }>> {
+    const users = await this.prisma.user.findMany({
+      where: { organizationId, status: 'ATIVO' },
+      select: { id: true, name: true, email: true },
+      orderBy: { name: 'asc' },
+    })
+    return users.flatMap((u) => {
+      const motivo = motivoInentregavel(u.email)
+      if (!motivo) return []
+      return [{ id: u.id, name: u.name, email: u.email ?? '', motivo: explicaInentregavel(u.email ?? '', motivo) }]
+    })
   }
 }

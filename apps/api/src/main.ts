@@ -4,6 +4,8 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
 import helmet from 'helmet'
 import { AppModule } from './app.module'
 import { assertJwtSecret } from './auth/secret'
+import { PrismaService } from './prisma.service'
+import { assertMigrations } from './database/migrations-guard'
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule)
@@ -11,6 +13,11 @@ async function bootstrap() {
   // Fail-fast: não sobe com segredo de auth ausente/fraco em produção.
   // (Depois do create() para o ConfigModule já ter carregado o .env.)
   assertJwtSecret()
+
+  // Fail-fast de SCHEMA: subir contra um banco atrasado faz a API quebrar na
+  // primeira consulta que tocar a coluna nova — em produção, na frente do usuário.
+  // Melhor não subir e dizer o comando que resolve.
+  await assertMigrations(app.get(PrismaService))
 
   // Cabeçalhos de segurança (HSTS, no-sniff, sem framing, sem referrer vazando).
   // A API é JSON-only e serve o Swagger só fora de produção; a CSP restritiva do
