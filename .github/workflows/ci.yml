@@ -40,12 +40,22 @@ jobs:
       - name: Build (api + web + packages)
         run: npm run build
 
-      # Gate de segurança: falha o CI se surgir vuln CRITICAL no RUNTIME
-      # (produção). Devdeps ficam de fora para não travar em CVE de ferramenta.
-      # HIGH transitivos (js-yaml via swagger, cadeia do exceljs) ficam VISÍVEIS
-      # no passo informativo abaixo e são tratados numa PR dedicada de deps.
+      # Os scripts de implantação só rodam na máquina do cliente, onde não há ninguém
+      # para depurar: .ps1 sem BOM quebra no PowerShell 5.1 do Windows Server, e .sh
+      # com CRLF vira "bad interpreter". Os dois passam despercebidos no desenvolvimento.
+      - name: Scripts de implantação (encoding)
+        run: node tools/check-deploy-scripts.mjs
+
+      # Gate de segurança do RUNTIME (produção; devdeps ficam de fora — CVE de
+      # ferramenta de build não chega ao cliente).
+      #
+      # Bloqueia TODO high/critical. Advisory transitivo SEM correção compatível
+      # passa só se estiver nomeado em security/audit-allowlist.json, com
+      # justificativa e data de revisão. Antes disto o gate estava em `critical`
+      # por causa da cadeia do exceljs — e um `critical` global deixa entrar em
+      # silêncio qualquer HIGH novo, que é exatamente o que ele deveria pegar.
       - name: Auditoria de dependências (runtime)
-        run: npm audit --omit=dev --audit-level=critical
+        run: npm run audit:gate
 
       # Visibilidade (não falha): panorama completo, inclui devDependencies.
       - name: Auditoria completa (informativa)

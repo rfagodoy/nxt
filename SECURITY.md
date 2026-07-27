@@ -10,7 +10,7 @@ Resumo da postura de segurança e **checklist obrigatório antes de produção**
 - **Headers**: `helmet` na API; CSP + `X-Frame-Options: DENY` + `Referrer-Policy` + `Permissions-Policy` no web; `connect-src 'self'`.
 - **Arquivos**: upload sanitiza nome + limite 25 MB; download bloqueia path traversal, valida a org dona da key e serve só `Content-Type` de allow-list segura (anti-XSS armazenado).
 - **Rate-limit global** (`@nestjs/throttler`) como rede de segurança.
-- **CI**: `.github/workflows/ci.yml` roda build + testes + `npm audit` (falha em HIGH/CRITICAL de runtime).
+- **CI**: `.github/workflows/ci.yml` roda build + testes + portão de auditoria (`npm run audit:gate`). **Falha em qualquer HIGH/CRITICAL de runtime** que não esteja nomeado em `security/audit-allowlist.json` com justificativa e data de revisão — advisory novo reprova, conhecido passa e aparece no relatório. Devdeps ficam de fora do bloqueio (CVE de ferramenta de build não chega ao cliente) e saem no passo informativo.
 
 ## ✅ Checklist PRÉ-PRODUÇÃO (itens de deploy — obrigatórios)
 
@@ -37,4 +37,26 @@ Resumo da postura de segurança e **checklist obrigatório antes de produção**
 - [ ] **Pentest formal** antes do GA — a auditoria interna cobriu as classes principais, mas não substitui teste independente.
 
 ## Vulnerabilidades de dependência (aceitas conscientemente)
-`npm audit` reporta 4 moderadas residuais (`postcss` via `next`, `uuid` via `exceljs`) cujo "fix" do npm é **downgrade destrutivo** (`next`→9, `exceljs`→3). São build-time / baixo risco prático; aguardam patch upstream não-major. **NUNCA rodar `npm audit fix --force`** neste repositório.
+A lista viva, com justificativa e prazo de revisão por item, está em
+**`security/audit-allowlist.json`** — é ela que o portão do CI consulta. Hoje são 9
+advisories, todos da mesma raiz: a cadeia do `exceljs` (`archiver` → `glob`/`readdir-glob`
+→ `minimatch` → `brace-expansion`).
+
+Duas coisas valem registro porque não são óbvias:
+
+- **Não há correção compatível.** O advisory do `brace-expansion` condena toda a linha
+  `<=5.0.7`, e a `5.0.8` muda a API: forçá-la por `overrides` quebra o `minimatch` 3.x
+  (`TypeError: expand is not a function` — testado, não suposto). Depende do mantenedor
+  do `exceljs`, parado na 4.4.0.
+- **Explorar exige controlar o padrão glob**, e no Nxt nenhum glob vem de entrada de
+  usuário: o `exceljs` monta o `.xlsx` com caminhos internos fixos.
+
+O `js-yaml` (via `@nestjs/swagger`) **foi corrigido de verdade** por `overrides` para
+`^5.2.2`, e por isso não está na lista.
+
+⚠️ **NUNCA rodar `npm audit fix --force`** neste repositório: ele propõe downgrade
+destrutivo (`next`→9, `exceljs`→3).
+
+⚠️ `overrides` do npm só entram numa árvore realmente nova — é preciso apagar
+`node_modules` **e** `package-lock.json` juntos. Com um dos dois no lugar, o npm
+reaproveita a resolução antiga **em silêncio**, sem erro nem aviso.
