@@ -4,9 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSession } from '@/lib/session-context'
 import {
-  FileText, Users, GitBranch, Database, Loader2, AlertTriangle,
-  Clock, Plus, ArrowRight, TrendingUp, TrendingDown,
-  CalendarClock, PauseCircle, Sparkles, CheckCircle2, ListChecks,
+  FileText, Users, GitBranch, Loader2, Plus, TrendingUp, TrendingDown, Sparkles, ListChecks,
 } from 'lucide-react'
 import { Area, AreaChart, ResponsiveContainer } from 'recharts'
 import { cn } from '@/lib/utils'
@@ -47,18 +45,6 @@ function greeting(): string {
 
 function todayLabel(): string {
   return new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })
-}
-
-function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const min = Math.floor(diff / 60_000)
-  if (min < 1) return 'agora'
-  if (min < 60) return `há ${min} min`
-  const h = Math.floor(min / 60)
-  if (h < 24) return `há ${h} h`
-  const d = Math.floor(h / 24)
-  if (d < 30) return `há ${d} dia${d > 1 ? 's' : ''}`
-  return new Date(iso).toLocaleDateString('pt-BR')
 }
 
 /** Anima um número de 0 ao alvo com easing — dá vida sem distrair. */
@@ -173,16 +159,17 @@ export default function DashboardPage() {
     return () => { mounted.current = false }
   }, [])
 
-  /* Urgentes primeiro; o board completo continua sendo o lugar de ver tudo. */
+  /* Urgentes primeiro. Seis é o teto: cabem em duas colunas sem empurrar a carteira
+     para fora da primeira dobra, e o board continua sendo o lugar de ver TUDO — o
+     dashboard não pode virar uma segunda tela de tarefas. */
   const tarefasUrgentes = [...minhasTarefas]
     .sort((a, b) => (a.dueAt ? new Date(a.dueAt).getTime() : Infinity) - (b.dueAt ? new Date(b.dueAt).getTime() : Infinity))
-    .slice(0, 3)
+    .slice(0, 6)
 
   if (loading) return <DashboardSkeleton />
 
   const c = data?.contracts
   const p = data?.partners
-  const attention = (data?.contracts.expiring.length ?? 0) + (data?.instances.stuck.length ?? 0)
   /* VENCIDO é um VIGENTE cujo término passou (derivado). No card ele conta como vigente:
      vigentes = em dia, vencidos = a renovar, "em vigência" = a soma dos dois. */
   const vigentes   = c?.byStatus.VIGENTE ?? 0
@@ -197,22 +184,21 @@ export default function DashboardPage() {
        altura de monitor. */
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 auto-rows-min">
 
-      {/* ── Hero ── */}
-        <div className="relative overflow-hidden rounded-xl p-5 text-white shadow-sm sm:col-span-2
-                        bg-gradient-to-br from-[hsl(156_42%_11%)] to-[hsl(150_44%_6%)]">
-          <div className="pointer-events-none absolute -right-8 -top-10 h-40 w-40 rounded-full bg-primary/25 blur-2xl" />
-          <div className="pointer-events-none absolute -bottom-12 right-16 h-32 w-32 rounded-full bg-spark/15 blur-2xl" />
-          <div className="relative">
-            <p className="text-[11px] font-medium uppercase tracking-widest text-white/70">{todayLabel()}</p>
-            <h1 className="mt-1 text-lg font-semibold tracking-tight">
-              {greeting()}{firstName ? `, ${firstName}` : ''} 👋
-            </h1>
-            <p className="mt-1 flex items-center gap-1.5 text-sm text-white/85">
-              {attention > 0
-                ? <><AlertTriangle className="h-3.5 w-3.5" />{attention} {attention === 1 ? 'item pede' : 'itens pedem'} sua atenção</>
-                : <><Sparkles className="h-3.5 w-3.5" />Tudo em dia por aqui</>}
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
+      {/* ── Hero ──
+          Faixa fina de largura total. Ele entrega saudação e três atalhos; ocupar
+          metade da primeira dobra para isso era espaço tirado do único bloco
+          ACIONÁVEL da tela. */}
+        <div className="relative overflow-hidden rounded-xl px-5 py-3.5 text-white shadow-sm lg:col-span-4
+                        bg-gradient-to-r from-[hsl(156_42%_11%)] to-[hsl(150_44%_6%)]">
+          <div className="pointer-events-none absolute -right-8 -top-16 h-40 w-40 rounded-full bg-primary/20 blur-2xl" />
+          <div className="relative flex flex-wrap items-center gap-x-4 gap-y-2">
+            <div className="min-w-0 flex-1">
+              <p className="text-[10.5px] font-medium uppercase tracking-widest text-white/60">{todayLabel()}</p>
+              <h1 className="text-base font-semibold tracking-tight leading-tight">
+                {greeting()}{firstName ? `, ${firstName}` : ''} 👋
+              </h1>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
               <button onClick={() => ws.open({ id: 'contract:new', kind: 'contract', mode: 'new', label: 'Novo contrato' })}
                 className="inline-flex items-center gap-1.5 rounded-md bg-white px-3 py-1.5 text-xs font-semibold text-primary shadow-sm hover:bg-white/90 transition-colors">
                 <Plus className="h-3.5 w-3.5" />Novo contrato
@@ -230,7 +216,7 @@ export default function DashboardPage() {
             Vem antes da carteira de propósito: quem abre o sistema de manhã pergunta
             "o que preciso fazer hoje?", não "como está a carteira?". A resposta existia,
             mas só uma tela adiante — e esta é a única tela que todo usuário vê todo dia. */}
-        <div className="rounded-xl border bg-card p-4 shadow-sm sm:col-span-2 flex flex-col gap-2.5">
+        <div className="rounded-xl border bg-card p-4 shadow-sm sm:col-span-2 lg:col-span-4 flex flex-col gap-2.5">
           <div className="flex items-center gap-2">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
               <ListChecks className="h-4 w-4" />
@@ -252,7 +238,7 @@ export default function DashboardPage() {
               <Sparkles className="h-3.5 w-3.5 text-primary" />Tudo em dia por aqui.
             </p>
           ) : (
-            <div className="flex flex-col gap-1.5">
+            <div className="grid grid-cols-1 gap-1.5 lg:grid-cols-2">
               {tarefasUrgentes.map((t) => {
                 const info = dueInfo(t.dueAt)
                 const valor = valorCurto(t.assunto?.valor, t.assunto?.moeda)
@@ -353,27 +339,6 @@ function MiniStat({ icon, label, value, sub, subWarn, delta, series, onClick, cl
   )
 }
 
-function AttentionRow({ icon, title, sub, badge, badgeWarn, onClick }: {
-  icon: React.ReactNode; title: string; sub?: string; badge: string; badgeWarn?: boolean; onClick?: () => void
-}) {
-  return (
-    <button onClick={onClick}
-      className="group flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left hover:bg-muted/50 transition-colors">
-      <span className="shrink-0">{icon}</span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-xs font-medium">{title}</p>
-        {sub && <p className="truncate text-[10px] text-muted-foreground">{sub}</p>}
-      </div>
-      <span className={cn('shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
-        badgeWarn ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400' : 'bg-muted text-muted-foreground')}>
-        {badge}
-      </span>
-      <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/40 group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
-    </button>
-  )
-}
-
-/* ─────────────────────────── skeleton ────────────────────────────────────── */
 function DashboardSkeleton() {
   return (
     <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 animate-pulse">
