@@ -4,12 +4,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSession } from '@/lib/session-context'
 import {
-  FileText, Users, Loader2, Plus, Sparkles, ListChecks,
+  FileText, Users, Loader2, Plus, ListChecks,
 } from 'lucide-react'
 import { ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { cn } from '@/lib/utils'
 import { apiFetch, apiJson } from '@/lib/http'
-import { dueInfo, DUE_CHIP, valorCurto, type Task } from '@/lib/tasks-ui'
+import { dueInfo, type Task } from '@/lib/tasks-ui'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { StartProcessButton } from '@/components/processes/start-process-button'
 
@@ -133,14 +133,14 @@ export default function DashboardPage() {
     return () => { mounted.current = false }
   }, [])
 
-  /* Urgentes primeiro. O teto é generoso porque o painel agora ESTICA e rola por
-     dentro: numa tela grande cabem doze sem empurrar nada. Ainda existe teto — o
-     board é que responde "o que eu tenho?", com agrupamento por prazo e filtros; o
-     dashboard responde "o que é mais urgente agora?" e não deve virar a segunda
-     tela de tarefas. */
-  const tarefasUrgentes = [...minhasTarefas]
-    .sort((a, b) => (a.dueAt ? new Date(a.dueAt).getTime() : Infinity) - (b.dueAt ? new Date(b.dueAt).getTime() : Infinity))
-    .slice(0, 12)
+  /* A faixa mostra o ESTADO da caixa, não a caixa: quantas esperam, quantas já
+     venceram e qual é a mais urgente. O detalhe vive em /tarefas. */
+  const atrasadas = minhasTarefas.filter((t) => dueInfo(t.dueAt).grp === 'crit').length
+  const maisUrgente = (() => {
+    const primeira = [...minhasTarefas]
+      .sort((a, b) => (a.dueAt ? new Date(a.dueAt).getTime() : Infinity) - (b.dueAt ? new Date(b.dueAt).getTime() : Infinity))[0]
+    return primeira ? dueInfo(primeira.dueAt).label : ''
+  })()
 
   if (loading) return <DashboardSkeleton />
 
@@ -148,14 +148,10 @@ export default function DashboardPage() {
   const p = data?.partners
 
   return (
-    /* Três faixas: hero (fina) e duas ELÁSTICAS — "Seu trabalho" e a composição da
-       carteira — repartindo a altura em ~55/45.
-       Não é 50/50 exato de propósito: o painel de trabalho tem conteúdo VARIÁVEL (mais
-       altura = mais tarefas visíveis), enquanto o card de composição tem conteúdo FIXO
-       (um gráfico e sua legenda). Metade rígida para conteúdo fixo não mostraria mais
-       nada — só criaria vazio DENTRO do card, que é pior que vazio no rodapé porque
-       fica disfarçado. Abaixo de lg tudo volta a fluir e rolar normalmente. */
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:h-full lg:min-h-[520px] lg:[grid-template-rows:auto_minmax(0,1.15fr)_minmax(0,1fr)]">
+    /* Duas faixas finas — saudação e estado da caixa de trabalho — e os gráficos
+       recebendo TODA a altura restante. O Dashboard é o painel de gestão: os gráficos
+       são o conteúdo, não um rodapé. Abaixo de lg o layout volta a fluir. */
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:h-full lg:min-h-[520px] lg:[grid-template-rows:auto_auto_minmax(0,1fr)]">
 
       {/* ── Hero ──
           Faixa fina de largura total. Ele entrega saudação e três atalhos; ocupar
@@ -185,54 +181,39 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* ── Seu trabalho ──
-            Vem antes da carteira de propósito: quem abre o sistema de manhã pergunta
-            "o que preciso fazer hoje?", não "como está a carteira?". A resposta existia,
-            mas só uma tela adiante — e esta é a única tela que todo usuário vê todo dia. */}
-        <div className="rounded-xl border bg-card p-4 shadow-sm sm:col-span-2 lg:col-span-4 flex flex-col gap-2.5 lg:min-h-0">
-          <div className="flex items-center gap-2">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <ListChecks className="h-4 w-4" />
+        {/* ── Faixa de trabalho ──
+            O Dashboard é painel de GESTÃO; a caixa de trabalho é a tela de Tarefas.
+            Aqui fica só o gatilho: quantas esperam e quantas já venceram, com o
+            caminho para lá. Uma linha em vez de doze — a lista inteira aqui
+            duplicaria /tarefas, e duas telas para a mesma pergunta significam que
+            nenhuma delas é a fonte. */}
+        <button
+          type="button"
+          onClick={() => router.push('/tarefas')}
+          className="group flex items-center gap-3 rounded-xl border bg-card px-4 py-2.5 text-left shadow-sm transition-colors hover:border-primary/40 hover:bg-muted/40 sm:col-span-2 lg:col-span-4"
+        >
+          <span className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+            atrasadas > 0 ? 'bg-red-500/10 text-red-600 dark:text-red-400' : 'bg-primary/10 text-primary')}>
+            <ListChecks className="h-4 w-4" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold tracking-tight">
+              {minhasTarefas.length === 0
+                ? 'Nenhuma tarefa aguardando você'
+                : `${minhasTarefas.length} tarefa${minhasTarefas.length > 1 ? 's' : ''} na sua caixa`}
             </span>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold tracking-tight">Seu trabalho</p>
-              <p className="text-[11px] text-muted-foreground">
-                {minhasTarefas.length === 0 ? 'Nenhuma tarefa aguardando você' : `${minhasTarefas.length} tarefa${minhasTarefas.length > 1 ? 's' : ''} na sua caixa`}
-              </p>
-            </div>
-            {minhasTarefas.length > 0 && (
-              <button onClick={() => router.push('/tarefas')}
-                className="text-[11px] font-medium text-primary hover:underline shrink-0">ver todas</button>
-            )}
-          </div>
-
-          {tarefasUrgentes.length === 0 ? (
-            <p className="flex items-center gap-1.5 py-2 text-xs text-muted-foreground">
-              <Sparkles className="h-3.5 w-3.5 text-primary" />Tudo em dia por aqui.
-            </p>
-          ) : (
-            <div className="grid grid-cols-1 gap-1.5 lg:grid-cols-2 lg:flex-1 lg:min-h-0 lg:content-start lg:overflow-y-auto">
-              {tarefasUrgentes.map((t) => {
-                const info = dueInfo(t.dueAt)
-                const valor = valorCurto(t.assunto?.valor, t.assunto?.moeda)
-                return (
-                  <button key={t.id} onClick={() => ws.open({ id: `task:${t.id}`, kind: 'task', mode: 'detail', label: t.name || t.nodeId, data: t })}
-                    className="group flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-colors hover:border-primary/40 hover:bg-muted/50">
-                    <span className={cn('h-6 w-[3px] rounded-full shrink-0', info.grp === 'crit' ? 'bg-red-500' : info.grp === 'warn' ? 'bg-amber-500' : 'bg-muted-foreground/30')} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-xs font-medium">{t.name || t.nodeId}</span>
-                      <span className="block truncate text-[10.5px] text-muted-foreground">
-                        {t.assunto?.contraparte ?? t.instance?.processDefinition?.name ?? 'Processo'}
-                        {valor && <span className="ml-1.5 font-semibold text-foreground/70 tabular-nums">{valor}</span>}
-                      </span>
-                    </span>
-                    <span className={cn('shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums', DUE_CHIP[info.grp])}>{info.label}</span>
-                  </button>
-                )
-              })}
-            </div>
+            <span className="block text-[11px] text-muted-foreground">
+              {minhasTarefas.length === 0 ? 'Tudo em dia por aqui.'
+                : atrasadas > 0 ? `${atrasadas} já venceu${atrasadas > 1 ? 'ram' : ''} · a mais antiga: ${maisUrgente}`
+                : `A mais próxima ${maisUrgente}`}
+            </span>
+          </span>
+          {minhasTarefas.length > 0 && (
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-colors group-hover:bg-primary/90">
+              Abrir tarefas
+            </span>
           )}
-        </div>
+        </button>
 
         {/* ── Composição da carteira ──
             Três cards de mesmo peso, abaixo de "Seu trabalho" e visivelmente menores:
