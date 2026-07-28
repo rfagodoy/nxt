@@ -145,6 +145,32 @@
   display: none; /* Chrome, Safari, Edge */
 }
 
+/* Exceção deliberada: LISTAS DE CONTEÚDO que rolam por dentro (caixa de tarefas,
+   painéis). Esconder a barra no chrome do app é decisão de estética; esconder numa
+   lista de trabalho é esconder a informação de que HÁ MAIS COISA embaixo — o item
+   fica cortado na borda e ninguém descobre que dá para rolar. */
+.rolagem-visivel {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+}
+.rolagem-visivel::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  display: block;
+}
+.rolagem-visivel::-webkit-scrollbar-track {
+  background: transparent;
+}
+.rolagem-visivel::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.rolagem-visivel:hover::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground) / 0.5);
+}
+
 /* ─── Liquid Glass ────────────────────────────────────────────────────────────
    `.glass`        superfície flutuante (borda + brilho + sombra) — menus, modais, cards de chrome.
    `.glass-panel`  painel encostado (só fundo translúcido + blur) — sidebar, barras.

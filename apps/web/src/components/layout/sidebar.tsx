@@ -69,6 +69,9 @@ const sections: NavSection[] = [
 
 const ABERTAS_KEY = 'nxt:sidebar:secoes-abertas'
 
+/** Aparência ÚNICA do título de seção — recolhível ou não. */
+const TITULO_SECAO = 'px-2.5 mb-0.5 text-[9px] font-semibold uppercase tracking-widest text-sidebar-muted leading-5'
+
 export function Sidebar() {
   const pathname              = usePathname()
   const { collapsed, toggle } = useSidebar()
@@ -135,20 +138,22 @@ export function Sidebar() {
           return (
           <div key={section.label || '__root'}>
             {section.label && !collapsed && (
+              /* Uma classe SÓ para os dois casos: com estilos duplicados, botão e
+                 parágrafo divergem na primeira alteração — foi o que aconteceu, e o
+                 rótulo recolhível pareceu menor que o fixo. O chevron fica À DIREITA
+                 para todos os títulos começarem na mesma coluna. */
               section.recolhivel ? (
                 <button
                   type="button"
                   onClick={() => alternarSecao(section.label)}
                   aria-expanded={aberta}
-                  className="flex w-full items-center gap-1 rounded-md px-2.5 py-0.5 mb-0.5 text-[9px] font-semibold uppercase tracking-widest text-sidebar-muted hover:text-sidebar-foreground transition-colors"
+                  className={cn(TITULO_SECAO, 'flex w-full items-center gap-1 rounded-md hover:text-sidebar-foreground transition-colors')}
                 >
-                  <ChevronRight className={cn('h-3 w-3 shrink-0 transition-transform', aberta && 'rotate-90')} />
                   <span className="truncate">{section.label}</span>
+                  <ChevronRight className={cn('h-3 w-3 shrink-0 transition-transform', aberta && 'rotate-90')} />
                 </button>
               ) : (
-                <p className="px-2.5 mb-0.5 text-[9px] font-semibold uppercase tracking-widest text-sidebar-muted select-none">
-                  {section.label}
-                </p>
+                <p className={cn(TITULO_SECAO, 'select-none')}>{section.label}</p>
               )
             )}
             {/* Com a barra RECOLHIDA (só ícones) não há cabeçalho para clicar — os

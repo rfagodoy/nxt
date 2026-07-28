@@ -118,7 +118,10 @@ export default function TarefasPage() {
                   <span className="text-sm font-semibold">{col.label}</span>
                   <span className="ml-auto text-[11px] text-muted-foreground bg-card border rounded-md px-1.5 py-0.5 tabular-nums">{items.length}</span>
                 </div>
-                <div className="flex flex-col gap-2 xl:flex-1 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
+                {/* Rola em qualquer largura — não só em telas grandes — e com a barra
+                    VISÍVEL: sem ela o último cartão fica cortado na borda e nada indica
+                    que há mais tarefas embaixo. */}
+                <div className="rolagem-visivel flex max-h-[60vh] flex-col gap-2 overflow-y-auto pr-1.5 xl:max-h-none xl:flex-1 xl:min-h-0">
                 {items.length === 0 ? (
                   <p className="text-[11px] text-muted-foreground/60 text-center py-3">vazio</p>
                 ) : items.map((t) => {
@@ -141,7 +144,7 @@ export default function TarefasPage() {
                       {/* Sobre o que é a tarefa: sem isto, duas tarefas do mesmo prazo
                           chegam com o mesmo peso — a de R$ 4 mil e a de R$ 400 mil. */}
                       {t.assunto && (
-                        <p className="mb-1.5 text-[11px] leading-snug text-foreground/80 line-clamp-2 break-words" title={t.assunto.titulo}>
+                        <p className="mb-1.5 text-[11px] leading-snug text-foreground/80 break-words" title={t.assunto.titulo}>
                           {t.assunto.contraparte ?? t.assunto.titulo}
                           {valorCurto(t.assunto.valor, t.assunto.moeda) && (
                             <span className="ml-1.5 font-semibold tabular-nums">{valorCurto(t.assunto.valor, t.assunto.moeda)}</span>
