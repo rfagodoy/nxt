@@ -224,6 +224,7 @@ export default function DashboardPage() {
           <Composicao
             icon={<FileText className="h-4 w-4" />}
             label="Contratos"
+            tipo="barras"
             total={c?.total ?? 0}
             onClick={() => router.push('/modules/contratos')}
             fatias={[
@@ -249,6 +250,7 @@ export default function DashboardPage() {
           <Composicao
             icon={<Loader2 className="h-4 w-4" />}
             label="Processos"
+            tipo="barras"
             total={data?.instances.total ?? 0}
             onClick={() => router.push('/processos')}
             fatias={[
@@ -279,17 +281,28 @@ interface Fatia { nome: string; valor: number; cor: string }
  *  Fatia zerada é OMITIDA do gráfico e da legenda: uma situação sem nenhum registro
  *  não é informação, é ruído — e com seis situações possíveis a legenda ficaria mais
  *  alta que o próprio gráfico. */
-function Composicao({ icon, label, total, fatias, onClick }: {
-  icon: React.ReactNode; label: string; total: number; fatias: Fatia[]; onClick?: () => void
+function Composicao({ icon, label, total, fatias, onClick, tipo = 'rosca' }: {
+  icon: React.ReactNode; label: string; total: number; fatias: Fatia[]
+  onClick?: () => void
+  /** Rosca para POUCAS categorias (parte/todo); barras quando são muitas — com seis
+   *  fatias a rosca vira um mosaico de lascas que ninguém consegue comparar. */
+  tipo?: 'rosca' | 'barras'
 }) {
   const visiveis = fatias.filter((f) => f.valor > 0)
   const soma = visiveis.reduce((acc, f) => acc + f.valor, 0)
+  const maior = Math.max(1, ...visiveis.map((f) => f.valor))
 
   return (
     <Tile onClick={onClick} highlight className="flex flex-col gap-2 lg:min-h-0">
-      <div className="flex shrink-0 items-center gap-2">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">{icon}</span>
-        <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <div className="flex shrink-0 items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">{icon}</span>
+          <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
+        </div>
+        {/* Nas barras o total sai do miolo do gráfico e vem para o cabeçalho. */}
+        {tipo === 'barras' && soma > 0 && (
+          <p className="shrink-0 text-xl font-bold leading-none tabular-nums"><CountUp value={total} /></p>
+        )}
       </div>
 
       {soma === 0 ? (
@@ -297,10 +310,9 @@ function Composicao({ icon, label, total, fatias, onClick }: {
           <p className="text-3xl font-bold leading-none tabular-nums text-muted-foreground/40">0</p>
           <p className="text-[11px] text-muted-foreground">Nenhum registro ainda.</p>
         </div>
-      ) : (
+      ) : tipo === 'rosca' ? (
         <div className="flex flex-1 flex-col gap-2 lg:min-h-0">
-          {/* O gráfico ocupa a altura livre do card e ESCALA com ela: raios em % em vez
-              de pixels, senão o card cresce e o donut fica pequeno no meio do vazio. */}
+          {/* Raios em % para o gráfico ESCALAR com a altura do card. */}
           <div className="relative min-h-[104px] flex-1">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -313,15 +325,11 @@ function Composicao({ icon, label, total, fatias, onClick }: {
                 </Pie>
               </PieChart>
             </ResponsiveContainer>
-            {/* total no miolo: o dado principal no centro do gráfico, não ao lado */}
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
               <span className="text-2xl font-bold leading-none tabular-nums"><CountUp value={total} /></span>
               <span className="text-[9px] uppercase tracking-wide text-muted-foreground">total</span>
             </div>
           </div>
-
-          {/* Legenda EMBAIXO, em duas colunas. Ao lado do gráfico ela espremeria os
-              dois: o card agora é mais alto que largo. */}
           <ul className="grid shrink-0 grid-cols-2 gap-x-3 gap-y-0.5">
             {visiveis.map((f) => (
               <li key={f.nome} className="flex items-center gap-1.5 text-[11px]">
@@ -331,6 +339,23 @@ function Composicao({ icon, label, total, fatias, onClick }: {
               </li>
             ))}
           </ul>
+        </div>
+      ) : (
+        /* Barras horizontais em CSS: o rótulo fica LEGÍVEL ao lado do valor (numa rosca
+           com seis fatias ele vira legenda, e a pessoa passa a comparar cores em vez de
+           grandezas). Proporcionais à MAIOR fatia, não ao total — o que se compara aqui
+           é uma situação com a outra. */
+        <div className="flex flex-1 flex-col justify-center gap-1.5 lg:min-h-0">
+          {visiveis.map((f) => (
+            <div key={f.nome} className="flex items-center gap-2 text-[11px]">
+              <span className="w-[86px] shrink-0 truncate text-muted-foreground" title={f.nome}>{f.nome}</span>
+              <span className="h-3 flex-1 overflow-hidden rounded-sm bg-muted/60">
+                <span className="block h-full rounded-sm transition-all duration-500"
+                  style={{ width: `${Math.max(4, (f.valor / maior) * 100)}%`, background: f.cor }} />
+              </span>
+              <span className="w-7 shrink-0 text-right font-semibold tabular-nums">{f.valor}</span>
+            </div>
+          ))}
         </div>
       )}
     </Tile>

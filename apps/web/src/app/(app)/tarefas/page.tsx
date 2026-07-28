@@ -118,7 +118,7 @@ export default function TarefasPage() {
                   <span className="text-sm font-semibold">{col.label}</span>
                   <span className="ml-auto text-[11px] text-muted-foreground bg-card border rounded-md px-1.5 py-0.5 tabular-nums">{items.length}</span>
                 </div>
-                <div className="flex flex-col gap-2 xl:flex-1 xl:min-h-0 xl:overflow-y-auto">
+                <div className="flex flex-col gap-2 xl:flex-1 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
                 {items.length === 0 ? (
                   <p className="text-[11px] text-muted-foreground/60 text-center py-3">vazio</p>
                 ) : items.map((t) => {
@@ -131,25 +131,28 @@ export default function TarefasPage() {
                       className="group relative text-left w-full bg-card border rounded-xl p-3 pl-3.5 shadow-sm overflow-hidden transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md hover:border-primary/30"
                     >
                       <span className={cn('absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-full', col.rail)} />
-                      <div className="flex items-center gap-2.5 mb-2">
+                      {/* `items-start` + quebra livre: o nome da tarefa é o dado
+                          principal do cartão e não pode ser o primeiro a ser cortado.
+                          O cartão cresce; a coluna é que rola. */}
+                      <div className="flex items-start gap-2.5 mb-2">
                         <span className={cn('flex h-8 w-8 items-center justify-center rounded-lg shrink-0', m.cls)}><m.Icon className="h-4 w-4" /></span>
-                        <span className="text-sm font-medium leading-tight line-clamp-2">{t.name || t.nodeId}</span>
+                        <span className="text-sm font-medium leading-snug break-words min-w-0">{t.name || t.nodeId}</span>
                       </div>
                       {/* Sobre o que é a tarefa: sem isto, duas tarefas do mesmo prazo
                           chegam com o mesmo peso — a de R$ 4 mil e a de R$ 400 mil. */}
                       {t.assunto && (
-                        <p className="mb-1.5 text-[11px] text-foreground/80 truncate" title={t.assunto.titulo}>
+                        <p className="mb-1.5 text-[11px] leading-snug text-foreground/80 line-clamp-2 break-words" title={t.assunto.titulo}>
                           {t.assunto.contraparte ?? t.assunto.titulo}
                           {valorCurto(t.assunto.valor, t.assunto.moeda) && (
                             <span className="ml-1.5 font-semibold tabular-nums">{valorCurto(t.assunto.valor, t.assunto.moeda)}</span>
                           )}
                         </p>
                       )}
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded-md whitespace-nowrap tabular-nums', DUE_CHIP[info.grp])}>{info.label}</span>
                         {t.instance?.numero != null && <span className="text-[10px] font-mono text-muted-foreground shrink-0">#{t.instance.numero}</span>}
-                        <span className="text-[11px] text-muted-foreground truncate">{t.instance?.processDefinition?.name || 'Processo'}</span>
-                        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 ml-auto shrink-0 group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
+                        <span className="text-[11px] text-muted-foreground break-words min-w-0 flex-1">{t.instance?.processDefinition?.name || 'Processo'}</span>
+                        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
                       </div>
                     </button>
                   )
