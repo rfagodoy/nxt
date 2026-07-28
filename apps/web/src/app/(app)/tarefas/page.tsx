@@ -131,7 +131,12 @@ export default function TarefasPage() {
                     <button
                       key={t.id}
                       onClick={() => openTask(t)}
-                      className="group relative text-left w-full bg-card border rounded-xl p-3 pl-3.5 shadow-sm overflow-hidden transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md hover:border-primary/30"
+                      /* `shrink-0` é o que faz a coluna ROLAR em vez de espremer: num
+                         contêiner flex-column, o item encolhe por padrão (flex-shrink:1),
+                         e o cartão vinha sendo esmagado de 90px para 29px — com o texto
+                         cortado e o rodapé fora da caixa. Nenhum ajuste de fonte ou de
+                         clamp resolveria: o problema nunca esteve no texto. */
+                      className="group relative shrink-0 text-left w-full bg-card border rounded-xl p-3 pl-3.5 shadow-sm overflow-hidden transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md hover:border-primary/30"
                     >
                       <span className={cn('absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-full', col.rail)} />
                       {/* `items-start` + quebra livre: o nome da tarefa é o dado
