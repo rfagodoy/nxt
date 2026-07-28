@@ -132,24 +132,32 @@ export default function ProcessosPage() {
     ws.open({ id: `process-instance:${inst.id}`, kind: 'process-instance', mode: 'detail', label: inst.numero != null ? `Processo #${inst.numero}` : 'Processo', data: inst })
 
   const visibleCols = useMemo(() => COLS.filter((c) => !hidden.has(c.key)), [hidden])
+  /* Filtro rápido por situação, acionado pelos cards de resumo. Separado dos
+     `filters` avançados de propósito: é um atalho de um clique, não uma regra salva. */
+  const [statusFiltro, setStatusFiltro] = useState<string | null>(null)
   const all = useMemo(() => rows ?? [], [rows])
   const stats = useMemo(() => ({
     total: all.length,
     running: all.filter((i) => i.status === 'RUNNING').length,
     completed: all.filter((i) => i.status === 'COMPLETED').length,
     overdue: all.filter((i) => i.processOverdue).length,
+    /* Processo parado numa etapa automática. A linha já mostrava o estado, mas não
+       havia contagem — e sem contagem ninguém repara: o processo trava e a primeira
+       notícia é alguém perguntando "cadê meu contrato?". */
+    errored: all.filter((i) => i.status === 'ERROR').length,
   }), [all])
 
   const filtered = useMemo(() => {
     const q = norm(search)
     const active = filters.filter((f) => f.value.trim())
     return all.filter((i) => {
+      if (statusFiltro && i.status !== statusFiltro) return false
       if (q && !COLS.some((c) => norm(c.text(i)).includes(q))) return false
       if (!active.length) return true
       const res = active.map((f) => { const col = COLS.find((c) => c.key === f.col); return col ? matchOp(col.text(i), f.op, f.value) : true })
       return logic === 'AND' ? res.every(Boolean) : res.some(Boolean)
     })
-  }, [all, search, filters, logic])
+  }, [all, search, filters, logic, statusFiltro])
 
   const sorted = useMemo(() => {
     if (!sort) return filtered
@@ -216,17 +224,31 @@ export default function ProcessosPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
         {[
-          { label: 'Total', value: stats.total, cls: 'text-foreground' },
-          { label: 'Em andamento', value: stats.running, cls: 'text-sky-600 dark:text-sky-400' },
-          { label: 'Concluídos', value: stats.completed, cls: 'text-emerald-600 dark:text-emerald-400' },
-          { label: 'Atrasados', value: stats.overdue, cls: 'text-amber-600 dark:text-amber-400' },
-        ].map(({ label, value, cls }) => (
-          <div key={label} className="rounded-xl border bg-card px-3 py-2 flex items-center justify-between shadow-sm">
+          { label: 'Total', value: stats.total, cls: 'text-foreground', filtro: null },
+          { label: 'Em andamento', value: stats.running, cls: 'text-sky-600 dark:text-sky-400', filtro: 'RUNNING' },
+          { label: 'Concluídos', value: stats.completed, cls: 'text-emerald-600 dark:text-emerald-400', filtro: 'COMPLETED' },
+          { label: 'Atrasados', value: stats.overdue, cls: 'text-amber-600 dark:text-amber-400', filtro: null },
+          { label: 'Com erro', value: stats.errored, cls: 'text-red-600 dark:text-red-400', filtro: 'ERROR' },
+        ].map(({ label, value, cls, filtro }) => (
+          /* Clicar filtra: o card responde "quantos?" e a próxima pergunta é sempre
+             "quais?". Sem isso, o número vira um beco. */
+          <button
+            key={label}
+            type="button"
+            onClick={() => setStatusFiltro((atual) => (filtro && atual === filtro ? null : filtro))}
+            disabled={!filtro}
+            className={cn(
+              'rounded-xl border bg-card px-3 py-2 flex items-center justify-between shadow-sm text-left transition-colors',
+              filtro ? 'hover:bg-muted/60 cursor-pointer' : 'cursor-default',
+              filtro && statusFiltro === filtro && 'border-primary bg-primary/5',
+              label === 'Com erro' && value > 0 && 'border-red-300 dark:border-red-900',
+            )}
+          >
             <p className="text-[11px] text-muted-foreground">{label}</p>
             <p className={cn('text-sm font-bold tabular-nums', cls)}>{value}</p>
-          </div>
+          </button>
         ))}
       </div>
 

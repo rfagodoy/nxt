@@ -57,7 +57,7 @@ function Document({ tab }: { tab: WorkspaceTab }) {
     // seguinte é levado ao board via evento (a aba já terá fechado).
     return <TaskDocView task={tab.data as Task}
       onDone={() => { fireRefresh(); close(tab.id) }}
-      onNotice={(msg) => { try { window.dispatchEvent(new CustomEvent('nxt:tasks:notice', { detail: msg })) } catch { /* SSR */ } }} />
+      onNotice={(msg, tom) => { try { window.dispatchEvent(new CustomEvent('nxt:tasks:notice', { detail: { msg, tom: tom ?? 'aviso' } })) } catch { /* SSR */ } }} />
   }
 
   if (tab.kind === 'process-instance') {

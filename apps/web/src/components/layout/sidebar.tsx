@@ -7,16 +7,21 @@ import { useSession, logout } from '@/lib/session-context'
 import { useTheme } from 'next-themes'
 import {
   LayoutDashboard, GitBranch, PanelLeft, Activity,
-  Table2, Sun, Moon, LogOut, Users, KeyRound, BellRing, LayoutTemplate, ListChecks, CalendarDays, Mail, Upload, HeartPulse, FileBarChart } from 'lucide-react'
+  Table2, Sun, Moon, LogOut, Users, KeyRound, BellRing, LayoutTemplate, ListChecks, CalendarDays, Mail, Upload, HeartPulse, FileBarChart, FileText, Handshake, Building2, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSidebar } from '@/contexts/sidebar-context'
-import { SYSTEM_MODULES } from '@/lib/modules-catalog'
 import { Logo } from './logo'
 import { ChangePasswordModal } from './change-password-modal'
 import { NotificationBell } from './notification-bell'
 
 interface NavItem    { href: string; label: string; icon?: React.ElementType }
-interface NavSection { label: string; items: NavItem[] }
+interface NavSection {
+  label: string
+  items: NavItem[]
+  /** Recolhe por padrão. Só para grupos de uso ESPORÁDICO — esconder o que se usa
+   *  todo dia troca um clique economizado por um clique cobrado. */
+  recolhivel?: boolean
+}
 
 const sections: NavSection[] = [
   {
@@ -30,31 +35,75 @@ const sections: NavSection[] = [
     items: [
       { href: '/tarefas', label: 'Tarefas', icon: ListChecks },
       { href: '/processos', label: 'Processos', icon: Activity },
-      ...SYSTEM_MODULES.map((m) => ({ href: m.href, label: m.name, icon: m.icon })),
+      { href: '/modules/contratos',  label: 'Contratos',  icon: FileText },
+      { href: '/modules/parceiros',  label: 'Parceiros',  icon: Handshake },
+      { href: '/modules/estrutura',  label: 'Estrutura organizacional', icon: Building2 },
       { href: '/modules/relatorios', label: 'Relatórios', icon: FileBarChart },
     ],
   },
+  /* Dois grupos por FREQUÊNCIA de uso, não por assunto. A lista tinha nove itens em
+     ordem de chegada, com "Calendário" (uma vez por ano) pesando o mesmo que
+     "Usuários" (toda semana). Nada foi removido nem renomeado. */
   {
     label: 'Configurações',
+    recolhivel: true,
     items: [
+      { href: '/settings/usuarios',   label: 'Usuários',     icon: Users     },
       { href: '/processes',           label: 'Workflows',    icon: GitBranch },
       { href: '/settings/telas',      label: 'Telas',        icon: LayoutTemplate },
       { href: '/settings/tabelas',    label: 'Tabelas',      icon: Table2    },
+    ],
+  },
+  {
+    label: 'Instalação',
+    recolhivel: true,
+    items: [
       { href: '/settings/calendario', label: 'Calendário',   icon: CalendarDays },
-      { href: '/settings/notificacoes', label: 'Notificações', icon: BellRing },
       { href: '/settings/email',      label: 'E-mail',       icon: Mail      },
+      { href: '/settings/notificacoes', label: 'Notificações', icon: BellRing },
       { href: '/settings/importacao', label: 'Importação',   icon: Upload    },
-      { href: '/settings/usuarios',   label: 'Usuários',     icon: Users     },
       { href: '/settings/diagnostico', label: 'Diagnóstico',  icon: HeartPulse },
     ],
   },
 ]
+
+const ABERTAS_KEY = 'nxt:sidebar:secoes-abertas'
+
+/** Aparência ÚNICA do título de seção — recolhível ou não. */
+const TITULO_SECAO = 'px-2.5 mb-0.5 text-[9px] font-semibold uppercase tracking-widest text-sidebar-muted leading-5'
 
 export function Sidebar() {
   const pathname              = usePathname()
   const { collapsed, toggle } = useSidebar()
 
   const isActive = (href: string) => pathname.startsWith(href)
+
+  /* Quais seções recolhíveis estão abertas. Começa vazio e a preferência é lida no
+     efeito (padrão `mounted` da casa: ler localStorage na renderização quebraria a
+     hidratação). */
+  const [abertas, setAbertas] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(ABERTAS_KEY)
+      if (raw) setAbertas(new Set(JSON.parse(raw) as string[]))
+    } catch { /* preferência corrompida não pode derrubar o menu */ }
+  }, [])
+
+  const alternarSecao = (label: string) => {
+    setAbertas((atual) => {
+      const proxima = new Set(atual)
+      if (proxima.has(label)) proxima.delete(label)
+      else proxima.add(label)
+      try { localStorage.setItem(ABERTAS_KEY, JSON.stringify([...proxima])) } catch { /* modo privado */ }
+      return proxima
+    })
+  }
+
+  /* Uma seção recolhida que CONTÉM a tela atual abre sozinha: esconder onde a pessoa
+     está a faria perder a referência de lugar — e é justamente quando ela precisa dos
+     itens vizinhos. */
+  const secaoAberta = (sec: NavSection) =>
+    !sec.recolhivel || abertas.has(sec.label) || sec.items.some((i) => isActive(i.href))
 
   return (
     <aside className={cn(
@@ -84,14 +133,32 @@ export function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 p-2 overflow-hidden overflow-y-auto space-y-2">
-        {sections.map((section) => (
+        {sections.map((section) => {
+          const aberta = secaoAberta(section)
+          return (
           <div key={section.label || '__root'}>
             {section.label && !collapsed && (
-              <p className="px-2.5 mb-0.5 text-[9px] font-semibold uppercase tracking-widest text-sidebar-muted select-none">
-                {section.label}
-              </p>
+              /* Uma classe SÓ para os dois casos: com estilos duplicados, botão e
+                 parágrafo divergem na primeira alteração — foi o que aconteceu, e o
+                 rótulo recolhível pareceu menor que o fixo. O chevron fica À DIREITA
+                 para todos os títulos começarem na mesma coluna. */
+              section.recolhivel ? (
+                <button
+                  type="button"
+                  onClick={() => alternarSecao(section.label)}
+                  aria-expanded={aberta}
+                  className={cn(TITULO_SECAO, 'flex w-full items-center gap-1 rounded-md hover:text-sidebar-foreground transition-colors')}
+                >
+                  <span className="truncate">{section.label}</span>
+                  <ChevronRight className={cn('h-3 w-3 shrink-0 transition-transform', aberta && 'rotate-90')} />
+                </button>
+              ) : (
+                <p className={cn(TITULO_SECAO, 'select-none')}>{section.label}</p>
+              )
             )}
-            <div className="space-y-px">
+            {/* Com a barra RECOLHIDA (só ícones) não há cabeçalho para clicar — os
+                itens aparecem sempre, senão ficariam inalcançáveis. */}
+            <div className={cn('space-y-px', !aberta && !collapsed && 'hidden')}>
               {section.items.map((item) => {
                 const Icon   = item.icon
                 const active = isActive(item.href)
@@ -115,7 +182,8 @@ export function Sidebar() {
               })}
             </div>
           </div>
-        ))}
+          )
+        })}
       </nav>
 
       {/* Rodapé: usuário + tema + sair */}

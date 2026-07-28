@@ -4,13 +4,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSession } from '@/lib/session-context'
 import {
-  FileText, Users, GitBranch, Database, Loader2, AlertTriangle,
-  Clock, Plus, ArrowRight, TrendingUp, TrendingDown,
-  CalendarClock, PauseCircle, Sparkles, CheckCircle2,
+  FileText, Users, Loader2, Plus, ListChecks,
 } from 'lucide-react'
-import { Area, AreaChart, ResponsiveContainer } from 'recharts'
+import { ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { cn } from '@/lib/utils'
-import { apiFetch } from '@/lib/http'
+import { apiFetch, apiJson } from '@/lib/http'
+import { dueInfo, type Task } from '@/lib/tasks-ui'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { StartProcessButton } from '@/components/processes/start-process-button'
 
@@ -26,17 +25,23 @@ interface Summary {
   }
   partners:  { total: number; byStatus: Record<string, number>; series: number[]; deltaPct: number | null }
   processes: { total: number; active: number }
-  instances: { running: number; stuck: { id: string; processName: string; currentStep: string; daysStuck: number }[] }
-  records:   { total: number }
+  instances: {
+    running: number
+    stuck: { id: string; processName: string; currentStep: string; daysStuck: number }[]
+    total: number
+    emAndamentoNoPrazo: number
+    emAndamentoAtrasadas: number
+    concluidas: number
+    canceladas: number
+    comErro: number
+  }
   activity:  { id: string; kind: 'partner' | 'contract'; title: string; detail: string; user: string | null; at: string }[]
   attentionCount: number
 }
 
 /* ─────────────────────────── helpers ─────────────────────────────────────── */
-const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }) // 2 casas (centavos) por padrão
 const NUM = new Intl.NumberFormat('pt-BR')
 
-const ACCENT = 'hsl(154 70% 40%)' // Emerald da marca (sparklines, séries)
 
 function greeting(): string {
   const h = new Date().getHours()
@@ -47,18 +52,6 @@ function greeting(): string {
 
 function todayLabel(): string {
   return new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })
-}
-
-function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const min = Math.floor(diff / 60_000)
-  if (min < 1) return 'agora'
-  if (min < 60) return `há ${min} min`
-  const h = Math.floor(min / 60)
-  if (h < 24) return `há ${h} h`
-  const d = Math.floor(h / 24)
-  if (d < 30) return `há ${d} dia${d > 1 ? 's' : ''}`
-  return new Date(iso).toLocaleDateString('pt-BR')
 }
 
 /** Anima um número de 0 ao alvo com easing — dá vida sem distrair. */
@@ -81,39 +74,6 @@ function useCountUp(target: number, duration = 900): number {
 }
 
 /* ─────────────────────────── micro-componentes ───────────────────────────── */
-function Sparkline({ data, color = ACCENT }: { data: number[]; color?: string }) {
-  const chartData = data.map((v, i) => ({ i, v }))
-  const id = useMemo(() => `sp-${Math.random().toString(36).slice(2)}`, [])
-  return (
-    <ResponsiveContainer width="100%" height="100%">
-      <AreaChart data={chartData} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
-        <defs>
-          <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity={0.28} />
-            <stop offset="100%" stopColor={color} stopOpacity={0} />
-          </linearGradient>
-        </defs>
-        <Area type="monotone" dataKey="v" stroke={color} strokeWidth={2}
-          fill={`url(#${id})`} isAnimationActive dot={false} />
-      </AreaChart>
-    </ResponsiveContainer>
-  )
-}
-
-function Delta({ pct }: { pct: number | null }) {
-  if (pct === null) return null
-  const up = pct >= 0
-  return (
-    <span className={cn(
-      'inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
-      up ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-red-500/10 text-red-600 dark:text-red-400',
-    )}>
-      {up ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-      {up ? '+' : ''}{pct}%
-    </span>
-  )
-}
-
 function CountUp({ value, format }: { value: number; format?: (n: number) => string }) {
   const v = useCountUp(value)
   const rounded = Math.round(v)
@@ -145,6 +105,7 @@ export default function DashboardPage() {
   const ws = useWorkspace()
   const { data: session } = useSession()
   const [data, setData] = useState<Summary | null>(null)
+  const [minhasTarefas, setMinhasTarefas] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const mounted = useRef(false)
 
@@ -157,49 +118,56 @@ export default function DashboardPage() {
     mounted.current = true
     void (async () => {
       try {
-        const res = await apiFetch('/api/dashboard/summary')
+        /* As DUAS perguntas de quem abre o sistema, lado a lado: "como está a
+           carteira?" (resumo) e "o que preciso fazer?" (tarefas). A segunda vinha
+           sendo respondida só uma tela adiante. */
+        const [res, tarefas] = await Promise.all([
+          apiFetch('/api/dashboard/summary'),
+          apiJson<Task[]>('/api/instances/tasks').catch(() => []),
+        ])
         if (res.ok && mounted.current) setData(await res.json() as Summary)
+        if (mounted.current) setMinhasTarefas(tarefas ?? [])
       } catch { /* silencioso — UI mostra estado vazio */ }
       finally { if (mounted.current) setLoading(false) }
     })()
     return () => { mounted.current = false }
   }, [])
 
+  /* A faixa mostra o ESTADO da caixa, não a caixa: quantas esperam, quantas já
+     venceram e qual é a mais urgente. O detalhe vive em /tarefas. */
+  const atrasadas = minhasTarefas.filter((t) => dueInfo(t.dueAt).grp === 'crit').length
+  const maisUrgente = (() => {
+    const primeira = [...minhasTarefas]
+      .sort((a, b) => (a.dueAt ? new Date(a.dueAt).getTime() : Infinity) - (b.dueAt ? new Date(b.dueAt).getTime() : Infinity))[0]
+    return primeira ? dueInfo(primeira.dueAt).label : ''
+  })()
+
   if (loading) return <DashboardSkeleton />
 
   const c = data?.contracts
   const p = data?.partners
-  const attention = (data?.contracts.expiring.length ?? 0) + (data?.instances.stuck.length ?? 0)
-  /* VENCIDO é um VIGENTE cujo término passou (derivado). No card ele conta como vigente:
-     vigentes = em dia, vencidos = a renovar, "em vigência" = a soma dos dois. */
-  const vigentes   = c?.byStatus.VIGENTE ?? 0
-  const vencidos   = c?.byStatus.VENCIDO ?? 0
-  const emVigencia = vigentes + vencidos
 
   return (
-    // Cockpit de tela única no desktop: ocupa a altura disponível e NÃO rola a
-    // página (o hero fica sempre ancorado). As linhas são auto/auto/1fr — a 3ª
-    // (painéis) estica e rola por dentro. `lg:min-h` é o piso de segurança:
-    // em telas muito baixas o conteúdo volta a rolar via <main>. Abaixo de lg
-    // (tablet/mobile) o layout flui e rola normalmente.
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:h-full lg:min-h-[560px] lg:grid-cols-4 lg:[grid-template-rows:auto_auto_minmax(0,1fr)]">
+    /* Duas faixas finas — saudação e estado da caixa de trabalho — e os gráficos
+       recebendo TODA a altura restante. O Dashboard é o painel de gestão: os gráficos
+       são o conteúdo, não um rodapé. Abaixo de lg o layout volta a fluir. */
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:h-full lg:min-h-[520px] lg:[grid-template-rows:auto_auto_minmax(0,1fr)]">
 
-      {/* ── Hero ── */}
-        <div className="relative overflow-hidden rounded-xl p-5 text-white shadow-sm sm:col-span-2
-                        bg-gradient-to-br from-[hsl(156_42%_11%)] to-[hsl(150_44%_6%)]">
-          <div className="pointer-events-none absolute -right-8 -top-10 h-40 w-40 rounded-full bg-primary/25 blur-2xl" />
-          <div className="pointer-events-none absolute -bottom-12 right-16 h-32 w-32 rounded-full bg-spark/15 blur-2xl" />
-          <div className="relative">
-            <p className="text-[11px] font-medium uppercase tracking-widest text-white/70">{todayLabel()}</p>
-            <h1 className="mt-1 text-lg font-semibold tracking-tight">
-              {greeting()}{firstName ? `, ${firstName}` : ''} 👋
-            </h1>
-            <p className="mt-1 flex items-center gap-1.5 text-sm text-white/85">
-              {attention > 0
-                ? <><AlertTriangle className="h-3.5 w-3.5" />{attention} {attention === 1 ? 'item pede' : 'itens pedem'} sua atenção</>
-                : <><Sparkles className="h-3.5 w-3.5" />Tudo em dia por aqui</>}
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
+      {/* ── Hero ──
+          Faixa fina de largura total. Ele entrega saudação e três atalhos; ocupar
+          metade da primeira dobra para isso era espaço tirado do único bloco
+          ACIONÁVEL da tela. */}
+        <div className="relative overflow-hidden rounded-xl px-5 py-3.5 text-white shadow-sm lg:col-span-4
+                        bg-gradient-to-r from-[hsl(156_42%_11%)] to-[hsl(150_44%_6%)]">
+          <div className="pointer-events-none absolute -right-8 -top-16 h-40 w-40 rounded-full bg-primary/20 blur-2xl" />
+          <div className="relative flex flex-wrap items-center gap-x-4 gap-y-2">
+            <div className="min-w-0 flex-1">
+              <p className="text-[10.5px] font-medium uppercase tracking-widest text-white/60">{todayLabel()}</p>
+              <h1 className="text-base font-semibold tracking-tight leading-tight">
+                {greeting()}{firstName ? `, ${firstName}` : ''} 👋
+              </h1>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
               <button onClick={() => ws.open({ id: 'contract:new', kind: 'contract', mode: 'new', label: 'Novo contrato' })}
                 className="inline-flex items-center gap-1.5 rounded-md bg-white px-3 py-1.5 text-xs font-semibold text-primary shadow-sm hover:bg-white/90 transition-colors">
                 <Plus className="h-3.5 w-3.5" />Novo contrato
@@ -213,174 +181,266 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* ── Contratos (destaque, com sparkline) ── */}
-        <Tile className="sm:col-span-2 flex flex-col" onClick={() => router.push('/modules/contratos')}>
-          <div className="flex items-start justify-between">
-            <div className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <FileText className="h-4 w-4" />
-              </span>
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">Contratos</p>
-                <p className="text-[11px] text-muted-foreground/70">
-                  <span className="font-medium text-emerald-600 dark:text-emerald-400">{vigentes}</span> vigente{vigentes === 1 ? '' : 's'} · <span className={cn('font-medium', vencidos > 0 && 'text-amber-600 dark:text-amber-500')}>{vencidos}</span> vencido{vencidos === 1 ? '' : 's'} · <span className="font-medium text-foreground">{emVigencia}</span> em vigência · {BRL.format(c?.valorAtivos ?? 0)}
-                </p>
-              </div>
-            </div>
-            <Delta pct={c?.deltaPct ?? null} />
-          </div>
-          <div className="mt-2 flex items-end justify-between gap-3">
-            {/* número grande = TOTAL GERAL do cadastro (todas as situações) */}
-            <p className="text-2xl font-bold tabular-nums leading-none">
-              <CountUp value={c?.total ?? 0} />
-            </p>
-            <div className="h-12 flex-1 max-w-[180px]">
-              {c && <Sparkline data={c.series} />}
-            </div>
-          </div>
-        </Tile>
+        {/* ── Faixa de trabalho ──
+            O Dashboard é painel de GESTÃO; a caixa de trabalho é a tela de Tarefas.
+            Aqui fica só o gatilho: quantas esperam e quantas já venceram, com o
+            caminho para lá. Uma linha em vez de doze — a lista inteira aqui
+            duplicaria /tarefas, e duas telas para a mesma pergunta significam que
+            nenhuma delas é a fonte. */}
+        <button
+          type="button"
+          onClick={() => router.push('/tarefas')}
+          className="group flex items-center gap-3 rounded-xl border bg-card px-4 py-2.5 text-left shadow-sm transition-colors hover:border-primary/40 hover:bg-muted/40 sm:col-span-2 lg:col-span-4"
+        >
+          <span className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+            atrasadas > 0 ? 'bg-red-500/10 text-red-600 dark:text-red-400' : 'bg-primary/10 text-primary')}>
+            <ListChecks className="h-4 w-4" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold tracking-tight">
+              {minhasTarefas.length === 0
+                ? 'Nenhuma tarefa aguardando você'
+                : `${minhasTarefas.length} tarefa${minhasTarefas.length > 1 ? 's' : ''} na sua caixa`}
+            </span>
+            <span className="block text-[11px] text-muted-foreground">
+              {minhasTarefas.length === 0 ? 'Tudo em dia por aqui.'
+                : atrasadas > 0 ? `${atrasadas} já venceu${atrasadas > 1 ? 'ram' : ''} · a mais antiga: ${maisUrgente}`
+                : `A mais próxima ${maisUrgente}`}
+            </span>
+          </span>
+          {minhasTarefas.length > 0 && (
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-colors group-hover:bg-primary/90">
+              Abrir tarefas
+            </span>
+          )}
+        </button>
 
-        {/* ── tiles menores ── */}
-        <MiniStat
-          icon={<Users className="h-4 w-4" />} label="Parceiros"
-          value={p?.total ?? 0} delta={p?.deltaPct ?? null} series={p?.series}
-          onClick={() => router.push('/modules/parceiros')}
-          sub={`${p?.byStatus.ATIVO ?? 0} ativos`}
-        />
-        <MiniStat
-          icon={<GitBranch className="h-4 w-4" />} label="Processos ativos"
-          value={data?.processes.active ?? 0}
-          onClick={() => router.push('/processes')}
-          sub={`de ${data?.processes.total ?? 0} no total`}
-        />
-        <MiniStat
-          icon={<Database className="h-4 w-4" />} label="Registros"
-          value={data?.records.total ?? 0}
-          sub="gerados pelos módulos"
-        />
-        <MiniStat
-          icon={<Loader2 className="h-4 w-4" />} label="Em execução"
-          value={data?.instances.running ?? 0}
-          onClick={() => router.push('/processos')}
-          sub={(data?.instances.stuck.length ?? 0) > 0 ? `${data?.instances.stuck.length} parada(s)` : 'fluxos rodando'}
-          subWarn={(data?.instances.stuck.length ?? 0) > 0}
-        />
+        {/* ── Composição da carteira ──
+            Três cards de mesmo peso, abaixo de "Seu trabalho" e visivelmente menores:
+            eles respondem "como está a carteira?", que é pergunta de acompanhamento,
+            não de ação. Cada um mostra o TOTAL grande e a composição em rosca — o
+            número sozinho não diz se 128 contratos são saúde ou problema. */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:col-span-2 lg:col-span-4 lg:min-h-0">
+          <Composicao
+            icon={<FileText className="h-4 w-4" />}
+            label="Contratos"
+            tipo="barras"
+            total={c?.total ?? 0}
+            onClick={() => router.push('/modules/contratos')}
+            fatias={[
+              { nome: 'Vigentes',    valor: c?.byStatus.VIGENTE ?? 0,     cor: 'hsl(154 70% 40%)' },
+              { nome: 'Vencidos',    valor: c?.byStatus.VENCIDO ?? 0,     cor: 'hsl(38 92% 50%)'  },
+              { nome: 'Em cadastro', valor: c?.byStatus.EM_CADASTRO ?? 0, cor: 'hsl(210 90% 55%)' },
+              { nome: 'Encerrados',  valor: c?.byStatus.ENCERRADO ?? 0,   cor: 'hsl(215 15% 55%)' },
+              { nome: 'Rescindidos', valor: c?.byStatus.RESCINDIDO ?? 0,  cor: 'hsl(0 72% 55%)'   },
+              { nome: 'Cancelados',  valor: c?.byStatus.CANCELADO ?? 0,   cor: 'hsl(215 12% 40%)' },
+            ]}
+          />
+          <Composicao
+            icon={<Users className="h-4 w-4" />}
+            label="Parceiros"
+            total={p?.total ?? 0}
+            onClick={() => router.push('/modules/parceiros')}
+            fatias={[
+              { nome: 'Ativos',        valor: p?.byStatus.ATIVO ?? 0,             cor: 'hsl(154 70% 40%)' },
+              { nome: 'Em cadastro',   valor: p?.byStatus.EM_CADASTRAMENTO ?? 0,  cor: 'hsl(210 90% 55%)' },
+              { nome: 'Inativos',      valor: p?.byStatus.INATIVO ?? 0,           cor: 'hsl(215 15% 55%)' },
+            ]}
+          />
+          <MedidorSaude
+            icon={<Loader2 className="h-4 w-4" />}
+            label="Processos"
+            emDia={data?.instances.emAndamentoNoPrazo ?? 0}
+            atrasados={data?.instances.emAndamentoAtrasadas ?? 0}
+            onClick={() => router.push('/processos')}
+            rodape={[
+              { nome: 'concluídos', valor: data?.instances.concluidas ?? 0 },
+              { nome: 'com erro',   valor: data?.instances.comErro ?? 0, alerta: true },
+              { nome: 'cancelados', valor: data?.instances.canceladas ?? 0 },
+            ]}
+          />
+        </div>
 
-        {/* ── Precisa da sua atenção ── */}
-        <Tile className="sm:col-span-2 lg:flex lg:flex-col lg:min-h-0">
-          <div className="mb-2 flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-500" />
-            <h2 className="text-xs font-semibold">Precisa da sua atenção</h2>
-            {attention > 0 && (
-              <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500/15 px-1.5 text-[10px] font-bold text-amber-600 dark:text-amber-400">
-                {attention}
-              </span>
-            )}
-          </div>
-          <div className="space-y-1 lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
-            {c?.expiring.map(e => (
-              <AttentionRow key={e.id}
-                icon={<CalendarClock className="h-3.5 w-3.5 text-amber-500" />}
-                title={e.titulo || `Contrato ${e.numero}`}
-                badge={e.daysLeft === 0 ? 'vence hoje' : `vence em ${e.daysLeft}d`}
-                badgeWarn
-                onClick={() => router.push('/modules/contratos')}
-              />
-            ))}
-            {data?.instances.stuck.map(s => (
-              <AttentionRow key={s.id}
-                icon={<PauseCircle className="h-3.5 w-3.5 text-orange-500" />}
-                title={s.processName}
-                sub={`parada em "${s.currentStep}"`}
-                badge={`há ${s.daysStuck}d`}
-                onClick={() => router.push('/processes')}
-              />
-            ))}
-            {attention === 0 && (
-              <div className="flex flex-col items-center justify-center gap-1.5 py-6 text-center lg:h-full">
-                <CheckCircle2 className="h-7 w-7 text-emerald-500/80" />
-                <p className="text-xs text-muted-foreground">Nenhuma pendência. Tudo em dia! 🎉</p>
-              </div>
-            )}
-          </div>
-        </Tile>
-
-        {/* ── Atividade recente ── */}
-        <Tile className="sm:col-span-2 lg:flex lg:flex-col lg:min-h-0">
-          <div className="mb-2 flex items-center gap-2">
-            <Clock className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-xs font-semibold">Atividade recente</h2>
-          </div>
-          <div className="space-y-1 max-h-72 overflow-y-auto pr-1 lg:max-h-none lg:flex-1 lg:min-h-0">
-            {data && data.activity.length > 0 ? data.activity.map(a => (
-              <div key={`${a.kind}-${a.id}`} className="flex items-center gap-2.5 rounded-md px-1.5 py-1.5 hover:bg-muted/50 transition-colors">
-                <span className={cn('flex h-6 w-6 shrink-0 items-center justify-center rounded-full',
-                  a.kind === 'partner' ? 'bg-primary/10 text-primary' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400')}>
-                  {a.kind === 'partner' ? <Users className="h-3 w-3" /> : <FileText className="h-3 w-3" />}
-                </span>
-                <div className="min-w-0 flex-1">
-                  {/* padrão do card: Usuário + Ação + Descrição */}
-                  <p className="truncate text-xs">
-                    {a.user && <><span className="font-medium">{a.user}</span> </>}
-                    <span className="text-muted-foreground">{a.detail}</span>{' '}
-                    <span className="font-medium text-foreground">{a.title}</span>
-                  </p>
-                </div>
-                <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">{relativeTime(a.at)}</span>
-              </div>
-            )) : (
-              <div className="py-6 text-center text-xs text-muted-foreground">Sem atividade ainda.</div>
-            )}
-          </div>
-        </Tile>
     </div>
   )
 }
 
+
 /* ─────────────────────────── sub-componentes ─────────────────────────────── */
-function MiniStat({ icon, label, value, sub, subWarn, delta, series, onClick }: {
-  icon: React.ReactNode; label: string; value: number; sub?: string; subWarn?: boolean
-  delta?: number | null; series?: number[]; onClick?: () => void
+
+interface Fatia { nome: string; valor: number; cor: string }
+
+/** Card de composição: o total em número grande e a repartição em rosca.
+ *
+ *  Rosca (e não barra ou pizza cheia) por dois motivos: o buraco do meio abriga o
+ *  total, então o número e a composição ocupam o mesmo espaço; e a leitura aqui é
+ *  "quanto de cada", não "qual é maior" — comparação fina fica na tela do módulo.
+ *
+ *  Fatia zerada é OMITIDA do gráfico e da legenda: uma situação sem nenhum registro
+ *  não é informação, é ruído — e com seis situações possíveis a legenda ficaria mais
+ *  alta que o próprio gráfico. */
+function Composicao({ icon, label, total, fatias, onClick, tipo = 'rosca' }: {
+  icon: React.ReactNode; label: string; total: number; fatias: Fatia[]
+  onClick?: () => void
+  /** Rosca para POUCAS categorias (parte/todo); barras quando são muitas — com seis
+   *  fatias a rosca vira um mosaico de lascas que ninguém consegue comparar. */
+  tipo?: 'rosca' | 'barras'
 }) {
+  const visiveis = fatias.filter((f) => f.valor > 0)
+  const soma = visiveis.reduce((acc, f) => acc + f.valor, 0)
+  const maior = Math.max(1, ...visiveis.map((f) => f.valor))
+
   return (
-    <Tile onClick={onClick} highlight className="flex flex-col">
-      <div className="flex items-center justify-between">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">{icon}</span>
-        {delta !== undefined && <Delta pct={delta ?? null} />}
-      </div>
-      <p className="mt-2 text-xl font-bold tabular-nums leading-none"><CountUp value={value} /></p>
-      <div className="mt-1 flex items-end justify-between gap-2">
-        <div>
-          <p className="text-xs font-medium text-muted-foreground">{label}</p>
-          {sub && <p className={cn('text-[10px]', subWarn ? 'text-orange-500 font-medium' : 'text-muted-foreground/70')}>{sub}</p>}
+    <Tile onClick={onClick} highlight className="flex flex-col gap-2 lg:min-h-0">
+      <div className="flex shrink-0 items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">{icon}</span>
+          <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
         </div>
-        {series && <div className="h-7 w-16 shrink-0"><Sparkline data={series} /></div>}
+        {/* Nas barras o total sai do miolo do gráfico e vem para o cabeçalho. */}
+        {tipo === 'barras' && soma > 0 && (
+          <p className="shrink-0 text-xl font-bold leading-none tabular-nums"><CountUp value={total} /></p>
+        )}
       </div>
+
+      {soma === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-1 py-2 text-center">
+          <p className="text-3xl font-bold leading-none tabular-nums text-muted-foreground/40">0</p>
+          <p className="text-[11px] text-muted-foreground">Nenhum registro ainda.</p>
+        </div>
+      ) : tipo === 'rosca' ? (
+        <div className="flex flex-1 flex-col gap-2 lg:min-h-0">
+          {/* Raios em % para o gráfico ESCALAR com a altura do card. */}
+          <div className="relative min-h-[104px] flex-1">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={visiveis} dataKey="valor" nameKey="nome"
+                  innerRadius="58%" outerRadius="88%" paddingAngle={visiveis.length > 1 ? 2 : 0}
+                  stroke="none" isAnimationActive
+                >
+                  {visiveis.map((f) => <Cell key={f.nome} fill={f.cor} />)}
+                </Pie>
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-2xl font-bold leading-none tabular-nums"><CountUp value={total} /></span>
+              <span className="text-[9px] uppercase tracking-wide text-muted-foreground">total</span>
+            </div>
+          </div>
+          <ul className="grid shrink-0 grid-cols-2 gap-x-3 gap-y-0.5">
+            {visiveis.map((f) => (
+              <li key={f.nome} className="flex items-center gap-1.5 text-[11px]">
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: f.cor }} />
+                <span className="min-w-0 flex-1 truncate text-muted-foreground">{f.nome}</span>
+                <span className="shrink-0 font-semibold tabular-nums">{f.valor}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        /* Barras horizontais em CSS: o rótulo fica LEGÍVEL ao lado do valor (numa rosca
+           com seis fatias ele vira legenda, e a pessoa passa a comparar cores em vez de
+           grandezas). Proporcionais à MAIOR fatia, não ao total — o que se compara aqui
+           é uma situação com a outra. */
+        <div className="flex flex-1 flex-col justify-center gap-1.5 lg:min-h-0">
+          {visiveis.map((f) => (
+            <div key={f.nome} className="flex items-center gap-2 text-[11px]">
+              <span className="w-[86px] shrink-0 truncate text-muted-foreground" title={f.nome}>{f.nome}</span>
+              <span className="h-3 flex-1 overflow-hidden rounded-sm bg-muted/60">
+                <span className="block h-full rounded-sm transition-all duration-500"
+                  style={{ width: `${Math.max(4, (f.valor / maior) * 100)}%`, background: f.cor }} />
+              </span>
+              <span className="w-7 shrink-0 text-right font-semibold tabular-nums">{f.valor}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </Tile>
   )
 }
 
-function AttentionRow({ icon, title, sub, badge, badgeWarn, onClick }: {
-  icon: React.ReactNode; title: string; sub?: string; badge: string; badgeWarn?: boolean; onClick?: () => void
+/** Medidor de saúde dos processos EM ANDAMENTO.
+ *
+ *  Aqui a rosca de composição não servia: "em dia x atrasado" não é uma repartição
+ *  para contemplar — é um indicador com meta implícita (quanto mais perto de 100%,
+ *  melhor). O arco comunica isso de relance; a composição, não.
+ *
+ *  Concluídos, cancelados e com erro NÃO entram no cálculo: são casos encerrados, e
+ *  incluí-los diluiria o atraso — mil processos concluídos fariam seis atrasados
+ *  sumirem numa porcentagem bonita. Eles ficam no rodapé, como contexto.
+ */
+function MedidorSaude({ icon, label, emDia, atrasados, rodape, onClick }: {
+  icon: React.ReactNode
+  label: string
+  emDia: number
+  atrasados: number
+  rodape?: Array<{ nome: string; valor: number; alerta?: boolean }>
+  onClick?: () => void
 }) {
+  const andamento = emDia + atrasados
+  const pct = andamento === 0 ? 0 : Math.round((emDia / andamento) * 100)
+
+  /* A COR é o diagnóstico: um medidor sempre verde vira enfeite. */
+  const cor = pct >= 90 ? 'hsl(154 70% 40%)' : pct >= 70 ? 'hsl(38 92% 50%)' : 'hsl(0 72% 55%)'
+
+  /* Semicírculo de raio 50 → comprimento π·50 ≈ 157. O quanto do arco fica "apagado"
+     é o que falta para 100%. */
+  const ARCO = 157
+  const restante = ARCO * (1 - pct / 100)
+
   return (
-    <button onClick={onClick}
-      className="group flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left hover:bg-muted/50 transition-colors">
-      <span className="shrink-0">{icon}</span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-xs font-medium">{title}</p>
-        {sub && <p className="truncate text-[10px] text-muted-foreground">{sub}</p>}
+    <Tile onClick={onClick} highlight className="flex flex-col gap-2 lg:min-h-0">
+      <div className="flex shrink-0 items-center gap-2">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">{icon}</span>
+        <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
       </div>
-      <span className={cn('shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
-        badgeWarn ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400' : 'bg-muted text-muted-foreground')}>
-        {badge}
-      </span>
-      <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/40 group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
-    </button>
+
+      {andamento === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-1 py-2 text-center">
+          <p className="text-3xl font-bold leading-none tabular-nums text-muted-foreground/40">—</p>
+          <p className="text-[11px] text-muted-foreground">Nenhum processo em andamento.</p>
+        </div>
+      ) : (
+        <div className="flex flex-1 flex-col items-center justify-center gap-1 lg:min-h-0">
+          <svg viewBox="0 0 120 66" className="w-full max-w-[190px]" role="img"
+               aria-label={`${pct}% dos processos em andamento estão em dia`}>
+            <path d="M10,60 A50,50 0 0,1 110,60" fill="none" stroke="currentColor"
+                  className="text-muted" strokeWidth="11" strokeLinecap="round" />
+            <path d="M10,60 A50,50 0 0,1 110,60" fill="none" stroke={cor}
+                  strokeWidth="11" strokeLinecap="round"
+                  strokeDasharray={ARCO} strokeDashoffset={restante}
+                  style={{ transition: 'stroke-dashoffset .7s ease-out' }} />
+            <text x="60" y="52" textAnchor="middle" fontSize="22" fontWeight="800" fill="currentColor">{pct}%</text>
+          </svg>
+
+          <p className="text-[11.5px] font-medium">
+            <span className="tabular-nums">{emDia}</span> de <span className="tabular-nums">{andamento}</span> em dia
+          </p>
+          {atrasados > 0 ? (
+            <p className="text-[11.5px] font-semibold text-red-600 dark:text-red-400">
+              <span className="tabular-nums">{atrasados}</span> atrasado{atrasados > 1 ? 's' : ''}
+            </p>
+          ) : (
+            <p className="text-[11.5px] text-muted-foreground">Nenhum atrasado</p>
+          )}
+
+          {/* Casos encerrados: contexto, fora da conta do indicador. */}
+          {rodape && rodape.some((r) => r.valor > 0) && (
+            <p className="mt-1 flex flex-wrap justify-center gap-x-2.5 gap-y-0.5 text-[10.5px] text-muted-foreground">
+              {rodape.filter((r) => r.valor > 0).map((r) => (
+                <span key={r.nome} className={cn(r.alerta && 'text-amber-600 dark:text-amber-400 font-medium')}>
+                  <span className="font-semibold tabular-nums">{r.valor}</span> {r.nome}
+                </span>
+              ))}
+            </p>
+          )}
+        </div>
+      )}
+    </Tile>
   )
 }
 
-/* ─────────────────────────── skeleton ────────────────────────────────────── */
 function DashboardSkeleton() {
   return (
     <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 animate-pulse">

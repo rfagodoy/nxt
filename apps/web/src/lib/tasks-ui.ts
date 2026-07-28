@@ -4,6 +4,16 @@
 import { FileText, Users, GitBranch, type LucideIcon } from 'lucide-react'
 import type { ProcessFormSchema } from '@nxt/types'
 
+/** Sobre o que a tarefa é. Vem do backend, resolvido a partir das variáveis do
+ *  processo — é o que permite priorizar por consequência, e não só por relógio. */
+export interface AssuntoTarefa {
+  tipo: 'CONTRATO' | 'PARCEIRO'
+  titulo: string
+  valor?: number
+  moeda?: string
+  contraparte?: string
+}
+
 export interface Task {
   id: string
   instanceId: string
@@ -13,6 +23,19 @@ export interface Task {
   dueAt?: string | null
   createdAt: string
   instance?: { numero?: number | null; processDefinition?: { name?: string; kind?: string | null } }
+  assunto?: AssuntoTarefa
+}
+
+const MOEDA_FMT = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
+
+/** Valor abreviado para caber no cartão sem virar ruído: R$ 412 mil, R$ 1,2 mi.
+ *  A precisão exata mora no contrato — aqui basta a ordem de grandeza para decidir. */
+export function valorCurto(valor?: number, moeda = 'BRL'): string | null {
+  if (valor == null || !Number.isFinite(valor) || valor === 0) return null
+  if (moeda !== 'BRL') return `${moeda} ${Math.round(valor).toLocaleString('pt-BR')}`
+  if (valor >= 1_000_000) return `R$ ${(valor / 1_000_000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mi`
+  if (valor >= 10_000) return `R$ ${Math.round(valor / 1000).toLocaleString('pt-BR')} mil`
+  return MOEDA_FMT.format(valor)
 }
 
 export interface TimelineTask { id: string; name?: string | null; status: string; completedBy?: string | null }

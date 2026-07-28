@@ -1,6 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
-import { ModuleGeneratorService } from '../modules/module-generator.service'
 import { CreateProcessDto } from './dto/create-process.dto'
 import { UpdateProcessDto } from './dto/update-process.dto'
 import { ProcessFormSchema, isCompensable } from '@nxt/types'
@@ -8,10 +7,7 @@ import { compileBpmn, CompileError, type WfGraph } from '@nxt/workflow-core'
 
 @Injectable()
 export class ProcessesService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly moduleGenerator: ModuleGeneratorService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async findAll(organizationId: string) {
     return this.prisma.processDefinition.findMany({
@@ -23,7 +19,6 @@ export class ProcessesService {
   async findOne(id: string, organizationId: string) {
     const process = await this.prisma.processDefinition.findFirst({
       where: { id, organizationId },
-      include: { module: true },
     })
     if (!process) throw new NotFoundException('Processo não encontrado')
     return process
@@ -133,27 +128,6 @@ export class ProcessesService {
       },
     })
 
-    // Módulo legado (listagem genérica) — gera só se ainda não existir, para
-    // permitir reativar/recompilar o processo depois de editar o diagrama.
-    const existingModule = await this.prisma.module.findUnique({
-      where: { processDefinitionId: id },
-    })
-    if (!existingModule) {
-      const slug = process.name
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[̀-ͯ]/g, '')
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)/g, '')
-      await this.moduleGenerator.generate({
-        processDefinitionId: id,
-        organizationId,
-        processName: process.name,
-        slug,
-        formSchema,
-      })
-    }
-
     return updatedProcess
   }
 
@@ -202,12 +176,8 @@ export class ProcessesService {
       await this.prisma.processDefinition.update({ where: { id }, data: { status: 'ARCHIVED' } })
       return { action: 'archived' as const, instances }
     }
-    // Sem instâncias → 0 registros no módulo (ModuleRecord exige instância). Remove o
-    // módulo (gerado na ativação) e a definição atomicamente.
-    await this.prisma.$transaction(async (tx) => {
-      await tx.module.deleteMany({ where: { processDefinitionId: id } })
-      await tx.processDefinition.delete({ where: { id } })
-    })
+    // Sem instâncias, a definição some direto.
+    await this.prisma.processDefinition.delete({ where: { id } })
     return { action: 'deleted' as const }
   }
 }

@@ -188,6 +188,19 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
   const tipoLabel = tipos.entries.find(t => t.id === v.tipo)?.label ?? v.tipo
   const papeis    = useLookupTable(PAPEIS_KEY, INIT_PAPEIS)
 
+  /* Contagem por aba. São dez abas — bem acima do que a memória de trabalho segura —
+     e sem o número a única forma de saber se este contrato TEM aditivo é abrir a aba
+     de aditivos. O contador responde antes de abrir; a aba vazia continua acessível,
+     só deixa de competir pela atenção. */
+  const contagem: Record<string, number> = {
+    partes:       v.partes?.length ?? 0,
+    pagamentos:   v.pagamentos?.length ?? 0,
+    recebimentos: v.recebimentos?.length ?? 0,
+    reajuste:     v.reajustes?.length ?? 0,
+    aditivos:     v.aditivos?.length ?? 0,
+    documentos:   v.documentos?.length ?? 0,
+  }
+
   const sectionTabs = [
     { id: 'dados_gerais', label: 'Dados Gerais',      icon: FileText },
     { id: 'partes',       label: 'Partes envolvidas', icon: Users },
@@ -378,13 +391,21 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
       )}
 
       <div className="flex items-center gap-1 flex-wrap border-b pb-2">
-        {tabs.map(t => (
-          <button key={t.id} type="button" onClick={() => setTab(t.id)}
-            className={cn('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-              tab === t.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-muted')}>
-            <t.icon className="h-3.5 w-3.5" />{t.label}
-          </button>
-        ))}
+        {tabs.map(t => {
+          const n = contagem[t.id]
+          const vazia = n === 0            // tem contagem e está zerada
+          return (
+            <button key={t.id} type="button" onClick={() => setTab(t.id)}
+              className={cn('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                tab === t.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-muted',
+                vazia && tab !== t.id && 'opacity-55')}>
+              <t.icon className="h-3.5 w-3.5" />{t.label}
+              {n != null && n > 0 && (
+                <span className="ml-0.5 rounded bg-muted px-1 text-[10px] font-bold tabular-nums text-foreground/70">{n}</span>
+              )}
+            </button>
+          )
+        })}
       </div>
 
       </div>{/* fim do cabeçalho fixo */}

@@ -12,7 +12,6 @@ const JSON_FIELDS: Record<string, string[]> = {
   WorkflowTask: ['data', 'assignees'],
   WorkflowRole: ['members'],
   Module: ['schema'],
-  ModuleRecord: ['data'],
   Partner: ['contatos', 'enderecos', 'bancos', 'socios', 'cnaesSecundarios'],
   PartnerAuditLog: ['changes'],
   Contract: ['objeto', 'partes', 'reajustes', 'documentos', 'pagamentos', 'recebimentos', 'aditivos', 'renovacoes', 'reajustesRealizados'],
