@@ -247,18 +247,16 @@ export default function DashboardPage() {
               { nome: 'Inativos',      valor: p?.byStatus.INATIVO ?? 0,           cor: 'hsl(215 15% 55%)' },
             ]}
           />
-          <Composicao
+          <MedidorSaude
             icon={<Loader2 className="h-4 w-4" />}
             label="Processos"
-            tipo="barras"
-            total={data?.instances.total ?? 0}
+            emDia={data?.instances.emAndamentoNoPrazo ?? 0}
+            atrasados={data?.instances.emAndamentoAtrasadas ?? 0}
             onClick={() => router.push('/processos')}
-            fatias={[
-              { nome: 'Em dia',     valor: data?.instances.emAndamentoNoPrazo ?? 0,   cor: 'hsl(154 70% 40%)' },
-              { nome: 'Atrasados',  valor: data?.instances.emAndamentoAtrasadas ?? 0, cor: 'hsl(0 72% 55%)'   },
-              { nome: 'Concluídos', valor: data?.instances.concluidas ?? 0,           cor: 'hsl(215 15% 55%)' },
-              { nome: 'Com erro',   valor: data?.instances.comErro ?? 0,              cor: 'hsl(24 90% 50%)'  },
-              { nome: 'Cancelados', valor: data?.instances.canceladas ?? 0,           cor: 'hsl(215 12% 40%)' },
+            rodape={[
+              { nome: 'concluídos', valor: data?.instances.concluidas ?? 0 },
+              { nome: 'com erro',   valor: data?.instances.comErro ?? 0, alerta: true },
+              { nome: 'cancelados', valor: data?.instances.canceladas ?? 0 },
             ]}
           />
         </div>
@@ -356,6 +354,87 @@ function Composicao({ icon, label, total, fatias, onClick, tipo = 'rosca' }: {
               <span className="w-7 shrink-0 text-right font-semibold tabular-nums">{f.valor}</span>
             </div>
           ))}
+        </div>
+      )}
+    </Tile>
+  )
+}
+
+/** Medidor de saúde dos processos EM ANDAMENTO.
+ *
+ *  Aqui a rosca de composição não servia: "em dia x atrasado" não é uma repartição
+ *  para contemplar — é um indicador com meta implícita (quanto mais perto de 100%,
+ *  melhor). O arco comunica isso de relance; a composição, não.
+ *
+ *  Concluídos, cancelados e com erro NÃO entram no cálculo: são casos encerrados, e
+ *  incluí-los diluiria o atraso — mil processos concluídos fariam seis atrasados
+ *  sumirem numa porcentagem bonita. Eles ficam no rodapé, como contexto.
+ */
+function MedidorSaude({ icon, label, emDia, atrasados, rodape, onClick }: {
+  icon: React.ReactNode
+  label: string
+  emDia: number
+  atrasados: number
+  rodape?: Array<{ nome: string; valor: number; alerta?: boolean }>
+  onClick?: () => void
+}) {
+  const andamento = emDia + atrasados
+  const pct = andamento === 0 ? 0 : Math.round((emDia / andamento) * 100)
+
+  /* A COR é o diagnóstico: um medidor sempre verde vira enfeite. */
+  const cor = pct >= 90 ? 'hsl(154 70% 40%)' : pct >= 70 ? 'hsl(38 92% 50%)' : 'hsl(0 72% 55%)'
+
+  /* Semicírculo de raio 50 → comprimento π·50 ≈ 157. O quanto do arco fica "apagado"
+     é o que falta para 100%. */
+  const ARCO = 157
+  const restante = ARCO * (1 - pct / 100)
+
+  return (
+    <Tile onClick={onClick} highlight className="flex flex-col gap-2 lg:min-h-0">
+      <div className="flex shrink-0 items-center gap-2">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">{icon}</span>
+        <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
+      </div>
+
+      {andamento === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-1 py-2 text-center">
+          <p className="text-3xl font-bold leading-none tabular-nums text-muted-foreground/40">—</p>
+          <p className="text-[11px] text-muted-foreground">Nenhum processo em andamento.</p>
+        </div>
+      ) : (
+        <div className="flex flex-1 flex-col items-center justify-center gap-1 lg:min-h-0">
+          <svg viewBox="0 0 120 66" className="w-full max-w-[190px]" role="img"
+               aria-label={`${pct}% dos processos em andamento estão em dia`}>
+            <path d="M10,60 A50,50 0 0,1 110,60" fill="none" stroke="currentColor"
+                  className="text-muted" strokeWidth="11" strokeLinecap="round" />
+            <path d="M10,60 A50,50 0 0,1 110,60" fill="none" stroke={cor}
+                  strokeWidth="11" strokeLinecap="round"
+                  strokeDasharray={ARCO} strokeDashoffset={restante}
+                  style={{ transition: 'stroke-dashoffset .7s ease-out' }} />
+            <text x="60" y="52" textAnchor="middle" fontSize="22" fontWeight="800" fill="currentColor">{pct}%</text>
+          </svg>
+
+          <p className="text-[11.5px] font-medium">
+            <span className="tabular-nums">{emDia}</span> de <span className="tabular-nums">{andamento}</span> em dia
+          </p>
+          {atrasados > 0 ? (
+            <p className="text-[11.5px] font-semibold text-red-600 dark:text-red-400">
+              <span className="tabular-nums">{atrasados}</span> atrasado{atrasados > 1 ? 's' : ''}
+            </p>
+          ) : (
+            <p className="text-[11.5px] text-muted-foreground">Nenhum atrasado</p>
+          )}
+
+          {/* Casos encerrados: contexto, fora da conta do indicador. */}
+          {rodape && rodape.some((r) => r.valor > 0) && (
+            <p className="mt-1 flex flex-wrap justify-center gap-x-2.5 gap-y-0.5 text-[10.5px] text-muted-foreground">
+              {rodape.filter((r) => r.valor > 0).map((r) => (
+                <span key={r.nome} className={cn(r.alerta && 'text-amber-600 dark:text-amber-400 font-medium')}>
+                  <span className="font-semibold tabular-nums">{r.valor}</span> {r.nome}
+                </span>
+              ))}
+            </p>
+          )}
         </div>
       )}
     </Tile>
