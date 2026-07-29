@@ -124,19 +124,26 @@ export class DashboardService {
       }
     }
 
+    /* CANCELADO fica FORA de tudo que o dashboard resume — decisão do PO em 28/07.
+       O cancelado é o contrato que NUNCA chegou a valer (o processo que o criou foi
+       cancelado), então contá-lo inflava um número lido como carteira real. Ele não
+       some do sistema: a listagem de Contratos continua mostrando e filtrando por ele,
+       porque lá a pergunta é "o que existe cadastrado", não "o que eu tenho em mãos". */
+    const carteira = contracts
+      .map(c => ({ c, d: derivar(c) }))
+      .filter(({ d }) => d.situacao !== 'CANCELADO')
+
     const contractsByStatus: Record<string, number> = {}
     let valorAtivos = 0
-    for (const c of contracts) {
-      const d = derivar(c)
+    for (const { d } of carteira) {
       contractsByStatus[d.situacao] = (contractsByStatus[d.situacao] ?? 0) + 1
       /* VENCIDO é um VIGENTE cujo término passou (derivado, nunca gravado). No somatório do
          card ele conta como vigente: o contrato segue em vigor até ser renovado/encerrado. */
       if (d.situacao === 'VIGENTE' || d.situacao === 'VENCIDO') valorAtivos += d.valor
     }
-    const contractSeries = buildSeries(contracts.map(c => c.createdAt))
+    const contractSeries = buildSeries(carteira.map(({ c }) => c.createdAt))
 
-    const expiring = contracts
-      .map(c => ({ c, d: derivar(c) }))
+    const expiring = carteira
       .filter(({ c, d }) => d.termino && !c.prazoIndeterminado && d.situacao === 'VIGENTE')
       .map(({ c, d }) => {
         const t = new Date(d.termino + 'T00:00:00')
@@ -188,7 +195,8 @@ export class DashboardService {
 
     return {
       contracts: {
-        total:        contracts.length,
+        /* Total da CARTEIRA (sem cancelados) — casa com a soma das barras do card. */
+        total:        carteira.length,
         byStatus:     contractsByStatus,
         valorAtivos,
         series:       contractSeries.series,
