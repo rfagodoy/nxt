@@ -147,10 +147,19 @@ export function Sidebar() {
                   type="button"
                   onClick={() => alternarSecao(section.label)}
                   aria-expanded={aberta}
-                  className={cn(TITULO_SECAO, 'flex w-full items-center gap-1 rounded-md hover:text-sidebar-foreground transition-colors')}
+                  className={cn(TITULO_SECAO, 'group/sec flex w-full items-center gap-1 rounded-md hover:text-sidebar-foreground transition-colors')}
                 >
                   <span className="truncate">{section.label}</span>
-                  <ChevronRight className={cn('h-3 w-3 shrink-0 transition-transform', aberta && 'rotate-90')} />
+                  {/* O chevron só aparece quando tem o que dizer. Com a seção ABERTA
+                      ele não informa nada — os itens estão à vista — e era a única
+                      coisa que diferenciava este título de um grupo fixo como
+                      "Gestão", quebrando a uniformidade da barra. Some no repouso e
+                      volta no hover/foco, que é quando a pessoa cogita clicar.
+                      RECOLHIDA, ele fica: aí é o único sinal de que há algo embaixo. */}
+                  <ChevronRight className={cn(
+                    'h-3 w-3 shrink-0 transition-all',
+                    aberta && 'rotate-90 opacity-0 group-hover/sec:opacity-100 group-focus-visible/sec:opacity-100',
+                  )} />
                 </button>
               ) : (
                 <p className={cn(TITULO_SECAO, 'select-none')}>{section.label}</p>
