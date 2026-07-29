@@ -121,7 +121,7 @@ export default function TarefasPage() {
                 {/* Rola em qualquer largura — não só em telas grandes — e com a barra
                     VISÍVEL: sem ela o último cartão fica cortado na borda e nada indica
                     que há mais tarefas embaixo. */}
-                <div className="rolagem-visivel flex max-h-[60vh] flex-col gap-1.5 overflow-y-auto pr-1.5 xl:max-h-none xl:flex-1 xl:min-h-0">
+                <div className="rolagem-visivel flex max-h-[60vh] flex-col gap-1 overflow-y-auto pr-1.5 xl:max-h-none xl:flex-1 xl:min-h-0">
                 {items.length === 0 ? (
                   <p className="text-[11px] text-muted-foreground/60 text-center py-3">vazio</p>
                 ) : items.map((t) => {
@@ -136,14 +136,19 @@ export default function TarefasPage() {
                          e o cartão vinha sendo esmagado de 90px para 29px — com o texto
                          cortado e o rodapé fora da caixa. Nenhum ajuste de fonte ou de
                          clamp resolveria: o problema nunca esteve no texto. */
-                      className="group relative shrink-0 text-left w-full bg-card border rounded-lg p-2.5 pl-3 shadow-sm overflow-hidden transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md hover:border-primary/30"
+                      /* Densidade: o corte é no AR, nunca no texto. O cartão tinha 39%
+                         da altura em espaçamento, e a linha do título media 24px só
+                         porque o ícone media 24px — o texto ocupa 16. Reduzir fonte
+                         economizaria pouco e custaria legibilidade numa tela de uso
+                         diário; reduzir folga economiza o mesmo e não custa nada. */
+                      className="group relative shrink-0 text-left w-full bg-card border rounded-lg p-2 pl-2.5 shadow-sm overflow-hidden transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md hover:border-primary/30"
                     >
-                      <span className={cn('absolute left-0 top-2 bottom-2 w-[3px] rounded-full', col.rail)} />
+                      <span className={cn('absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full', col.rail)} />
                       {/* `items-start` + quebra livre: o nome da tarefa é o dado
                           principal do cartão e não pode ser o primeiro a ser cortado.
                           O cartão cresce; a coluna é que rola. */}
-                      <div className="flex items-start gap-2 mb-1.5">
-                        <span className={cn('flex h-6 w-6 items-center justify-center rounded-md shrink-0', m.cls)}><m.Icon className="h-3.5 w-3.5" /></span>
+                      <div className="flex items-start gap-2 mb-1">
+                        <span className={cn('flex h-5 w-5 items-center justify-center rounded-md shrink-0', m.cls)}><m.Icon className="h-3 w-3" /></span>
                         <span className="text-[12.5px] font-medium leading-snug break-words min-w-0">{t.name || t.nodeId}</span>
                       </div>
                       {/* Sobre o que é a tarefa: sem isto, duas tarefas do mesmo prazo

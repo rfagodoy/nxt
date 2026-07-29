@@ -147,10 +147,19 @@ export function Sidebar() {
                   type="button"
                   onClick={() => alternarSecao(section.label)}
                   aria-expanded={aberta}
-                  className={cn(TITULO_SECAO, 'flex w-full items-center gap-1 rounded-md hover:text-sidebar-foreground transition-colors')}
+                  className={cn(TITULO_SECAO, 'group/sec flex w-full items-center gap-1 rounded-md hover:text-sidebar-foreground transition-colors')}
                 >
                   <span className="truncate">{section.label}</span>
-                  <ChevronRight className={cn('h-3 w-3 shrink-0 transition-transform', aberta && 'rotate-90')} />
+                  {/* Chevron INVISÍVEL no repouso, aberta ou recolhida: no repouso todo
+                      título de seção tem exatamente a mesma aparência — era ele o único
+                      elemento que distinguia um grupo recolhível de um fixo como "Gestão".
+                      Reaparece no hover/foco, que é quando a pessoa cogita clicar.
+                      Decisão do PO (28/07), ciente de que numa seção recolhida ele era o
+                      único sinal de que há itens embaixo. */}
+                  <ChevronRight className={cn(
+                    'h-3 w-3 shrink-0 opacity-0 transition-all group-hover/sec:opacity-100 group-focus-visible/sec:opacity-100',
+                    aberta && 'rotate-90',
+                  )} />
                 </button>
               ) : (
                 <p className={cn(TITULO_SECAO, 'select-none')}>{section.label}</p>
