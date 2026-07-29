@@ -4,6 +4,7 @@ import { NotificationsService } from './notifications.service'
 import { ContractSchedulerService } from './contract-scheduler.service'
 import { MailerService } from './mailer.service'
 import { MailDigestService } from './mail-digest.service'
+import { ContractAlertsMailService } from './contract-alerts-mail.service'
 import { MailSettingsService, type StoredMailConfig } from './mail-settings.service'
 import { CurrentOrg } from '../auth/current-org.decorator'
 import { CurrentUser, CurrentUserData } from '../auth/current-user.decorator'
@@ -19,6 +20,7 @@ export class NotificationsController {
     private readonly scheduler: ContractSchedulerService,
     private readonly mailer: MailerService,
     private readonly digest: MailDigestService,
+    private readonly contractAlerts: ContractAlertsMailService,
     private readonly mailSettings: MailSettingsService,
   ) {}
 
@@ -125,10 +127,13 @@ export class NotificationsController {
   @Post('email-digest')
   @Roles('admin')
   @UseGuards(RolesGuard)
-  @ApiOperation({ summary: 'Dispara o resumo diário agora, sem esperar o horário — admin' })
+  @ApiOperation({ summary: 'Dispara agora as saídas diárias (resumo pessoal + alertas de contrato), sem esperar o horário — admin' })
   async emailDigest(@CurrentOrg() org: string) {
+    // as duas saídas do relógio diário, para o teste manual provar o mesmo caminho
+    // que a execução automática percorre — testar metade não prova nada
     const pessoas = await this.digest.enviar(org)
-    return { pessoas }
+    const contratos = await this.contractAlerts.enviar(org)
+    return { pessoas, contratos }
   }
 
   @Post('sweep-orfaos')

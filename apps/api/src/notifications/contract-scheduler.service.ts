@@ -12,7 +12,7 @@ import { SettingsService } from '../settings/settings.service'
 import { ContractsService } from '../contracts/contracts.service'
 import { StorageService } from '../files/storage.service'
 import { collectAttachmentKeys } from '../files/attachment-keys'
-import { NOTIF_PARAMS_KEY } from './notification-params'
+import { NOTIF_PARAMS_KEY, SEVERIDADE_RANK } from './notification-params'
 
 const INDICES_KEY = 'nxt:settings:contratos:indices'
 const INDICE_VALORES_KEY = 'nxt:settings:contratos:indice-valores'
@@ -333,12 +333,28 @@ export class ContractSchedulerService implements OnModuleInit {
         reajustes: reajustesAplicados.length, detalhe: reajustesAplicados, pendentes: reajustesPendentes }
     }
 
+    /* severidade ATUAL das notificações de contrato — para detectar ESCALADA logo abaixo.
+       Busca por tipo (não por lista de dedupKey): uma base grande estouraria o limite de
+       parâmetros do SQL Server num `IN` com milhares de chaves. */
+    const severidadeAtual = new Map(
+      (await this.prisma.notification.findMany({
+        where: { organizationId, tipo: { in: ['VIGENCIA', 'REAJUSTE', 'CONSUMO'] } },
+        select: { dedupKey: true, severidade: true },
+      })).map(n => [n.dedupKey, n.severidade]),
+    )
+
     /* grava/atualiza notificações ativas */
     for (const u of upserts) {
+      /* O aviso é UM registro que se atualiza no tempo ("vence em 60" vira "vence em 7").
+         Quando ele PIORA, zeramos `emailedAt`: o e-mail volta a sair, porque a pessoa que
+         leu o aviso de 60 dias precisa ser avisada de novo quando faltarem 7. Enquanto a
+         severidade não muda, o e-mail não se repete — insistir todo dia desliga o canal. */
+      const anterior = severidadeAtual.get(u.dedupKey)
+      const escalou = anterior !== undefined && (SEVERIDADE_RANK[u.severidade] ?? 0) > (SEVERIDADE_RANK[anterior] ?? 0)
       await this.prisma.notification.upsert({
         where:  { organizationId_dedupKey: { organizationId, dedupKey: u.dedupKey } },
         create: { organizationId, contractId: u.contractId, tipo: u.tipo, severidade: u.severidade, titulo: u.titulo, mensagem: u.mensagem, dedupKey: u.dedupKey },
-        update: { contractId: u.contractId, tipo: u.tipo, severidade: u.severidade, titulo: u.titulo, mensagem: u.mensagem },
+        update: { contractId: u.contractId, tipo: u.tipo, severidade: u.severidade, titulo: u.titulo, mensagem: u.mensagem, ...(escalou ? { emailedAt: null } : {}) },
       })
     }
     /* resolve (remove) as que não valem mais — SÓ as de contrato. A tabela é

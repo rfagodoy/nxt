@@ -7,6 +7,8 @@ import { useSession } from '@/lib/session-context'
 import { cacheRead, pullSetting, pushSetting } from '@/lib/settings-store'
 import { apiFetch } from '@/lib/http'
 import { emitContractsChanged } from '@/lib/contract-events'
+import { useSelectableUsers } from '@/hooks/use-users'
+import { UserSelect } from '@/components/ui/user-select'
 
 const KEY = 'nxt:settings:notificacoes'
 
@@ -22,6 +24,8 @@ interface Params {
   tarefas: { enabled: boolean; antecedenciaHoras: number; reavisoDias: number }
   /** envio por e-mail (só funciona com SMTP configurado no servidor) */
   email: { imediato: boolean; resumoDiario: boolean; horaResumo: number }
+  /** alertas de CONTRATO por e-mail — destinatário é resolvido, não fixo (ver cartão) */
+  emailContratos: { enabled: boolean; destinatarios: string[] }
 }
 const DEFAULT: Params = {
   vigencia: { enabled: true, dias: [60, 30, 7] },
@@ -32,6 +36,7 @@ const DEFAULT: Params = {
   reajustePausado: false,
   tarefas: { enabled: true, antecedenciaHoras: 24, reavisoDias: 1 },
   email: { imediato: true, resumoDiario: true, horaResumo: 8 },
+  emailContratos: { enabled: true, destinatarios: [] },
 }
 
 /** Resumo retornado por POST /api/notifications/run */
@@ -82,6 +87,11 @@ function normalize(r: Partial<Params> | null | undefined): Params {
     consumo:  { ...DEFAULT.consumo,  ...r.consumo },
     tarefas:  { ...DEFAULT.tarefas,  ...r.tarefas },
     email:    { ...DEFAULT.email,    ...r.email },
+    emailContratos: {
+      ...DEFAULT.emailContratos, ...r.emailContratos,
+      // lista pode vir ausente (valor gravado antes deste cartão) ou torta do cache
+      destinatarios: Array.isArray(r.emailContratos?.destinatarios) ? r.emailContratos.destinatarios : [],
+    },
     reajustePausado: r.reajustePausado ?? false,
   }
 }
@@ -145,8 +155,9 @@ function EmailCard({ p, setP, isAdmin }: { p: Params; setP: (v: Params) => void;
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold">Envio por e-mail</p>
           <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-            Leva os avisos pessoais para fora do sistema. O servidor precisa ter SMTP configurado
-            (variável <code className="font-mono text-[11px]">MAIL_HOST</code>) — sem isso, os avisos ficam só no sininho.
+            Leva os avisos pessoais para fora do sistema. Depende de um servidor de e-mail configurado
+            em <a href="/settings/email" className="font-medium text-foreground underline underline-offset-2">Configurações → E-mail</a> —
+            sem isso, os avisos ficam só no sininho.
           </p>
 
           <div className={cn('mt-2 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium',
@@ -183,6 +194,57 @@ function EmailCard({ p, setP, isAdmin }: { p: Params; setP: (v: Params) => void;
         </div>
       </div>
     </div>
+  )
+}
+
+/* Alertas de CONTRATO por e-mail. Cartão separado do "Envio por e-mail" porque a
+   pergunta é outra: lá se escolhe COMO usar o canal para avisos que já têm dono;
+   aqui se resolve QUEM é o dono de um aviso que nasce da organização. */
+function ContratosEmailCard({ p, setP }: { p: Params; setP: (v: Params) => void }) {
+  const { users } = useSelectableUsers()
+  const c = p.emailContratos
+  const set = (v: Partial<Params['emailContratos']>) => setP({ ...p, emailContratos: { ...c, ...v } })
+  const nomeDe = (id: string) => users.find(u => u.id === id)?.name ?? '(usuário removido)'
+
+  return (
+    <Card icon={Mail} color="bg-teal-500/10 text-teal-600 dark:text-teal-400"
+      title="Alertas de contrato por e-mail"
+      desc="Leva vigência, reajuste e consumo para a caixa de entrada de quem responde pelo contrato. Sem isto, esses avisos ficam só no sininho — e só vê quem entra no sistema."
+      on={c.enabled} onToggle={v => set({ enabled: v })}>
+      <div className="space-y-2">
+        <p className="text-xs text-muted-foreground">
+          Quem recebe: os <strong className="font-medium text-foreground">responsáveis pelo contrato</strong> (seção Responsáveis, dentro do contrato)
+          e os destinatários fixos abaixo. Se um contrato não tiver responsável e não houver destinatário fixo,
+          o aviso vai para os <strong className="font-medium text-foreground">administradores</strong> — um alerta de prazo não pode morrer em silêncio.
+        </p>
+        <label className="block text-xs text-muted-foreground">
+          Destinatários fixos (recebem os alertas de todos os contratos):
+          <div className="mt-1 max-w-xs">
+            <UserSelect
+              placeholder="Adicionar destinatário..."
+              exclude={c.destinatarios}
+              onChange={id => { if (id) set({ destinatarios: [...c.destinatarios, id] }) }}
+            />
+          </div>
+        </label>
+        {c.destinatarios.length > 0 && (
+          <ul className="flex flex-wrap gap-1.5">
+            {c.destinatarios.map(id => (
+              <li key={id} className="inline-flex items-center gap-1 rounded-md border bg-muted/40 px-2 py-1 text-[11px]">
+                {nomeDe(id)}
+                <button type="button" aria-label={`Remover ${nomeDe(id)}`}
+                  onClick={() => set({ destinatarios: c.destinatarios.filter(x => x !== id) })}
+                  className="text-muted-foreground transition-colors hover:text-foreground">×</button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="text-[11px] text-muted-foreground/80">
+          Sai uma vez por dia, no mesmo horário do resumo, com todos os avisos da pessoa numa mensagem só.
+          Um aviso repetido só volta a ser enviado quando piora (de “vence em 60 dias” para “vence em 7”).
+        </p>
+      </div>
+    </Card>
   )
 }
 
@@ -423,6 +485,8 @@ export default function NotificacoesParams() {
       </Card>
 
       <EmailCard p={p} setP={setP} isAdmin={isAdmin} />
+
+      <ContratosEmailCard p={p} setP={setP} />
 
       {/* O reaviso não tem interruptor próprio: "0 dia" já significa desligado, e um
           toggle a mais faria o usuário configurar a mesma coisa em dois lugares. */}

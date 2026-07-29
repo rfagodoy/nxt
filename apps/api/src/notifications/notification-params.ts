@@ -34,6 +34,36 @@ export interface EmailParams {
 
 export const DEFAULT_EMAIL: EmailParams = { imediato: true, resumoDiario: true, horaResumo: 8 }
 
+/** Envio por e-mail dos alertas de CONTRATO (vigência, reajuste, consumo).
+ *
+ *  Bloco separado do `email` porque o destinatário é de outra natureza: aviso de
+ *  workflow tem dono (a tarefa é de alguém), aviso de contrato é da organização —
+ *  nasce sem userId. Quem recebe é resolvido em três camadas, nesta ordem:
+ *  responsáveis do contrato → destinatários fixos → administradores. */
+export interface ContratosEmailParams {
+  enabled: boolean
+  /** Usuários que recebem TODOS os alertas de contrato, além dos responsáveis.
+   *  Vazio é o normal: a maioria das organizações quer só o responsável. */
+  destinatarios: string[]
+}
+
+export const DEFAULT_CONTRATOS_EMAIL: ContratosEmailParams = { enabled: true, destinatarios: [] }
+
+export function contratosEmailParams(value: unknown): ContratosEmailParams {
+  const v = (value as { emailContratos?: Partial<ContratosEmailParams> } | null)?.emailContratos
+  if (!v || typeof v !== 'object') return DEFAULT_CONTRATOS_EMAIL
+  return {
+    enabled: v.enabled ?? DEFAULT_CONTRATOS_EMAIL.enabled,
+    destinatarios: Array.isArray(v.destinatarios) ? [...new Set(v.destinatarios.filter((s) => typeof s === 'string' && s))] : [],
+  }
+}
+
+/** Ordem de gravidade. Existe para duas decisões: ordenar o e-mail (o crítico
+ *  primeiro) e detectar ESCALADA — quando um aviso piora, ele volta a ser enviado
+ *  mesmo já tendo saído antes. Sem isso, quem recebeu "vence em 60 dias" nunca
+ *  receberia o "vence em 7". */
+export const SEVERIDADE_RANK: Record<string, number> = { INFO: 0, ALERTA: 1, CRITICO: 2 }
+
 export function emailParams(value: unknown): EmailParams {
   const v = (value as { email?: Partial<EmailParams> } | null)?.email
   if (!v || typeof v !== 'object') return DEFAULT_EMAIL
