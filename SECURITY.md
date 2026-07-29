@@ -24,7 +24,7 @@ Resumo da postura de segurança e **checklist obrigatório antes de produção**
 - [ ] `secure: true` nos cookies (já ligado quando `NODE_ENV=production`).
 
 ### Dados
-- [x] **Backup** automatizado do banco + teste de restauração — `deploy/backup/` (backup + `test-restore`, exercitado de verdade). **Falta** levar a cópia para fora da máquina, que é rotina de infraestrutura do cliente.
+- [x] **Backup** automatizado do banco + teste de restauração — `deploy/backup/` (backup + `test-restore`, exercitado de verdade). O instalador **agenda** as duas rotinas, e `-CopiaPara`/`COPIA_PARA` leva a cópia para um segundo destino, com conferência de tamanho. **Falta** apontar esse destino para fora do prédio (fita/nuvem) e **cifrar o `.bak`**, que é decisão de infraestrutura do cliente.
 - [ ] **Encryption at rest** do banco e do storage de anexos.
 - [ ] Retenção/limpeza de PII (LGPD): política para dados de parceiros e logs de auditoria.
 

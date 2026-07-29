@@ -142,19 +142,38 @@ fora do sistema e não há como desfazer do servidor); e os cabeçalhos de segur
 ```
 backup/backup-sqlserver.sql    BACKUP DATABASE + RESTORE VERIFYONLY (a lógica mora aqui)
 backup/restore-sqlserver.sql   restore com MOVE lido do próprio backup
-backup/backup-nxt.{sh,ps1}     agendável: banco + anexos + retenção
+backup/backup-nxt.{sh,ps1}     banco + anexos + cópia externa + retenção
 backup/test-restore.{sh,ps1}   restaura num banco paralelo e CONFERE
+backup/agendar-backup.{sh,ps1} registra as duas rotinas no cron / Agendador
 ```
 
-Agendar as duas rotinas:
+**O instalador já agenda.** `install-nxt` chama o `agendar-backup` ao final: backup
+diário às 2h e restore de teste no dia 1º às 3h. Antes as linhas de agendamento
+existiam só neste README — e backup que depende de alguém lembrar não é backup.
 
+Para agendar (ou reagendar) fora da instalação:
+
+```powershell
+# Windows, como Administrador
+.\agendar-backup.ps1 -CopiaPara \\nas01\backups\nxt
+schtasks /Run /TN nxt-backup          # prove agora, não às 2h
+```
 ```bash
-# Linux (root)
-0 2 * * * /opt/nxt/deploy/backup/backup-nxt.sh    >> /opt/nxt/logs/backup.log 2>&1
-0 3 1 * * /opt/nxt/deploy/backup/test-restore.sh  >> /opt/nxt/logs/restore-teste.log 2>&1
+# Linux, como root
+sudo COPIA_PARA=/mnt/nas/nxt ./agendar-backup.sh
 ```
 
-No Windows, as mesmas duas no Agendador de Tarefas, executando como SYSTEM.
+**A cópia para fora da máquina** é o parâmetro `-CopiaPara` / `COPIA_PARA`: depois de
+gravar e verificar, o script copia `.bak` e anexos para um segundo destino, **confere o
+tamanho** (cópia truncada por queda de rede é falha silenciosa) e aplica a mesma
+retenção lá. Se a cópia externa falhar, o script termina com erro mesmo com o backup
+local íntegro — é dela que se depende no dia em que a máquina se perde.
+
+⚠️ Quem grava o `.bak` primário é o **serviço do SQL Server**; quem faz a cópia externa é
+a **conta que executa a tarefa**. Agendada como SYSTEM, ela chega na rede como a conta de
+máquina (`DOMÍNIO\SERVIDOR$`) — é essa que precisa de permissão no compartilhamento.
+No Linux, o ponto de montagem precisa subir no boot (fstab): sem isso a tarefa grava num
+diretório local vazio achando que escreveu na rede.
 
 **O `test-restore` não é opcional.** Backup nunca restaurado é esperança, não proteção:
 ele restaura em `<banco>_restore_teste`, confere que os dados chegaram lá e remove o
@@ -177,8 +196,10 @@ ao qual a conta do serviço tenha acesso. O script detecta esse caso e falha com
 explicação em vez de dizer que deu certo.
 
 ⚠️ E o mais importante: **backup que não sai da máquina não protege contra a perda da
-máquina.** Copiar a pasta para fora (fita, NAS, objeto) é rotina de infraestrutura do
-cliente e está fora do escopo destes scripts.
+máquina.** O `-CopiaPara` resolve o caso de um segundo destino alcançável por caminho
+(NAS, compartilhamento, disco). Continuam fora de escopo — e são decisão de
+infraestrutura do cliente: fita, storage de objeto/nuvem, e **cifrar o `.bak`** (ele é
+comprimido, não cifrado; mandá-lo para terceiro em claro é conversa de LGPD).
 
 ## Reinício automático
 
@@ -200,9 +221,10 @@ journalctl -u nxt-api -f
 
 ## Ainda não coberto
 
-TLS **emitido** (o `.conf` existe, o certificado é do cliente) · cópia do backup para
-fora da máquina · usuário de banco com privilégio mínimo documentado · retenção/LGPD ·
-pacote de instalação (hoje se copia a pasta construída) · monitoramento externo.
+TLS **emitido** (o `.conf` existe, o certificado é do cliente) · backup em fita/nuvem e
+`.bak` cifrado (há cópia para um segundo caminho, ver acima) · usuário de banco com
+privilégio mínimo documentado · retenção/LGPD · pacote de instalação (hoje se copia a
+pasta construída) · monitoramento externo.
 
 ## Nota para quem for editar estes scripts
 
