@@ -28,6 +28,8 @@ ORG_NAME_ARG="Nxt"
 WEB_URL_ARG="http://localhost:3000"
 USUARIO=nxt
 PULAR_SERVICOS=0
+PULAR_BACKUP=0
+BACKUP_COPIA_PARA=""
 
 passo() { printf '\n=== %s\n' "$1"; }
 ok()    { printf '  OK  %s\n' "$1"; }
@@ -45,6 +47,8 @@ while [[ $# -gt 0 ]]; do
     --web-url)        WEB_URL_ARG="$2"; shift 2 ;;
     --usuario)        USUARIO="$2"; shift 2 ;;
     --pular-servicos) PULAR_SERVICOS=1; shift ;;
+    --pular-backup)   PULAR_BACKUP=1; shift ;;
+    --backup-copia-para) BACKUP_COPIA_PARA="$2"; shift 2 ;;
     -h|--help)        sed -n '2,20p' "$0"; exit 0 ;;
     *) erro "Opção desconhecida: $1" ;;
   esac
@@ -84,7 +88,10 @@ PRIMEIRA_VEZ=0
 
 passo 'Aplicação'
 command -v rsync >/dev/null || erro 'rsync não encontrado — necessário para copiar a aplicação sem deixar restos da versão anterior.'
-for parte in apps/api apps/web packages node_modules package.json package-lock.json; do
+# `deploy` vai junto de propósito: o cron de backup aponta para $ROOT/deploy/backup.
+# Apontar para a pasta de entrega deixaria o backup preso a um diretório temporário
+# que alguém apaga depois de instalar — e ninguém descobre até precisar restaurar.
+for parte in apps/api apps/web packages deploy node_modules package.json package-lock.json; do
   [[ -e "$ORIGEM/$parte" ]] || continue
   mkdir -p "$(dirname "$ROOT/$parte")"
   # --delete espelha: arquivo que sumiu na origem some no destino, senão a
@@ -108,6 +115,16 @@ DATABASE_URL_ATUAL="$(ler_env "$API_ENV" DATABASE_URL)"
 JWT="$(ler_env "$API_ENV" AUTH_JWT_SECRET)";     [[ -n "$JWT" ]] || { JWT="$(novo_segredo)"; ok 'AUTH_JWT_SECRET gerado'; }
 MAILKEY="$(ler_env "$API_ENV" MAIL_ENCRYPTION_KEY)"; [[ -n "$MAILKEY" ]] || { MAILKEY="$(novo_segredo)"; ok 'MAIL_ENCRYPTION_KEY gerado'; }
 
+# Preserva o que este instalador NÃO gerencia (MAIL_HOST, R2_*, THROTTLE_*, o que o
+# cliente tiver acrescentado). Antes o heredoc reescrevia o arquivo inteiro e apagava
+# em silêncio a configuração feita à mão — a versão Windows sempre preservou, e as
+# duas precisam dar o mesmo resultado.
+GERENCIADAS='^(NODE_ENV|PORT|DATABASE_URL|AUTH_JWT_SECRET|MAIL_ENCRYPTION_KEY|WEB_URL|STORAGE_DRIVER|STORAGE_DIR)='
+EXTRAS=""
+if [[ -f "$API_ENV" ]]; then
+  EXTRAS="$(grep -Ev "$GERENCIADAS" "$API_ENV" | grep -Ev '^[[:space:]]*$' || true)"
+fi
+
 umask 077
 cat > "$API_ENV" <<EOF
 NODE_ENV=production
@@ -119,6 +136,10 @@ WEB_URL=$WEB_URL_ARG
 STORAGE_DRIVER=local
 STORAGE_DIR=$ROOT/storage
 EOF
+if [[ -n "$EXTRAS" ]]; then
+  printf '%s\n' "$EXTRAS" >> "$API_ENV"
+  ok "$(printf '%s\n' "$EXTRAS" | wc -l) variável(is) fora do padrão preservada(s) no api.env"
+fi
 chown root:"$USUARIO" "$API_ENV"; chmod 640 "$API_ENV"
 ok 'api.env escrito (leitura só para root e o usuário de serviço)'
 
@@ -157,18 +178,29 @@ if [[ $PULAR_SERVICOS -eq 0 ]]; then
   ok 'unidades instaladas e habilitadas (ainda não iniciadas)'
 fi
 
+if [[ $PULAR_BACKUP -eq 0 ]]; then
+  passo 'Backup agendado'
+  # Sem agendamento, o backup existe e nunca roda — foi assim até aqui. O script é
+  # idempotente: reinstalar apenas reescreve o /etc/cron.d/nxt-backup.
+  chmod +x "$ROOT"/deploy/backup/*.sh
+  RAIZ="$ROOT" CONFIG="$API_ENV" COPIA_PARA="$BACKUP_COPIA_PARA" LOGS="$ROOT/logs" \
+    "$ROOT/deploy/backup/agendar-backup.sh"
+fi
+
 passo 'Instalação concluída'
 cat <<EOF
   Aplicação:  $ROOT
   Config:     $CONFIG_DIR  (contém segredos — não anexe em chamado de suporte)
   Logs:       journalctl -u nxt-api -f
-  Backup:     $ROOT/backup
+  Backup:     $ROOT/backup — cron diário + restore de teste mensal (/etc/cron.d/nxt-backup)
 
   Iniciar:    systemctl start nxt-api nxt-web
   Conferir:   systemctl status nxt-api
 
   AINDA FALTA, e não é opcional:
    1. TLS na frente (deploy/nginx/nxt.conf) — sem isso, senha trafega em claro.
-   2. Backup agendado (deploy/backup/) — e um restore de teste ANTES de virar produção.
+   2. Cópia do backup para FORA da máquina: reinstale com --backup-copia-para /mnt/nas/nxt
+      (ou rode deploy/backup/agendar-backup.sh com COPIA_PARA=...). Backup que mora no
+      servidor não sobrevive à perda do servidor.
    3. Servidor de e-mail em Configurações -> E-mail, se os avisos forem sair por e-mail.
 EOF

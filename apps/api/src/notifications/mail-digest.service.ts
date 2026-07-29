@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma.service'
 import { SettingsService } from '../settings/settings.service'
 import { MailerService, layout, escapeHtml } from './mailer.service'
 import { NOTIF_PARAMS_KEY, emailParams } from './notification-params'
+import { ContractAlertsMailService } from './contract-alerts-mail.service'
 
 /* Resumo diário: um e-mail por pessoa com o que ela ainda não recebeu por e-mail.
    Trabalha junto com o envio imediato e não em cima dele — o filtro é `emailedAt`
@@ -26,6 +27,7 @@ export class MailDigestService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
     private readonly mailer: MailerService,
+    private readonly contractAlerts: ContractAlertsMailService,
   ) {}
 
   onModuleInit() {
@@ -49,20 +51,27 @@ export class MailDigestService implements OnModuleInit {
     }
   }
 
-  /** Envia o resumo de UMA organização, se estiver na hora e ainda não tiver saído hoje. */
+  /** Dispara as saídas DIÁRIAS de UMA organização, se estiver na hora e ainda não
+   *  tiverem saído hoje: o resumo pessoal e os alertas de contrato.
+   *
+   *  As duas andam no mesmo relógio de propósito. Os alertas de contrato nascem às 3h,
+   *  com o motor de datas — mandá-los na hora em que nascem entregaria e-mail de
+   *  madrugada. E são duas mensagens por dia no máximo, não uma por aviso. */
   private async runOrg(organizationId: string): Promise<number> {
     const params = emailParams((await this.settings.get(organizationId, NOTIF_PARAMS_KEY)).value)
-    if (!params.resumoDiario) return 0
 
     const agora = new Date()
     const hoje = agora.toISOString().slice(0, 10)
     if (agora.getHours() !== params.horaResumo) return 0
     if (this.ultimoEnvio.get(organizationId) === hoje) return 0
 
-    const enviados = await this.enviar(organizationId)
+    const enviados = params.resumoDiario ? await this.enviar(organizationId) : 0
+    /* gate próprio: quem desliga o resumo pessoal não está desligando os alertas de
+       contrato (e vice-versa) — são públicos e decisões diferentes. */
+    const contratos = await this.contractAlerts.enviar(organizationId)
     this.ultimoEnvio.set(organizationId, hoje)
     if (enviados > 0) this.logger.log(`resumo diário enviado para ${enviados} pessoa(s)`)
-    return enviados
+    return enviados + contratos
   }
 
   /** Monta e envia o resumo. Público para o disparo manual da tela (admin). */

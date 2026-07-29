@@ -58,7 +58,9 @@ param(
   [string]$OrgName = 'Nxt',
   [string]$WebUrl = 'http://localhost:3000',
   [string]$WinSwPath,
-  [switch]$PularServicos
+  [switch]$PularServicos,
+  [string]$BackupCopiaPara = '',
+  [switch]$PularBackup
 )
 
 $ErrorActionPreference = 'Stop'
@@ -133,7 +135,11 @@ Ok "Estrutura em $Root"
 
 Passo 'Aplicação'
 $primeiraVez = -not (Test-Path "$Root\config\api.env")
-foreach ($parte in @('apps\api', 'apps\web', 'packages', 'node_modules', 'package.json', 'package-lock.json')) {
+# `deploy` vai junto de propósito: as tarefas agendadas de backup apontam para
+# $Root\deploy\backup. Apontar para a pasta de entrega deixaria o backup preso a um
+# diretório temporário que alguém apaga depois de instalar — e ninguém descobre até
+# precisar restaurar.
+foreach ($parte in @('apps\api', 'apps\web', 'packages', 'deploy', 'node_modules', 'package.json', 'package-lock.json')) {
   $de = Join-Path $Origem $parte
   if (-not (Test-Path $de)) { continue }
   $para = Join-Path $Root $parte
@@ -210,6 +216,13 @@ if (-not $PularServicos) {
   }
 }
 
+if (-not $PularBackup) {
+  Passo 'Backup agendado'
+  # Sem agendamento, o backup existe e nunca roda — foi assim até aqui. O script é
+  # idempotente, então reinstalar apenas reescreve as tarefas.
+  & (Join-Path $Root 'deploy\backup\agendar-backup.ps1') -Root $Root -CopiaPara $BackupCopiaPara
+}
+
 Passo 'Instalação concluída'
 Write-Host @"
   Aplicação:  $Root
@@ -220,8 +233,13 @@ Write-Host @"
   Iniciar:    Start-Service nxt-api; Start-Service nxt-web
   Conferir:   Get-Service nxt-*
 
+  Backup:     tarefas nxt-backup (diária) e nxt-restore-teste (mensal) registradas
+              Prove agora: schtasks /Run /TN nxt-backup
+
   AINDA FALTA, e não é opcional:
    1. TLS na frente (deploy\nginx\nxt.conf) — sem isso, senha trafega em claro.
-   2. Backup agendado (deploy\backup\) — e um restore de teste ANTES de virar produção.
+   2. Cópia do backup para FORA da máquina: reinstale com -BackupCopiaPara <\\servidor\share>
+      (ou rode deploy\backup\agendar-backup.ps1 -CopiaPara ...). Backup que mora no
+      servidor não sobrevive à perda do servidor.
    3. Servidor de e-mail em Configurações -> E-mail, se os avisos forem sair por e-mail.
 "@ -ForegroundColor Gray

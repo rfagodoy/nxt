@@ -224,6 +224,7 @@ export default function DashboardPage() {
           <Composicao
             icon={<FileText className="h-4 w-4" />}
             label="Contratos"
+            hint="Contratos cancelados não entram na carteira — por isso este total pode ser menor que o da listagem."
             tipo="barras"
             total={c?.total ?? 0}
             onClick={() => router.push('/modules/contratos')}
@@ -233,7 +234,9 @@ export default function DashboardPage() {
               { nome: 'Em cadastro', valor: c?.byStatus.EM_CADASTRO ?? 0, cor: 'hsl(210 90% 55%)' },
               { nome: 'Encerrados',  valor: c?.byStatus.ENCERRADO ?? 0,   cor: 'hsl(215 15% 55%)' },
               { nome: 'Rescindidos', valor: c?.byStatus.RESCINDIDO ?? 0,  cor: 'hsl(0 72% 55%)'   },
-              { nome: 'Cancelados',  valor: c?.byStatus.CANCELADO ?? 0,   cor: 'hsl(215 12% 40%)' },
+              /* Sem "Cancelados": o cancelado nunca chegou a valer e por decisão do PO
+                 (28/07) não entra na carteira — nem no Total, nem na composição. Ele
+                 continua na listagem de Contratos, que é onde se procura um registro. */
             ]}
           />
           <Composicao
@@ -279,8 +282,11 @@ interface Fatia { nome: string; valor: number; cor: string }
  *  Fatia zerada é OMITIDA do gráfico e da legenda: uma situação sem nenhum registro
  *  não é informação, é ruído — e com seis situações possíveis a legenda ficaria mais
  *  alta que o próprio gráfico. */
-function Composicao({ icon, label, total, fatias, onClick, tipo = 'rosca' }: {
+function Composicao({ icon, label, hint, total, fatias, onClick, tipo = 'rosca' }: {
   icon: React.ReactNode; label: string; total: number; fatias: Fatia[]
+  /** Explica no hover uma diferença que o número sozinho não conta (ex.: por que o
+   *  Total daqui não bate com o da listagem). */
+  hint?: string
   onClick?: () => void
   /** Rosca para POUCAS categorias (parte/todo); barras quando são muitas — com seis
    *  fatias a rosca vira um mosaico de lascas que ninguém consegue comparar. */
@@ -295,7 +301,7 @@ function Composicao({ icon, label, total, fatias, onClick, tipo = 'rosca' }: {
       <div className="flex shrink-0 items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">{icon}</span>
-          <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
+          <p className="truncate text-xs font-medium text-muted-foreground" title={hint}>{label}</p>
         </div>
         {/* Nas barras o total sai do miolo do gráfico e vem para o cabeçalho. */}
         {tipo === 'barras' && soma > 0 && (
