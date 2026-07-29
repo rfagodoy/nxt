@@ -150,15 +150,15 @@ export function Sidebar() {
                   className={cn(TITULO_SECAO, 'group/sec flex w-full items-center gap-1 rounded-md hover:text-sidebar-foreground transition-colors')}
                 >
                   <span className="truncate">{section.label}</span>
-                  {/* O chevron só aparece quando tem o que dizer. Com a seção ABERTA
-                      ele não informa nada — os itens estão à vista — e era a única
-                      coisa que diferenciava este título de um grupo fixo como
-                      "Gestão", quebrando a uniformidade da barra. Some no repouso e
-                      volta no hover/foco, que é quando a pessoa cogita clicar.
-                      RECOLHIDA, ele fica: aí é o único sinal de que há algo embaixo. */}
+                  {/* Chevron INVISÍVEL no repouso, aberta ou recolhida: no repouso todo
+                      título de seção tem exatamente a mesma aparência — era ele o único
+                      elemento que distinguia um grupo recolhível de um fixo como "Gestão".
+                      Reaparece no hover/foco, que é quando a pessoa cogita clicar.
+                      Decisão do PO (28/07), ciente de que numa seção recolhida ele era o
+                      único sinal de que há itens embaixo. */}
                   <ChevronRight className={cn(
-                    'h-3 w-3 shrink-0 transition-all',
-                    aberta && 'rotate-90 opacity-0 group-hover/sec:opacity-100 group-focus-visible/sec:opacity-100',
+                    'h-3 w-3 shrink-0 opacity-0 transition-all group-hover/sec:opacity-100 group-focus-visible/sec:opacity-100',
+                    aberta && 'rotate-90',
                   )} />
                 </button>
               ) : (
