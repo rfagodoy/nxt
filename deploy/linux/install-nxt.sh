@@ -91,7 +91,11 @@ command -v rsync >/dev/null || erro 'rsync não encontrado — necessário para 
 # `deploy` vai junto de propósito: o cron de backup aponta para $ROOT/deploy/backup.
 # Apontar para a pasta de entrega deixaria o backup preso a um diretório temporário
 # que alguém apaga depois de instalar — e ninguém descobre até precisar restaurar.
-for parte in apps/api apps/web packages deploy node_modules package.json package-lock.json; do
+# `tools` idem: `npm run db:deploy` (que o README manda rodar a cada atualização, e que
+# a própria API pede quando se recusa a subir por migração pendente) chama
+# tools/prisma-env.mjs. Sem esta pasta o comando morre com MODULE_NOT_FOUND justamente
+# na hora em que o sistema está parado esperando por ele.
+for parte in apps/api apps/web packages deploy tools node_modules package.json package-lock.json; do
   [[ -e "$ORIGEM/$parte" ]] || continue
   mkdir -p "$(dirname "$ROOT/$parte")"
   # --delete espelha: arquivo que sumiu na origem some no destino, senão a

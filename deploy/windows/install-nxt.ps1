@@ -139,7 +139,11 @@ $primeiraVez = -not (Test-Path "$Root\config\api.env")
 # $Root\deploy\backup. Apontar para a pasta de entrega deixaria o backup preso a um
 # diretório temporário que alguém apaga depois de instalar — e ninguém descobre até
 # precisar restaurar.
-foreach ($parte in @('apps\api', 'apps\web', 'packages', 'deploy', 'node_modules', 'package.json', 'package-lock.json')) {
+# `tools` idem: `npm run db:deploy` (que o README manda rodar a cada atualização, e que
+# a própria API pede quando se recusa a subir por migração pendente) chama
+# tools\prisma-env.mjs. Sem esta pasta o comando morre com MODULE_NOT_FOUND justamente
+# na hora em que o sistema está parado esperando por ele.
+foreach ($parte in @('apps\api', 'apps\web', 'packages', 'deploy', 'tools', 'node_modules', 'package.json', 'package-lock.json')) {
   $de = Join-Path $Origem $parte
   if (-not (Test-Path $de)) { continue }
   $para = Join-Path $Root $parte

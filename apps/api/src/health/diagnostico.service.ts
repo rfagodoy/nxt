@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
-import { readFileSync, statfsSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readFileSync, statfsSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { getHeapStatistics } from 'node:v8'
 import { PrismaService } from '../prisma.service'
 import { MailSettingsService } from '../notifications/mail-settings.service'
@@ -124,7 +124,19 @@ export class DiagnosticoService {
   }
 
   private disco(): ItemDiagnostico {
-    const dir = process.env.STORAGE_DIR || process.cwd()
+    /* A pasta de anexos só nasce no primeiro upload (LocalDiskDriver.save faz o mkdir).
+       `statfsSync` recusa caminho inexistente, então medir o STORAGE_DIR direto fazia uma
+       instalação recém-feita relatar "não foi possível medir" — um alarme falso bem na
+       tela que existe para dizer o que ficou torto. O espaço é do VOLUME, não da pasta:
+       subimos até o primeiro diretório que existe e medimos ali. `resolve` também tira a
+       ambiguidade de um STORAGE_DIR relativo, que sem isso dependeria do cwd do processo. */
+    const alvo = resolve(process.env.STORAGE_DIR || process.cwd())
+    let dir = alvo
+    while (!existsSync(dir)) {
+      const pai = dirname(dir)
+      if (pai === dir) break // chegou na raiz do volume; deixa o statfs falar
+      dir = pai
+    }
     try {
       const fs = statfsSync(dir)
       const livre = fs.bavail * fs.bsize
@@ -137,7 +149,7 @@ export class DiagnosticoService {
       if (pctLivre < 15) return { item: 'Disco (anexos)', estado: 'atencao', detalhe: `${gb(livre)} GB livres de ${gb(total)} GB (${pctLivre.toFixed(1)}%).`, acao: 'Programe limpeza ou expansão.' }
       return { item: 'Disco (anexos)', estado: 'ok', detalhe: `${gb(livre)} GB livres de ${gb(total)} GB.` }
     } catch {
-      return { item: 'Disco (anexos)', estado: 'atencao', detalhe: `Não foi possível medir o espaço em ${dir}.` }
+      return { item: 'Disco (anexos)', estado: 'atencao', detalhe: `Não foi possível medir o espaço em ${alvo}.` }
     }
   }
 
