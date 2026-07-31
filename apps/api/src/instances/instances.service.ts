@@ -495,12 +495,94 @@ export class InstancesService {
 
   // ── Delegar (passar a tarefa para outra pessoa) ──────────────────────────────
 
+  /** Quem PODE receber esta tarefa por delegação.
+   *
+   *  A regra é a do desenho: a atividade define executor = papel + entidade, e delegar
+   *  para fora disso furaria a própria configuração do workflow — a tarefa cairia na
+   *  caixa de alguém que o processo nunca previu como executor.
+   *
+   *  Devolve também o CONTEXTO (papel, entidade, se o pool está vazio) porque uma lista
+   *  vazia sem explicação é indistinguível de erro de carregamento. E devolve
+   *  `podeVerTodos` para o administrador: o motivo de existir do "Delegar" é destravar
+   *  processo por férias/desligamento, e num papel de uma pessoa só a regra estrita
+   *  deixaria a tarefa parada justamente no caso que ela existe para resolver. */
+  async delegateCandidates(taskId: string, organizationId: string, actor?: CurrentUserData) {
+    const { task, graph } = await this.loadActionableTask(taskId, organizationId, actor)
+    const node = graph.nodes[task.nodeId]
+    const ex = node?.executor
+
+    const atuais = new Set(Array.isArray(task.assignees) ? (task.assignees as string[]) : [])
+    if (task.assignee) atuais.add(task.assignee)
+
+    const ativos = async (ids: string[]) =>
+      ids.length
+        ? this.prisma.user.findMany({
+            where: { id: { in: ids }, organizationId, status: 'ATIVO' },
+            select: { id: true, name: true, email: true },
+            orderBy: { name: 'asc' },
+          })
+        : []
+
+    const todos = () =>
+      this.prisma.user.findMany({
+        where: { organizationId, status: 'ATIVO' },
+        select: { id: true, name: true, email: true },
+        orderBy: { name: 'asc' },
+      })
+
+    /* Atividade sem executor por papel (desenho antigo, com `role` de texto livre, ou
+       tarefa aberta): não há papel para restringir — a lista é a organização inteira, e
+       dizemos por quê em vez de mostrar um vazio inexplicável. */
+    if (!ex?.papelId) {
+      const lista = (await todos()).filter((u) => !atuais.has(u.id))
+      return {
+        restrito: false,
+        motivo: 'Esta atividade não define executor por papel — qualquer usuário pode receber.',
+        papelId: null as string | null,
+        entityType: null as string | null,
+        entityId: null as string | null,
+        podeVerTodos: this.isAdmin(actor),
+        candidatos: lista,
+      }
+    }
+
+    const state = task.instance.state as unknown as WfState
+    const pool = await this.resolveExecutor(node, organizationId, state?.variables ?? {})
+    const candidatos = (await ativos(pool)).filter((u) => !atuais.has(u.id))
+
+    return {
+      restrito: true,
+      motivo: null as string | null,
+      papelId: ex.papelId,
+      entityType: ex.entityType,
+      entityId: ex.entityId ?? null,
+      /* Só o admin pode furar a regra, e só quando ela não tem saída. */
+      podeVerTodos: this.isAdmin(actor),
+      candidatos,
+    }
+  }
+
+  /** Lista completa da organização — o "ver todos" do administrador quando o papel
+   *  não tem gente suficiente para a tarefa sair do lugar. */
+  async delegateCandidatesAll(taskId: string, organizationId: string, actor?: CurrentUserData) {
+    const { task } = await this.loadActionableTask(taskId, organizationId, actor)
+    if (!this.isAdmin(actor)) throw new ForbiddenException('Apenas administradores podem delegar fora do papel')
+    const atuais = new Set(Array.isArray(task.assignees) ? (task.assignees as string[]) : [])
+    if (task.assignee) atuais.add(task.assignee)
+    const lista = await this.prisma.user.findMany({
+      where: { organizationId, status: 'ATIVO' },
+      select: { id: true, name: true, email: true },
+      orderBy: { name: 'asc' },
+    })
+    return { candidatos: lista.filter((u) => !atuais.has(u.id)) }
+  }
+
   /** Reatribui uma tarefa pendente a outro usuário. Existe porque processo parado
    *  por férias/desligamento é o modo mais banal de um workflow morrer: sem isto, a
    *  única saída seria um administrador editar o banco.
    *  Quem pode: o executor atual (repassa o que é seu) ou um administrador. */
   async assignTask(taskId: string, dto: AssignTaskDto, organizationId: string, actor?: CurrentUserData) {
-    const { task } = await this.loadActionableTask(taskId, organizationId, actor)
+    const { task, graph } = await this.loadActionableTask(taskId, organizationId, actor)
     const reason = (dto.reason ?? '').trim()
     if (!reason) throw new BadRequestException('Informe o motivo da delegação')
 
@@ -510,6 +592,22 @@ export class InstancesService {
     })
     if (!target) throw new NotFoundException('Usuário não encontrado nesta organização')
     if (target.status !== 'ATIVO') throw new BadRequestException('Usuário inativo não pode receber tarefas')
+
+    /* A restrição ao papel vale no BACKEND, não só na tela: a lista filtrada é
+       conveniência, isto é a regra. Sem esta checagem, qualquer chamada direta à API
+       colocaria a tarefa na mão de quem o workflow não elegeu.
+       O administrador é a exceção deliberada (ver delegateCandidates). */
+    const ex = graph.nodes[task.nodeId]?.executor
+    if (ex?.papelId && !this.isAdmin(actor)) {
+      const state = task.instance.state as unknown as WfState
+      const pool = await this.resolveExecutor(graph.nodes[task.nodeId], organizationId, state?.variables ?? {})
+      if (!pool.includes(target.id)) {
+        throw new BadRequestException(
+          'Esta atividade só pode ser delegada a quem ocupa o papel previsto no workflow. ' +
+          'Se a pessoa deveria estar na lista, cadastre-a no papel em Responsáveis.',
+        )
+      }
+    }
 
     const pool = Array.isArray(task.assignees) ? (task.assignees as string[]) : []
     if (pool.length === 1 && pool[0] === target.id) {

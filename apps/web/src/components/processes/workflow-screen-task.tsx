@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Loader2, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { Loader2, AlertTriangle, CheckCircle2, Eye } from 'lucide-react'
 import { getScreen } from '@/hooks/use-screens'
 import { apiJson } from '@/lib/http'
 import type { Screen } from '@/lib/screen-types'
@@ -16,13 +16,16 @@ type PartnerRow = Parameters<typeof PartnerDetailView>[0]['partner']
 
 /**
  * Runtime de uma atividade cujo formulário é uma TELA (Personalização de Telas). Renderiza
- * o cadastro completo dirigido por essa tela e CRIA (novo) ou EDITA (por variável) o
- * Contrato/Parceiro REAL — reportando o id ao pai via `onEntity`.
+ * o cadastro completo dirigido por essa tela e CRIA (novo), EDITA ou apenas CONSULTA (por
+ * variável) o Contrato/Parceiro REAL — reportando o id ao pai via `onEntity`.
  *
  * ⚠️ Salvar a entidade NÃO conclui a tarefa (mudança pedida pelo PO): quem avança o
  * workflow é o botão "Avançar" no topo da tela (ver TaskDocView). Após o CREATE, este
  * componente passa a mostrar a entidade em EDIÇÃO — evita criar um segundo registro se
  * a pessoa salvar de novo antes de avançar.
+ *
+ * VIEW é a etapa de análise/ciência: carrega a entidade como o EDIT, mas a tela abre
+ * travada e sem nenhum botão que grave. A pessoa lê e conclui a tarefa.
  */
 export function WorkflowScreenTask({ step, entityId, onEntity, onCancel }: {
   step: StepFormSchema
@@ -38,6 +41,7 @@ export function WorkflowScreenTask({ step, entityId, onEntity, onCancel }: {
 
   const isContract = step.screenSubject === 'CONTRATO'
   const endpoint = isContract ? 'contracts' : 'partners'
+  const isView = step.entityMode === 'VIEW'
 
   // Carrega a tela uma vez.
   useEffect(() => {
@@ -81,18 +85,40 @@ export function WorkflowScreenTask({ step, entityId, onEntity, onCancel }: {
   }
   if (!screen) return null
 
-  // Já tem entidade (EDIT ou pós-CREATE): mostra em edição. Salvar reporta o id (estável).
+  // Já tem entidade (EDIT, VIEW ou pós-CREATE): mostra a tela. Salvar reporta o id (estável).
   if (entityId && entity) {
     return (
       <>
-        <div className="mb-3 flex items-center gap-2 rounded-lg border border-emerald-300/60 bg-emerald-50 dark:border-emerald-900/60 dark:bg-emerald-950/30 px-3 py-2 text-[12px] text-emerald-800 dark:text-emerald-200">
-          <CheckCircle2 className="h-4 w-4 shrink-0" />
-          <span>{isContract ? 'Contrato' : 'Parceiro'} salvo. Revise se quiser e clique em <span className="font-semibold">Concluir</span> para seguir o processo.</span>
-        </div>
+        {isView ? (
+          <div className="mb-3 flex items-center gap-2 rounded-lg border border-sky-300/60 bg-sky-50 dark:border-sky-900/60 dark:bg-sky-950/30 px-3 py-2 text-[12px] text-sky-800 dark:text-sky-200">
+            <Eye className="h-4 w-4 shrink-0" />
+            <span>Esta etapa é de <span className="font-semibold">consulta</span>: o {isContract ? 'contrato' : 'parceiro'} abre em leitura. Confira e clique em <span className="font-semibold">Concluir</span> para seguir o processo.</span>
+          </div>
+        ) : (
+          <div className="mb-3 flex items-center gap-2 rounded-lg border border-emerald-300/60 bg-emerald-50 dark:border-emerald-900/60 dark:bg-emerald-950/30 px-3 py-2 text-[12px] text-emerald-800 dark:text-emerald-200">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            <span>{isContract ? 'Contrato' : 'Parceiro'} salvo. Revise se quiser e clique em <span className="font-semibold">Concluir</span> para seguir o processo.</span>
+          </div>
+        )}
         {isContract
-          ? <ContractDetailView row={entity as ContractRow} screen={screen} onClose={onCancel ?? (() => {})} onSaved={() => onEntity(entityId)} />
-          : <PartnerDetailView partner={entity as PartnerRow} screen={screen} onClose={onCancel ?? (() => {})} onSaved={() => onEntity(entityId)} />}
+          ? <ContractDetailView row={entity as ContractRow} screen={screen} readOnly={isView} onClose={onCancel ?? (() => {})} onSaved={() => onEntity(entityId)} />
+          : <PartnerDetailView partner={entity as PartnerRow} screen={screen} readOnly={isView} onClose={onCancel ?? (() => {})} onSaved={() => onEntity(entityId)} />}
       </>
+    )
+  }
+
+  /* VIEW sem entidade carregada = a variável do processo não trouxe id (etapa anterior não
+     rodou, ou o desenho aponta para variável errada). Dizer isso é melhor do que abrir um
+     formulário de criação vazio, que gravaria um registro novo sem ninguém pedir. */
+  if (isView) {
+    return (
+      <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40 px-3 py-2 text-[12px] text-amber-800 dark:text-amber-200">
+        <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+        <span className="flex-1">
+          Etapa de consulta sem {isContract ? 'contrato' : 'parceiro'} para mostrar: a variável
+          {step.entityVar ? <> <span className="font-mono">{step.entityVar}</span></> : ''} ainda não tem valor neste processo.
+        </span>
+      </div>
     )
   }
 

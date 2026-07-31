@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { FileText, Users, Calendar, Banknote, TrendingUp, TrendingDown, RefreshCw, Paperclip, FilePlus2, Clock } from 'lucide-react'
+import { FileText, Users, Calendar, Banknote, TrendingUp, TrendingDown, RefreshCw, Paperclip, FilePlus2, Clock, Eye } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { CONTRACTS_CHANGED_EVENT } from '@/lib/contract-events'
@@ -58,7 +58,7 @@ export function DSection({ active, children }: { active: boolean; children: Reac
 }
 
 /* ══════════════════════════════════════════════════════════════ */
-export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, screen }: { row: Row; onClose: () => void; onSaved?: () => void; onDirtyChange?: (dirty: boolean) => void; screen?: Screen }) {
+export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, screen, readOnly }: { row: Row; onClose: () => void; onSaved?: () => void; onDirtyChange?: (dirty: boolean) => void; screen?: Screen; readOnly?: boolean }) {
   const form = useContractForm({
     ...emptyContractForm(),
     numero: row.numero, titulo: row.titulo, tipo: row.tipo, situacao: normalizeSituacao(row.situacao),
@@ -181,7 +181,10 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
   const stored = normalizeSituacao(v.situacao)
   /* situação considera o término VIGENTE (com aditivos): prorrogou → não fica "Vencido" */
   const sit    = effectiveSituacao(v.situacao, v.prazoIndeterminado ? '' : terminoVigente(v))
-  const locked = stored !== 'EM_CADASTRO'
+  /* `readOnly` é a CONSULTA (atividade de workflow com entityMode=VIEW): trava os campos
+     como o contrato travado já faz, e além disso esconde toda ação que grava — inclusive
+     as que o travado permite (Salvar, Ativar, Encerrar…). Consultar não é editar pouco. */
+  const locked = readOnly || stored !== 'EM_CADASTRO'
 
   /* o contrato guarda o ID do tipo (resolução ao vivo); exibir o RÓTULO, não o id */
   const tipos     = useLookupTable(TIPOS_KEY, INIT_TIPOS)
@@ -316,25 +319,30 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-          {!showMotivo && <SaveStatus dirty={dirty} saving={saving} justSaved={justSaved} className="mr-1" />}
+          {!readOnly && !showMotivo && <SaveStatus dirty={dirty} saving={saving} justSaved={justSaved} className="mr-1" />}
+          {readOnly && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              <Eye className="h-3 w-3" />Somente consulta
+            </span>
+          )}
           <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Fechar</button>
 
           {/* Salvar sempre disponível: permite registrar pagamentos/recebimentos mesmo com o contrato travado */}
-          {!showMotivo && (
+          {!readOnly && !showMotivo && (
             <button type="button" onClick={() => { void handleSave() }} disabled={saving}
               className="inline-flex items-center h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted disabled:opacity-40 transition-colors">
               {saving ? 'Salvando...' : 'Salvar'}
             </button>
           )}
 
-          {stored === 'EM_CADASTRO' && !showMotivo && (
+          {!readOnly && stored === 'EM_CADASTRO' && !showMotivo && (
             <button type="button" onClick={() => { void handleSave('VIGENTE') }} disabled={saving}
               className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors">
               {saving ? 'Salvando...' : 'Ativar'}
             </button>
           )}
 
-          {stored === 'VIGENTE' && !showMotivo && (
+          {!readOnly && stored === 'VIGENTE' && !showMotivo && (
             <>
               <button type="button" onClick={() => { setMotivoAction('revisao'); setShowMotivo(true) }}
                 className="inline-flex items-center h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors">
@@ -351,7 +359,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
             </>
           )}
 
-          {(stored === 'ENCERRADO' || stored === 'RESCINDIDO') && !showMotivo && (
+          {!readOnly && (stored === 'ENCERRADO' || stored === 'RESCINDIDO') && !showMotivo && (
             <button type="button" onClick={() => { setMotivoAction('revisao'); setShowMotivo(true) }}
               className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
               Abrir para revisão
