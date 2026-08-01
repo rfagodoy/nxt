@@ -67,6 +67,13 @@ export function ReturnTaskButton({ taskId, onReturned, label = 'Devolver', targe
 
   const usable = (targets ?? []).filter((t) => !t.blockedBy)
   const blocked = (targets ?? []).filter((t) => t.blockedBy)
+  const unico = usable.length === 1 ? usable[0] : null
+
+  /* Destino único = não há escolha a fazer. Obrigar o clique seria pedir que a pessoa
+     confirme a única resposta possível; ela só precisa do motivo. */
+  useEffect(() => {
+    if (open && unico && !sel) setSel(unico.nodeId)
+  }, [open, unico, sel])
 
   return (
     <>
@@ -100,6 +107,12 @@ export function ReturnTaskButton({ taskId, onReturned, label = 'Devolver', targe
                         Não há etapa anterior para onde devolver.
                         {blocked.length > 0 && ' As anteriores estão após uma ação automática já executada (abaixo).'}
                       </p>
+                    ) : unico ? (
+                      /* já selecionado: mostra o destino como informação, não como botão */
+                      <div className="rounded-md border border-primary bg-primary/5 px-3 py-2">
+                        <p className="text-xs font-medium">{unico.name || unico.nodeId}</p>
+                        <p className="text-[10.5px] text-muted-foreground mt-0.5">Única etapa anterior disponível.</p>
+                      </div>
                     ) : (
                       <div className="space-y-1.5">
                         {usable.map((t) => (

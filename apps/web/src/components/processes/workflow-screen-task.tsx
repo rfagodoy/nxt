@@ -27,12 +27,16 @@ type PartnerRow = Parameters<typeof PartnerDetailView>[0]['partner']
  * VIEW é a etapa de análise/ciência: carrega a entidade como o EDIT, mas a tela abre
  * travada e sem nenhum botão que grave. A pessoa lê e conclui a tarefa.
  */
-export function WorkflowScreenTask({ step, entityId, onEntity, onCancel }: {
+export function WorkflowScreenTask({ step, entityId, onEntity, onEntityGone, onCancel }: {
   step: StepFormSchema
   /** id atual da entidade (null = ainda não criada, em modo CREATE) */
   entityId: string | null
   /** reporta o id ao salvar a entidade (o pai guarda para o "Avançar") */
   onEntity: (id: string) => void
+  /** o id veio da variável do processo mas a entidade não existe mais (uma ação
+   *  automática compensada pode tê-la removido). Em CREATE isso não é erro: a etapa
+   *  volta a criar. O pai precisa saber para soltar o id velho do "Concluir". */
+  onEntityGone?: () => void
   onCancel?: () => void
 }) {
   const [screen, setScreen] = useState<Screen | null | undefined>(undefined)
@@ -59,13 +63,19 @@ export function WorkflowScreenTask({ step, entityId, onEntity, onCancel }: {
     let cancel = false
     setEntity(undefined)
     void (async () => {
-      const e = await apiJson<ContractRow | PartnerRow>(`/api/${endpoint}/${entityId}`)
+      const e = await apiJson<ContractRow | PartnerRow>(`/api/${endpoint}/${entityId}`).catch(() => null)
       if (cancel) return
-      if (!e) { setErr('Entidade-alvo não encontrada.'); return }
+      if (!e) {
+        // Em CREATE, sumiu = criar de novo (não é erro). Em EDIT/VIEW o desenho aponta
+        // para uma entidade que deveria existir, então continua sendo erro.
+        if ((step.entityMode ?? 'CREATE') === 'CREATE') { setEntity(null); onEntityGone?.(); return }
+        setErr('Entidade-alvo não encontrada.'); return
+      }
       setEntity(e)
     })()
     return () => { cancel = true }
-  }, [entityId, endpoint])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onEntityGone é estável no uso (setState); incluí-lo refaria o fetch a cada render do pai
+  }, [entityId, endpoint, step.entityMode])
 
   if (err) {
     return (

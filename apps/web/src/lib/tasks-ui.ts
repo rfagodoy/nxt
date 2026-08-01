@@ -38,7 +38,7 @@ export function valorCurto(valor?: number, moeda = 'BRL'): string | null {
   return MOEDA_FMT.format(valor)
 }
 
-export interface TimelineTask { id: string; name?: string | null; status: string; completedBy?: string | null }
+export interface TimelineTask { id: string; nodeId: string; name?: string | null; status: string; completedBy?: string | null }
 export interface InstanceContext {
   instance: { processDefinition: { name: string; formSchema: ProcessFormSchema }; tasks?: TimelineTask[] }
   state?: { variables?: Record<string, unknown> }
@@ -91,3 +91,34 @@ export const DUE_CHIP: Record<Grp, string> = {
   week: 'bg-muted text-muted-foreground',
 }
 export const TASK_STATUS: Record<string, string> = { PENDING: 'atual', DONE: 'concluída', CANCELED: 'cancelada', RETURNED: 'devolvida' }
+
+export type SituacaoPasso = 'done' | 'current' | 'pending'
+export interface PassoTrilha {
+  nodeId: string
+  name: string
+  situacao: SituacaoPasso
+  /** quem concluiu a passagem concluída mais recente */
+  completedBy?: string | null
+  /** quantas vezes a etapa foi aberta — > 1 só acontece depois de uma devolução */
+  passagens: number
+}
+
+/** Agrupa as tarefas da instância por ETAPA do fluxo, na ordem em que apareceram.
+ *  A fonte são tarefas, e uma devolução cria outra tarefa para a mesma etapa: sem
+ *  agrupar, a trilha repetiria a atividade a cada volta e cresceria com o histórico
+ *  em vez de com o fluxo. Reaberta vira "Nª vez" na própria linha. */
+export function agruparPassos(timeline: TimelineTask[], currentTaskId: string): PassoTrilha[] {
+  const porNode = new Map<string, PassoTrilha>()
+  for (const t of timeline) {
+    let p = porNode.get(t.nodeId)
+    if (!p) {
+      p = { nodeId: t.nodeId, name: t.name || 'Etapa', situacao: 'pending', completedBy: null, passagens: 0 }
+      porNode.set(t.nodeId, p)
+    }
+    p.passagens += 1
+    if (t.status === 'DONE') { p.situacao = 'done'; p.completedBy = t.completedBy ?? p.completedBy }
+    // a tarefa aberta agora manda em tudo: é aqui que a pessoa está
+    if (t.id === currentTaskId) p.situacao = 'current'
+  }
+  return [...porNode.values()]
+}
