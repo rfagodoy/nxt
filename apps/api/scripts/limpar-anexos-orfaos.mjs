@@ -13,6 +13,7 @@
  *   node scripts/limpar-anexos-orfaos.mjs                 → ensaio, não apaga nada
  *   node scripts/limpar-anexos-orfaos.mjs --apply         → apaga (respeita a janela de graça)
  *   node scripts/limpar-anexos-orfaos.mjs --apply --grace-hours=0  → sem graça (só sem usuários)
+ *   node scripts/limpar-anexos-orfaos.mjs --env-file=/etc/nxt/api.env   → env em outro lugar
  *
  * Cobre os dois drivers (STORAGE_DRIVER): `local` (disco) e `r2`/`s3` (lista o bucket).
  *
@@ -35,11 +36,41 @@ const APPLY = process.argv.includes('--apply')
 const graceArg = process.argv.find(a => a.startsWith('--grace-hours='))
 const GRACE_H = graceArg ? Math.max(0, Number(graceArg.split('=')[1]) || 0) : 48
 const ROOT = path.resolve(import.meta.dirname, '..')
+/* raiz da INSTALAÇÃO (C:\nxt, /opt/nxt): daqui saem config/api.env e a pasta storage */
+const INSTALL = path.resolve(ROOT, '..', '..')
 
-/* carrega o .env do apps/api sem depender de dotenv */
-for (const l of readFileSync(path.join(ROOT, '.env'), 'utf8').split(/\r?\n/)) {
-  const m = /^([A-Z0-9_]+)="?(.*?)"?$/.exec(l.trim())
-  if (m && !process.env[m[1]]) process.env[m[1]] = m[2]
+/* Carrega o .env sem depender de dotenv. O ambiente SEMPRE vence o arquivo — no servidor
+   quem manda é o que o serviço exporta —, e o arquivo é procurado nos lugares onde ele
+   realmente está em cada cenário. Este script é o modo manual do on-prem: exigir um único
+   caminho fixo (apps/api/.env) o fazia morrer com ENOENT em toda instalação feita pelo
+   instalador, que grava o env em config/api.env (Windows) ou /etc/nxt/api.env (Linux).
+   Nenhum arquivo encontrado NÃO é erro: só falta o que o ambiente também não trouxer. */
+const envArg = process.argv.find(a => a.startsWith('--env-file='))?.slice('--env-file='.length)
+const CANDIDATOS = [
+  envArg,
+  process.env.NXT_ENV_FILE,
+  path.join(ROOT, '.env'),                      // desenvolvimento (apps/api/.env)
+  path.join(INSTALL, 'config', 'api.env'),      // instalador Windows
+  '/etc/nxt/api.env',                           // instalador Linux
+].filter(Boolean)
+
+let envDe = null
+for (const caminho of CANDIDATOS) {
+  if (!existsSync(caminho)) continue
+  for (const l of readFileSync(caminho, 'utf8').split(/\r?\n/)) {
+    const m = /^([A-Z0-9_]+)="?(.*?)"?$/.exec(l.trim())
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2]
+  }
+  envDe = caminho
+  break
+}
+/* O que o script precisa para funcionar é DATABASE_URL — e a falta dela merece uma
+   frase, não um stack trace de ENOENT que não diz o que fazer. */
+if (!process.env.DATABASE_URL) {
+  console.error('DATABASE_URL não encontrada — nem no ambiente, nem em arquivo .env.')
+  console.error(`Procurei em: ${CANDIDATOS.join(', ')}`)
+  console.error('Aponte o arquivo com --env-file=<caminho> ou exporte DATABASE_URL antes de rodar.')
+  process.exit(1)
 }
 
 /* Mesma assinatura de src/files/attachment-keys.ts — mantê-las iguais. */
@@ -59,8 +90,18 @@ const driver = (process.env.STORAGE_DRIVER || 'local').toLowerCase()
 let listar, apagar, onde
 
 if (driver === 'local') {
-  const dir = path.resolve(ROOT, process.env.STORAGE_DIR || 'uploads')
+  const configurado = process.env.STORAGE_DIR || 'uploads'
+  const dir = path.resolve(ROOT, configurado)
   onde = dir
+  /* STORAGE_DIR relativo é resolvido pela API a partir do cwd DELA (storage.service.ts),
+     e aqui a partir de apps/api. Coincide quando a API roda de apps/api — que é o caso do
+     dev e dos serviços instalados —, mas não é garantido. O instalador grava caminho
+     absoluto justamente por isso; quando for relativo, diga em voz alta de onde estamos
+     olhando, senão um "0 órfãos" pode significar só que olhamos na pasta errada. */
+  if (!path.isAbsolute(configurado)) {
+    console.log(`aviso: STORAGE_DIR="${configurado}" é relativo — resolvido aqui como ${dir}.`)
+    console.log('       Se a API roda com outro diretório de trabalho, ela grava em outro lugar.')
+  }
   if (!existsSync(dir)) { console.log(`pasta ${dir} não existe — nada a fazer.`); process.exit(0) }
   /* o sidecar `<key>.meta.json` não é um arquivo próprio: é metadado do blob */
   listar = () => readdirSync(dir).filter(f => !f.endsWith('.meta.json')).map(k => {
@@ -101,6 +142,7 @@ const limite = Date.now() - GRACE_H * 3_600_000
 const orfaos    = naoRef.filter(b => b.mtime instanceof Date && b.mtime.getTime() <= limite).map(b => b.key)
 const protegidos = naoRef.filter(b => !(b.mtime instanceof Date && b.mtime.getTime() <= limite)).map(b => b.key)
 
+console.log(`env ........... ${envDe ?? 'só do ambiente (nenhum arquivo .env encontrado)'}`)
 console.log(`storage ....... ${onde}`)
 console.log(`contratos ..... ${contratos.length}`)
 console.log(`blobs ......... ${blobs.length}`)

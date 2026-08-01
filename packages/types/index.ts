@@ -85,9 +85,15 @@ export interface StepFormSchema {
   screenRef?: string
   /** Assunto da tela escolhida — deriva a entidade que a atividade cria/edita. */
   screenSubject?: 'CONTRATO' | 'FORNECEDOR'
-  /** A atividade cria uma entidade NOVA ou edita uma EXISTENTE (alvo por variável). */
-  entityMode?: 'CREATE' | 'EDIT'
-  /** No modo EDIT, a variável do processo que carrega o id da entidade a editar
+  /** O que a atividade faz com a entidade:
+   *  - CREATE: cria uma NOVA (o id vira variável do processo);
+   *  - EDIT:   edita uma EXISTENTE (alvo por variável);
+   *  - VIEW:   apenas CONSULTA uma existente — a tela abre em leitura, nada é gravado.
+   *  VIEW existe para as etapas de análise/conferência/ciência, em que a pessoa
+   *  precisa ver o cadastro inteiro para decidir, mas não deve alterá-lo. Sem ele, a
+   *  única forma de mostrar o contrato numa aprovação era abrir em edição e confiar. */
+  entityMode?: 'CREATE' | 'EDIT' | 'VIEW'
+  /** Nos modos EDIT e VIEW, a variável do processo que carrega o id da entidade
    *  (ex.: `contratoId`/`partnerId` produzido por uma atividade anterior). */
   entityVar?: string
 }

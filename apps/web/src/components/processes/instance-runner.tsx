@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { CheckCircle2, Loader2, ListChecks, XCircle, AlertTriangle, RefreshCw, Info } from 'lucide-react'
+import { CheckCircle2, Loader2, ListChecks, XCircle, AlertTriangle, RefreshCw, Info, ArrowRight } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { DynamicForm } from '@/components/modules/dynamic-form'
 import { WorkflowScreenTask } from '@/components/processes/workflow-screen-task'
 import { apiFetch, apiJson } from '@/lib/http'
@@ -223,10 +224,29 @@ export function InstanceRunner({ processDefinitionId, processName, formSchema, o
               {step.screenRef ? (
                 // Runner do "Novo processo": salvar a entidade CONCLUI a tarefa na hora
                 // (comportamento de assistente). O `onEntity` reporta o id → complete.
-                <WorkflowScreenTask key={active.id} step={step}
-                  entityId={step.entityMode === 'EDIT' && step.entityVar && variables[step.entityVar] ? String(variables[step.entityVar]) : null}
-                  onEntity={(id) => void complete({ [step.screenSubject === 'CONTRATO' ? 'contratoId' : 'partnerId']: id })}
-                  onCancel={onClose} />
+                (() => {
+                  const idVar = step.screenSubject === 'CONTRATO' ? 'contratoId' : 'partnerId'
+                  const alvo = step.entityVar && variables[step.entityVar] ? String(variables[step.entityVar]) : null
+                  const isView = step.entityMode === 'VIEW'
+                  return (
+                    <>
+                      <WorkflowScreenTask key={active.id} step={step}
+                        entityId={(step.entityMode === 'EDIT' || isView) && alvo ? alvo : null}
+                        onEntity={(id) => void complete({ [idVar]: id })}
+                        onCancel={onClose} />
+                      {/* Consulta não salva nada, então não existe o "salvou → concluiu" que
+                          move este assistente. Sem um botão próprio, a etapa não teria como
+                          terminar. */}
+                      {isView && alvo && (
+                        <div className="mt-3 flex justify-end">
+                          <Button size="sm" disabled={submitting} onClick={() => void complete({ [idVar]: alvo })}>
+                            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}Concluir consulta
+                          </Button>
+                        </div>
+                      )}
+                    </>
+                  )
+                })()
               ) : (
                 <DynamicForm
                   key={active.id}

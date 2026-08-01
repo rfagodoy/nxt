@@ -112,6 +112,26 @@ export class InstancesController {
     return this.instancesService.transferTasks(dto, organizationId, actor)
   }
 
+  @Get('tasks/:taskId/delegate-candidates')
+  @ApiOperation({ summary: 'Quem pode receber esta tarefa por delegação (usuários do papel previsto no workflow)' })
+  delegateCandidates(
+    @Param('taskId') taskId: string,
+    @CurrentOrg() organizationId: string,
+    @CurrentUser() actor: CurrentUserData,
+  ) {
+    return this.instancesService.delegateCandidates(taskId, organizationId, actor)
+  }
+
+  @Get('tasks/:taskId/delegate-candidates/all')
+  @ApiOperation({ summary: 'Lista completa da organização para delegar fora do papel — admin' })
+  delegateCandidatesAll(
+    @Param('taskId') taskId: string,
+    @CurrentOrg() organizationId: string,
+    @CurrentUser() actor: CurrentUserData,
+  ) {
+    return this.instancesService.delegateCandidatesAll(taskId, organizationId, actor)
+  }
+
   @Patch('tasks/:taskId/assign')
   @ApiOperation({ summary: 'Delega a tarefa a outro usuário (motivo obrigatório) — executor atual ou admin' })
   assignTask(

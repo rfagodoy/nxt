@@ -204,7 +204,7 @@ export default function DashboardPage() {
             </span>
             <span className="block text-[11px] text-muted-foreground">
               {minhasTarefas.length === 0 ? 'Tudo em dia por aqui.'
-                : atrasadas > 0 ? `${atrasadas} já venceu${atrasadas > 1 ? 'ram' : ''} · a mais antiga: ${maisUrgente}`
+                : atrasadas > 0 ? `${atrasadas} já ${atrasadas > 1 ? 'venceram' : 'venceu'} · a mais antiga: ${maisUrgente}`
                 : `A mais próxima ${maisUrgente}`}
             </span>
           </span>

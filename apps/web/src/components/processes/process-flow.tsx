@@ -6,7 +6,9 @@ import {
   ArrowLeft, Save, Zap, Trash2, User, Clock, LayoutTemplate,
   CircleDot, CheckCircle2, Loader2, UserSquare, GitBranch, GitMerge,
   Download, FileImage, FileText, ChevronDown, PanelRightClose, PanelRightOpen,
+  X, SlidersHorizontal,
 } from 'lucide-react'
+import { createPortal } from 'react-dom'
 import { generateBpmn, compileBpmn, type WfGraph, type WfNode, type WfEdge } from '@nxt/workflow-core'
 import type { StepFormSchema, ProcessFormSchema } from '@nxt/types'
 import { CONNECTORS, isCompensable } from '@nxt/types'
@@ -173,6 +175,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const [edges, setEdges] = useState<EEdge[]>(seed.edges)
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>(initial?.positions ?? {})
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  /* Atividade em CONFIGURAÇÃO (modal). Separado da seleção: fechar o modal não
+     deseleciona o nó, e o painel lateral segue mostrando o resumo dele. */
+  const [configId, setConfigId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [activating, setActivating] = useState(false)
   const [exporting, setExporting] = useState<FlowExportFormat | null>(null)
@@ -185,6 +190,14 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
   const nodeById = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n])), [nodes])
   const selected = selectedId ? nodeById[selectedId] : null
+  const configNode = configId ? nodeById[configId] : null
+
+  /* Clicar num quadro é o gesto de "quero configurar isto": seleciona e, sendo
+     atividade, já abre o modal — era o que a coluna lateral fazia ao aparecer. */
+  const selectNode = useCallback((id: string | null) => {
+    setSelectedId(id)
+    setConfigId(id && isActivity(nodeById[id]?.type) ? id : null)
+  }, [nodeById])
 
   const hasManual = Object.keys(positions).length > 0
   const layout = useMemo(() => layoutGraph({ nodes: nodes.map(toLNode), edges, startId: nodes.find((n) => n.type === 'start')?.id ?? 'Start_1' }, hasManual ? positions : undefined), [nodes, edges, positions, hasManual])
@@ -398,7 +411,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
       {/* Canvas + Inspetor */}
       <div className="flex flex-1 overflow-hidden">
-        <FlowCanvas canvasRef={canvasRef} nodes={nodes} edges={edges} layout={layout} selectedId={selectedId} onSelect={setSelectedId} onConnect={onConnect} onCreateConnected={onCreateConnected} onDeleteEdge={onDeleteEdge} onDeleteNode={removeNode} onSetPosition={setPosition} resolvePapel={resolvePapel} />
+        <FlowCanvas canvasRef={canvasRef} nodes={nodes} edges={edges} layout={layout} selectedId={selectedId} onSelect={selectNode} onConnect={onConnect} onCreateConnected={onCreateConnected} onDeleteEdge={onDeleteEdge} onDeleteNode={removeNode} onSetPosition={setPosition} resolvePapel={resolvePapel} />
         {/* trilho do toggle: fica SEMPRE visível (é a alça para trazer o painel de volta) */}
         <div className="w-8 border-l bg-card flex flex-col items-center pt-2.5 shrink-0">
           <button type="button" onClick={togglePanel}
@@ -410,7 +423,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         <div className={cn('w-80 border-l bg-card flex-col overflow-hidden shrink-0', panelCollapsed ? 'hidden' : 'flex')}>
           {selected ? (
             isActivity(selected.type) ? (
-              <ActivityInspector key={selected.id} node={selected} nodes={nodes} edges={edges} screens={screens} papeis={papeis} onPatchStep={(p) => patchStep(selected.id, p)} onChangeType={(t) => changeNodeType(selected.id, t)} onRemove={() => removeNode(selected.id)} />
+              <ActivitySummaryPanel node={selected} papeis={papeis}
+                onConfigure={() => setConfigId(selected.id)} onRemove={() => removeNode(selected.id)} />
             ) : (
               <GatewayInspector key={selected.id} node={selected} edges={edges} onPatchNode={(p) => patchNode(selected.id, p)} onSetEdge={setEdge} />
             )
@@ -442,6 +456,16 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
           )}
         </div>
       </div>
+
+      {/* Configuração da atividade: modal amplo (a coluna de 320px não comporta o
+          formulário — ver o comentário em ActivityConfigModal). */}
+      {configNode && configNode.step && (
+        <ActivityConfigModal key={configNode.id} node={configNode} nodes={nodes} edges={edges} screens={screens} papeis={papeis}
+          onPatchStep={(p) => patchStep(configNode.id, p)}
+          onChangeType={(t) => changeNodeType(configNode.id, t)}
+          onRemove={() => { removeNode(configNode.id); setConfigId(null) }}
+          onClose={() => setConfigId(null)} />
+      )}
     </div>
   )
 }
@@ -769,9 +793,48 @@ function Field({ label, required, hint, children }: { label: string; required?: 
   )
 }
 
-function ActivityInspector({ node, nodes, edges, screens, papeis, onPatchStep, onChangeType, onRemove }: {
+/** Campo em GRID: `wide` ocupa a linha inteira (título, texto longo, seletor comprido);
+ *  os curtos ficam pareados. Mesma hierarquia dos formulários do sistema. */
+function GField({ label, required, hint, wide, children }: { label: string; required?: boolean; hint?: string; wide?: boolean; children: React.ReactNode }) {
+  return (
+    <div className={cn('min-w-0', wide && 'sm:col-span-2')}>
+      <label className="text-xs font-medium mb-1.5 flex items-center gap-1">{label}{required && <span className="text-destructive">*</span>}</label>
+      {children}
+      {hint && <p className="text-[11px] text-muted-foreground mt-1 leading-snug">{hint}</p>}
+    </div>
+  )
+}
+
+/** Bloco de uma seção do modal: título + grade de campos. */
+function GSection({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <div>
+        <h3 className="text-sm font-semibold">{title}</h3>
+        {description && <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">{description}</p>}
+      </div>
+      <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">{children}</div>
+    </section>
+  )
+}
+
+/**
+ * Configuração da atividade em MODAL amplo (decisão do PO em 30/07).
+ *
+ * Por que saiu da coluna lateral: ela tinha 319px e o conteúdo de uma atividade simples
+ * já passava de 674px de altura contra 545 visíveis — ou seja, rolagem obrigatória para
+ * ler a própria configuração, com um campo por linha e o nome da tela quebrando dentro
+ * do select. Formulário de cadastro não cabe num tubo; aqui ele ganha largura, grade de
+ * duas colunas e seções navegáveis, como o resto do sistema.
+ *
+ * Cancelar RESTAURA o estado de quando o modal abriu (snapshot em `original`): o editor
+ * aplica cada mudança ao vivo no grafo, então sem isso "Cancelar" seria só um "Fechar"
+ * mentiroso.
+ */
+function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep, onChangeType, onRemove, onClose }: {
   node: ENode; nodes: ENode[]; edges: EEdge[]; screens: Screens; papeis: Papeis
   onPatchStep: (patch: Partial<StepFormSchema>) => void; onChangeType: (t: 'userTask' | 'serviceTask') => void; onRemove: () => void
+  onClose: () => void
 }) {
   const step = node.step!
   const type = node.type as 'userTask' | 'serviceTask'
@@ -830,115 +893,322 @@ function ActivityInspector({ node, nodes, edges, screens, papeis, onPatchStep, o
     })
   }
 
+  /* ── Snapshot para o Cancelar ──────────────────────────────────────────────
+     Guardado uma única vez, na abertura. Restaurar precisa da UNIÃO das chaves:
+     um campo criado durante a edição (entityVar, por exemplo) não existe no
+     snapshot, e um merge simples o deixaria para trás. */
+  const original = useRef<{ step: StepFormSchema; type: 'userTask' | 'serviceTask' }>({ step: { ...step }, type })
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+
+  const cancelar = () => {
+    const antes = original.current
+    const restauro: Record<string, unknown> = {}
+    for (const k of new Set([...Object.keys(antes.step), ...Object.keys(step)])) {
+      restauro[k] = (antes.step as unknown as Record<string, unknown>)[k]
+    }
+    if (antes.type !== node.type) onChangeType(antes.type)
+    onPatchStep(restauro as Partial<StepFormSchema>)
+    onClose()
+  }
+
+  // Esc fecha cancelando: é o que a tecla significa em todo lugar.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); cancelar() } }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  })
+
+  /* Seções: as de tarefa e as de ação automática são conjuntos diferentes — mostrar
+     "Formulário" numa ação automática seria oferecer o que não existe. */
+  const secoes = type === 'userTask'
+    ? [
+        { id: 'identificacao', label: 'Identificação', Icon: CircleDot },
+        { id: 'executor',      label: 'Quem executa',  Icon: User },
+        { id: 'formulario',    label: 'Formulário',    Icon: LayoutTemplate },
+        { id: 'prazo',         label: 'Prazo',         Icon: Clock },
+      ]
+    : [
+        { id: 'identificacao', label: 'Identificação',   Icon: CircleDot },
+        { id: 'acao',          label: 'Ação automática', Icon: Zap },
+      ]
+  const [sec, setSec] = useState('identificacao')
+  useEffect(() => { if (!secoes.some((s) => s.id === sec)) setSec('identificacao') }, [type]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* Resumo por seção: fechado, o menu ainda diz o que está configurado — sem isso a
+     navegação lateral esconde a informação que a coluna única ao menos mostrava. */
+  const resumo: Record<string, string> = {
+    identificacao: step.stepName || 'sem nome',
+    executor: papelSel?.label ?? 'sem papel',
+    formulario: step.screenRef ? `${ENTITY_MODE_LABEL[step.entityMode ?? 'CREATE']} ${entityWord}` : 'sem tela',
+    prazo: dueText(step) ?? 'sem prazo',
+    acao: CONNECTORS.find((c) => c.value === step.connector)?.label ?? 'nenhuma',
+  }
+
+  if (!mounted) return null
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-[60] bg-black/40" onClick={cancelar} />
+      <div role="dialog" aria-modal="true"
+        className="fixed left-1/2 top-1/2 z-[70] w-[min(1000px,94vw)] h-[min(660px,90vh)] -translate-x-1/2 -translate-y-1/2 glass-panel rounded-xl border shadow-2xl flex flex-col overflow-hidden">
+
+        {/* Cabeçalho de identidade */}
+        <div className="flex items-start justify-between gap-4 px-5 py-3 border-b bg-muted/20 shrink-0">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className={cn('inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full', meta.tone)}>
+                <meta.Icon className="h-3 w-3" />{meta.label}
+              </span>
+            </div>
+            <h2 className="text-sm font-semibold mt-1 truncate">{step.stepName || 'Atividade sem nome'}</h2>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <button onClick={onRemove} title="Remover atividade"
+              className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors">
+              <Trash2 className="h-4 w-4" />
+            </button>
+            <button onClick={cancelar} title="Fechar sem aplicar"
+              className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-1 min-h-0">
+          {/* Navegação de seções */}
+          <nav className="w-48 shrink-0 border-r bg-muted/10 p-2 space-y-0.5 overflow-y-auto rolagem-visivel">
+            {secoes.map((s) => (
+              <button key={s.id} type="button" onClick={() => setSec(s.id)}
+                className={cn('w-full text-left rounded-md px-2.5 py-2 transition-colors',
+                  sec === s.id ? 'bg-primary/10 text-primary' : 'hover:bg-muted/60')}>
+                <span className="flex items-center gap-1.5 text-xs font-medium"><s.Icon className="h-3.5 w-3.5" />{s.label}</span>
+                <span className="block text-[10.5px] text-muted-foreground truncate mt-0.5">{resumo[s.id]}</span>
+              </button>
+            ))}
+          </nav>
+
+          {/* Campos */}
+          <div className="flex-1 min-w-0 overflow-y-auto rolagem-visivel p-5">
+            {sec === 'identificacao' && (
+              <GSection title="Identificação" description="Como esta etapa aparece no fluxo e para quem vai executá-la.">
+                <GField label="O que esta etapa é" wide hint="Tarefa: uma pessoa executa. Ação automática: o motor executa sozinho.">
+                  <div className="flex gap-1 text-xs max-w-sm">
+                    {(['userTask', 'serviceTask'] as const).map((t) => (
+                      <button key={t} type="button" onClick={() => onChangeType(t)}
+                        className={cn('flex-1 rounded-md px-2 py-1.5 border transition-colors', type === t ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted text-muted-foreground')}>
+                        {t === 'serviceTask' ? 'Ação automática' : 'Tarefa'}
+                      </button>
+                    ))}
+                  </div>
+                </GField>
+                <GField label={type === 'serviceTask' ? 'Nome da ação' : 'Nome da tarefa'} required wide>
+                  <Input className="h-8 text-sm" placeholder={type === 'serviceTask' ? 'Ex.: Cadastrar contrato' : 'Ex.: Preencher dados'} value={step.stepName} onChange={(e) => onPatchStep({ stepName: e.target.value })} />
+                </GField>
+                <GField label="Instruções para execução" wide hint="Aparece para o executor ao abrir a tarefa.">
+                  <Textarea className="text-sm min-h-[90px]" placeholder="Oriente quem vai executar…" value={step.instructions ?? ''} onChange={(e) => onPatchStep({ instructions: e.target.value })} />
+                </GField>
+              </GSection>
+            )}
+
+            {sec === 'executor' && type === 'userTask' && (
+              <GSection title="Quem executa" description="O papel resolve as pessoas na hora da execução — a tarefa cai na caixa de quem ocupa o papel na entidade escolhida.">
+                <GField label="Executor (papel)" required hint={papeisPessoa.length === 0 ? 'Nenhum papel de pessoa cadastrado. Crie em Configurações → Papéis (referência “Pessoa”).' : undefined}>
+                  <Select value={executor?.papelId ?? ''} onValueChange={pickPapel}>
+                    <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Selecione o executor" /></SelectTrigger>
+                    <SelectContent>
+                      {papeisPessoa.map((p) => <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </GField>
+                {executor && execOrigem && execOrigem !== ORIGEM.ORG && (
+                  <>
+                    <GField label={`Responsável de qual ${entityKindLabel(execOrigem)}?`}>
+                      <div className="flex gap-1 text-[11px]">
+                        {(['FIXA', 'VARIAVEL'] as const).map((m) => (
+                          <button key={m} type="button" onClick={() => setExec({ mode: m })}
+                            className={cn('rounded px-2 py-1 border transition-colors', executor.mode === m ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted text-muted-foreground')}>
+                            {m === 'FIXA' ? 'Entidade fixa' : 'Da variável'}
+                          </button>
+                        ))}
+                      </div>
+                    </GField>
+                    <GField label={executor.mode === 'FIXA' ? entityKindLabel(execOrigem) : 'Variável com o id'}>
+                      {executor.mode === 'FIXA' ? (
+                        <EntitySelect entityType={execOrigem as EntityKind} value={executor.entityId} onChange={(id) => setExec({ entityId: id, entityVar: undefined })} placeholder={`Selecionar ${entityKindLabel(execOrigem)}…`} />
+                      ) : (
+                        <Select value={executor.entityVar || 'none'} onValueChange={(v) => setExec({ entityVar: v === 'none' ? undefined : v, entityId: undefined })}>
+                          <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Variável com o id…" /></SelectTrigger>
+                          <SelectContent><SelectItem value="none">— escolha a variável —</SelectItem>{availableVars.map((v) => <SelectItem key={v.name} value={v.name} className="text-xs">{v.label}</SelectItem>)}</SelectContent>
+                        </Select>
+                      )}
+                    </GField>
+                  </>
+                )}
+              </GSection>
+            )}
+
+            {sec === 'formulario' && type === 'userTask' && (
+              <GSection title="Formulário" description="A tela que o executor preenche (ou apenas lê). Opcional: sem tela, a etapa é só de aprovação.">
+                <GField label="Tela do formulário" wide>
+                  <Select value={step.screenRef || 'none'} onValueChange={pickScreen}>
+                    <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Sem tela" /></SelectTrigger>
+                    <SelectContent><SelectItem value="none">Sem tela</SelectItem>{entityScreens.map((s) => <SelectItem key={s.id} value={s.id} className="text-xs">{SUBJECT_LABEL[s.subjectType] ?? s.subjectType} · {s.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </GField>
+                {step.screenRef && (
+                  <GField label={`O que a atividade faz com o ${entityWord}`} wide
+                    hint={ENTITY_MODE_HINT[step.entityMode ?? 'CREATE']}>
+                    <div className="flex gap-1 text-xs max-w-lg">
+                      {(['CREATE', 'EDIT', 'VIEW'] as const).map((m) => (
+                        <button key={m} type="button"
+                          onClick={() => onPatchStep({ entityMode: m, entityVar: m === 'CREATE' ? undefined : step.entityVar })}
+                          className={cn('flex-1 rounded-md px-2 py-1.5 border transition-colors', (step.entityMode ?? 'CREATE') === m ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted text-muted-foreground')}>
+                          {ENTITY_MODE_LABEL[m]} {entityWord}
+                        </button>
+                      ))}
+                    </div>
+                  </GField>
+                )}
+                {step.screenRef && step.entityMode && step.entityMode !== 'CREATE' && (
+                  <GField label={`Qual ${entityWord}?`} required wide
+                    hint={availableVars.length === 0
+                      ? 'Nenhuma etapa anterior produz uma referência. Coloque antes uma etapa que crie a entidade.'
+                      : 'A variável do processo que carrega o id — normalmente produzida por uma etapa anterior.'}>
+                    <Select value={step.entityVar || 'none'} onValueChange={(v) => onPatchStep({ entityVar: v === 'none' ? undefined : v })}>
+                      <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Variável com o id…" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">— escolha a variável —</SelectItem>
+                        {availableVars.map((v) => <SelectItem key={v.name} value={v.name} className="text-xs">{v.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </GField>
+                )}
+              </GSection>
+            )}
+
+            {sec === 'prazo' && type === 'userTask' && (
+              <GSection title="Prazo" description="Conta no expediente comercial e pula fins de semana e feriados.">
+                <GField label="Prazo (SLA)" required>
+                  <div className="flex gap-2">
+                    <Input className="h-8 text-sm flex-1" type="number" min={0} placeholder="0" value={slaValue} onChange={(e) => setSla(slaUnit, e.target.value)} />
+                    <Select value={slaUnit} onValueChange={(u) => setSla(u as 'DAYS' | 'HOURS' | 'MINUTES', slaValue)}>
+                      <SelectTrigger className="h-8 text-sm w-36 shrink-0"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="DAYS">Dias úteis</SelectItem>
+                        <SelectItem value="HOURS">Horas úteis</SelectItem>
+                        <SelectItem value="MINUTES">Minutos úteis</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </GField>
+              </GSection>
+            )}
+
+            {sec === 'acao' && type === 'serviceTask' && (
+              <GSection title="Ação automática" description="O motor executa esta ação sozinho — grava a entidade de verdade.">
+                <GField label="Ação (conector)" wide>
+                  <Select value={step.connector || 'none'} onValueChange={(v) => onPatchStep({ connector: v && v !== 'none' ? v : undefined })}>
+                    <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Nenhuma (só passa)" /></SelectTrigger>
+                    <SelectContent><SelectItem value="none">Nenhuma (só passa)</SelectItem>{CONNECTORS.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
+                  </Select>
+                </GField>
+                {step.connector && (() => {
+                  const compensable = isCompensable(step.connector)
+                  return (
+                    <GField label="Se o processo for devolvido para trás daqui" wide hint={compensable
+                      ? 'Esta ação mexe em dados reais. Escolha o que fazer se alguém devolver o processo atravessando este passo.'
+                      : 'Esta ação não tem como ser desfeita, então devolver atravessando-a fica bloqueado.'}>
+                      <Select value={step.onReturn ?? 'BLOCK'} onValueChange={(v) => onPatchStep({ onReturn: v as StepFormSchema['onReturn'] })}>
+                        <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="BLOCK">Bloquear a devolução (padrão)</SelectItem>
+                          <SelectItem value="IDEMPOTENT">Liberar — refazer não causa dano</SelectItem>
+                          {compensable && <SelectItem value="COMPENSATE">Liberar — desfazer esta ação ao voltar</SelectItem>}
+                        </SelectContent>
+                      </Select>
+                    </GField>
+                  )
+                })()}
+              </GSection>
+            )}
+          </div>
+        </div>
+
+        <div className="px-5 py-3 border-t bg-muted/20 flex items-center justify-between gap-3 shrink-0">
+          <p className="text-[11px] text-muted-foreground">As alterações entram no workflow ao <span className="font-medium">Salvar rascunho</span> ou <span className="font-medium">Ativar</span>.</p>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={cancelar}>Cancelar</Button>
+            <Button size="sm" onClick={onClose}>Aplicar</Button>
+          </div>
+        </div>
+      </div>
+    </>,
+    document.body,
+  )
+}
+
+/** Coluna lateral com a atividade selecionada: RESUMO do que está configurado + a porta
+ *  para o modal. A coluna deixou de ser o lugar de editar (não cabia), mas continua
+ *  sendo onde se enxerga o que a etapa faz sem precisar abrir nada. */
+function ActivitySummaryPanel({ node, papeis, onConfigure, onRemove }: {
+  node: ENode; papeis: Papeis; onConfigure: () => void; onRemove: () => void
+}) {
+  const step = node.step!
+  const type = node.type as 'userTask' | 'serviceTask'
+  const meta = type === 'serviceTask' ? { label: 'Ação automática', tone: STEP_TONE.serviceTask, Icon: Zap } : { label: 'Tarefa do usuário', tone: STEP_TONE.userTask, Icon: UserSquare }
+  const entityWord = SUBJECT_ENTITY[step.screenSubject ?? ''] ?? 'entidade'
+  const papel = step.executor?.papelId ? papeis.entries.find((p) => p.id === step.executor!.papelId)?.label : undefined
+
+  const linhas: Array<{ label: string; valor: string }> = type === 'userTask'
+    ? [
+        { label: 'Executor', valor: papel ?? '— sem papel definido' },
+        { label: 'Formulário', valor: step.screenRef ? `${ENTITY_MODE_LABEL[step.entityMode ?? 'CREATE']} ${entityWord}` : '— sem tela' },
+        { label: 'Prazo', valor: dueText(step) ?? '— sem prazo' },
+      ]
+    : [
+        { label: 'Ação', valor: CONNECTORS.find((c) => c.value === step.connector)?.label ?? '— nenhuma' },
+        { label: 'Se devolvido', valor: RETURN_LABEL[step.onReturn ?? 'BLOCK'] },
+      ]
+
   return (
     <div className="flex flex-col h-full">
       <div className="px-4 py-3 border-b shrink-0 flex items-center justify-between">
-        <span className={cn('inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full', meta.tone)}><meta.Icon className="h-3 w-3" />{meta.label}</span>
+        <span className={cn('inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full', meta.tone)}>
+          <meta.Icon className="h-3 w-3" />{meta.label}
+        </span>
         <button onClick={onRemove} title="Remover atividade" className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
       </div>
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        <div className="flex gap-1 text-xs">
-          {(['userTask', 'serviceTask'] as const).map((t) => (
-            <button key={t} type="button" onClick={() => onChangeType(t)}
-              className={cn('flex-1 rounded-md px-2 py-1.5 border transition-colors', type === t ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted text-muted-foreground')}>
-              {t === 'serviceTask' ? 'Ação automática' : 'Tarefa'}
-            </button>
-          ))}
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold leading-snug">{step.stepName || 'Atividade sem nome'}</h3>
+          {step.instructions?.trim() && <p className="text-[11px] text-muted-foreground mt-1 leading-snug line-clamp-3">{step.instructions}</p>}
         </div>
-
-        <Field label={type === 'serviceTask' ? 'Nome da ação' : 'Tarefa do usuário'} required>
-          <Input className="h-8 text-sm" placeholder={type === 'serviceTask' ? 'Ex.: Cadastrar contrato' : 'Ex.: Preencher dados'} value={step.stepName} onChange={(e) => onPatchStep({ stepName: e.target.value })} />
-        </Field>
-
-        <Field label="Instruções para execução" hint="Aparece para o executor ao abrir a tarefa.">
-          <Textarea className="text-sm min-h-[64px]" placeholder="Oriente quem vai executar…" value={step.instructions ?? ''} onChange={(e) => onPatchStep({ instructions: e.target.value })} />
-        </Field>
-
-        {type === 'userTask' ? (
-          <>
-            <Field label="Executor (papel)" required hint={papeisPessoa.length === 0 ? 'Nenhum papel de pessoa cadastrado. Crie em Configurações → Papéis (referência “Pessoa”).' : undefined}>
-              <Select value={executor?.papelId ?? ''} onValueChange={pickPapel}>
-                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Selecione o executor" /></SelectTrigger>
-                <SelectContent>
-                  {papeisPessoa.map((p) => <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </Field>
-            {executor && execOrigem && execOrigem !== ORIGEM.ORG && (
-              <div className="rounded-md border bg-muted/20 p-2 space-y-1.5">
-                <label className="text-[11px] text-muted-foreground block">Responsável de qual {entityKindLabel(execOrigem)}?</label>
-                <div className="flex gap-1 text-[11px]">
-                  {(['FIXA', 'VARIAVEL'] as const).map((m) => (
-                    <button key={m} type="button" onClick={() => setExec({ mode: m })} className={cn('rounded px-2 py-0.5 border transition-colors', executor.mode === m ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted text-muted-foreground')}>{m === 'FIXA' ? 'Entidade fixa' : 'Da variável'}</button>
-                  ))}
-                </div>
-                {executor.mode === 'FIXA' ? (
-                  <EntitySelect entityType={execOrigem as EntityKind} value={executor.entityId} onChange={(id) => setExec({ entityId: id, entityVar: undefined })} placeholder={`Selecionar ${entityKindLabel(execOrigem)}…`} />
-                ) : (
-                  <Select value={executor.entityVar || 'none'} onValueChange={(v) => setExec({ entityVar: v === 'none' ? undefined : v, entityId: undefined })}>
-                    <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Variável com o id…" /></SelectTrigger>
-                    <SelectContent><SelectItem value="none">— escolha a variável —</SelectItem>{availableVars.map((v) => <SelectItem key={v.name} value={v.name} className="text-xs">{v.label}</SelectItem>)}</SelectContent>
-                  </Select>
-                )}
-              </div>
-            )}
-            <Field label="Tela do formulário" hint={step.screenRef ? `A atividade cria/edita o ${entityWord}.` : 'Opcional — pode ser só uma etapa de aprovação.'}>
-              <Select value={step.screenRef || 'none'} onValueChange={pickScreen}>
-                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Sem tela" /></SelectTrigger>
-                <SelectContent><SelectItem value="none">Sem tela</SelectItem>{entityScreens.map((s) => <SelectItem key={s.id} value={s.id} className="text-xs">{SUBJECT_LABEL[s.subjectType] ?? s.subjectType} · {s.name}</SelectItem>)}</SelectContent>
-              </Select>
-            </Field>
-            {step.screenRef && (
-              <div className="flex gap-1 text-xs">
-                {([['CREATE', `Criar ${entityWord}`], ['EDIT', `Editar ${entityWord}`]] as const).map(([m, lbl]) => (
-                  <button key={m} type="button" onClick={() => onPatchStep({ entityMode: m, entityVar: m === 'EDIT' ? step.entityVar : undefined })} className={cn('flex-1 rounded-md px-2 py-1.5 border transition-colors', (step.entityMode ?? 'CREATE') === m ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted text-muted-foreground')}>{lbl}</button>
-                ))}
-              </div>
-            )}
-            <Field label="Prazo (SLA)" required hint="Conta no expediente comercial e pula fins de semana e feriados.">
-              <div className="flex gap-2">
-                <Input className="h-8 text-sm flex-1" type="number" min={0} placeholder="0" value={slaValue} onChange={(e) => setSla(slaUnit, e.target.value)} />
-                <Select value={slaUnit} onValueChange={(u) => setSla(u as 'DAYS' | 'HOURS' | 'MINUTES', slaValue)}>
-                  <SelectTrigger className="h-8 text-sm w-36 shrink-0"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="DAYS">Dias úteis</SelectItem>
-                    <SelectItem value="HOURS">Horas úteis</SelectItem>
-                    <SelectItem value="MINUTES">Minutos úteis</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </Field>
-          </>
-        ) : (
-          <>
-            <Field label="Ação automática (conector)" hint="O motor executa esta ação sozinho — grava a entidade de verdade.">
-              <Select value={step.connector || 'none'} onValueChange={(v) => onPatchStep({ connector: v && v !== 'none' ? v : undefined })}>
-                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Nenhuma (só passa)" /></SelectTrigger>
-                <SelectContent><SelectItem value="none">Nenhuma (só passa)</SelectItem>{CONNECTORS.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
-              </Select>
-            </Field>
-            {step.connector && (() => {
-              const compensable = isCompensable(step.connector)
-              return (
-                <Field label="Se o processo for devolvido para trás daqui" hint={compensable
-                  ? 'Esta ação mexe em dados reais. Escolha o que fazer se alguém devolver o processo atravessando este passo.'
-                  : 'Esta ação não tem como ser desfeita, então devolver atravessando-a fica bloqueado.'}>
-                  <Select value={step.onReturn ?? 'BLOCK'} onValueChange={(v) => onPatchStep({ onReturn: v as StepFormSchema['onReturn'] })}>
-                    <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="BLOCK">Bloquear a devolução (padrão)</SelectItem>
-                      <SelectItem value="IDEMPOTENT">Liberar — refazer não causa dano</SelectItem>
-                      {compensable && <SelectItem value="COMPENSATE">Liberar — desfazer esta ação ao voltar</SelectItem>}
-                    </SelectContent>
-                  </Select>
-                </Field>
-              )
-            })()}
-          </>
-        )}
+        <dl className="rounded-md border bg-muted/20 divide-y">
+          {linhas.map((l) => (
+            <div key={l.label} className="flex items-baseline justify-between gap-2 px-2.5 py-1.5">
+              <dt className="text-[11px] text-muted-foreground shrink-0">{l.label}</dt>
+              <dd className="text-[11px] font-medium text-right truncate">{l.valor}</dd>
+            </div>
+          ))}
+        </dl>
+        <Button size="sm" className="w-full" onClick={onConfigure}><SlidersHorizontal className="h-3.5 w-3.5" />Configurar atividade</Button>
       </div>
     </div>
   )
+}
+
+const RETURN_LABEL: Record<string, string> = {
+  BLOCK: 'Bloquear', IDEMPOTENT: 'Liberar (refazer)', COMPENSATE: 'Liberar (desfazer)',
+}
+
+/** Rótulos e explicações do que a atividade faz com a entidade. VIEW é a etapa de
+ *  análise: mostra o cadastro inteiro, não deixa alterar nada. */
+const ENTITY_MODE_LABEL: Record<string, string> = { CREATE: 'Criar', EDIT: 'Editar', VIEW: 'Consultar' }
+const ENTITY_MODE_HINT: Record<string, string> = {
+  CREATE: 'A atividade cria um registro novo, e o id dele fica disponível para as etapas seguintes.',
+  EDIT:   'A atividade abre um registro existente para alteração — escolha abaixo de onde vem o id.',
+  VIEW:   'A atividade apenas MOSTRA o registro, em leitura: nenhum campo pode ser alterado e nada é gravado. Serve para etapas de análise, conferência e ciência.',
 }
 
 function GatewayInspector({ node, edges, onPatchNode, onSetEdge }: {

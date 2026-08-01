@@ -51,8 +51,8 @@ export function TaskDocView({ task, onDone, onNotice }: {
         const vars = ctx?.state?.variables ?? {}
         setTimeline(ctx?.instance?.tasks ?? [])
         setStep(found ?? { stepId: task.nodeId, stepName: task.name || task.nodeId, fields: [] })
-        // tarefa que EDITA uma entidade já tem o id na variável → "Avançar" liberado
-        if (found?.screenRef && found.entityMode === 'EDIT' && found.entityVar) {
+        // tarefa que EDITA ou CONSULTA uma entidade já tem o id na variável → "Avançar" liberado
+        if (found?.screenRef && (found.entityMode === 'EDIT' || found.entityMode === 'VIEW') && found.entityVar) {
           const eid = vars[found.entityVar]
           if (eid) setEntityId(String(eid))
         }
@@ -108,9 +108,13 @@ export function TaskDocView({ task, onDone, onNotice }: {
   const advanceDisabled = submitting || (isScreen && !entityId)
 
   /* Bloqueio EXPLICADO, não só um botão apagado: antes o motivo vivia num `title`,
-     invisível no toque e para quem não passa o mouse. */
+     invisível no toque e para quem não passa o mouse.
+     Na CONSULTA a pessoa não tem o que salvar — se falta o id, o desenho do processo é
+     que está errado, e mandá-la "salvar" seria uma instrução impossível de cumprir. */
   const bloqueio = isScreen && !entityId
-    ? `Salve o ${idVar === 'contratoId' ? 'contrato' : 'parceiro'} antes de concluir — o processo precisa da referência para seguir.`
+    ? step?.entityMode === 'VIEW'
+      ? `Esta etapa consulta um ${idVar === 'contratoId' ? 'contrato' : 'parceiro'} que o processo ainda não tem. Avise quem desenhou o workflow: a variável de origem não foi preenchida.`
+      : `Salve o ${idVar === 'contratoId' ? 'contrato' : 'parceiro'} antes de concluir — o processo precisa da referência para seguir.`
     : null
 
   const prazo = task.dueAt ? (() => {

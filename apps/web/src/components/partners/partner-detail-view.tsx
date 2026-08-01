@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { Building2, Phone, MapPin, CreditCard, Users, Briefcase, Clock, Plus, X, SlidersHorizontal, CheckCircle2, RotateCcw, Pencil, Ban, UserCog, type LucideIcon } from 'lucide-react'
+import { Building2, Phone, MapPin, CreditCard, Users, Briefcase, Clock, Plus, X, SlidersHorizontal, CheckCircle2, RotateCcw, Pencil, Ban, UserCog, Eye, type LucideIcon } from 'lucide-react'
 import { ResponsaveisSection } from '@/components/responsaveis/responsaveis-section'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
@@ -136,13 +136,16 @@ function DSection({ active, children }: { active: boolean; children: React.React
   return <div className="rounded-xl border bg-card p-4 space-y-3 shadow-sm">{children}</div>
 }
 
-export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, screen }: {
+export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, screen, readOnly }: {
   partner: PartnerAPI
   onClose: () => void
   onSaved: () => void
   onDirtyChange?: (dirty: boolean) => void
   /** Override: renderiza dirigido por ESTA tela (runtime de workflow). Ausente = padrão. */
   screen?: Screen
+  /** CONSULTA (atividade de workflow com entityMode=VIEW): campos travados e nenhuma
+   *  ação que grave — nem as que a situação normalmente permitiria. */
+  readOnly?: boolean
 }) {
   const formRef = useRef<HTMLFormElement>(null)
   const partnerForm = usePartnerForm({
@@ -261,7 +264,7 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
 
   const isPJ   = category === 'PJ_BR' || category === 'PJ_EST'
   const isPJBR = category === 'PJ_BR' // CNAE é classificação nacional: só PJ brasileira
-  const locked = situacao !== 'EM_CADASTRAMENTO'
+  const locked = readOnly || situacao !== 'EM_CADASTRAMENTO'
 
   const docLabel = category === 'PJ_BR' ? 'CNPJ' : category === 'PF_BR' ? 'CPF' : 'Código'
   const catLabel = CATEGORIES.find(c => c.value === category)?.label ?? category
@@ -412,9 +415,14 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {!showMotivo && <SaveStatus dirty={dirty} saving={saving} justSaved={justSaved} className="mr-1" />}
+          {!readOnly && !showMotivo && <SaveStatus dirty={dirty} saving={saving} justSaved={justSaved} className="mr-1" />}
+          {readOnly && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              <Eye className="h-3 w-3" />Somente consulta
+            </span>
+          )}
           <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Fechar</button>
-          {situacao === 'EM_CADASTRAMENTO' && (
+          {!readOnly && situacao === 'EM_CADASTRAMENTO' && (
             <>
               <button type="button" onClick={() => { void handleSave() }} disabled={saving}
                 className="inline-flex items-center h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted disabled:opacity-40 transition-colors">
@@ -426,7 +434,7 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
               </button>
             </>
           )}
-          {situacao === 'ATIVO' && !showMotivo && (
+          {!readOnly && situacao === 'ATIVO' && !showMotivo && (
             <>
               <button type="button" onClick={() => { setMotivoAction('habilitar'); setShowMotivo(true) }}
                 className="inline-flex items-center h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors">
@@ -438,7 +446,7 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
               </button>
             </>
           )}
-          {situacao === 'INATIVO' && !showMotivo && (
+          {!readOnly && situacao === 'INATIVO' && !showMotivo && (
             <button type="button" onClick={() => { setMotivoAction('reativar'); setShowMotivo(true) }}
               className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
               Ativar
