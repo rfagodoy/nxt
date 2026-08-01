@@ -67,6 +67,13 @@ export interface StepFormSchema {
    *  Mesclado ao grafo na ativação (vira node.onReturn). */
   onReturn?: 'BLOCK' | 'IDEMPOTENT' | 'COMPENSATE'
 
+  /** PARA ONDE esta atividade pode DEVOLVER (tarefa do usuário). Sem isto o motor
+   *  oferece toda predecessora humana — num fluxo longo é oferecer dez destinos onde
+   *  o desenho previa dois. 'NONE' tira o botão Retroceder desta etapa.
+   *  ⚠️ Só ESTREITA: alvo bloqueado por ação automática segue bloqueado mesmo se
+   *  escolhido aqui. Mesclado ao grafo na ativação (vira node.returnPolicy). */
+  returnPolicy?: { mode: 'ANY' | 'SELECTED' | 'NONE'; nodeIds?: string[] }
+
   /** Executor por PAPEL (referência PESSOA) + ENTIDADE. Alternativa ao `role` de
    *  texto livre: o motor resolve papel+entidade → usuário(s) responsável(is) e
    *  roteia a tarefa. Mesclado ao grafo na ativação (vira node.executor). */
@@ -128,22 +135,19 @@ export interface ConnectorManifest {
   compensable?: boolean
 }
 
+/* Catálogo de AÇÕES AUTOMÁTICAS oferecidas ao desenhista.
+ *
+ * ⚠️ `contracts.create` e `partners.create` NÃO estão aqui de propósito (decisão do PO,
+ * 2026-08-01). Criar contrato/parceiro já é feito pela TELA numa tarefa de usuário
+ * (`screenRef` + `entityMode: CREATE`), que valida, respeita campos personalizados e
+ * mostra o cadastro inteiro. Ter as duas portas para o mesmo resultado confundia quem
+ * desenha e criava duas regras diferentes de devolução para a mesma coisa.
+ *
+ * O que sobra aqui é o que NENHUM formulário faz: transições de estado sobre uma
+ * entidade que já existe. Os dois conectores de criação seguem implementados no backend
+ * (`instances.service.ts`) e declarados em `RETIRED_CONNECTORS` abaixo, para não quebrar
+ * processos desenhados antes desta mudança — saíram da VITRINE, não do motor. */
 export const CONNECTORS: ConnectorManifest[] = [
-  {
-    value: 'contracts.create', label: 'Criar contrato', domain: 'contract',
-    inputs: [
-      { key: 'titulo', label: 'Título', required: true, kind: 'text' },
-      { key: 'tipo', label: 'Tipo (id da tabela)', kind: 'text' },
-      { key: 'numero', label: 'Número (vazio = automático)', kind: 'text' },
-      { key: 'natureza', label: 'Natureza', kind: 'text' },
-      { key: 'descricao', label: 'Descrição', kind: 'text' },
-      { key: 'valor', label: 'Valor total', kind: 'money' },
-      { key: 'moeda', label: 'Moeda', kind: 'text' },
-      { key: 'inicioVigencia', label: 'Início da vigência', kind: 'date' },
-      { key: 'terminoVigencia', label: 'Término da vigência', kind: 'date' },
-    ],
-    outputs: ['contratoId', 'contratoNumero'],
-  },
   {
     value: 'contracts.aditivo', label: 'Registrar aditivo', domain: 'contract',
     inputs: [
@@ -166,17 +170,6 @@ export const CONNECTORS: ConnectorManifest[] = [
     compensable: true, // inversa: restaura a situação anterior
   },
   {
-    value: 'partners.create', label: 'Criar parceiro', domain: 'partner',
-    inputs: [
-      { key: 'razaoSocial', label: 'Razão social', required: true, kind: 'text' },
-      { key: 'categoria', label: 'Categoria (PJ_BR/PF_BR/…)', kind: 'text' },
-      { key: 'documento', label: 'Documento (CNPJ/CPF)', kind: 'text' },
-      { key: 'nomeFantasia', label: 'Nome fantasia', kind: 'text' },
-      { key: 'email', label: 'E-mail', kind: 'text' },
-    ],
-    outputs: ['partnerId', 'partnerStatus'],
-  },
-  {
     value: 'partners.activate', label: 'Ativar parceiro', domain: 'partner',
     inputs: [
       { key: 'partnerId', label: 'Parceiro-alvo', required: true, kind: 'ref' },
@@ -187,9 +180,51 @@ export const CONNECTORS: ConnectorManifest[] = [
   },
 ]
 
+/** APOSENTADOS: não aparecem mais para escolher, mas continuam válidos em processos
+ *  desenhados antes. Ficam declarados para que o designer siga sabendo o RÓTULO e as
+ *  SAÍDAS deles — sem isto, um processo legado perderia `contratoId` da lista de
+ *  variáveis disponíveis e a etapa seguinte ficaria sem como apontar o alvo. */
+export const RETIRED_CONNECTORS: ConnectorManifest[] = [
+  {
+    value: 'contracts.create', label: 'Criar contrato (aposentado — use uma tela)', domain: 'contract',
+    inputs: [
+      { key: 'titulo', label: 'Título', required: true, kind: 'text' },
+      { key: 'tipo', label: 'Tipo (id da tabela)', kind: 'text' },
+      { key: 'numero', label: 'Número (vazio = automático)', kind: 'text' },
+      { key: 'natureza', label: 'Natureza', kind: 'text' },
+      { key: 'descricao', label: 'Descrição', kind: 'text' },
+      { key: 'valor', label: 'Valor total', kind: 'money' },
+      { key: 'moeda', label: 'Moeda', kind: 'text' },
+      { key: 'inicioVigencia', label: 'Início da vigência', kind: 'date' },
+      { key: 'terminoVigencia', label: 'Término da vigência', kind: 'date' },
+    ],
+    outputs: ['contratoId', 'contratoNumero'],
+  },
+  {
+    value: 'partners.create', label: 'Criar parceiro (aposentado — use uma tela)', domain: 'partner',
+    inputs: [
+      { key: 'razaoSocial', label: 'Razão social', required: true, kind: 'text' },
+      { key: 'categoria', label: 'Categoria (PJ_BR/PF_BR/…)', kind: 'text' },
+      { key: 'documento', label: 'Documento (CNPJ/CPF)', kind: 'text' },
+      { key: 'nomeFantasia', label: 'Nome fantasia', kind: 'text' },
+      { key: 'email', label: 'E-mail', kind: 'text' },
+    ],
+    outputs: ['partnerId', 'partnerStatus'],
+  },
+]
+
+/** Manifesto de um conector por valor — inclui os aposentados. Use SEMPRE isto para
+ *  LER (rótulo, saídas, inversa); `CONNECTORS` é só o que se OFERECE para escolher. */
+export const findConnector = (value?: string): ConnectorManifest | undefined =>
+  CONNECTORS.find((c) => c.value === value) ?? RETIRED_CONNECTORS.find((c) => c.value === value)
+
+/** Conector está aposentado? (o designer marca a escolha herdada em vez de escondê-la) */
+export const isRetiredConnector = (value?: string): boolean =>
+  RETIRED_CONNECTORS.some((c) => c.value === value)
+
 /** Conector tem inversa? (fonte única p/ o designer oferecer COMPENSATE e o backend validar) */
 export const isCompensable = (connector?: string): boolean =>
-  !!CONNECTORS.find((c) => c.value === connector)?.compensable
+  !!findConnector(connector)?.compensable
 
 export interface ProcessFormSchema {
   steps: StepFormSchema[]

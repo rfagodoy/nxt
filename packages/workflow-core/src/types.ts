@@ -75,6 +75,17 @@ export interface WfNode {
     entityVar?: string          // nome da variável quando VARIAVEL
   }
 
+  /** PARA ONDE esta atividade pode DEVOLVER o processo. Sem isto (padrão), o motor
+   *  oferece toda atividade humana anterior — num fluxo longo, isso é oferecer dez
+   *  destinos onde o desenho previa dois.
+   *  - 'ANY' (padrão, inclusive ausente): qualquer predecessora.
+   *  - 'SELECTED': só as de `nodeIds`.
+   *  - 'NONE': esta atividade não devolve (o botão some para quem a executa).
+   *  ⚠️ A política só ESTREITA. Uma etapa bloqueada por ação automática segue
+   *  bloqueada mesmo que esteja em `nodeIds` — quem decide o que é seguro refazer é
+   *  o motor, não o desenho. */
+  returnPolicy?: { mode: 'ANY' | 'SELECTED' | 'NONE'; nodeIds?: string[] }
+
   /** Metadados livres preservados do diagrama (para o designer/UX). */
   meta?: Record<string, unknown>
 }
