@@ -9,6 +9,7 @@ import { Loader2, Info, ArrowRight, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DynamicForm } from '@/components/modules/dynamic-form'
 import { WorkflowScreenTask } from '@/components/processes/workflow-screen-task'
+import { ProcessTrail } from '@/components/processes/process-trail'
 import { ReturnTaskButton, type ReturnTarget } from '@/components/processes/return-task-button'
 import { DelegateTaskButton } from '@/components/processes/delegate-task-button'
 import { apiFetch, apiJson } from '@/lib/http'
@@ -51,9 +52,16 @@ export function TaskDocView({ task, onDone, onNotice }: {
         const vars = ctx?.state?.variables ?? {}
         setTimeline(ctx?.instance?.tasks ?? [])
         setStep(found ?? { stepId: task.nodeId, stepName: task.name || task.nodeId, fields: [] })
-        // tarefa que EDITA ou CONSULTA uma entidade já tem o id na variável → "Avançar" liberado
-        if (found?.screenRef && (found.entityMode === 'EDIT' || found.entityMode === 'VIEW') && found.entityVar) {
-          const eid = vars[found.entityVar]
+        /* Recupera o id da entidade-alvo da variável do processo → "Avançar" liberado.
+           EDIT/VIEW leem a variável escolhida no desenho. CREATE relê a variável que ELE
+           MESMO escreve ao concluir: se já tem valor, este processo JÁ criou a entidade
+           numa passagem anterior (devolução) e a etapa tem de EDITAR aquela, não criar
+           outra — um processo de contrato trabalha sobre um contrato só, do início ao fim. */
+        if (found?.screenRef) {
+          const varName = (found.entityMode ?? 'CREATE') === 'CREATE'
+            ? (found.screenSubject === 'CONTRATO' ? 'contratoId' : 'partnerId')
+            : found.entityVar
+          const eid = varName ? vars[varName] : undefined
           if (eid) setEntityId(String(eid))
         }
       } finally {
@@ -151,26 +159,8 @@ export function TaskDocView({ task, onDone, onNotice }: {
         )}
       </div>
 
-      {/* contexto: onde você está no processo */}
-      {timeline.length > 1 && (
-        <div className="px-1 py-3 border-b">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold mb-2">Onde você está</p>
-          <div className="flex flex-col gap-1.5">
-            {timeline.map((tl) => {
-              const done = tl.status === 'DONE'
-              const cur = tl.id === task.id
-              return (
-                <div key={tl.id} className="flex items-center gap-2.5">
-                  <span className={cn('h-2 w-2 rounded-full shrink-0', done ? 'bg-primary' : cur ? 'bg-primary ring-4 ring-primary/20' : 'bg-muted-foreground/30')} />
-                  <span className={cn('text-[12.5px]', cur ? 'font-semibold' : done ? 'text-muted-foreground' : 'text-muted-foreground/70')}>{tl.name || 'Etapa'}</span>
-                  {done && tl.completedBy && <span className="text-[11px] text-muted-foreground/70">· {tl.completedBy}</span>}
-                  {cur && <span className="ml-auto text-[10px] uppercase tracking-wide text-primary font-semibold">sua vez</span>}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
+      {/* contexto: onde você está no processo — uma linha, expansível (ProcessTrail) */}
+      <ProcessTrail timeline={timeline} currentTaskId={task.id} />
 
       <div className="flex-1 overflow-y-auto py-4">
         {error && <p className="text-[12px] text-destructive mb-2">{error}</p>}
@@ -191,7 +181,7 @@ export function TaskDocView({ task, onDone, onNotice }: {
               </div>
             )}
             {isScreen ? (
-              <WorkflowScreenTask key={task.id} step={step} entityId={entityId} onEntity={setEntityId} onCancel={onDone} />
+              <WorkflowScreenTask key={task.id} step={step} entityId={entityId} onEntity={setEntityId} onEntityGone={() => setEntityId(null)} onCancel={onDone} />
             ) : (
               // o botão "Avançar" (topo) submete este form via `form=FORM_ID`
               <DynamicForm key={task.id} step={step} stepIndex={0} totalSteps={1} submitting={submitting} onSubmit={complete} formId={FORM_ID} hideActions />

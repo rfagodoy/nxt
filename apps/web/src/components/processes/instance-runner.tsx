@@ -226,12 +226,16 @@ export function InstanceRunner({ processDefinitionId, processName, formSchema, o
                 // (comportamento de assistente). O `onEntity` reporta o id → complete.
                 (() => {
                   const idVar = step.screenSubject === 'CONTRATO' ? 'contratoId' : 'partnerId'
-                  const alvo = step.entityVar && variables[step.entityVar] ? String(variables[step.entityVar]) : null
                   const isView = step.entityMode === 'VIEW'
+                  /* EDIT/VIEW usam a variável do desenho; CREATE usa a que ele mesmo grava —
+                     reaberta por devolução, a etapa EDITA a entidade que este processo já
+                     criou em vez de criar uma segunda (mesma regra do TaskDocView). */
+                  const varName = (step.entityMode ?? 'CREATE') === 'CREATE' ? idVar : step.entityVar
+                  const alvo = varName && variables[varName] ? String(variables[varName]) : null
                   return (
                     <>
                       <WorkflowScreenTask key={active.id} step={step}
-                        entityId={(step.entityMode === 'EDIT' || isView) && alvo ? alvo : null}
+                        entityId={alvo}
                         onEntity={(id) => void complete({ [idVar]: id })}
                         onCancel={onClose} />
                       {/* Consulta não salva nada, então não existe o "salvou → concluiu" que
