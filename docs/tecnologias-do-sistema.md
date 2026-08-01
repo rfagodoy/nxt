@@ -104,7 +104,6 @@ A escolha entre um e outro é de **encaixe**, não de "melhor ou pior":
 | **lucide-react** | Os ícones do sistema |
 | **React Hook Form + Zod** | Montagem e validação de formulários |
 | **Recharts** | Os gráficos (ex.: do painel inicial) |
-| **bpmn-js** | Desenho de fluxos de processos (BPMN) |
 | **ExcelJS** | Exportação de dados para Excel |
 | **date-fns** | Manipulação de datas |
 | **Keycloak** *(em revisão)* | Login e controle de acesso |
