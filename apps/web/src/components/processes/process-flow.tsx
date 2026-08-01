@@ -4,7 +4,7 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Save, Zap, Trash2, User, Clock, LayoutTemplate,
-  CircleDot, CheckCircle2, Loader2, UserSquare, GitBranch, GitMerge,
+  CircleDot, Loader2, UserSquare,
   Download, FileImage, FileText, ChevronDown, PanelRightClose, PanelRightOpen,
   X, SlidersHorizontal, Undo2, Check,
 } from 'lucide-react'
@@ -22,7 +22,7 @@ import { useScreens } from '@/hooks/use-screens'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import type { ScreenSubject } from '@/lib/screen-types'
 import { PAPEIS_KEY, INIT_PAPEIS, REFERENCIA, ORIGEM, referenciaDoPapelEntry } from '@/lib/contract-roles'
-import { layoutGraph, titleLineCount, type FlowNode as LNode, type FlowNodeType } from '@/lib/flow-layout'
+import { layoutGraph, titleLineCount, LABEL_W, type FlowNode as LNode, type FlowNodeType } from '@/lib/flow-layout'
 import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, type ExportEdge } from '@/lib/flow-export'
 import { apiFetch } from '@/lib/http'
 import { cn } from '@/lib/utils'
@@ -675,7 +675,7 @@ function CreateMenu({ x, y, onPick, onClose }: { x: number; y: number; onPick: (
   }, [onClose])
   return (
     <div className="glass absolute z-30 w-44 rounded-xl p-1" style={{ left: x, top: y }} onPointerDown={(e) => e.stopPropagation()}>
-      {([['userTask', 'Tarefa', UserSquare, 'text-sky-600 dark:text-sky-400'], ['serviceTask', 'Ação automática', Zap, 'text-amber-600 dark:text-amber-400'], ['exclusiveGateway', 'Decisão (ou/ou)', GitBranch, 'text-violet-600 dark:text-violet-400'], ['parallelGateway', 'Paralelo (e/e)', GitMerge, 'text-rose-600 dark:text-rose-400']] as const).map(([t, lbl, Icon, cls]) => (
+      {([['userTask', 'Tarefa', UserSquare, 'text-sky-600 dark:text-sky-400'], ['serviceTask', 'Ação automática', Zap, 'text-amber-600 dark:text-amber-400'], ['exclusiveGateway', 'Decisão (ou/ou)', XorGlyph, 'text-violet-600 dark:text-violet-400'], ['parallelGateway', 'Paralelo (e/e)', AndGlyph, 'text-rose-600 dark:text-rose-400']] as const).map(([t, lbl, Icon, cls]) => (
         <button key={t} onClick={() => onPick(t)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm hover:bg-accent">
           <Icon className={cn('h-4 w-4', cls)} /> {lbl}
         </button>
@@ -719,24 +719,74 @@ function ExportMenu({ exporting, disabled, onExport }: {
   )
 }
 
+/* ─── Símbolos BPMN ──────────────────────────────────────────────────────────
+   Eventos e gateways usam a NOTAÇÃO PADRÃO (a mesma do Bizagi/Camunda), não ícones
+   decorativos: círculo fino = início, círculo grosso = fim, losango com "X" = decisão
+   exclusiva (ou/ou), losango com "+" = paralelo (e/e). O nome fica FORA da forma,
+   embaixo — é assim que o BPMN rotula evento e gateway. As cores continuam sendo as
+   do design system; o padrão define a FORMA, não a paleta. */
+
+/** Rótulo do nó desenhado FORA da forma (evento/gateway), centrado embaixo. */
+function NodeLabel({ text }: { text?: string }) {
+  if (!text) return null
+  return (
+    <span className="absolute left-1/2 top-full z-10 -translate-x-1/2 mt-1 text-center text-[11px] font-semibold leading-tight text-foreground pointer-events-none"
+      style={{ width: LABEL_W, display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, overflow: 'hidden' }}>
+      {text}
+    </span>
+  )
+}
+
+/** Losango do gateway em miniatura, para menus e cabeçalhos de painel. */
+function GatewayGlyph({ kind, className }: { kind: 'exclusive' | 'parallel'; className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinejoin="round" strokeLinecap="round" aria-hidden>
+      <path d="M12 2.5 21.5 12 12 21.5 2.5 12Z" />
+      {kind === 'exclusive'
+        ? <><path d="m8.9 8.9 6.2 6.2" /><path d="m15.1 8.9-6.2 6.2" /></>
+        : <><path d="M12 7.7v8.6" /><path d="M7.7 12h8.6" /></>}
+    </svg>
+  )
+}
+/** Mesma assinatura dos ícones do lucide (só `className`), para entrarem nas listas de menu. */
+const XorGlyph = (p: { className?: string }) => <GatewayGlyph kind="exclusive" {...p} />
+const AndGlyph = (p: { className?: string }) => <GatewayGlyph kind="parallel" {...p} />
+
 function FlowNodeView({ node, selected, onClick, resolvePapel }: { node: ENode; selected: boolean; onClick: () => void; resolvePapel: (id: string) => string | undefined }) {
   if (node.type === 'start' || node.type === 'end') {
-    const Icon = node.type === 'start' ? CircleDot : CheckCircle2
-    return <div className="w-full h-full rounded-2xl bg-emerald-500/10 border border-emerald-500/20 shadow-sm text-emerald-600 dark:text-emerald-400 flex flex-col items-center justify-center gap-1 text-[11px] font-semibold"><Icon className="h-4 w-4" />{node.name}</div>
+    // BPMN: início = anel FINO, fim = anel GROSSO. O raio compensa a espessura para os
+    // dois círculos terem o mesmo diâmetro externo (senão o "Fim" parece maior).
+    const isStart = node.type === 'start'
+    const sw = isStart ? 2 : 4.5
+    return (
+      <div className="relative w-full h-full">
+        <svg viewBox="0 0 56 56" className="w-full h-full overflow-visible text-emerald-600 dark:text-emerald-400">
+          <circle cx={28} cy={28} r={28 - sw / 2} fill="currentColor" fillOpacity={0.1} stroke="currentColor" strokeWidth={sw} />
+        </svg>
+        <NodeLabel text={node.name} />
+      </div>
+    )
   }
   if (node.type === 'exclusiveGateway' || node.type === 'parallelGateway') {
     const isExcl = node.type === 'exclusiveGateway'
-    const isFork = !!node.name // fork tem rótulo; junção é o losango pequeno
-    const tone = isExcl ? 'text-violet-600 dark:text-violet-400 bg-violet-500/10 border-violet-500/40' : 'text-rose-600 dark:text-rose-400 bg-rose-500/10 border-rose-500/40'
-    const Icon = isExcl ? GitBranch : GitMerge
-    if (!isFork) {
-      return <button onClick={onClick} className={cn('w-full h-full rounded-lg border flex items-center justify-center transition-all rotate-45', tone, selected && 'ring-2 ring-primary/30')} title="Reencontro"><Icon className="h-3.5 w-3.5 -rotate-45" /></button>
-    }
+    const tone = isExcl ? 'text-violet-600 dark:text-violet-400' : 'text-rose-600 dark:text-rose-400'
+    const m = 9.5 // meio-braço do marcador interno
     return (
-      <button onClick={onClick} className={cn('w-full h-full rounded-xl border shadow-sm flex items-center gap-2 px-3 text-left transition-all hover:shadow-md', tone, selected ? 'ring-2 ring-primary/30' : '')}>
-        <Icon className="h-4 w-4 shrink-0" />
-        <span className="text-[12px] font-semibold leading-tight truncate">{node.name}</span>
-      </button>
+      <div className="relative w-full h-full">
+        <button onClick={onClick} className={cn('block w-full h-full transition-transform hover:scale-105', tone)}
+          title={node.name || 'Reencontro'}>
+          <svg viewBox="0 0 56 56" className="w-full h-full overflow-visible">
+            {selected && <polygon points="28,-2 58,28 28,58 -2,28" fill="none" stroke="hsl(var(--primary))" strokeWidth={2} strokeLinejoin="round" />}
+            <polygon points="28,2 54,28 28,54 2,28" fill="currentColor" fillOpacity={0.12} stroke="currentColor" strokeWidth={2} strokeLinejoin="round" />
+            <g stroke="currentColor" strokeWidth={3.4} strokeLinecap="round">
+              {isExcl
+                ? <><line x1={28 - m} y1={28 - m} x2={28 + m} y2={28 + m} /><line x1={28 + m} y1={28 - m} x2={28 - m} y2={28 + m} /></>
+                : <><line x1={28} y1={28 - m * 1.35} x2={28} y2={28 + m * 1.35} /><line x1={28 - m * 1.35} y1={28} x2={28 + m * 1.35} y2={28} /></>}
+            </g>
+          </svg>
+        </button>
+        <NodeLabel text={node.name} />
+      </div>
     )
   }
   // atividade — card em vidro (sem thumbnail-esqueleto), acento no topo pela cor do tipo
@@ -1344,11 +1394,10 @@ function GatewayInspector({ node, edges, onPatchNode, onSetEdge }: {
   const isExcl = node.type === 'exclusiveGateway'
   const outs = edges.filter((e) => e.from === node.id)
   const tone = isExcl ? 'text-violet-600 dark:text-violet-400 bg-violet-500/10' : 'text-rose-600 dark:text-rose-400 bg-rose-500/10'
-  const Icon = isExcl ? GitBranch : GitMerge
   return (
     <div className="flex flex-col h-full">
       <div className="px-4 py-3 border-b shrink-0">
-        <span className={cn('inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full', tone)}><Icon className="h-3 w-3" />{isExcl ? 'Decisão (ou/ou)' : 'Paralelo (e/e)'}</span>
+        <span className={cn('inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full', tone)}><GatewayGlyph kind={isExcl ? 'exclusive' : 'parallel'} className="h-3 w-3" />{isExcl ? 'Decisão (ou/ou)' : 'Paralelo (e/e)'}</span>
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         <Field label={isExcl ? 'Pergunta / rótulo' : 'Rótulo'}>

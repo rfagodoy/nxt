@@ -9,7 +9,9 @@
      PADRÃO segue reto (faixa 0 relativa) e as condicionais abrem ±1, ±2…; num
      PARALELO todas as saídas abrem simétricas; num nó de junção (várias entradas)
      a faixa volta para a mais próxima do eixo (reencontro no centro).
-   - y = faixa × espaçamento (grande o bastante para nunca sobrepor). */
+   - y = faixa × espaçamento (grande o bastante para nunca sobrepor); cada faixa tem um
+     EIXO e todo nó é centrado nele, para a seta entre formas de alturas diferentes
+     (losango de 56px × cartão de ~130px) sair reta. */
 
 export type FlowNodeType = 'start' | 'end' | 'userTask' | 'serviceTask' | 'exclusiveGateway' | 'parallelGateway'
 
@@ -41,22 +43,33 @@ export function titleLineCount(name: string | undefined): number {
   return Math.min(TITLE_MAX_LINES, Math.max(1, Math.ceil(len / TITLE_CHARS_PER_LINE)))
 }
 
-/** Dimensões de cada tipo de nó. Gateways: FORK (com rótulo) vs JUNÇÃO (losango pequeno). */
+/* Eventos e gateways seguem a NOTAÇÃO BPMN: forma de tamanho fixo (círculo / losango) com
+   o nome FORA dela, embaixo — como no Bizagi. Por isso o fork ("Decisão") e a junção têm
+   exatamente a mesma caixa: o que distingue os dois é o rótulo, não o tamanho. */
+export const SYMBOL = 56   // lado do círculo (evento) e do losango (gateway)
+export const LABEL_W = 120 // largura do rótulo que fica FORA da forma
+export const LABEL_H = 34  // 2 linhas + folga
+
+/** Dimensões de cada tipo de nó. A caixa é a FORMA — o rótulo externo não entra nela
+ *  (senão as setas deixariam de encostar na ponta do losango / na borda do círculo). */
 export function nodeSize(node: FlowNode, _outDeg: number, _inDeg: number): { w: number; h: number } {
   switch (node.type) {
     case 'start':
     case 'end':
-      return { w: 60, h: 60 }
+    case 'exclusiveGateway':
+    case 'parallelGateway':
+      return { w: SYMBOL, h: SYMBOL }
     case 'userTask':
     case 'serviceTask':
       return { w: TASK_W, h: CARD_BASE_H + titleLineCount(node.name) * CARD_LINE_H }
-    case 'exclusiveGateway':
-    case 'parallelGateway': {
-      // com rótulo = pílula (decisão/paralelo); sem rótulo = losango pequeno (junção)
-      if (node.name) return { w: node.type === 'exclusiveGateway' ? 156 : 128, h: 46 }
-      return { w: 38, h: 38 }
-    }
   }
+}
+
+/** Quanto o RÓTULO EXTERNO transborda a caixa (só eventos/gateways com nome). Entra apenas
+ *  na extensão do desenho — a caixa (e as âncoras das setas) continua sendo a forma. */
+function labelOverflow(node: FlowNode): { x: number; y: number } {
+  if (node.type === 'userTask' || node.type === 'serviceTask' || !node.name) return { x: 0, y: 0 }
+  return { x: Math.max(0, (LABEL_W - SYMBOL) / 2), y: LABEL_H }
 }
 
 export function layoutGraph(graph: FlowGraph, manual?: Record<string, { x: number; y: number }>): LayoutResult {
@@ -162,18 +175,22 @@ export function layoutGraph(graph: FlowGraph, manual?: Record<string, { x: numbe
   // ── posições ──
   const lanes = nodes.map((n) => lane[n.id] ?? 0)
   const minLane = Math.min(0, ...lanes)
+  // A faixa tem um EIXO horizontal e todo nó é centrado nele. Sem isso o losango (56px) e o
+  // cartão (≈130px) ficariam alinhados pelo TOPO e a seta entre eles sairia torta.
+  const rowH = Math.max(...nodes.map((n) => size[n.id].h), 0)
   const positioned: Record<string, PositionedNode> = {}
   let maxX = 0
   let maxY = 0
   for (const n of nodes) {
     const s = size[n.id]
     const r = rank[n.id]
+    const over = labelOverflow(n)
     const x = MARGIN + colLeft[r] + (colW[r] - s.w) / 2 // centralizado na coluna
-    const yCenter = MARGIN + (lane[n.id] - minLane) * BRANCH_GAP + s.h / 2 // faixa 0 no topo relativo
-    const y = yCenter - s.h / 2
+    const axis = MARGIN + rowH / 2 + (lane[n.id] - minLane) * BRANCH_GAP // eixo da faixa
+    const y = axis - s.h / 2
     positioned[n.id] = { id: n.id, x, y, w: s.w, h: s.h, rank: r, lane: lane[n.id] ?? 0 }
-    maxX = Math.max(maxX, x + s.w)
-    maxY = Math.max(maxY, y + s.h)
+    maxX = Math.max(maxX, x + s.w + over.x)
+    maxY = Math.max(maxY, y + s.h + over.y)
   }
 
   // ── posições MANUAIS (override do auto) ──
@@ -186,7 +203,12 @@ export function layoutGraph(graph: FlowGraph, manual?: Record<string, { x: numbe
       p.y = Math.max(MARGIN, m.y)
     }
     maxX = 0; maxY = 0
-    for (const id of Object.keys(positioned)) { const p = positioned[id]; maxX = Math.max(maxX, p.x + p.w); maxY = Math.max(maxY, p.y + p.h) }
+    for (const n of nodes) {
+      const p = positioned[n.id]
+      const over = labelOverflow(n)
+      maxX = Math.max(maxX, p.x + p.w + over.x)
+      maxY = Math.max(maxY, p.y + p.h + over.y)
+    }
   }
 
   return { nodes: positioned, width: maxX + MARGIN, height: maxY + MARGIN }

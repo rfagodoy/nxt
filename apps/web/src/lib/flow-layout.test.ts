@@ -71,8 +71,42 @@ describe('layoutGraph', () => {
     // ramos simétricos (faixas opostas)
     expect(L.nodes.x.lane).toBe(-L.nodes.y.lane)
     expect(L.nodes.x.lane).not.toBe(0)
-    // junção é losango pequeno (sem out>1)
-    expect(L.nodes.j.w).toBeLessThan(L.nodes.p.w)
+    // BPMN: fork e junção são o MESMO losango — o que distingue é o rótulo, não o tamanho
+    expect(L.nodes.j.w).toBe(L.nodes.p.w)
+    expect(L.nodes.p.w).toBe(L.nodes.p.h)
+  })
+
+  it('BPMN: evento e gateway são quadrados (círculo/losango) e centrados no eixo da faixa', () => {
+    const graph = g(
+      [
+        { id: 'start', type: 'start' },
+        { id: 'a', type: 'userTask', name: 'a'.repeat(60) }, // cartão alto (3 linhas)
+        { id: 'gw', type: 'exclusiveGateway', name: 'Aprova?' },
+        { id: 'end', type: 'end' },
+      ],
+      [
+        { id: 'e1', from: 'start', to: 'a' },
+        { id: 'e2', from: 'a', to: 'gw' },
+        { id: 'e3', from: 'gw', to: 'end' },
+      ],
+    )
+    const L = layoutGraph(graph)
+    for (const id of ['start', 'gw', 'end']) expect(L.nodes[id].w).toBe(L.nodes[id].h)
+    // centros y iguais mesmo com alturas MUITO diferentes → setas retas
+    const cy = (n: { y: number; h: number }) => n.y + n.h / 2
+    expect(cy(L.nodes.gw)).toBeCloseTo(cy(L.nodes.a))
+    expect(cy(L.nodes.start)).toBeCloseTo(cy(L.nodes.a))
+  })
+
+  it('o rótulo externo do gateway cabe no desenho (não é cortado na borda)', () => {
+    const graph = g(
+      [ { id: 'start', type: 'start' }, { id: 'gw', type: 'exclusiveGateway', name: 'Necessita de aprovação?' } ],
+      [ { id: 'e1', from: 'start', to: 'gw' } ],
+    )
+    const L = layoutGraph(graph)
+    const p = L.nodes.gw
+    expect(L.height).toBeGreaterThan(p.y + p.h) // sobra vertical para o nome embaixo
+    expect(L.width).toBeGreaterThan(p.x + p.w)  // e horizontal para ele transbordar centrado
   })
 
   it('decisão exclusiva: saída PADRÃO segue reto, condicional abre', () => {
