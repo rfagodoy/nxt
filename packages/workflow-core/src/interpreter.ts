@@ -244,7 +244,20 @@ export function returnTargets(graph: WfGraph, state: WfState, tokenId: string): 
   const out: WfReturnTarget[] = []
   for (const id of clean) if (!blocked.has(id)) out.push({ nodeId: id, name: graph.nodes[id]?.name })
   for (const [id, blocker] of blocked) out.push({ nodeId: id, name: graph.nodes[id]?.name, blockedBy: blocker })
-  return out
+  return aplicarPolitica(out, graph.nodes[token.nodeId])
+}
+
+/** Aplica a política de devolução configurada na atividade de ORIGEM (de onde se volta).
+ *  Só ESTREITA o conjunto que o motor calculou: um alvo bloqueado por ação automática
+ *  continua bloqueado mesmo que o desenhista o tenha escolhido — quem decide o que é
+ *  seguro refazer é o motor, não o desenho. Sem isso, marcar "pode voltar para a etapa 1"
+ *  atravessando um aditivo já lançado o lançaria de novo. */
+function aplicarPolitica(alvos: WfReturnTarget[], origem?: WfNode): WfReturnTarget[] {
+  const pol = origem?.returnPolicy
+  if (!pol || pol.mode === 'ANY') return alvos
+  if (pol.mode === 'NONE') return []
+  const escolhidos = new Set(pol.nodeIds ?? [])
+  return alvos.filter((t) => escolhidos.has(t.nodeId))
 }
 
 /** Nós alcançáveis a partir de `from` (inclusive) — o sub-grafo DESCARTADO numa

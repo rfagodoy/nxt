@@ -6,12 +6,12 @@ import {
   ArrowLeft, Save, Zap, Trash2, User, Clock, LayoutTemplate,
   CircleDot, CheckCircle2, Loader2, UserSquare, GitBranch, GitMerge,
   Download, FileImage, FileText, ChevronDown, PanelRightClose, PanelRightOpen,
-  X, SlidersHorizontal,
+  X, SlidersHorizontal, Undo2, Check,
 } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { generateBpmn, compileBpmn, type WfGraph, type WfNode, type WfEdge } from '@nxt/workflow-core'
 import type { StepFormSchema, ProcessFormSchema } from '@nxt/types'
-import { CONNECTORS, isCompensable } from '@nxt/types'
+import { CONNECTORS, findConnector, isRetiredConnector, isCompensable } from '@nxt/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -339,7 +339,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       if (isActivity(n.type)) {
         const step = n.step
         const role = step?.executor?.papelId ? (resolvePapel(step.executor.papelId) ?? 'Responsável') : null
-        const connector = CONNECTORS.find((c) => c.value === step?.connector)?.label
+        const connector = findConnector(step?.connector)?.label
         const due = dueText(step)
         const meta = [n.type === 'serviceTask' ? (connector ?? 'Sem ação') : (role ?? 'Sem executor')]
         if (due) meta.push(due)
@@ -745,7 +745,7 @@ function FlowNodeView({ node, selected, onClick, resolvePapel }: { node: ENode; 
   const Icon = type === 'serviceTask' ? Zap : UserSquare
   const step = node.step
   const role = step?.executor?.papelId ? (resolvePapel(step.executor.papelId) ?? 'Responsável') : null
-  const connector = CONNECTORS.find((c) => c.value === step?.connector)?.label
+  const connector = findConnector(step?.connector)?.label
   const due = dueText(step)
   return (
     <button onClick={onClick} className={cn('group/card w-full h-full text-left rounded-xl glass overflow-hidden flex flex-col transition-all hover:-translate-y-0.5 hover:shadow-lg', selected && 'ring-2 ring-primary')}>
@@ -776,6 +776,15 @@ function dueText(step?: StepFormSchema): string | null {
   if (h) parts.push(`${h} h úteis`)
   if (m) parts.push(`${m} min úteis`)
   return parts.length ? parts.join(' · ') : null
+}
+
+/** Resumo da política de devolução da tarefa, para o painel de leitura. */
+function devolucaoText(step?: StepFormSchema): string {
+  const p = step?.returnPolicy
+  if (!p || p.mode === 'ANY') return 'Qualquer etapa anterior'
+  if (p.mode === 'NONE') return 'Não devolve'
+  const n = (p.nodeIds ?? []).length
+  return n === 0 ? '— nenhuma etapa marcada' : `${n} etapa${n > 1 ? 's' : ''} escolhida${n > 1 ? 's' : ''}`
 }
 
 /* ─── Inspetores ───────────────────────────────────────────────────────────── */
@@ -831,6 +840,24 @@ function GSection({ title, description, children }: { title: string; description
  * aplica cada mudança ao vivo no grafo, então sem isso "Cancelar" seria só um "Fechar"
  * mentiroso.
  */
+/** Ids de todos os nós que chegam a `alvo` andando o grafo para trás (predecessoras
+ *  transitivas). Guarda de visitados porque o grafo pode ter ciclo. */
+function predecessorasDe(edges: EEdge[], alvo: string): Set<string> {
+  const preds = new Set<string>()
+  const seen = new Set<string>()
+  let frontier = edges.filter((e) => e.to === alvo).map((e) => e.from)
+  while (frontier.length) {
+    const next: string[] = []
+    for (const id of frontier) {
+      if (seen.has(id)) continue
+      seen.add(id); preds.add(id)
+      for (const e of edges.filter((x) => x.to === id)) next.push(e.from)
+    }
+    frontier = next
+  }
+  return preds
+}
+
 function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep, onChangeType, onRemove, onClose }: {
   node: ENode; nodes: ENode[]; edges: EEdge[]; screens: Screens; papeis: Papeis
   onPatchStep: (patch: Partial<StepFormSchema>) => void; onChangeType: (t: 'userTask' | 'serviceTask') => void; onRemove: () => void
@@ -843,25 +870,38 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
 
   // variáveis de etapas ANTERIORES (predecessoras topológicas simples)
   const availableVars = useMemo(() => {
-    const preds = new Set<string>()
-    let frontier = edges.filter((e) => e.to === node.id).map((e) => e.from)
-    const seen = new Set<string>()
-    while (frontier.length) {
-      const next: string[] = []
-      for (const id of frontier) { if (seen.has(id)) continue; seen.add(id); preds.add(id); for (const e of edges.filter((x) => x.to === id)) next.push(e.from) }
-      frontier = next
-    }
+    const preds = predecessorasDe(edges, node.id)
     const out: Array<{ name: string; label: string }> = []
     const s = new Set<string>()
     const add = (n: string, l: string) => { if (n && !s.has(n)) { s.add(n); out.push({ name: n, label: l }) } }
     for (const p of nodes.filter((n) => preds.has(n.id) && n.step)) {
       const st = p.step!
-      const m = CONNECTORS.find((c) => c.value === st.connector)
+      const m = findConnector(st.connector)
       if (m) for (const o of m.outputs) add(o, `${o} · saída de ${m.label}`)
       if (st.screenRef && st.entityMode === 'CREATE' && st.screenSubject) add(st.screenSubject === 'CONTRATO' ? 'contratoId' : 'partnerId', `criado em ${st.stepName || 'etapa'}`)
     }
     return out
   }, [edges, nodes, node.id])
+
+  /* Destinos possíveis de DEVOLUÇÃO: predecessoras que são tarefa de usuário. Só elas —
+     devolver para uma ação automática a reexecutaria, e o motor recusa. Note que aqui
+     a lista é a do DESENHO; em execução o motor ainda pode bloquear um destino que
+     esteja atrás de uma ação automática já rodada. A tela avisa isso abaixo. */
+  const destinosDevolucao = useMemo(() => {
+    const preds = predecessorasDe(edges, node.id)
+    return nodes
+      .filter((n) => preds.has(n.id) && n.type === 'userTask')
+      .map((n) => ({ id: n.id, nome: n.step?.stepName || 'Etapa sem nome' }))
+  }, [edges, nodes, node.id])
+
+  const retorno = step.returnPolicy ?? { mode: 'ANY' as const }
+  const setRetornoMode = (mode: 'ANY' | 'SELECTED' | 'NONE') =>
+    onPatchStep({ returnPolicy: mode === 'ANY' ? undefined : { mode, nodeIds: mode === 'SELECTED' ? (retorno.nodeIds ?? []) : undefined } })
+  const toggleDestino = (id: string) => {
+    const atuais = new Set(retorno.nodeIds ?? [])
+    if (atuais.has(id)) atuais.delete(id); else atuais.add(id)
+    onPatchStep({ returnPolicy: { mode: 'SELECTED', nodeIds: [...atuais] } })
+  }
 
   const entityScreens = screens.filter((s) => s.subjectType === 'CONTRATO' || s.subjectType === 'FORNECEDOR')
   const papeisPessoa = papeis.active.filter((p) => referenciaDoPapelEntry(p) === REFERENCIA.PESSOA)
@@ -927,6 +967,7 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
         { id: 'executor',      label: 'Quem executa',  Icon: User },
         { id: 'formulario',    label: 'Formulário',    Icon: LayoutTemplate },
         { id: 'prazo',         label: 'Prazo',         Icon: Clock },
+        { id: 'devolucao',     label: 'Devolução',     Icon: Undo2 },
       ]
     : [
         { id: 'identificacao', label: 'Identificação',   Icon: CircleDot },
@@ -942,7 +983,10 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
     executor: papelSel?.label ?? 'sem papel',
     formulario: step.screenRef ? `${ENTITY_MODE_LABEL[step.entityMode ?? 'CREATE']} ${entityWord}` : 'sem tela',
     prazo: dueText(step) ?? 'sem prazo',
-    acao: CONNECTORS.find((c) => c.value === step.connector)?.label ?? 'nenhuma',
+    acao: findConnector(step.connector)?.label ?? 'nenhuma',
+    devolucao: retorno.mode === 'NONE' ? 'não devolve'
+      : retorno.mode === 'SELECTED' ? `${(retorno.nodeIds ?? []).length} etapa(s)`
+      : 'qualquer anterior',
   }
 
   if (!mounted) return null
@@ -1105,14 +1149,96 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
               </GSection>
             )}
 
+            {sec === 'devolucao' && type === 'userTask' && (
+              <GSection title="Devolução" description="Para onde quem executa esta tarefa pode devolver o processo.">
+                <GField label="Destinos permitidos" wide>
+                  <div className="flex gap-1 text-xs max-w-xl">
+                    {([
+                      ['ANY', 'Qualquer anterior'],
+                      ['SELECTED', 'Só as escolhidas'],
+                      ['NONE', 'Não devolve'],
+                    ] as const).map(([m, lbl]) => (
+                      <button key={m} type="button" onClick={() => setRetornoMode(m)}
+                        className={cn('flex-1 rounded-md px-2 py-1.5 border transition-colors', retorno.mode === m ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted text-muted-foreground')}>
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
+                </GField>
+
+                {retorno.mode === 'NONE' && (
+                  <GField label="" wide>
+                    <p className="text-[11.5px] text-muted-foreground">O botão <span className="font-medium text-foreground">Retroceder</span> não aparece para quem executa esta tarefa.</p>
+                  </GField>
+                )}
+
+                {retorno.mode === 'SELECTED' && (
+                  <GField label="Pode voltar para" required wide
+                    hint={destinosDevolucao.length === 0
+                      ? 'Esta tarefa não tem nenhuma tarefa humana antes dela no fluxo.'
+                      : 'Marque as etapas. Devolver só existe para tarefa de pessoa — ação automática não entra na lista.'}>
+                    {destinosDevolucao.length === 0 ? (
+                      <p className="text-[11.5px] text-muted-foreground rounded-md border border-dashed p-3">
+                        Nada a escolher: ligue esta tarefa depois de outra tarefa de usuário.
+                      </p>
+                    ) : (
+                      <div className="space-y-1">
+                        {destinosDevolucao.map((d) => {
+                          const marcado = (retorno.nodeIds ?? []).includes(d.id)
+                          return (
+                            <button key={d.id} type="button" onClick={() => toggleDestino(d.id)}
+                              className={cn('flex w-full items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs text-left transition-colors',
+                                marcado ? 'border-primary bg-primary/5 font-medium' : 'hover:bg-muted text-muted-foreground')}>
+                              <span className={cn('flex h-3.5 w-3.5 items-center justify-center rounded-sm border shrink-0', marcado ? 'bg-primary border-primary text-primary-foreground' : 'border-muted-foreground/40')}>
+                                {marcado && <Check className="h-2.5 w-2.5" />}
+                              </span>
+                              {d.nome}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </GField>
+                )}
+
+                {/* Dizer isto AQUI evita a conclusão errada de que a marcação garante o
+                    destino — o bloqueio por ação automática continua valendo por cima. */}
+                {retorno.mode !== 'NONE' && (
+                  <GField label="" wide>
+                    <p className="text-[11.5px] text-muted-foreground leading-snug">
+                      Em execução, uma etapa marcada ainda pode aparecer bloqueada se estiver atrás de
+                      uma ação automática já executada — quem decide o que é seguro refazer é o motor.
+                    </p>
+                  </GField>
+                )}
+              </GSection>
+            )}
+
             {sec === 'acao' && type === 'serviceTask' && (
               <GSection title="Ação automática" description="O motor executa esta ação sozinho — grava a entidade de verdade.">
                 <GField label="Ação (conector)" wide>
                   <Select value={step.connector || 'none'} onValueChange={(v) => onPatchStep({ connector: v && v !== 'none' ? v : undefined })}>
                     <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Nenhuma (só passa)" /></SelectTrigger>
-                    <SelectContent><SelectItem value="none">Nenhuma (só passa)</SelectItem>{CONNECTORS.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
+                    <SelectContent>
+                      <SelectItem value="none">Nenhuma (só passa)</SelectItem>
+                      {CONNECTORS.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                      {/* Conector aposentado só aparece quando ESTE passo já o usa: some da
+                          vitrine para desenhos novos sem sumir da tela de quem já o escolheu. */}
+                      {isRetiredConnector(step.connector) && (
+                        <SelectItem value={step.connector as string}>{findConnector(step.connector)?.label}</SelectItem>
+                      )}
+                    </SelectContent>
                   </Select>
                 </GField>
+                {isRetiredConnector(step.connector) && (
+                  <GField label="" wide>
+                    <p className="text-[11.5px] text-amber-700 dark:text-amber-400 leading-snug">
+                      Esta ação foi aposentada: criar {step.connector === 'contracts.create' ? 'contrato' : 'parceiro'} agora
+                      se faz por uma <span className="font-medium">tela</span> numa tarefa de usuário, que valida e mostra o
+                      cadastro inteiro. O processo continua funcionando; troque quando for revisá-lo.
+                    </p>
+                  </GField>
+                )}
                 {step.connector && (() => {
                   const compensable = isCompensable(step.connector)
                   return (
@@ -1165,9 +1291,10 @@ function ActivitySummaryPanel({ node, papeis, onConfigure, onRemove }: {
         { label: 'Executor', valor: papel ?? '— sem papel definido' },
         { label: 'Formulário', valor: step.screenRef ? `${ENTITY_MODE_LABEL[step.entityMode ?? 'CREATE']} ${entityWord}` : '— sem tela' },
         { label: 'Prazo', valor: dueText(step) ?? '— sem prazo' },
+        { label: 'Devolução', valor: devolucaoText(step) },
       ]
     : [
-        { label: 'Ação', valor: CONNECTORS.find((c) => c.value === step.connector)?.label ?? '— nenhuma' },
+        { label: 'Ação', valor: findConnector(step.connector)?.label ?? '— nenhuma' },
         { label: 'Se devolvido', valor: RETURN_LABEL[step.onReturn ?? 'BLOCK'] },
       ]
 

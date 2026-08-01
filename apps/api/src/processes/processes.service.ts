@@ -108,6 +108,28 @@ export class ProcessesService {
         }
         node.onReturn = step.onReturn
       }
+      /* Política de devolução da TAREFA: para onde ela pode devolver o processo.
+         Valida aqui, na ativação, porque um nodeId que não existe (etapa apagada
+         depois de escolhida) viraria uma lista de destinos silenciosamente vazia —
+         o desenhista acharia que configurou e o botão simplesmente não apareceria. */
+      if (step.returnPolicy && node.type === 'userTask') {
+        const { mode, nodeIds } = step.returnPolicy
+        if (mode === 'SELECTED') {
+          const escolhidos = nodeIds ?? []
+          if (escolhidos.length === 0) {
+            throw new BadRequestException(
+              `A tarefa "${step.stepName || step.stepId}" está configurada para devolver só para etapas escolhidas, mas nenhuma foi marcada.`,
+            )
+          }
+          const inexistente = escolhidos.find((id) => graph.nodes[id]?.type !== 'userTask')
+          if (inexistente) {
+            throw new BadRequestException(
+              `A tarefa "${step.stepName || step.stepId}" aponta a devolução para uma etapa que não existe mais no fluxo. Reveja os destinos.`,
+            )
+          }
+        }
+        node.returnPolicy = step.returnPolicy
+      }
       // Mapa entrada-do-conector → variável-do-processo (re-liga nomes no designer).
       if (step.connectorInputs && Object.keys(step.connectorInputs).length) {
         node.connectorInputs = step.connectorInputs
