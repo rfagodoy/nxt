@@ -8,7 +8,7 @@
    (extensão cently interferindo no carregamento interno de imagem da lib).
    Saída: JPG (toDataURL) ou PDF (jspdf, import dinâmico). CSP já cobre data:/blob:. */
 
-import { titleLineCount } from './flow-layout'
+import { titleLineCount, LABEL_W } from './flow-layout'
 
 export type FlowExportFormat = 'jpg' | 'pdf'
 
@@ -176,36 +176,43 @@ function drawDiagram(ctx: CanvasRenderingContext2D, model: ExportModel, C: Theme
   }
 }
 
-function drawEvent(ctx: CanvasRenderingContext2D, n: ExportNode, x: number, y: number, w: number, h: number, C: Theme) {
-  roundRect(ctx, x, y, w, h, 16); ctx.fillStyle = EMERALD.fill; ctx.fill()
-  ctx.strokeStyle = EMERALD.stroke; ctx.lineWidth = 1; ctx.stroke()
-  const cx = x + w / 2, iy = y + h * 0.36
-  ctx.strokeStyle = EMERALD.text; ctx.lineWidth = 1.8; ctx.lineCap = 'round'; ctx.lineJoin = 'round'
-  if (n.type === 'start') {
-    ctx.beginPath(); ctx.arc(cx, iy, 6, 0, Math.PI * 2); ctx.stroke()
-    ctx.fillStyle = EMERALD.text; ctx.beginPath(); ctx.arc(cx, iy, 2, 0, Math.PI * 2); ctx.fill()
-  } else {
-    ctx.beginPath(); ctx.arc(cx, iy, 7, 0, Math.PI * 2); ctx.stroke()
-    ctx.beginPath(); ctx.moveTo(cx - 3.2, iy); ctx.lineTo(cx - 0.8, iy + 2.6); ctx.lineTo(cx + 3.4, iy - 2.6); ctx.stroke()
-  }
-  ctx.fillStyle = EMERALD.text; ctx.font = `600 10px ${C.sans}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-  ctx.fillText(ellipsize(ctx, n.name, w - 8), cx, y + h * 0.72)
+/** Nome do evento/gateway EMBAIXO da forma, como no BPMN (a forma não comporta texto). */
+function drawNodeLabel(ctx: CanvasRenderingContext2D, text: string, cx: number, top: number, C: Theme) {
+  if (!text) return
+  ctx.fillStyle = C.fg; ctx.font = `600 11px ${C.sans}`; ctx.textAlign = 'center'; ctx.textBaseline = 'top'
+  wrapText(ctx, text, cx, top, LABEL_W, 13, 2)
 }
 
+/** BPMN: início = anel FINO, fim = anel GROSSO (mesmo diâmetro externo). */
+function drawEvent(ctx: CanvasRenderingContext2D, n: ExportNode, x: number, y: number, w: number, h: number, C: Theme) {
+  const cx = x + w / 2, cy = y + h / 2
+  const sw = n.type === 'start' ? 2 : 4.5
+  ctx.beginPath(); ctx.arc(cx, cy, w / 2 - sw / 2, 0, Math.PI * 2)
+  ctx.fillStyle = EMERALD.fill; ctx.fill()
+  ctx.strokeStyle = EMERALD.text; ctx.lineWidth = sw; ctx.stroke()
+  drawNodeLabel(ctx, n.name, cx, y + h + 4, C)
+}
+
+/** BPMN: losango com "X" = exclusivo (ou/ou); com "+" = paralelo (e/e). Fork e junção
+ *  têm a MESMA forma — o que muda é só o rótulo (a junção não tem). */
 function drawGateway(ctx: CanvasRenderingContext2D, n: ExportNode, x: number, y: number, w: number, h: number, C: Theme) {
   const pal = n.type === 'exclusiveGateway' ? VIOLET : ROSE
-  if (!n.isFork) { // junção = losango pequeno
-    const cx = x + w / 2, cy = y + h / 2
-    ctx.beginPath(); ctx.moveTo(cx, y); ctx.lineTo(x + w, cy); ctx.lineTo(cx, y + h); ctx.lineTo(x, cy); ctx.closePath()
-    ctx.fillStyle = pal.fill; ctx.fill(); ctx.strokeStyle = pal.stroke; ctx.lineWidth = 1; ctx.stroke()
-    return
+  const cx = x + w / 2, cy = y + h / 2, r = w / 2 - 1
+  ctx.beginPath(); ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy); ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy); ctx.closePath()
+  ctx.fillStyle = pal.fill; ctx.fill()
+  ctx.strokeStyle = pal.text; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke()
+  const m = 9.5
+  ctx.strokeStyle = pal.text; ctx.lineWidth = 3.4; ctx.lineCap = 'round'
+  ctx.beginPath()
+  if (n.type === 'exclusiveGateway') {
+    ctx.moveTo(cx - m, cy - m); ctx.lineTo(cx + m, cy + m)
+    ctx.moveTo(cx + m, cy - m); ctx.lineTo(cx - m, cy + m)
+  } else {
+    ctx.moveTo(cx, cy - m * 1.35); ctx.lineTo(cx, cy + m * 1.35)
+    ctx.moveTo(cx - m * 1.35, cy); ctx.lineTo(cx + m * 1.35, cy)
   }
-  roundRect(ctx, x, y, w, h, 10); ctx.fillStyle = pal.fill; ctx.fill()
-  ctx.strokeStyle = pal.stroke; ctx.lineWidth = 1; ctx.stroke()
-  const cy = y + h / 2
-  ctx.fillStyle = pal.text; ctx.beginPath(); ctx.arc(x + 15, cy, 3.2, 0, Math.PI * 2); ctx.fill()
-  ctx.font = `600 12px ${C.sans}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
-  ctx.fillText(ellipsize(ctx, n.name, w - 34), x + 26, cy)
+  ctx.stroke()
+  drawNodeLabel(ctx, n.name, cx, y + h + 4, C)
 }
 
 function drawCard(ctx: CanvasRenderingContext2D, n: ExportNode, x: number, y: number, w: number, h: number, C: Theme) {
