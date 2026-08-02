@@ -744,17 +744,34 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
       <div style={{ width: layout.width * scale, height: layout.height * scale, minWidth: '100%' }}>
       <div ref={canvasRef} className="relative" style={{ width: layout.width, height: layout.height, transform: `scale(${scale})`, transformOrigin: '0 0' }}>
         {/* RAIAS — bandas atrás de tudo, com o papel na coluna da esquerda. Só leitura:
-            a banda vem do executor configurado, não se arrasta nada para dentro dela. */}
+            a banda vem do executor configurado, não se arrasta nada para dentro dela.
+
+            ⚠️ A moldura NÃO usa `--border`/`--muted`: no tema claro esses tokens têm a
+            mesma luminosidade do fundo (88% contra 88%) e a raia sumia — funcionava só
+            no escuro. Sai de `--foreground` com alfa, que contrasta com o fundo por
+            construção nos dois temas. */}
+        {layout.lanes?.length ? (
+          <div className="absolute left-0 pointer-events-none rounded-sm"
+            style={{
+              top: layout.lanes[0].y, width: layout.width,
+              height: layout.lanes[layout.lanes.length - 1].y + layout.lanes[layout.lanes.length - 1].h - layout.lanes[0].y,
+              border: '1px solid hsl(var(--foreground) / 0.22)', // contorno do "pool"
+              background: 'hsl(var(--card) / 0.55)',
+            }} />
+        ) : null}
         {layout.lanes?.map((b, i) => (
           <div key={b.key} className="absolute left-0 pointer-events-none" style={{ top: b.y, height: b.h, width: layout.width }}>
-            <div className={cn('absolute inset-0 border-t border-border/70', i % 2 === 1 && 'bg-muted/25')} />
-            <div className="absolute inset-y-0 left-0 border-r border-border/70 bg-muted/40 flex items-center justify-center px-2" style={{ width: LANE_HEADER_W }}>
+            <div className="absolute inset-0" style={{
+              borderTop: i === 0 ? 'none' : '1px solid hsl(var(--foreground) / 0.16)',
+              background: i % 2 === 1 ? 'hsl(var(--foreground) / 0.045)' : 'transparent',
+            }} />
+            <div className="absolute inset-y-0 left-0 flex items-center justify-center px-2"
+              style={{ width: LANE_HEADER_W, background: 'hsl(var(--foreground) / 0.075)', borderRight: '1px solid hsl(var(--foreground) / 0.22)' }}>
               <span className={cn('text-[11px] font-semibold text-center leading-tight', b.key === LANE_SEM_RESPONSAVEL ? 'text-muted-foreground italic' : 'text-foreground')}
                 style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 3, overflow: 'hidden' }}>{b.label}</span>
             </div>
           </div>
         ))}
-        {layout.lanes?.length ? <div className="absolute left-0 right-0 border-b border-border/70 pointer-events-none" style={{ top: layout.lanes[layout.lanes.length - 1].y + layout.lanes[layout.lanes.length - 1].h }} /> : null}
         <svg className="absolute inset-0 overflow-visible" style={{ width: layout.width, height: layout.height }}>
           <defs>
             <marker id="fl-arrow" markerWidth="8" markerHeight="8" refX="6.5" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="context-stroke" /></marker>
