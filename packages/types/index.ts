@@ -232,6 +232,10 @@ export interface ProcessFormSchema {
    *  sobrepõe o auto-layout. Ausente/vazio = totalmente automático. Não afeta o motor
    *  (é só visual); persiste no formSchema. */
   positions?: Record<string, { x: number; y: number }>
+  /** Posições manuais do modo VER POR RAIA. Separadas de `positions` porque os dois
+   *  modos têm eixos diferentes — com raia o y é relativo à banda e o x começa depois
+   *  da coluna de rótulos. Um mapa só faria o desenho pular ao alternar o modo. */
+  positionsRaia?: Record<string, { x: number; y: number }>
   /** Grafo do EDITOR (nós + arestas) preservado para reabrir sem depender do
    *  compileBpmn (que é estrito e quebra em rascunhos incompletos). É a fonte de
    *  verdade da AUTORIA; o bpmnXml é derivado dele para o motor. */

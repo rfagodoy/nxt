@@ -26,7 +26,7 @@ export default function EditProcessPage() {
     void (async () => {
       const p = await apiJson<Proc>(`/api/processes/${id}`)
       if (!p) { setInitial(null); return }
-      setInitial({ id: p.id, name: p.name, description: p.description, kind: p.kind, bpmnXml: p.bpmnXml, steps: p.formSchema?.steps ?? [], positions: p.formSchema?.positions, graph: p.formSchema?.graph })
+      setInitial({ id: p.id, name: p.name, description: p.description, kind: p.kind, bpmnXml: p.bpmnXml, steps: p.formSchema?.steps ?? [], positions: p.formSchema?.positions, positionsRaia: p.formSchema?.positionsRaia, graph: p.formSchema?.graph })
     })()
   }, [id])
 

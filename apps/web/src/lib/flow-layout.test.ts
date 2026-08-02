@@ -310,10 +310,33 @@ describe('raias (swimlanes)', () => {
     for (const p of Object.values(L.nodes)) expect(p.x).toBeGreaterThanOrEqual(LANE_HEADER_W)
   })
 
-  it('com raias a posição MANUAL é ignorada (o nó tem de ficar na banda dele)', () => {
-    const L = layoutGraph(fluxo(), { aprovar: { x: 999, y: 777 } }, { swimlanes: true })
-    expect(L.nodes.aprovar.x).not.toBe(999)
-    expect(bandaDe(L, 'aprovar')!.label).toBe('Aprovador')
+  /* Arrastar continua valendo com raia — organizar o desenho é legítimo. O que não pode
+     é o cartão sair da faixa dele: pousado na banda de outro papel, o desenho mentiria
+     sobre quem executa, que é justamente o que a raia existe para evitar. */
+  it('com raias o arrasto é LIVRE na horizontal', () => {
+    const L = layoutGraph(fluxo(), { aprovar: { x: 999, y: 0 } }, { swimlanes: true })
+    expect(L.nodes.aprovar.x).toBe(999)
+    expect(L.width).toBeGreaterThan(999) // o desenho cresce para acomodar
+  })
+
+  it('com raias o arrasto é PRESO à banda na vertical', () => {
+    const alvo = layoutGraph(fluxo(), undefined, { swimlanes: true }).lanes!.find((b) => b.label === 'Aprovador')!
+
+    // puxar muito para CIMA (para dentro da banda de outro papel) para no topo da própria
+    const acima = layoutGraph(fluxo(), { aprovar: { x: 300, y: -5000 } }, { swimlanes: true })
+    expect(acima.nodes.aprovar.y).toBeGreaterThanOrEqual(alvo.y)
+    expect(bandaDe(acima, 'aprovar')!.label).toBe('Aprovador')
+
+    // puxar muito para BAIXO para na base da própria banda
+    const abaixo = layoutGraph(fluxo(), { aprovar: { x: 300, y: 5000 } }, { swimlanes: true })
+    const p = abaixo.nodes.aprovar
+    expect(p.y + p.h).toBeLessThanOrEqual(alvo.y + alvo.h)
+    expect(bandaDe(abaixo, 'aprovar')!.label).toBe('Aprovador')
+  })
+
+  it('com raias o nó não invade a coluna do rótulo', () => {
+    const L = layoutGraph(fluxo(), { aprovar: { x: -500, y: 0 } }, { swimlanes: true })
+    expect(L.nodes.aprovar.x).toBeGreaterThanOrEqual(LANE_HEADER_W)
   })
 
   it('fluxo sem nenhuma atividade não quebra: uma banda só', () => {

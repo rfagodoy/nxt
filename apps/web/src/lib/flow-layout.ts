@@ -303,22 +303,29 @@ export function layoutGraph(
     maxX = Math.max(maxX, x + s.w + over.x)
     maxY = Math.max(maxY, y + s.h + over.y)
   }
-  // as bandas ocupam a largura toda do desenho; a altura vem delas, não dos nós
-  if (swimlanes && bandList.length) {
-    const last = bandList[bandList.length - 1]
-    maxY = Math.max(maxY, last.y + last.h)
-  }
 
-  // ── posições MANUAIS (override do auto) ──
-  // Ignoradas com RAIAS ligadas: o nó tem de ficar dentro da banda dele, e uma posição
-  // guardada de quando não havia raia colocaria a atividade na faixa do papel errado.
-  if (manual && !swimlanes) {
+  /* ── posições MANUAIS (override do auto) ──────────────────────────────────────
+     Com RAIAS o arrasto continua valendo — organizar o desenho é legítimo —, mas o
+     movimento é PRESO À FAIXA do nó: horizontalmente livre, verticalmente limitado
+     à banda dele. Soltar um cartão na faixa de outro papel faria o desenho mentir
+     sobre quem executa, que é exatamente o que a raia existe para evitar. */
+  if (manual) {
     for (const n of nodes) {
       const m = manual[n.id]
       if (!m) continue
       const p = positioned[n.id]
-      p.x = Math.max(MARGIN, m.x)
-      p.y = Math.max(MARGIN, m.y)
+      if (swimlanes) {
+        const b = bandList.find((x) => x.key === band[n.id])
+        p.x = Math.max(LANE_HEADER_W + 8, m.x)
+        if (b) {
+          const topo = b.y + LANE_PAD
+          const base = b.y + b.h - LANE_PAD - p.h
+          p.y = base < topo ? b.y + (b.h - p.h) / 2 : Math.min(Math.max(m.y, topo), base)
+        }
+      } else {
+        p.x = Math.max(MARGIN, m.x)
+        p.y = Math.max(MARGIN, m.y)
+      }
     }
     maxX = 0; maxY = 0
     for (const n of nodes) {
@@ -327,6 +334,13 @@ export function layoutGraph(
       maxX = Math.max(maxX, p.x + p.w + over.x)
       maxY = Math.max(maxY, p.y + p.h + over.y)
     }
+  }
+
+  // A altura das BANDAS é o piso do desenho — vem delas, não dos nós. Fica depois do
+  // bloco manual porque ele recalcula a extensão do zero e apagaria este piso.
+  if (swimlanes && bandList.length) {
+    const ultima = bandList[bandList.length - 1]
+    maxY = Math.max(maxY, ultima.y + ultima.h)
   }
 
   return { nodes: positioned, width: maxX + MARGIN, height: maxY + MARGIN, lanes: swimlanes ? bandList : undefined }

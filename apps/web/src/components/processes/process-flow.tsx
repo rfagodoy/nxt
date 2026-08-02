@@ -51,6 +51,7 @@ export interface FlowInitial {
   bpmnXml: string
   steps: StepFormSchema[]
   positions?: Record<string, { x: number; y: number }>
+  positionsRaia?: Record<string, { x: number; y: number }>
   graph?: ProcessFormSchema['graph']
 }
 
@@ -189,7 +190,12 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const [kind, setKind] = useState(initial?.kind ?? '')
   const [nodes, setNodes] = useState<ENode[]>(seed.nodes)
   const [edges, setEdges] = useState<EEdge[]>(seed.edges)
+  /* Posições MANUAIS separadas por modo. Um desenho arrumado no canvas livre tem outro
+     eixo vertical (não há bandas) e outro zero horizontal (não há coluna de rótulo) do
+     que o mesmo desenho arrumado por raia — misturar os dois faria o fluxo "pular" a
+     cada vez que o modo fosse alternado. */
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>(initial?.positions ?? {})
+  const [positionsRaia, setPositionsRaia] = useState<Record<string, { x: number; y: number }>>(initial?.positionsRaia ?? {})
   const [selectedId, setSelectedId] = useState<string | null>(null)
   /* Atividade em CONFIGURAÇÃO (modal). Separado da seleção: fechar o modal não
      deseleciona o nó, e o painel lateral segue mostrando o resumo dele. */
@@ -224,10 +230,11 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   }, [nodeById])
 
   /* VER POR RAIA — modo de visualização, não um elemento que se desenha. Ligado, o
-     layout vira bandas por papel e as posições manuais são ignoradas (o nó tem de ficar
-     na banda dele); desligado, é o canvas de sempre, com arrasto livre. */
+     layout vira bandas por papel; arrastar continua valendo, mas preso à faixa do nó
+     (ver `layoutGraph`). Desligado, é o canvas de sempre, com arrasto livre. */
   const [swimlanes, setSwimlanes] = useState(false)
-  const hasManual = Object.keys(positions).length > 0
+  const posDoModo = swimlanes ? positionsRaia : positions
+  const hasManual = Object.keys(posDoModo).length > 0
   const layout = useMemo(() => layoutGraph(
     {
       nodes: nodes.map((n) => ({
@@ -239,9 +246,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       edges,
       startId: nodes.find((n) => n.type === 'start')?.id ?? 'Start_1',
     },
-    hasManual ? positions : undefined,
+    hasManual ? posDoModo : undefined,
     { swimlanes },
-  ), [nodes, edges, positions, hasManual, swimlanes, resolvePapel, resolveEntidade])
+  ), [nodes, edges, posDoModo, hasManual, swimlanes, resolvePapel, resolveEntidade])
 
   /* Painel lateral RETRÁTIL — o canvas é a superfície principal; recolher devolve os
      320px (e o enquadramento reaproveita o espaço, subindo a escala do desenho).
@@ -261,7 +268,10 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     })
   }, [])
 
-  const setPosition = useCallback((id: string, pos: { x: number; y: number }) => setPositions((prev) => ({ ...prev, [id]: pos })), [])
+  const setPosition = useCallback((id: string, pos: { x: number; y: number }) => {
+    const alvo = swimlanes ? setPositionsRaia : setPositions
+    alvo((prev) => ({ ...prev, [id]: pos }))
+  }, [swimlanes])
   // (o botão "Organizar" — que zerava as posições manuais para realinhar tudo — foi
   // removido do cabeçalho a pedido; o auto-layout segue valendo enquanto ninguém
   // arrastar um nó, que é quando `positions` deixa de ficar vazio.)
@@ -317,7 +327,11 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       return [...rest, ...bridges]
     })
     setNodes((ns) => ns.filter((n) => n.id !== id))
-    setPositions((prev) => { if (!prev[id]) return prev; const n = { ...prev }; delete n[id]; return n })
+    const esquecer = (prev: Record<string, { x: number; y: number }>) => {
+      if (!prev[id]) return prev
+      const n = { ...prev }; delete n[id]; return n
+    }
+    setPositions(esquecer); setPositionsRaia(esquecer)
     setSelectedId((cur) => (cur === id ? null : cur))
   }, [])
 
@@ -334,14 +348,21 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const persist = useCallback(async (confirmarReducao?: boolean): Promise<string> => {
     const bpmnXml = generateBpmn(buildWfGraph(nodes, edges))
     const steps = nodes.filter((n) => isActivity(n.type) && n.step).map((n) => ({ ...n.step!, stepId: n.id, stepName: n.step!.stepName, stepType: n.type as 'userTask' | 'serviceTask' }))
-    // mantém só posições de nós existentes
-    const pos = Object.fromEntries(Object.entries(positions).filter(([id]) => nodes.some((n) => n.id === id)))
+    // mantém só posições de nós existentes (nos dois modos)
+    const vivos = (m: Record<string, { x: number; y: number }>) =>
+      Object.fromEntries(Object.entries(m).filter(([id]) => nodes.some((n) => n.id === id)))
+    const pos = vivos(positions)
+    const posRaia = vivos(positionsRaia)
     // grafo do editor (fonte de verdade da autoria; sobrevive a rascunhos incompletos)
     const graph: ProcessFormSchema['graph'] = {
       nodes: nodes.map((n) => ({ id: n.id, type: n.type, name: isActivity(n.type) ? (n.step?.stepName || '') : n.name })),
       edges: edges.map((e) => ({ id: e.id, from: e.from, to: e.to, condition: e.condition || undefined, isDefault: e.isDefault, label: e.label })),
     }
-    const formSchema: ProcessFormSchema = { steps, positions: Object.keys(pos).length ? pos : undefined, graph }
+    const formSchema: ProcessFormSchema = {
+      steps, graph,
+      positions: Object.keys(pos).length ? pos : undefined,
+      positionsRaia: Object.keys(posRaia).length ? posRaia : undefined,
+    }
     const body = JSON.stringify({ name: name.trim(), description: description.trim() || undefined, bpmnXml, formSchema, kind: kind || undefined, ...(confirmarReducao ? { confirmarReducao: true } : {}) })
     if (editing) {
       const res = await apiFetch(`/api/processes/${initial!.id}`, { method: 'PATCH', body })
@@ -355,7 +376,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     const res = await apiFetch(`/api/processes`, { method: 'POST', body })
     if (!res.ok) throw new Error('Erro ao salvar')
     return (await res.json()).id as string
-  }, [editing, initial, name, description, kind, nodes, edges, positions])
+  }, [editing, initial, name, description, kind, nodes, edges, positions, positionsRaia])
 
   const handleSaveDraft = useCallback(async (confirmarReducao?: boolean) => {
     if (!name.trim()) { alert('Dê um nome ao workflow antes de salvar.'); return }
@@ -635,8 +656,6 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
   const GRID = 12, ALIGN = 6
   const startNodeDrag = (id: string, ev: React.PointerEvent) => {
     if ((ev.target as HTMLElement).closest('[data-port],[data-trash]')) return
-    // com RAIAS o layout é automático: arrastar tiraria o nó da banda do papel dele
-    if (layout.lanes) return
     const p = layout.nodes[id]; if (!p) return
     dragRef.current = { id, sx: ev.clientX, sy: ev.clientY, ox: p.x, oy: p.y, w: p.w, h: p.h, moved: false }
     const others = Object.entries(layout.nodes).filter(([oid]) => oid !== id).map(([, op]) => ({ cx: op.x + op.w / 2, cy: op.y + op.h / 2 }))
@@ -729,7 +748,7 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
           if (!p) return null
           return (
             <div key={n.id} data-node-id={n.id} onPointerDown={(e) => startNodeDrag(n.id, e)}
-              className={cn('absolute group select-none', layout.lanes ? 'cursor-pointer' : dragId === n.id ? 'z-40 cursor-grabbing' : 'cursor-grab')}
+              className={cn('absolute group select-none', dragId === n.id ? 'z-40 cursor-grabbing' : 'cursor-grab')}
               style={{ left: p.x, top: p.y, width: p.w, height: p.h }}>
               <FlowNodeView node={n} selected={n.id === selectedId} onClick={() => onSelect(n.id)} resolvePapel={resolvePapel} resolveEntidade={resolveEntidade} />
               {n.type !== 'start' && n.type !== 'end' && (
