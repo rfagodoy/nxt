@@ -387,6 +387,38 @@ describe('raias (swimlanes)', () => {
     expect(doLosango.h).toBeLessThan(doCartao.h)
   })
 
+  describe('ordem escolhida pelo usuário', () => {
+    it('a ordem manual vence a ordem de aparição, e as atividades vão junto', () => {
+      const auto = layoutGraph(fluxo(), undefined, { swimlanes: true })
+      expect(auto.lanes!.map((b) => b.label)).toEqual(['Solicitante', 'Aprovador', 'Sistema'])
+
+      const L = layoutGraph(fluxo(), undefined, { swimlanes: true, laneOrder: ['Sistema', 'Aprovador', 'Solicitante'] })
+      expect(L.lanes!.map((b) => b.label)).toEqual(['Sistema', 'Aprovador', 'Solicitante'])
+      // a atividade do Sistema, que era a última, passou a ficar ACIMA das outras
+      expect(L.nodes.criar.y).toBeLessThan(L.nodes.preencher.y)
+      expect(L.nodes.criar.y).toBeLessThan(L.nodes.aprovar.y)
+      // e cada nó continua dentro da banda do seu papel
+      expect(bandaDe(L, 'criar')!.label).toBe('Sistema')
+      expect(bandaDe(L, 'preencher')!.label).toBe('Solicitante')
+    })
+
+    it('chave que não existe mais é ignorada e raia nova entra no fim', () => {
+      const L = layoutGraph(fluxo(), undefined, {
+        swimlanes: true,
+        laneOrder: ['Papel apagado', 'Sistema', 'Solicitante'], // sem "Aprovador"
+      })
+      // a inexistente some; a que ficou de fora da lista entra depois das escolhidas
+      expect(L.lanes!.map((b) => b.label)).toEqual(['Sistema', 'Solicitante', 'Aprovador'])
+    })
+
+    it('as bandas continuam encostadas depois de reordenar', () => {
+      const L = layoutGraph(fluxo(), undefined, { swimlanes: true, laneOrder: ['Sistema', 'Solicitante', 'Aprovador'] })
+      for (let i = 1; i < L.lanes!.length; i++) {
+        expect(L.lanes![i].y).toBe(L.lanes![i - 1].y + L.lanes![i - 1].h)
+      }
+    })
+  })
+
   it('o desenho abre espaço à esquerda para o rótulo da raia', () => {
     const L = layoutGraph(fluxo(), undefined, { swimlanes: true })
     for (const p of Object.values(L.nodes)) expect(p.x).toBeGreaterThanOrEqual(LANE_HEADER_W)

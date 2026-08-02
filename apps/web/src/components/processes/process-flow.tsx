@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Save, Zap, Trash2, User, Clock, LayoutTemplate,
   CircleDot, Loader2, UserSquare, Rows3, AlertTriangle, Building2,
-  Minus, Plus, Maximize2,
+  Minus, Plus, Maximize2, GripVertical,
   Download, FileImage, FileText, ChevronDown, PanelRightClose, PanelRightOpen,
   X, SlidersHorizontal, Undo2, Check,
 } from 'lucide-react'
@@ -53,6 +53,7 @@ export interface FlowInitial {
   steps: StepFormSchema[]
   positions?: Record<string, { x: number; y: number }>
   positionsRaia?: Record<string, { x: number; y: number }>
+  laneOrder?: string[]
   graph?: ProcessFormSchema['graph']
 }
 
@@ -197,6 +198,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
      cada vez que o modo fosse alternado. */
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>(initial?.positions ?? {})
   const [positionsRaia, setPositionsRaia] = useState<Record<string, { x: number; y: number }>>(initial?.positionsRaia ?? {})
+  const [laneOrder, setLaneOrder] = useState<string[]>(initial?.laneOrder ?? [])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   /* Atividade em CONFIGURAÇÃO (modal). Separado da seleção: fechar o modal não
      deseleciona o nó, e o painel lateral segue mostrando o resumo dele. */
@@ -248,8 +250,43 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       startId: nodes.find((n) => n.type === 'start')?.id ?? 'Start_1',
     },
     hasManual ? posDoModo : undefined,
-    { swimlanes },
-  ), [nodes, edges, posDoModo, hasManual, swimlanes, resolvePapel, resolveEntidade])
+    { swimlanes, laneOrder },
+  ), [nodes, edges, posDoModo, hasManual, swimlanes, laneOrder, resolvePapel, resolveEntidade])
+
+  /* Reordenar RAIAS: a banda inteira sobe/desce e as atividades vão junto (o y delas
+     deriva do topo da banda). As posições manuais são deslocadas pelo MESMO delta, para
+     o arranjo que a pessoa fez dentro da banda não se perder na mudança de ordem.
+     A altura de cada banda não depende da ordem, então dá para calcular os topos novos
+     a partir das alturas atuais — sem esperar o layout recalcular. */
+  const reordenarRaias = useCallback((chave: string, destino: number) => {
+    const atuais = layout.lanes
+    if (!atuais?.length) return
+    const ordem = atuais.map((b) => b.key)
+    const de = ordem.indexOf(chave)
+    if (de < 0) return
+    const alvo = Math.max(0, Math.min(ordem.length - 1, destino > de ? destino - 1 : destino))
+    if (alvo === de) return
+
+    const nova = [...ordem]
+    nova.splice(alvo, 0, ...nova.splice(de, 1))
+
+    const altura = Object.fromEntries(atuais.map((b) => [b.key, b.h]))
+    const topoAntes = Object.fromEntries(atuais.map((b) => [b.key, b.y]))
+    const topoDepois: Record<string, number> = {}
+    let t = atuais[0].y
+    for (const k of nova) { topoDepois[k] = t; t += altura[k] }
+
+    setPositionsRaia((prev) => {
+      const out = { ...prev }
+      for (const [id, p] of Object.entries(prev)) {
+        const b = layout.nodes[id]?.band
+        if (!b || topoDepois[b] === undefined) continue
+        out[id] = { x: p.x, y: p.y + (topoDepois[b] - topoAntes[b]) }
+      }
+      return out
+    })
+    setLaneOrder(nova)
+  }, [layout])
 
   /* Painel lateral RETRÁTIL — o canvas é a superfície principal; recolher devolve os
      320px (e o enquadramento reaproveita o espaço, subindo a escala do desenho).
@@ -363,6 +400,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       steps, graph,
       positions: Object.keys(pos).length ? pos : undefined,
       positionsRaia: Object.keys(posRaia).length ? posRaia : undefined,
+      laneOrder: laneOrder.length ? laneOrder : undefined,
     }
     const body = JSON.stringify({ name: name.trim(), description: description.trim() || undefined, bpmnXml, formSchema, kind: kind || undefined, ...(confirmarReducao ? { confirmarReducao: true } : {}) })
     if (editing) {
@@ -377,7 +415,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     const res = await apiFetch(`/api/processes`, { method: 'POST', body })
     if (!res.ok) throw new Error('Erro ao salvar')
     return (await res.json()).id as string
-  }, [editing, initial, name, description, kind, nodes, edges, positions, positionsRaia])
+  }, [editing, initial, name, description, kind, nodes, edges, positions, positionsRaia, laneOrder])
 
   const handleSaveDraft = useCallback(async (confirmarReducao?: boolean) => {
     if (!name.trim()) { alert('Dê um nome ao workflow antes de salvar.'); return }
@@ -511,7 +549,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
       {/* Canvas + Inspetor */}
       <div className="flex flex-1 overflow-hidden">
-        <FlowCanvas canvasRef={canvasRef} nodes={nodes} edges={edges} layout={layout} selectedId={selectedId} onSelect={selectNode} onConnect={onConnect} onCreateConnected={onCreateConnected} onDeleteEdge={onDeleteEdge} onDeleteNode={removeNode} onSetPosition={setPosition} resolvePapel={resolvePapel} resolveEntidade={resolveEntidade} />
+        <FlowCanvas canvasRef={canvasRef} nodes={nodes} edges={edges} layout={layout} selectedId={selectedId} onSelect={selectNode} onConnect={onConnect} onCreateConnected={onCreateConnected} onDeleteEdge={onDeleteEdge} onDeleteNode={removeNode} onSetPosition={setPosition} resolvePapel={resolvePapel} resolveEntidade={resolveEntidade} onReorderLanes={reordenarRaias} />
         {/* trilho do toggle: fica SEMPRE visível (é a alça para trazer o painel de volta) */}
         <div className="w-8 border-l bg-card flex flex-col items-center pt-2.5 shrink-0">
           <button type="button" onClick={togglePanel}
@@ -584,7 +622,7 @@ const ZOOM_MIN = 0.25
 const ZOOM_MAX = 2
 const ZOOM_PASSOS = [0.25, 0.4, 0.5, 0.65, 0.8, 1, 1.25, 1.5, 2]
 
-function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onConnect, onCreateConnected, onDeleteEdge, onDeleteNode, onSetPosition, resolvePapel, resolveEntidade }: {
+function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onConnect, onCreateConnected, onDeleteEdge, onDeleteNode, onSetPosition, resolvePapel, resolveEntidade, onReorderLanes }: {
   canvasRef: React.RefObject<HTMLDivElement | null>
   nodes: ENode[]; edges: EEdge[]; layout: ReturnType<typeof layoutGraph>
   selectedId: string | null; onSelect: (id: string | null) => void
@@ -595,6 +633,7 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
   onSetPosition: (id: string, pos: { x: number; y: number }) => void
   resolvePapel: (id: string) => string | undefined
   resolveEntidade: (kind: string | undefined, id: string | undefined) => string | undefined
+  onReorderLanes: (key: string, destino: number) => void
 }) {
   const [connecting, setConnecting] = useState<string | null>(null)
   const [rubber, setRubber] = useState('')
@@ -700,6 +739,35 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
     window.addEventListener('pointerup', up)
   }
 
+  /* Arrastar a RAIA pela coluna do rótulo. Só a vertical importa: a banda cai entre duas
+     outras, e as atividades acompanham porque o y delas deriva do topo da banda. */
+  const [laneDrag, setLaneDrag] = useState<{ key: string; destino: number; linha: number | null } | null>(null)
+  const startLaneDrag = (key: string, ev: React.PointerEvent) => {
+    ev.preventDefault(); ev.stopPropagation()
+    const bandas = layout.lanes
+    if (!bandas || bandas.length < 2) return
+    // fronteiras entre bandas, em coordenadas do GRAFO (o canvas está sob transform: scale)
+    const fronteiras = [bandas[0].y, ...bandas.map((b) => b.y + b.h)]
+    const alvoDe = (clientY: number) => {
+      const r = canvasRef.current!.getBoundingClientRect()
+      const y = (clientY - r.top) / scale
+      let i = 0
+      for (let k = 1; k < fronteiras.length; k++) if (Math.abs(fronteiras[k] - y) < Math.abs(fronteiras[i] - y)) i = k
+      return i
+    }
+    setLaneDrag({ key, destino: bandas.findIndex((b) => b.key === key), linha: null })
+    const move = (e: PointerEvent) => {
+      const i = alvoDe(e.clientY)
+      setLaneDrag((d) => (d ? { ...d, destino: i, linha: fronteiras[i] } : d))
+    }
+    const up = (e: PointerEvent) => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
+      onReorderLanes(key, alvoDe(e.clientY))
+      setLaneDrag(null)
+    }
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
+  }
+
   // arrastar a CAIXA (corpo do nó) → posição manual, com snap na grade + guias de alinhamento
   const GRID = 12, ALIGN = 6
   const startNodeDrag = (id: string, ev: React.PointerEvent) => {
@@ -763,15 +831,24 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
           <div key={b.key} className="absolute left-0 pointer-events-none" style={{ top: b.y, height: b.h, width: layout.width }}>
             <div className="absolute inset-0" style={{
               borderTop: i === 0 ? 'none' : '1px solid hsl(var(--foreground) / 0.16)',
-              background: i % 2 === 1 ? 'hsl(var(--foreground) / 0.045)' : 'transparent',
+              background: laneDrag?.key === b.key ? 'hsl(var(--primary) / 0.10)' : i % 2 === 1 ? 'hsl(var(--foreground) / 0.045)' : 'transparent',
             }} />
-            <div className="absolute inset-y-0 left-0 flex items-center justify-center px-2"
+            {/* a COLUNA DO RÓTULO é a alça: arrastar aqui sobe/desce a raia inteira */}
+            <div data-lane-handle onPointerDown={(e) => startLaneDrag(b.key, e)}
+              className={cn('absolute inset-y-0 left-0 flex items-center justify-center px-2 pointer-events-auto group/lane',
+                laneDrag ? 'cursor-grabbing' : 'cursor-grab')}
+              title="Arraste para cima ou para baixo para reordenar a raia"
               style={{ width: LANE_HEADER_W, background: 'hsl(var(--foreground) / 0.075)', borderRight: '1px solid hsl(var(--foreground) / 0.22)' }}>
-              <span className={cn('text-[11px] font-semibold text-center leading-tight', b.key === LANE_SEM_RESPONSAVEL ? 'text-muted-foreground italic' : 'text-foreground')}
+              <GripVertical className="absolute left-0.5 h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover/lane:opacity-100 transition-opacity" />
+              <span className={cn('text-[11px] font-semibold text-center leading-tight select-none', b.key === LANE_SEM_RESPONSAVEL ? 'text-muted-foreground italic' : 'text-foreground')}
                 style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 3, overflow: 'hidden' }}>{b.label}</span>
             </div>
           </div>
         ))}
+        {/* onde a raia arrastada vai pousar */}
+        {laneDrag && laneDrag.linha !== null && (
+          <div className="absolute left-0 pointer-events-none z-20" style={{ top: laneDrag.linha - 1, width: layout.width, height: 2, background: 'hsl(var(--primary))' }} />
+        )}
         <svg className="absolute inset-0 overflow-visible" style={{ width: layout.width, height: layout.height }}>
           <defs>
             <marker id="fl-arrow" markerWidth="8" markerHeight="8" refX="6.5" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="context-stroke" /></marker>

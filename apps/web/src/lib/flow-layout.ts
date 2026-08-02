@@ -25,7 +25,7 @@ export interface FlowNode { id: string; type: FlowNodeType; name?: string; lane?
 export interface FlowEdge { id: string; from: string; to: string; condition?: string; isDefault?: boolean; label?: string }
 export interface FlowGraph { nodes: FlowNode[]; edges: FlowEdge[]; startId: string }
 
-export interface PositionedNode { id: string; x: number; y: number; w: number; h: number; rank: number; lane: number }
+export interface PositionedNode { id: string; x: number; y: number; w: number; h: number; rank: number; lane: number; band?: string }
 /** Banda horizontal de uma raia, já posicionada (a tela e o exportador só desenham). */
 export interface LaneBand { key: string; label: string; y: number; h: number }
 export interface LayoutResult { nodes: Record<string, PositionedNode>; width: number; height: number; lanes?: LaneBand[] }
@@ -120,7 +120,7 @@ function resolveBands(nodes: FlowNode[], topo: string[], inEdges: Record<string,
 export function layoutGraph(
   graph: FlowGraph,
   manual?: Record<string, { x: number; y: number }>,
-  options?: { swimlanes?: boolean },
+  options?: { swimlanes?: boolean; laneOrder?: string[] },
 ): LayoutResult {
   const { nodes, edges, startId } = graph
   const swimlanes = !!options?.swimlanes
@@ -292,6 +292,14 @@ export function layoutGraph(
   const bandList: LaneBand[] = []
   if (swimlanes) {
     for (const id of topo) if (!bandOrder.includes(band[id])) bandOrder.push(band[id]) // ordem de APARIÇÃO no fluxo
+    /* Ordem ESCOLHIDA pelo usuário (arrastando a raia) vence a de aparição. Chaves que
+       não existem mais são ignoradas, e raias novas entram no fim — assim trocar o
+       executor de uma atividade nunca deixa o desenho num estado inválido. */
+    if (options?.laneOrder?.length) {
+      const escolhida = options.laneOrder.filter((k) => bandOrder.includes(k))
+      const novas = bandOrder.filter((k) => !escolhida.includes(k))
+      bandOrder.splice(0, bandOrder.length, ...escolhida, ...novas)
+    }
     let top = MARGIN
     for (const key of bandOrder) {
       const daBanda = nodes
@@ -329,7 +337,7 @@ export function layoutGraph(
       ? bandTop[b] + LANE_PAD + (rowOfNode[n.id] + 0.5) * bandRowH[b]
       : MARGIN + rowH / 2 + (lane[n.id] - minLane) * BRANCH_GAP // eixo da faixa
     const y = axis - s.h / 2
-    positioned[n.id] = { id: n.id, x, y, w: s.w, h: s.h, rank: r, lane: lane[n.id] ?? 0 }
+    positioned[n.id] = { id: n.id, x, y, w: s.w, h: s.h, rank: r, lane: lane[n.id] ?? 0, band: swimlanes ? b : undefined }
     maxX = Math.max(maxX, x + s.w + over.x)
     maxY = Math.max(maxY, y + s.h + over.y)
   }
