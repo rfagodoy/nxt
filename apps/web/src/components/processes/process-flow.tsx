@@ -838,7 +838,7 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
             }} />
         ) : null}
         {layout.lanes?.map((b, i) => (
-          <div key={b.key} className="absolute left-0 pointer-events-none" style={{ top: b.y, height: b.h, width: layout.width }}>
+          <div key={b.key} className="absolute left-0 pointer-events-none z-[1]" style={{ top: b.y, height: b.h, width: layout.width }}>
             <div className="absolute inset-0" style={{
               borderTop: i === 0 ? 'none' : '1px solid hsl(var(--foreground) / 0.16)',
               background: laneDrag?.key === b.key ? 'hsl(var(--primary) / 0.10)' : i % 2 === 1 ? 'hsl(var(--foreground) / 0.045)' : 'transparent',
@@ -879,7 +879,12 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
         {laneDrag && laneDrag.linha !== null && (
           <div className="absolute left-0 pointer-events-none z-20" style={{ top: laneDrag.linha - 1, width: layout.width, height: 2, background: 'hsl(var(--primary))' }} />
         )}
-        <svg className="absolute inset-0 overflow-visible" style={{ width: layout.width, height: layout.height }}>
+        {/* ⚠️ `pointer-events-none` na RAIZ do svg. Um <svg> inline é hit-testável em TODA
+            a sua caixa, e esta cobre o canvas inteiro — vindo depois das raias no DOM, ele
+            engolia o mouse sobre a coluna de rótulos e a raia não podia ser pega nem
+            arrastada. Só as arestas voltam a receber evento (`pointer-events-auto` no
+            <g>), que é o que precisa de hover para o botão de apagar. */}
+        <svg className="absolute inset-0 overflow-visible pointer-events-none" style={{ width: layout.width, height: layout.height }}>
           <defs>
             <marker id="fl-arrow" markerWidth="8" markerHeight="8" refX="6.5" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="context-stroke" /></marker>
           </defs>
@@ -891,7 +896,7 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
             const col = edgeColor(e)
             const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2
             return (
-              <g key={e.id} onMouseEnter={() => setHoverEdge(e.id)} onMouseLeave={() => setHoverEdge((h) => (h === e.id ? null : h))}>
+              <g key={e.id} className="pointer-events-auto" onMouseEnter={() => setHoverEdge(e.id)} onMouseLeave={() => setHoverEdge((h) => (h === e.id ? null : h))}>
                 <path d={d} fill="none" stroke="transparent" strokeWidth={16} style={{ cursor: 'pointer' }} />
                 <path d={d} fill="none" stroke={col} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" markerEnd="url(#fl-arrow)" style={{ color: col }} />
                 {hoverEdge === e.id && (
