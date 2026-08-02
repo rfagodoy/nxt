@@ -33,7 +33,13 @@ export class OrgUnitsService {
     return rows.map(u => this.toNode(u))
   }
 
-  /** Busca de unidades em toda a organização (para seleção como parte do contrato). */
+  /** Busca de unidades em toda a organização (seleção como parte do contrato e como
+   *  entidade do executor no workflow).
+   *  ⚠️ SEM termo isto é a LISTA INTEIRA, e quem consome filtra do lado do cliente —
+   *  um `take` baixo aqui esconderia unidades sem avisar ninguém (o seletor pareceria
+   *  simplesmente não ter aquela unidade). O teto alto existe só como barreira contra
+   *  consulta desgovernada; se uma organização real chegar perto dele, o seletor tem
+   *  de passar a buscar no servidor em vez de filtrar na tela. */
   async searchForOrg(organizationId: string, term: string) {
     const t = term.trim()
     const rows = await this.prisma.orgUnit.findMany({
@@ -45,7 +51,7 @@ export class OrgUnitsService {
         ] } : {}),
       },
       orderBy: [{ codigo: 'asc' }, { nome: 'asc' }],
-      take:    50,
+      take:    1000,
       include: { groupCompany: { select: { razaoSocial: true, nomeFantasia: true } } },
     })
     return rows.map(u => ({

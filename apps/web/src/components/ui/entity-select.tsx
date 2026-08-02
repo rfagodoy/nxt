@@ -27,17 +27,22 @@ const CFG: Record<EntityKind, { path: string; rows: (d: unknown) => Raw[]; label
   CONTRATO: { path: '/api/contracts',       rows: (d) => ((d as { rows?: Raw[] })?.rows ?? []), label: (e) => [s(e.numero), s(e.titulo)].filter(Boolean).join(' — ') || s(e.id) },
 }
 
-// cache por tipo (as listas mudam pouco durante o desenho de um processo)
+/* Cache por tipo, para a lista aparecer NA HORA. Vive no módulo, então sobrevive à
+   navegação dentro do app (o Next troca a página sem recarregar o JS).
+   ⚠️ Por isso ele NÃO PODE ser a palavra final: cadastrar uma unidade nova em
+   Estrutura organizacional e voltar ao workflow deixava a lista velha, e a unidade
+   só aparecia depois de um F5. Agora o cache serve para pintar rápido e toda abertura
+   REVALIDA contra o servidor (stale-while-revalidate). */
 const cache: Partial<Record<EntityKind, Entity[]>> = {}
 const inflight: Partial<Record<EntityKind, Promise<Entity[]>>> = {}
 
-async function fetchEntities(kind: EntityKind): Promise<Entity[]> {
-  if (cache[kind]) return cache[kind]!
+async function fetchEntities(kind: EntityKind, revalidar = false): Promise<Entity[]> {
+  if (!revalidar && cache[kind]) return cache[kind]!
   if (!inflight[kind]) {
     const cfg = CFG[kind]
     inflight[kind] = apiJson<unknown>(cfg.path)
       .then((d) => { const list = cfg.rows(d).map((e) => ({ id: s(e.id), label: cfg.label(e) })); cache[kind] = list; delete inflight[kind]; return list })
-      .catch(() => { delete inflight[kind]; return [] })
+      .catch(() => { delete inflight[kind]; return cache[kind] ?? [] })
   }
   return inflight[kind]!
 }
@@ -53,7 +58,7 @@ export function useEntityLabels(kinds: EntityKind[]) {
   useEffect(() => {
     let alive = true
     const lista = chave ? (chave.split(',') as EntityKind[]) : []
-    void Promise.all(lista.map(async (k) => [k, await fetchEntities(k)] as const)).then((pares) => {
+    void Promise.all(lista.map(async (k) => [k, await fetchEntities(k, true)] as const)).then((pares) => {
       if (!alive) return
       const out: Partial<Record<EntityKind, Record<string, string>>> = {}
       for (const [k, itens] of pares) out[k] = Object.fromEntries(itens.map((e) => [e.id, e.label]))
@@ -83,11 +88,13 @@ export function EntitySelect({ entityType, value, onChange, placeholder = 'Selec
   const [up, setUp] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
 
+  /* Pinta o cache na hora (se houver) e SEMPRE revalida contra o servidor — é o que
+     faz uma unidade recém-cadastrada aparecer sem precisar recarregar a página. */
   useEffect(() => {
-    if (cache[entityType]) { setItems(cache[entityType]!); setLoading(false); return }
     let alive = true
-    setLoading(true)
-    void fetchEntities(entityType).then((l) => { if (alive) { setItems(l); setLoading(false) } })
+    const emCache = cache[entityType]
+    if (emCache) { setItems(emCache); setLoading(false) } else setLoading(true)
+    void fetchEntities(entityType, true).then((l) => { if (alive) { setItems(l); setLoading(false) } })
     return () => { alive = false }
   }, [entityType])
 
@@ -100,6 +107,8 @@ export function EntitySelect({ entityType, value, onChange, placeholder = 'Selec
   const reveal = () => {
     if (disabled) return
     setOpen(true); setQ('')
+    // abrir a lista é o momento em que ela precisa estar certa
+    void fetchEntities(entityType, true).then((l) => setItems(l))
     const r = wrapRef.current?.getBoundingClientRect()
     if (r) setUp(window.innerHeight - r.bottom < 280)
   }
