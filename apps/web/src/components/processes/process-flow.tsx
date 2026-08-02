@@ -4,7 +4,7 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Save, Zap, Trash2, User, Clock, LayoutTemplate,
-  CircleDot, Loader2, UserSquare, Rows3,
+  CircleDot, Loader2, UserSquare, Rows3, AlertTriangle,
   Download, FileImage, FileText, ChevronDown, PanelRightClose, PanelRightOpen,
   X, SlidersHorizontal, Undo2, Check,
 } from 'lucide-react'
@@ -58,6 +58,10 @@ const SUBJECT_LABEL: Record<string, string> = { CONTRATO: 'Contrato', FORNECEDOR
 const ENTITY_KIND_LABEL: Record<string, string> = { EMPRESA: 'empresa do grupo', PARCEIRO: 'parceiro', UNIDADE: 'unidade', CONTRATO: 'contrato' }
 const entityKindLabel = (k?: string) => ENTITY_KIND_LABEL[k ?? ''] ?? 'entidade'
 const isActivity = (t: NType) => t === 'userTask' || t === 'serviceTask'
+
+/** A API recusou uma gravação que apagaria grande parte do desenho (409). Não é falha:
+ *  é a guarda pedindo confirmação consciente. Ver `update()` em processes.service. */
+class ReducaoDestrutiva extends Error {}
 const rnd = () => Math.random().toString(36).slice(2, 9)
 const nid = (p: string) => `${p}_${rnd()}`
 
@@ -303,7 +307,13 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     setEdges((prev) => prev.map((e) => (e.id === edgeId ? { ...e, ...patch } : e)))
   }, [])
 
-  const persist = useCallback(async (): Promise<string> => {
+  /* Gravação que apagaria grande parte do desenho: a API recusa com 409 e diz quanto
+     seria removido. Guardamos a pergunta aqui e só reenviamos com `confirmarReducao`
+     depois que a pessoa disser que é intencional — sem diálogo nativo, que trava a
+     janela e destoa do resto do sistema. */
+  const [reducao, setReducao] = useState<{ msg: string; acao: 'rascunho' | 'ativar' } | null>(null)
+
+  const persist = useCallback(async (confirmarReducao?: boolean): Promise<string> => {
     const bpmnXml = generateBpmn(buildWfGraph(nodes, edges))
     const steps = nodes.filter((n) => isActivity(n.type) && n.step).map((n) => ({ ...n.step!, stepId: n.id, stepName: n.step!.stepName, stepType: n.type as 'userTask' | 'serviceTask' }))
     // mantém só posições de nós existentes
@@ -314,9 +324,13 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       edges: edges.map((e) => ({ id: e.id, from: e.from, to: e.to, condition: e.condition || undefined, isDefault: e.isDefault, label: e.label })),
     }
     const formSchema: ProcessFormSchema = { steps, positions: Object.keys(pos).length ? pos : undefined, graph }
-    const body = JSON.stringify({ name: name.trim(), description: description.trim() || undefined, bpmnXml, formSchema, kind: kind || undefined })
+    const body = JSON.stringify({ name: name.trim(), description: description.trim() || undefined, bpmnXml, formSchema, kind: kind || undefined, ...(confirmarReducao ? { confirmarReducao: true } : {}) })
     if (editing) {
       const res = await apiFetch(`/api/processes/${initial!.id}`, { method: 'PATCH', body })
+      if (res.status === 409) {
+        const e = await res.json().catch(() => null)
+        throw new ReducaoDestrutiva(e?.message ?? 'Esta gravação removeria grande parte do workflow.')
+      }
       if (!res.ok) throw new Error('Erro ao salvar')
       return initial!.id
     }
@@ -325,15 +339,18 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     return (await res.json()).id as string
   }, [editing, initial, name, description, kind, nodes, edges, positions])
 
-  const handleSaveDraft = useCallback(async () => {
+  const handleSaveDraft = useCallback(async (confirmarReducao?: boolean) => {
     if (!name.trim()) { alert('Dê um nome ao workflow antes de salvar.'); return }
     setSaving(true)
-    try { const id = await persist(); router.push(`/processes/${id}/edit`) }
-    catch (err) { alert('Não foi possível salvar o workflow.'); console.error(err) }
+    try { const id = await persist(confirmarReducao); setReducao(null); router.push(`/processes/${id}/edit`) }
+    catch (err) {
+      if (err instanceof ReducaoDestrutiva) { setReducao({ msg: err.message, acao: 'rascunho' }); return }
+      alert('Não foi possível salvar o workflow.'); console.error(err)
+    }
     finally { setSaving(false) }
   }, [name, persist, router])
 
-  const handleActivate = useCallback(async () => {
+  const handleActivate = useCallback(async (confirmarReducao?: boolean) => {
     if (!name.trim()) { alert('Dê um nome ao workflow antes de ativar.'); return }
     // O tipo decide em que tela o workflow aparece no "Novo processo" — sem ele, o
     // workflow ficaria ativo e invisível para quem trabalha em Contratos/Parceiros.
@@ -342,11 +359,15 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     if (activityCount === 0) { alert('Adicione ao menos uma atividade antes de ativar.'); return }
     setActivating(true)
     try {
-      const id = await persist()
+      const id = await persist(confirmarReducao)
+      setReducao(null)
       const res = await apiFetch(`/api/processes/${id}/activate`, { method: 'PATCH' })
       if (!res.ok) { const e = await res.json().catch(() => null); alert(e?.message || 'Não foi possível ativar o workflow.'); router.push(`/processes/${id}`); return }
       router.push(`/processes/${id}`)
-    } catch (err) { alert('Não foi possível ativar o workflow.'); console.error(err) }
+    } catch (err) {
+      if (err instanceof ReducaoDestrutiva) { setReducao({ msg: err.message, acao: 'ativar' }); return }
+      alert('Não foi possível ativar o workflow.'); console.error(err)
+    }
     finally { setActivating(false) }
   }, [name, kind, activityCount, persist, router])
 
@@ -427,10 +448,28 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
             <Rows3 className="h-4 w-4" />Ver por raia
           </Button>
           <ExportMenu exporting={exporting} disabled={saving || activating} onExport={handleExport} />
-          <Button variant="outline" size="sm" onClick={handleSaveDraft} disabled={saving || activating}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Salvar rascunho</Button>
-          <Button size="sm" onClick={handleActivate} disabled={saving || activating}>{activating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}Ativar workflow</Button>
+          {/* ⚠️ `() =>` obrigatório: passar a função direto entregaria o MouseEvent como
+              `confirmarReducao` — truthy — e a guarda seria burlada em TODO salvamento. */}
+          <Button variant="outline" size="sm" onClick={() => handleSaveDraft()} disabled={saving || activating}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Salvar rascunho</Button>
+          <Button size="sm" onClick={() => handleActivate()} disabled={saving || activating}>{activating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}Ativar workflow</Button>
         </div>
       </div>
+
+      {/* Guarda de gravação destrutiva: a API recusou porque a gravação apagaria grande
+          parte do desenho. A pessoa decide, sabendo o que perde. */}
+      {reducao && (
+        <div className="flex items-start gap-3 px-4 py-2.5 border-b bg-destructive/10 text-destructive shrink-0">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <p className="text-[12.5px] leading-snug flex-1 min-w-0">{reducao.msg}</p>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button variant="ghost" size="sm" onClick={() => setReducao(null)}>Não salvar</Button>
+            <Button variant="destructive" size="sm" disabled={saving || activating}
+              onClick={() => (reducao.acao === 'ativar' ? handleActivate(true) : handleSaveDraft(true))}>
+              Salvar assim mesmo
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Canvas + Inspetor */}
       <div className="flex flex-1 overflow-hidden">

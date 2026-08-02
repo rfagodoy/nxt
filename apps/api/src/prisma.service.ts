@@ -8,6 +8,8 @@ import { Prisma, PrismaClient } from '@nxt/database'
 // que os services continuam lendo/gravando objetos e arrays como antes (Postgres).
 const JSON_FIELDS: Record<string, string[]> = {
   ProcessDefinition: ['formSchema', 'compiledGraph'],
+  ProcessDefinitionVersion: ['formSchema', 'compiledGraph'],
+  ProcessAuditLog: ['changes'],
   ProcessInstance: ['data', 'state', 'graphSnapshot'],
   WorkflowTask: ['data', 'assignees'],
   WorkflowRole: ['members'],
