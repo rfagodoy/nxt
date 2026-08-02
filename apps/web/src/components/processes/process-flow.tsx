@@ -4,7 +4,7 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Save, Zap, Trash2, User, Clock, LayoutTemplate,
-  CircleDot, Loader2, UserSquare, Rows3, AlertTriangle,
+  CircleDot, Loader2, UserSquare, Rows3, AlertTriangle, Building2,
   Download, FileImage, FileText, ChevronDown, PanelRightClose, PanelRightOpen,
   X, SlidersHorizontal, Undo2, Check,
 } from 'lucide-react'
@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { EntitySelect, type EntityKind } from '@/components/ui/entity-select'
+import { EntitySelect, useEntityLabels, type EntityKind } from '@/components/ui/entity-select'
 import { useScreens } from '@/hooks/use-screens'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import type { ScreenSubject } from '@/lib/screen-types'
@@ -203,6 +203,14 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const papeis = useLookupTable(PAPEIS_KEY, INIT_PAPEIS)
   const { screens } = useScreens()
   const resolvePapel = useCallback((id: string) => papeis.entries.find((p) => p.id === id)?.label, [papeis.entries])
+  /* Nomes das entidades que hospedam os papéis (unidade, empresa, parceiro…) — o cartão
+     mostra QUAL unidade executa, não só o papel. Só carrega os tipos que o fluxo usa. */
+  const tiposEntidade = useMemo(() => {
+    const s = new Set<EntityKind>()
+    for (const n of nodes) { const t = n.step?.executor?.entityType; if (t && t !== 'ORG') s.add(t as EntityKind) }
+    return Array.from(s)
+  }, [nodes])
+  const resolveEntidade = useEntityLabels(tiposEntidade)
 
   const nodeById = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n])), [nodes])
   const selected = selectedId ? nodeById[selectedId] : null
@@ -221,10 +229,19 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const [swimlanes, setSwimlanes] = useState(false)
   const hasManual = Object.keys(positions).length > 0
   const layout = useMemo(() => layoutGraph(
-    { nodes: nodes.map((n) => ({ ...toLNode(n), lane: laneOf(n, resolvePapel) })), edges, startId: nodes.find((n) => n.type === 'start')?.id ?? 'Start_1' },
+    {
+      nodes: nodes.map((n) => ({
+        ...toLNode(n),
+        lane: laneOf(n, resolvePapel),
+        // a altura da caixa acompanha o rodapé REAL do cartão (executor, unidade, prazo)
+        metaLines: isActivity(n.type) ? metaDaAtividade(n, resolvePapel, resolveEntidade).length : undefined,
+      })),
+      edges,
+      startId: nodes.find((n) => n.type === 'start')?.id ?? 'Start_1',
+    },
     hasManual ? positions : undefined,
     { swimlanes },
-  ), [nodes, edges, positions, hasManual, swimlanes, resolvePapel])
+  ), [nodes, edges, positions, hasManual, swimlanes, resolvePapel, resolveEntidade])
 
   /* Painel lateral RETRÁTIL — o canvas é a superfície principal; recolher devolve os
      320px (e o enquadramento reaproveita o espaço, subindo a escala do desenho).
@@ -378,13 +395,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       const p = layout.nodes[n.id]
       const base = { id: n.id, type: n.type, x: p.x, y: p.y, w: p.w, h: p.h }
       if (isActivity(n.type)) {
-        const step = n.step
-        const role = step?.executor?.papelId ? (resolvePapel(step.executor.papelId) ?? 'Responsável') : null
-        const connector = findConnector(step?.connector)?.label
-        const due = dueText(step)
-        const meta = [n.type === 'serviceTask' ? (connector ?? 'Sem ação') : (role ?? 'Sem executor')]
-        if (due) meta.push(due)
-        return { ...base, name: step?.stepName || 'Sem nome', typeLabel: n.type === 'serviceTask' ? 'Ação automática' : 'Tarefa', meta }
+        // MESMA fonte do cartão da tela — o arquivo exportado não pode contar outra história
+        const meta = metaDaAtividade(n, resolvePapel, resolveEntidade).map((m) => m.text)
+        return { ...base, name: n.step?.stepName || 'Sem nome', typeLabel: n.type === 'serviceTask' ? 'Ação automática' : 'Tarefa', meta }
       }
       if (n.type === 'exclusiveGateway' || n.type === 'parallelGateway') return { ...base, name: n.name, isFork: !!n.name }
       return { ...base, name: n.name }
@@ -403,7 +416,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       }
     })
     return { width: layout.width, height: layout.height, nodes: enodes, edges: eedges, lanes: layout.lanes }
-  }, [nodes, edges, layout, nodeById, resolvePapel])
+  }, [nodes, edges, layout, nodeById, resolvePapel, resolveEntidade])
 
   // Exporta o desenho atual (edições ao vivo, sem precisar salvar) como JPG ou PDF.
   const handleExport = useCallback(async (format: FlowExportFormat) => {
@@ -476,7 +489,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
       {/* Canvas + Inspetor */}
       <div className="flex flex-1 overflow-hidden">
-        <FlowCanvas canvasRef={canvasRef} nodes={nodes} edges={edges} layout={layout} selectedId={selectedId} onSelect={selectNode} onConnect={onConnect} onCreateConnected={onCreateConnected} onDeleteEdge={onDeleteEdge} onDeleteNode={removeNode} onSetPosition={setPosition} resolvePapel={resolvePapel} />
+        <FlowCanvas canvasRef={canvasRef} nodes={nodes} edges={edges} layout={layout} selectedId={selectedId} onSelect={selectNode} onConnect={onConnect} onCreateConnected={onCreateConnected} onDeleteEdge={onDeleteEdge} onDeleteNode={removeNode} onSetPosition={setPosition} resolvePapel={resolvePapel} resolveEntidade={resolveEntidade} />
         {/* trilho do toggle: fica SEMPRE visível (é a alça para trazer o painel de volta) */}
         <div className="w-8 border-l bg-card flex flex-col items-center pt-2.5 shrink-0">
           <button type="button" onClick={togglePanel}
@@ -542,7 +555,7 @@ const STEP_TONE: Record<string, string> = {
   serviceTask: 'text-amber-600 dark:text-amber-400 bg-amber-500/10',
 }
 
-function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onConnect, onCreateConnected, onDeleteEdge, onDeleteNode, onSetPosition, resolvePapel }: {
+function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onConnect, onCreateConnected, onDeleteEdge, onDeleteNode, onSetPosition, resolvePapel, resolveEntidade }: {
   canvasRef: React.RefObject<HTMLDivElement | null>
   nodes: ENode[]; edges: EEdge[]; layout: ReturnType<typeof layoutGraph>
   selectedId: string | null; onSelect: (id: string | null) => void
@@ -552,6 +565,7 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
   onDeleteNode: (id: string) => void
   onSetPosition: (id: string, pos: { x: number; y: number }) => void
   resolvePapel: (id: string) => string | undefined
+  resolveEntidade: (kind: string | undefined, id: string | undefined) => string | undefined
 }) {
   const [connecting, setConnecting] = useState<string | null>(null)
   const [rubber, setRubber] = useState('')
@@ -717,7 +731,7 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
             <div key={n.id} data-node-id={n.id} onPointerDown={(e) => startNodeDrag(n.id, e)}
               className={cn('absolute group select-none', layout.lanes ? 'cursor-pointer' : dragId === n.id ? 'z-40 cursor-grabbing' : 'cursor-grab')}
               style={{ left: p.x, top: p.y, width: p.w, height: p.h }}>
-              <FlowNodeView node={n} selected={n.id === selectedId} onClick={() => onSelect(n.id)} resolvePapel={resolvePapel} />
+              <FlowNodeView node={n} selected={n.id === selectedId} onClick={() => onSelect(n.id)} resolvePapel={resolvePapel} resolveEntidade={resolveEntidade} />
               {n.type !== 'start' && n.type !== 'end' && (
                 <button data-trash onClick={(e) => { e.stopPropagation(); onDeleteNode(n.id) }} title="Excluir"
                   className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-card border border-border text-muted-foreground hover:text-destructive hover:border-destructive shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-20">
@@ -831,7 +845,11 @@ function GatewayGlyph({ kind, className }: { kind: 'exclusive' | 'parallel'; cla
 const XorGlyph = (p: { className?: string }) => <GatewayGlyph kind="exclusive" {...p} />
 const AndGlyph = (p: { className?: string }) => <GatewayGlyph kind="parallel" {...p} />
 
-function FlowNodeView({ node, selected, onClick, resolvePapel }: { node: ENode; selected: boolean; onClick: () => void; resolvePapel: (id: string) => string | undefined }) {
+function FlowNodeView({ node, selected, onClick, resolvePapel, resolveEntidade }: {
+  node: ENode; selected: boolean; onClick: () => void
+  resolvePapel: (id: string) => string | undefined
+  resolveEntidade: (kind: string | undefined, id: string | undefined) => string | undefined
+}) {
   if (node.type === 'start' || node.type === 'end') {
     // BPMN: início = anel FINO, fim = anel GROSSO. O raio compensa a espessura para os
     // dois círculos terem o mesmo diâmetro externo (senão o "Fim" parece maior).
@@ -873,9 +891,7 @@ function FlowNodeView({ node, selected, onClick, resolvePapel }: { node: ENode; 
   const tone = STEP_TONE[type]
   const Icon = type === 'serviceTask' ? Zap : UserSquare
   const step = node.step
-  const role = step?.executor?.papelId ? (resolvePapel(step.executor.papelId) ?? 'Responsável') : null
-  const connector = findConnector(step?.connector)?.label
-  const due = dueText(step)
+  const meta = metaDaAtividade(node, resolvePapel, resolveEntidade)
   return (
     <button onClick={onClick} className={cn('group/card w-full h-full text-left rounded-xl glass overflow-hidden flex flex-col transition-all hover:-translate-y-0.5 hover:shadow-lg', selected && 'ring-2 ring-primary')}>
       <div className={cn('h-1 shrink-0', type === 'serviceTask' ? 'bg-amber-500/70' : 'bg-sky-500/70')} />
@@ -886,12 +902,58 @@ function FlowNodeView({ node, selected, onClick, resolvePapel }: { node: ENode; 
         </div>
         <p className="text-[13px] font-semibold leading-tight mt-1.5 shrink-0" style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: titleLineCount(step?.stepName), overflow: 'hidden' }}>{step?.stepName || <span className="text-muted-foreground italic font-normal">Sem nome</span>}</p>
         <div className="mt-auto space-y-0.5 pt-1.5 min-h-0 overflow-hidden">
-          <MetaRow icon={type === 'serviceTask' ? <Zap className="h-3 w-3" /> : <User className="h-3 w-3" />} text={type === 'serviceTask' ? (connector ?? 'Sem ação') : (role ?? 'Sem executor')} />
-          {due && <MetaRow icon={<Clock className="h-3 w-3" />} text={due} />}
+          {meta.map((m, i) => (
+            <MetaRow key={i} icon={m.kind === 'exec' && type === 'serviceTask' ? <Zap className="h-3 w-3" /> : META_ICON[m.kind]} text={m.text} />
+          ))}
         </div>
       </div>
     </button>
   )
+}
+
+/** Linhas de rodapé de uma atividade — FONTE ÚNICA. O cartão desenha por esta lista, o
+ *  layout mede a altura da caixa por ela (`metaLines`) e o exportador repete o mesmo.
+ *  Se cada um contasse por si, a caixa cortaria a última linha ou sobraria vazio.
+ *
+ *  A UNIDADE (ou a entidade que hospeda o papel) entra como linha própria: o papel
+ *  sozinho não diz QUEM executa — "Solicitante" de qual unidade é a informação que
+ *  faltava para ler o fluxo sem abrir cada atividade. Existir a linha depende do DADO
+ *  configurado, nunca de o nome já ter chegado da rede — senão o cartão mudaria de
+ *  altura quando a lista carregasse, e o desenho inteiro pularia. */
+type MetaLinha = { kind: 'exec' | 'entidade' | 'prazo'; text: string }
+
+function metaDaAtividade(
+  node: ENode,
+  resolvePapel: (id: string) => string | undefined,
+  resolveEntidade: (kind: string | undefined, id: string | undefined) => string | undefined,
+): MetaLinha[] {
+  const step = node.step
+  const linhas: MetaLinha[] = []
+
+  if (node.type === 'serviceTask') {
+    linhas.push({ kind: 'exec', text: findConnector(step?.connector)?.label ?? 'Sem ação' })
+  } else {
+    const papel = step?.executor?.papelId ? (resolvePapel(step.executor.papelId) ?? 'Responsável') : null
+    linhas.push({ kind: 'exec', text: papel ?? 'Sem executor' })
+    const ex = step?.executor
+    if (ex?.papelId) {
+      if (ex.mode === 'VARIAVEL' && ex.entityVar) {
+        linhas.push({ kind: 'entidade', text: `${entityKindLabel(ex.entityType)} da variável ${ex.entityVar}` })
+      } else if (ex.entityId) {
+        linhas.push({ kind: 'entidade', text: resolveEntidade(ex.entityType, ex.entityId) ?? `${entityKindLabel(ex.entityType)}…` })
+      }
+    }
+  }
+
+  const due = dueText(step)
+  if (due) linhas.push({ kind: 'prazo', text: due })
+  return linhas
+}
+
+const META_ICON: Record<MetaLinha['kind'], React.ReactNode> = {
+  exec: <User className="h-3 w-3" />,
+  entidade: <Building2 className="h-3 w-3" />,
+  prazo: <Clock className="h-3 w-3" />,
 }
 
 function MetaRow({ icon, text }: { icon: React.ReactNode; text: string }) {

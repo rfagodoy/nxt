@@ -15,6 +15,19 @@ describe('titleLineCount / altura dinâmica do card', () => {
     const long = nodeSize({ id: 'y', type: 'userTask', name: 'a'.repeat(50) }, 1, 1).h
     expect(long).toBeGreaterThan(short)
   })
+
+  /* O rodapé varia por cartão (executor, unidade, prazo). Se a caixa não acompanhasse,
+     mostrar a unidade cortaria a última linha nos cartões que já tinham prazo. */
+  it('a altura acompanha também o nº de linhas do RODAPÉ', () => {
+    const base = { id: 'x', type: 'userTask' as const, name: 'Aprovar' }
+    const duas = nodeSize({ ...base, metaLines: 2 }, 1, 1).h
+    const tres = nodeSize({ ...base, metaLines: 3 }, 1, 1).h
+    const uma = nodeSize({ ...base, metaLines: 1 }, 1, 1).h
+    expect(tres).toBeGreaterThan(duas)
+    expect(duas).toBeGreaterThan(uma)
+    // sem informar, mantém o cartão de sempre (2 linhas) — compatibilidade
+    expect(nodeSize(base, 1, 1).h).toBe(duas)
+  })
 })
 
 describe('layoutGraph', () => {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronsUpDown, Check, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiJson } from '@/lib/http'
@@ -40,6 +40,32 @@ async function fetchEntities(kind: EntityKind): Promise<Entity[]> {
       .catch(() => { delete inflight[kind]; return [] })
   }
   return inflight[kind]!
+}
+
+/** Resolve o RÓTULO de entidades por id, no mesmo cache do seletor. Serve a quem só
+ *  precisa MOSTRAR o nome (ex.: o cartão da atividade no canvas, que exibe a unidade
+ *  executora) sem montar um seletor. Guarda o id e resolve o nome ao vivo — o padrão
+ *  de referência do sistema. */
+export function useEntityLabels(kinds: EntityKind[]) {
+  const chave = kinds.slice().sort().join(',')
+  const [mapa, setMapa] = useState<Partial<Record<EntityKind, Record<string, string>>>>({})
+
+  useEffect(() => {
+    let alive = true
+    const lista = chave ? (chave.split(',') as EntityKind[]) : []
+    void Promise.all(lista.map(async (k) => [k, await fetchEntities(k)] as const)).then((pares) => {
+      if (!alive) return
+      const out: Partial<Record<EntityKind, Record<string, string>>> = {}
+      for (const [k, itens] of pares) out[k] = Object.fromEntries(itens.map((e) => [e.id, e.label]))
+      setMapa(out)
+    })
+    return () => { alive = false }
+  }, [chave])
+
+  return useCallback(
+    (kind: string | undefined, id: string | undefined) => (kind && id ? mapa[kind as EntityKind]?.[id] : undefined),
+    [mapa],
+  )
 }
 
 /** Seletor buscável de uma entidade (empresa/parceiro/unidade/contrato) por tipo. */

@@ -18,7 +18,10 @@ export type FlowNodeType = 'start' | 'end' | 'userTask' | 'serviceTask' | 'exclu
 /** `lane` = RAIA (swimlane) do nó: o papel de quem executa. Quem calcula é o editor
  *  (só ele conhece executor/papel); aqui ela só posiciona. Vazia em evento/gateway —
  *  esses HERDAM a raia do vizinho no fluxo (ver `resolveBands`). */
-export interface FlowNode { id: string; type: FlowNodeType; name?: string; lane?: string }
+/** `metaLines` = quantas linhas de rodapé a atividade mostra (executor, unidade, prazo).
+ *  Varia por cartão, então a ALTURA acompanha — sem isto, ou o cartão sobra espaço vazio
+ *  quando há pouca informação, ou corta a última linha quando há muita. */
+export interface FlowNode { id: string; type: FlowNodeType; name?: string; lane?: string; metaLines?: number }
 export interface FlowEdge { id: string; from: string; to: string; condition?: string; isDefault?: boolean; label?: string }
 export interface FlowGraph { nodes: FlowNode[]; edges: FlowEdge[]; startId: string }
 
@@ -50,8 +53,10 @@ export const LANE_SEM_RESPONSAVEL = 'Sem responsável'
 const TASK_W = 190
 const TITLE_CHARS_PER_LINE = 20 // ~largura útil do título (170px) / ~8.5px por char (13px semibold)
 const TITLE_MAX_LINES = 3
-const CARD_BASE_H = 96          // tudo menos as linhas do título
+const CARD_SHELL_H = 68         // acento + ícone/rótulo + paddings (sem título e sem meta)
 const CARD_LINE_H = 17          // altura de cada linha do título
+const CARD_META_H = 14          // altura de cada linha de meta (executor, unidade, prazo)
+export const CARD_META_PADRAO = 2 // quantas linhas de meta um cartão tem por padrão
 
 /** Nº de linhas que a descrição da atividade ocupa no card (1..MAX). Compartilhado
  *  entre o layout (altura da caixa) e o card (line-clamp) para casarem exatamente. */
@@ -78,7 +83,10 @@ export function nodeSize(node: FlowNode, _outDeg: number, _inDeg: number): { w: 
       return { w: SYMBOL, h: SYMBOL }
     case 'userTask':
     case 'serviceTask':
-      return { w: TASK_W, h: CARD_BASE_H + titleLineCount(node.name) * CARD_LINE_H }
+      return {
+        w: TASK_W,
+        h: CARD_SHELL_H + titleLineCount(node.name) * CARD_LINE_H + (node.metaLines ?? CARD_META_PADRAO) * CARD_META_H,
+      }
   }
 }
 
