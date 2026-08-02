@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Save, Zap, Trash2, User, Clock, LayoutTemplate,
   CircleDot, Loader2, UserSquare, Rows3, AlertTriangle, Building2,
-  Minus, Plus, Maximize2, GripVertical,
+  Minus, Plus, Maximize2, GripVertical, ChevronUp,
   Download, FileImage, FileText, ChevronDown, PanelRightClose, PanelRightOpen,
   X, SlidersHorizontal, Undo2, Check,
 } from 'lucide-react'
@@ -588,6 +588,11 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
                 <div className="rounded-md border border-dashed bg-muted/20 p-3">
                   <p className="text-xs font-semibold flex items-center gap-1.5"><LayoutTemplate className="h-3.5 w-3.5 text-primary" />Monte o fluxo</p>
                   <p className="text-[11px] text-muted-foreground mt-1 leading-snug">Passe o mouse num quadro e <span className="font-medium">arraste uma das bolinhas</span> (nos 4 lados) até outro quadro para conectar — solte em qualquer parte dele. Ou solte no vazio para criar já ligado. Clique num quadro para configurá-lo.</p>
+                  {swimlanes && (
+                    <p className="text-[11px] text-muted-foreground mt-1.5 leading-snug border-t pt-1.5">
+                      Para <span className="font-medium">reordenar uma raia</span>, arraste-a pela faixa do nome, à esquerda — ou use as setas <span className="font-medium">↑ ↓</span> que aparecem nela. As atividades vão junto.
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -739,6 +744,11 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
     window.addEventListener('pointerup', up)
   }
 
+  /* Fator dos CONTROLES da raia: eles vivem dentro do canvas escalado, então desenhamos
+     em 1/escala para o tamanho na TELA ficar constante. O teto de 3,2 impede que, num
+     zoom muito baixo, o par de setas fique mais alto que a própria banda. */
+  const ctrlK = Math.min(3.2, Math.max(1, 1 / scale))
+
   /* Arrastar a RAIA pela coluna do rótulo. Só a vertical importa: a banda cai entre duas
      outras, e as atividades acompanham porque o y delas deriva do topo da banda. */
   const [laneDrag, setLaneDrag] = useState<{ key: string; destino: number; linha: number | null } | null>(null)
@@ -839,9 +849,29 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
                 laneDrag ? 'cursor-grabbing' : 'cursor-grab')}
               title="Arraste para cima ou para baixo para reordenar a raia"
               style={{ width: LANE_HEADER_W, background: 'hsl(var(--foreground) / 0.075)', borderRight: '1px solid hsl(var(--foreground) / 0.22)' }}>
-              <GripVertical className="absolute left-0.5 h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover/lane:opacity-100 transition-opacity" />
+              {/* ⚠️ CONTRA-ESCALA: tudo aqui dentro está sob o `scale` do canvas. No zoom
+                  em que um fluxo grande costuma ficar (~30%) um botão normal viraria 4px
+                  e seria inalcançável — daí desenhar em 1/escala, limitado ao que cabe na
+                  faixa. Só os CONTROLES compensam; o rótulo escala junto com o desenho. */}
+              <GripVertical className="absolute left-0 text-muted-foreground" aria-hidden
+                style={{ height: 14 * ctrlK, width: 14 * ctrlK }} />
               <span className={cn('text-[11px] font-semibold text-center leading-tight select-none', b.key === LANE_SEM_RESPONSAVEL ? 'text-muted-foreground italic' : 'text-foreground')}
                 style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 3, overflow: 'hidden' }}>{b.label}</span>
+              <div className="absolute right-0 flex flex-col opacity-0 group-hover/lane:opacity-100 transition-opacity"
+                style={{ gap: 2 * ctrlK }} onPointerDown={(e) => e.stopPropagation()}>
+                <button type="button" disabled={i === 0} title="Subir a raia"
+                  onClick={(e) => { e.stopPropagation(); onReorderLanes(b.key, i - 1) }}
+                  className="flex items-center justify-center rounded bg-card/90 border shadow-sm text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:hover:text-muted-foreground"
+                  style={{ height: 16 * ctrlK, width: 16 * ctrlK }}>
+                  <ChevronUp style={{ height: 11 * ctrlK, width: 11 * ctrlK }} />
+                </button>
+                <button type="button" disabled={i === (layout.lanes?.length ?? 1) - 1} title="Descer a raia"
+                  onClick={(e) => { e.stopPropagation(); onReorderLanes(b.key, i + 2) }}
+                  className="flex items-center justify-center rounded bg-card/90 border shadow-sm text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:hover:text-muted-foreground"
+                  style={{ height: 16 * ctrlK, width: 16 * ctrlK }}>
+                  <ChevronDown style={{ height: 11 * ctrlK, width: 11 * ctrlK }} />
+                </button>
+              </div>
             </div>
           </div>
         ))}
