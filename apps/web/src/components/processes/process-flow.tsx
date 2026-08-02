@@ -25,6 +25,7 @@ import { PAPEIS_KEY, INIT_PAPEIS, REFERENCIA, ORIGEM, referenciaDoPapelEntry } f
 import { layoutGraph, titleLineCount, LABEL_W, LANE_HEADER_W, LANE_SEM_RESPONSAVEL, type FlowNode as LNode, type FlowNodeType } from '@/lib/flow-layout'
 import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, type ExportEdge } from '@/lib/flow-export'
 import { apiFetch } from '@/lib/http'
+import { ProcessHistoryDrawer } from './process-history-drawer'
 import { cn } from '@/lib/utils'
 
 /** Preferência de painel recolhido (por usuário desta máquina). */
@@ -443,6 +444,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {exportError && <span className="text-[11px] text-destructive font-medium">{exportError}</span>}
+          {/* só faz sentido no que já foi salvo: workflow novo ainda não tem histórico */}
+          {editing && <ProcessHistoryDrawer processId={initial!.id} />}
           <Button variant={swimlanes ? 'secondary' : 'outline'} size="sm" onClick={() => setSwimlanes((s) => !s)} aria-pressed={swimlanes}
             title={swimlanes ? 'Voltar ao desenho livre (permite arrastar os quadros)' : 'Agrupar as atividades em raias por responsável — a raia vem do executor configurado'}>
             <Rows3 className="h-4 w-4" />Ver por raia
