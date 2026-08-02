@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { layoutGraph, titleLineCount, nodeSize, LANE_HEADER_W, LANE_SEM_RESPONSAVEL, type FlowGraph } from './flow-layout'
+import { layoutGraph, titleLineCount, nodeSize, LANE_SEM_RESPONSAVEL, type FlowGraph } from './flow-layout'
 
 const g = (nodes: FlowGraph['nodes'], edges: FlowGraph['edges']): FlowGraph => ({ nodes, edges, startId: 'start' })
 
@@ -284,6 +284,26 @@ describe('raias (swimlanes)', () => {
     expect(bandaDe(L, 'gw')!.label).toBe('Solicitante') // vem de "Preencher"
   })
 
+  /* A raia sem executor é a LISTA do que falta configurar; escondida no rodapé ela não
+     cumpre esse papel. Nasce primeira — mas a escolha manual do usuário ainda vence. */
+  it('"Sem responsável" nasce PRIMEIRA, e a ordem manual ainda vence', () => {
+    const graph = g(
+      [
+        { id: 'start', type: 'start' },
+        { id: 'a', type: 'userTask', name: 'A', lane: 'Solicitante' },
+        { id: 'b', type: 'userTask', name: 'B', lane: LANE_SEM_RESPONSAVEL },
+        { id: 'end', type: 'end' },
+      ],
+      [ { id: 'e1', from: 'start', to: 'a' }, { id: 'e2', from: 'a', to: 'b' }, { id: 'e3', from: 'b', to: 'end' } ],
+    )
+    const L = layoutGraph(graph, undefined, { swimlanes: true })
+    expect(L.lanes![0].label).toBe(LANE_SEM_RESPONSAVEL)
+    expect(L.lanes![0].atividades).toBe(1)
+
+    const manual = layoutGraph(graph, undefined, { swimlanes: true, laneOrder: ['Solicitante', LANE_SEM_RESPONSAVEL] })
+    expect(manual.lanes![0].label).toBe('Solicitante')
+  })
+
   it('atividade sem executor vai para a raia "Sem responsável"', () => {
     const graph = g(
       [ { id: 'start', type: 'start' }, { id: 'a', type: 'userTask', name: 'A', lane: LANE_SEM_RESPONSAVEL }, { id: 'end', type: 'end' } ],
@@ -419,9 +439,14 @@ describe('raias (swimlanes)', () => {
     })
   })
 
-  it('o desenho abre espaço à esquerda para o rótulo da raia', () => {
-    const L = layoutGraph(fluxo(), undefined, { swimlanes: true })
-    for (const p of Object.values(L.nodes)) expect(p.x).toBeGreaterThanOrEqual(LANE_HEADER_W)
+  /* A faixa dos rótulos saiu do DESENHO e virou chrome fixo na tela (só assim o nome
+     fica legível em qualquer zoom e não some ao rolar). Logo o layout não reserva mais
+     espaço para ela — o desenho começa na margem, como o canvas livre sempre começou. */
+  it('o desenho não reserva mais espaço para a coluna do rótulo', () => {
+    const comRaia = layoutGraph(fluxo(), undefined, { swimlanes: true })
+    const semRaia = layoutGraph(fluxo())
+    expect(Math.min(...Object.values(comRaia.nodes).map((p) => p.x)))
+      .toBe(Math.min(...Object.values(semRaia.nodes).map((p) => p.x)))
   })
 
   /* Arrastar continua valendo com raia — organizar o desenho é legítimo. O que não pode
@@ -448,9 +473,9 @@ describe('raias (swimlanes)', () => {
     expect(bandaDe(abaixo, 'aprovar')!.label).toBe('Aprovador')
   })
 
-  it('com raias o nó não invade a coluna do rótulo', () => {
+  it('com raias o nó arrastado para fora não sai pela esquerda do desenho', () => {
     const L = layoutGraph(fluxo(), { aprovar: { x: -500, y: 0 } }, { swimlanes: true })
-    expect(L.nodes.aprovar.x).toBeGreaterThanOrEqual(LANE_HEADER_W)
+    expect(L.nodes.aprovar.x).toBeGreaterThan(0)
   })
 
   it('fluxo sem nenhuma atividade não quebra: uma banda só', () => {

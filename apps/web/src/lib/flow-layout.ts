@@ -27,7 +27,7 @@ export interface FlowGraph { nodes: FlowNode[]; edges: FlowEdge[]; startId: stri
 
 export interface PositionedNode { id: string; x: number; y: number; w: number; h: number; rank: number; lane: number; band?: string }
 /** Banda horizontal de uma raia, já posicionada (a tela e o exportador só desenham). */
-export interface LaneBand { key: string; label: string; y: number; h: number }
+export interface LaneBand { key: string; label: string; y: number; h: number; atividades: number }
 export interface LayoutResult { nodes: Record<string, PositionedNode>; width: number; height: number; lanes?: LaneBand[] }
 
 const COL_GAP = 72          // espaço horizontal entre colunas
@@ -40,7 +40,11 @@ const MARGIN = 40
    aciona. Por isso não há campo "raia" para preencher: ela é derivada.
    Ligada, o layout é automático e as posições MANUAIS são ignoradas (o nó tem de
    ficar dentro da banda dele). Desligada, o canvas é o de sempre. */
-export const LANE_HEADER_W = 132 // coluna do rótulo da raia, à esquerda do desenho
+/** Coluna do rótulo da raia. ⚠️ SÓ o EXPORTADOR usa: no arquivo o rótulo é desenhado
+ *  junto, em coordenadas do desenho. Na TELA a coluna virou uma faixa FIXA, fora do
+ *  canvas escalado — só assim o nome fica legível em qualquer zoom e não some ao rolar
+ *  o desenho para a direita. Por isso o layout não reserva mais espaço para ela. */
+export const LANE_HEADER_W = 132
 export const LANE_PAD = 16       // folga interna da banda
 /** Raia das atividades ainda sem executor. Durante a autoria é a maioria — ver o bloco
  *  crescer é diagnóstico de configuração incompleta, não estorvo. */
@@ -260,12 +264,11 @@ export function layoutGraph(
   // A faixa tem um EIXO horizontal e todo nó é centrado nele. Sem isso o losango (56px) e o
   // cartão (≈130px) ficariam alinhados pelo TOPO e a seta entre eles sairia torta.
   const rowH = Math.max(...nodes.map((n) => size[n.id].h), 0)
-  const offX = swimlanes ? LANE_HEADER_W : 0
 
   // x de cada nó — precisa vir ANTES do y, porque com raias a linha depende de quem
   // ocupa qual trecho horizontal dentro da banda.
   const xOf: Record<string, number> = {}
-  for (const n of nodes) xOf[n.id] = offX + MARGIN + colLeft[rank[n.id]] + (colW[rank[n.id]] - size[n.id].w) / 2
+  for (const n of nodes) xOf[n.id] = MARGIN + colLeft[rank[n.id]] + (colW[rank[n.id]] - size[n.id].w) / 2
 
   /* Com RAIAS o y é de duas dimensões: a banda decide o bloco e a LINHA decide onde
      dentro dele. A linha NÃO vem da faixa de ramificação: essa faixa é um offset global
@@ -292,6 +295,11 @@ export function layoutGraph(
   const bandList: LaneBand[] = []
   if (swimlanes) {
     for (const id of topo) if (!bandOrder.includes(band[id])) bandOrder.push(band[id]) // ordem de APARIÇÃO no fluxo
+    /* "Sem responsável" nasce PRIMEIRA: ela é a lista do que ainda falta configurar, e
+       lista de pendência escondida no rodapé não é lista de pendência. Quem quiser outra
+       ordem arrasta — a escolha manual continua vencendo. */
+    const iSem = bandOrder.indexOf(LANE_SEM_RESPONSAVEL)
+    if (iSem > 0) bandOrder.unshift(...bandOrder.splice(iSem, 1))
     /* Ordem ESCOLHIDA pelo usuário (arrastando a raia) vence a de aparição. Chaves que
        não existem mais são ignoradas, e raias novas entram no fim — assim trocar o
        executor de uma atividade nunca deixa o desenho num estado inválido. */
@@ -319,7 +327,10 @@ export function layoutGraph(
       bandRowH[key] = Math.max(...daBanda.map(alturaDaLinha), SYMBOL + 22)
       const h = Math.max(1, fimDaLinha.length) * bandRowH[key] + LANE_PAD * 2
       bandTop[key] = top
-      bandList.push({ key, label: key, y: top, h })
+      bandList.push({
+        key, label: key, y: top, h,
+        atividades: daBanda.filter((n) => n.type === 'userTask' || n.type === 'serviceTask').length,
+      })
       top += h
     }
   }
@@ -354,7 +365,7 @@ export function layoutGraph(
       const p = positioned[n.id]
       if (swimlanes) {
         const b = bandList.find((x) => x.key === band[n.id])
-        p.x = Math.max(LANE_HEADER_W + 8, m.x)
+        p.x = Math.max(MARGIN, m.x)
         if (b) {
           const topo = b.y + LANE_PAD
           const base = b.y + b.h - LANE_PAD - p.h
