@@ -305,6 +305,88 @@ describe('raias (swimlanes)', () => {
     }
   })
 
+  /* A faixa de ramificação é um offset GLOBAL e fica esparsa dentro de uma banda.
+     Sem compactar, uma banda com nós nas faixas -3 e +4 virava 8 linhas para 2 cartões
+     — que foi o desenho cheio de vazio que o PO mostrou. */
+  it('a banda usa só as linhas que precisa (faixas esparsas compactam)', () => {
+    /* Fluxo largo: um paralelo abre 4 ramos, e o 1º e o 4º voltam ao MESMO papel.
+       As faixas deles ficam distantes; a banda tem de ter 2 linhas, não 4+. */
+    const graph = g(
+      [
+        { id: 'start', type: 'start' },
+        { id: 'p', type: 'parallelGateway', name: 'Em paralelo' },
+        { id: 'a', type: 'userTask', name: 'A', lane: 'Fulano' },
+        { id: 'b', type: 'userTask', name: 'B', lane: 'Outro 1' },
+        { id: 'c', type: 'userTask', name: 'C', lane: 'Outro 2' },
+        { id: 'd', type: 'userTask', name: 'D', lane: 'Fulano' },
+        { id: 'end', type: 'end' },
+      ],
+      [
+        { id: 'e0', from: 'start', to: 'p' },
+        { id: 'e1', from: 'p', to: 'a' }, { id: 'e2', from: 'p', to: 'b' },
+        { id: 'e3', from: 'p', to: 'c' }, { id: 'e4', from: 'p', to: 'd' },
+        { id: 'e5', from: 'a', to: 'end' }, { id: 'e6', from: 'b', to: 'end' },
+        { id: 'e7', from: 'c', to: 'end' }, { id: 'e8', from: 'd', to: 'end' },
+      ],
+    )
+    const L = layoutGraph(graph, undefined, { swimlanes: true })
+    // A e D estão em faixas de ramificação DISTANTES (extremos do leque)
+    const intervaloCru = Math.abs(L.nodes.a.lane - L.nodes.d.lane) + 1
+    expect(intervaloCru).toBeGreaterThan(2)
+    // a banda não herda esse intervalo — as linhas são empacotadas
+    const banda = L.lanes!.find((x) => x.label === 'Fulano')!
+    const alturaDeUmaLinha = L.nodes.a.h + 22
+    expect(banda.h).toBeLessThan(intervaloCru * alturaDeUmaLinha)
+    // A e D estão na MESMA coluna, então continuam em linhas diferentes (sem sobrepor)
+    expect(L.nodes.a.x).toBeCloseTo(L.nodes.d.x)
+    expect(L.nodes.a.y).not.toBeCloseTo(L.nodes.d.y)
+  })
+
+  /* O que o PO chamou de "justificar": nós do mesmo papel em COLUNAS diferentes não
+     precisam de linhas diferentes — a vertical dentro da banda não significa nada. */
+  it('nós do mesmo papel em colunas diferentes DIVIDEM a linha', () => {
+    const graph = g(
+      [
+        { id: 'start', type: 'start' },
+        { id: 'a', type: 'userTask', name: 'A', lane: 'Solicitante' },
+        { id: 'meio', type: 'userTask', name: 'Meio', lane: 'Outro' },
+        { id: 'z', type: 'userTask', name: 'Z', lane: 'Solicitante' },
+        { id: 'end', type: 'end' },
+      ],
+      [
+        { id: 'e1', from: 'start', to: 'a' },
+        { id: 'e2', from: 'a', to: 'meio' },
+        { id: 'e3', from: 'meio', to: 'z' },
+        { id: 'e4', from: 'z', to: 'end' },
+      ],
+    )
+    const L = layoutGraph(graph, undefined, { swimlanes: true })
+    expect(L.nodes.z.x).toBeGreaterThan(L.nodes.a.x)          // colunas diferentes
+    expect(L.nodes.a.y).toBeCloseTo(L.nodes.z.y)              // mesma linha
+    const banda = L.lanes!.find((b) => b.label === 'Solicitante')!
+    expect(banda.h).toBeLessThan(2 * (L.nodes.a.h + 22))      // uma linha só
+  })
+
+  it('banda só de losangos não herda a altura do cartão mais alto do fluxo', () => {
+    const graph = g(
+      [
+        { id: 'start', type: 'start' },
+        { id: 'grande', type: 'userTask', name: 'a'.repeat(60), lane: 'Solicitante' },
+        { id: 'gw', type: 'exclusiveGateway', name: 'Decide?', lane: 'Comitê' },
+        { id: 'end', type: 'end' },
+      ],
+      [
+        { id: 'e1', from: 'start', to: 'grande' },
+        { id: 'e2', from: 'grande', to: 'gw' },
+        { id: 'e3', from: 'gw', to: 'end' },
+      ],
+    )
+    const L = layoutGraph(graph, undefined, { swimlanes: true })
+    const doCartao = L.lanes!.find((b) => b.label === 'Solicitante')!
+    const doLosango = L.lanes!.find((b) => b.label === 'Comitê')!
+    expect(doLosango.h).toBeLessThan(doCartao.h)
+  })
+
   it('o desenho abre espaço à esquerda para o rótulo da raia', () => {
     const L = layoutGraph(fluxo(), undefined, { swimlanes: true })
     for (const p of Object.values(L.nodes)) expect(p.x).toBeGreaterThanOrEqual(LANE_HEADER_W)

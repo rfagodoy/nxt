@@ -262,25 +262,54 @@ export function layoutGraph(
   const rowH = Math.max(...nodes.map((n) => size[n.id].h), 0)
   const offX = swimlanes ? LANE_HEADER_W : 0
 
-  /* Com RAIAS o y é de duas dimensões: a banda decide o bloco, e a faixa de ramificação
-     (já calculada) decide a LINHA dentro dele. A linha precisa comportar o nó mais alto E
-     o rótulo externo do losango, senão o nome vaza para a banda de baixo. */
-  const ROW_H = Math.max(rowH + 22, SYMBOL + 2 * LABEL_H)
+  // x de cada nó — precisa vir ANTES do y, porque com raias a linha depende de quem
+  // ocupa qual trecho horizontal dentro da banda.
+  const xOf: Record<string, number> = {}
+  for (const n of nodes) xOf[n.id] = offX + MARGIN + colLeft[rank[n.id]] + (colW[rank[n.id]] - size[n.id].w) / 2
+
+  /* Com RAIAS o y é de duas dimensões: a banda decide o bloco e a LINHA decide onde
+     dentro dele. A linha NÃO vem da faixa de ramificação: essa faixa é um offset global
+     (±1, ±2, ±3…) que separa ramos ao longo de todo o desenho, e usá-la aqui esparramava
+     a banda — "Solicitante" chegava a 6 linhas com os cartões espalhados, cada um numa
+     coluna diferente. Dentro de uma banda a vertical não carrega significado (quem
+     carrega é a banda), então as linhas são EMPACOTADAS: cada nó vai para a primeira
+     linha em que não esbarra horizontalmente em quem já está lá. É o que "justifica" o
+     desenho — nós de colunas diferentes dividem a mesma linha.
+
+     A altura da linha também é POR BANDA: o cartão mais alto do fluxo inteiro não tem
+     por que esticar a banda que só tem losangos. */
+  const alturaDaLinha = (n: FlowNode) => {
+    const h = size[n.id].h
+    // evento/gateway com nome precisa de espaço para o rótulo que fica FORA da forma
+    const rotuloFora = n.type !== 'userTask' && n.type !== 'serviceTask' && !!n.name
+    return rotuloFora ? Math.max(h + 22, SYMBOL + 2 * LABEL_H) : h + 22
+  }
+  const FOLGA_X = 28 // respiro entre dois nós que dividem a linha
   const bandOrder: string[] = []
   const bandTop: Record<string, number> = {}
-  const bandRows: Record<string, { min: number; max: number }> = {}
+  const rowOfNode: Record<string, number> = {}
+  const bandRowH: Record<string, number> = {}
   const bandList: LaneBand[] = []
   if (swimlanes) {
     for (const id of topo) if (!bandOrder.includes(band[id])) bandOrder.push(band[id]) // ordem de APARIÇÃO no fluxo
-    for (const n of nodes) {
-      const L = lane[n.id] ?? 0
-      const r = (bandRows[band[n.id]] ??= { min: L, max: L })
-      r.min = Math.min(r.min, L); r.max = Math.max(r.max, L)
-    }
     let top = MARGIN
     for (const key of bandOrder) {
-      const r = bandRows[key]
-      const h = (r.max - r.min + 1) * ROW_H + LANE_PAD * 2
+      const daBanda = nodes
+        .filter((n) => band[n.id] === key)
+        // da esquerda para a direita; faixa como desempate, para o resultado ser estável
+        .sort((a, b) => xOf[a.id] - xOf[b.id] || (lane[a.id] ?? 0) - (lane[b.id] ?? 0))
+      const fimDaLinha: number[] = [] // maior x ocupado em cada linha
+      for (const n of daBanda) {
+        const over = labelOverflow(n)
+        const ini = xOf[n.id] - over.x
+        const fim = xOf[n.id] + size[n.id].w + over.x
+        let linha = fimDaLinha.findIndex((f) => ini >= f + FOLGA_X)
+        if (linha === -1) linha = fimDaLinha.length
+        fimDaLinha[linha] = fim
+        rowOfNode[n.id] = linha
+      }
+      bandRowH[key] = Math.max(...daBanda.map(alturaDaLinha), SYMBOL + 22)
+      const h = Math.max(1, fimDaLinha.length) * bandRowH[key] + LANE_PAD * 2
       bandTop[key] = top
       bandList.push({ key, label: key, y: top, h })
       top += h
@@ -294,9 +323,10 @@ export function layoutGraph(
     const s = size[n.id]
     const r = rank[n.id]
     const over = labelOverflow(n)
-    const x = offX + MARGIN + colLeft[r] + (colW[r] - s.w) / 2 // centralizado na coluna
+    const x = xOf[n.id]
+    const b = band[n.id]
     const axis = swimlanes
-      ? bandTop[band[n.id]] + LANE_PAD + ((lane[n.id] ?? 0) - bandRows[band[n.id]].min + 0.5) * ROW_H
+      ? bandTop[b] + LANE_PAD + (rowOfNode[n.id] + 0.5) * bandRowH[b]
       : MARGIN + rowH / 2 + (lane[n.id] - minLane) * BRANCH_GAP // eixo da faixa
     const y = axis - s.h / 2
     positioned[n.id] = { id: n.id, x, y, w: s.w, h: s.h, rank: r, lane: lane[n.id] ?? 0 }
