@@ -4,7 +4,7 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Save, Zap, Trash2, User, Clock, LayoutTemplate,
-  CircleDot, Loader2, UserSquare,
+  CircleDot, Loader2, UserSquare, Rows3, AlertTriangle,
   Download, FileImage, FileText, ChevronDown, PanelRightClose, PanelRightOpen,
   X, SlidersHorizontal, Undo2, Check,
 } from 'lucide-react'
@@ -22,9 +22,10 @@ import { useScreens } from '@/hooks/use-screens'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import type { ScreenSubject } from '@/lib/screen-types'
 import { PAPEIS_KEY, INIT_PAPEIS, REFERENCIA, ORIGEM, referenciaDoPapelEntry } from '@/lib/contract-roles'
-import { layoutGraph, titleLineCount, LABEL_W, type FlowNode as LNode, type FlowNodeType } from '@/lib/flow-layout'
+import { layoutGraph, titleLineCount, LABEL_W, LANE_HEADER_W, LANE_SEM_RESPONSAVEL, type FlowNode as LNode, type FlowNodeType } from '@/lib/flow-layout'
 import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, type ExportEdge } from '@/lib/flow-export'
 import { apiFetch } from '@/lib/http'
+import { ProcessHistoryDrawer } from './process-history-drawer'
 import { cn } from '@/lib/utils'
 
 /** Preferência de painel recolhido (por usuário desta máquina). */
@@ -58,6 +59,10 @@ const SUBJECT_LABEL: Record<string, string> = { CONTRATO: 'Contrato', FORNECEDOR
 const ENTITY_KIND_LABEL: Record<string, string> = { EMPRESA: 'empresa do grupo', PARCEIRO: 'parceiro', UNIDADE: 'unidade', CONTRATO: 'contrato' }
 const entityKindLabel = (k?: string) => ENTITY_KIND_LABEL[k ?? ''] ?? 'entidade'
 const isActivity = (t: NType) => t === 'userTask' || t === 'serviceTask'
+
+/** A API recusou uma gravação que apagaria grande parte do desenho (409). Não é falha:
+ *  é a guarda pedindo confirmação consciente. Ver `update()` em processes.service. */
+class ReducaoDestrutiva extends Error {}
 const rnd = () => Math.random().toString(36).slice(2, 9)
 const nid = (p: string) => `${p}_${rnd()}`
 
@@ -153,6 +158,17 @@ function fromInitial(initial: FlowInitial): { nodes: ENode[]; edges: EEdge[]; st
 
 const toLNode = (n: ENode): LNode => ({ id: n.id, type: n.type, name: isActivity(n.type) ? (n.step?.stepName || '') : n.name })
 
+/** RAIA de uma atividade = quem executa. Derivada do que já está configurado, nunca
+ *  digitada à parte — assim o desenho não pode contradizer quem o motor aciona.
+ *  Ação automática é do "Sistema"; evento e gateway não têm raia própria (herdam). */
+const LANE_SISTEMA = 'Sistema'
+function laneOf(n: ENode, resolvePapel: (id: string) => string | undefined): string | undefined {
+  if (n.type === 'serviceTask') return LANE_SISTEMA
+  if (n.type !== 'userTask') return undefined
+  const papelId = n.step?.executor?.papelId
+  return (papelId && resolvePapel(papelId)) || LANE_SEM_RESPONSAVEL
+}
+
 function buildWfGraph(nodes: ENode[], edges: EEdge[]): WfGraph {
   const wn: Record<string, WfNode> = {}
   for (const n of nodes) wn[n.id] = { id: n.id, type: n.type, name: isActivity(n.type) ? (n.step?.stepName || 'Etapa') : (n.name || undefined) }
@@ -199,8 +215,16 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     setConfigId(id && isActivity(nodeById[id]?.type) ? id : null)
   }, [nodeById])
 
+  /* VER POR RAIA — modo de visualização, não um elemento que se desenha. Ligado, o
+     layout vira bandas por papel e as posições manuais são ignoradas (o nó tem de ficar
+     na banda dele); desligado, é o canvas de sempre, com arrasto livre. */
+  const [swimlanes, setSwimlanes] = useState(false)
   const hasManual = Object.keys(positions).length > 0
-  const layout = useMemo(() => layoutGraph({ nodes: nodes.map(toLNode), edges, startId: nodes.find((n) => n.type === 'start')?.id ?? 'Start_1' }, hasManual ? positions : undefined), [nodes, edges, positions, hasManual])
+  const layout = useMemo(() => layoutGraph(
+    { nodes: nodes.map((n) => ({ ...toLNode(n), lane: laneOf(n, resolvePapel) })), edges, startId: nodes.find((n) => n.type === 'start')?.id ?? 'Start_1' },
+    hasManual ? positions : undefined,
+    { swimlanes },
+  ), [nodes, edges, positions, hasManual, swimlanes, resolvePapel])
 
   /* Painel lateral RETRÁTIL — o canvas é a superfície principal; recolher devolve os
      320px (e o enquadramento reaproveita o espaço, subindo a escala do desenho).
@@ -284,7 +308,13 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     setEdges((prev) => prev.map((e) => (e.id === edgeId ? { ...e, ...patch } : e)))
   }, [])
 
-  const persist = useCallback(async (): Promise<string> => {
+  /* Gravação que apagaria grande parte do desenho: a API recusa com 409 e diz quanto
+     seria removido. Guardamos a pergunta aqui e só reenviamos com `confirmarReducao`
+     depois que a pessoa disser que é intencional — sem diálogo nativo, que trava a
+     janela e destoa do resto do sistema. */
+  const [reducao, setReducao] = useState<{ msg: string; acao: 'rascunho' | 'ativar' } | null>(null)
+
+  const persist = useCallback(async (confirmarReducao?: boolean): Promise<string> => {
     const bpmnXml = generateBpmn(buildWfGraph(nodes, edges))
     const steps = nodes.filter((n) => isActivity(n.type) && n.step).map((n) => ({ ...n.step!, stepId: n.id, stepName: n.step!.stepName, stepType: n.type as 'userTask' | 'serviceTask' }))
     // mantém só posições de nós existentes
@@ -295,9 +325,13 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       edges: edges.map((e) => ({ id: e.id, from: e.from, to: e.to, condition: e.condition || undefined, isDefault: e.isDefault, label: e.label })),
     }
     const formSchema: ProcessFormSchema = { steps, positions: Object.keys(pos).length ? pos : undefined, graph }
-    const body = JSON.stringify({ name: name.trim(), description: description.trim() || undefined, bpmnXml, formSchema, kind: kind || undefined })
+    const body = JSON.stringify({ name: name.trim(), description: description.trim() || undefined, bpmnXml, formSchema, kind: kind || undefined, ...(confirmarReducao ? { confirmarReducao: true } : {}) })
     if (editing) {
       const res = await apiFetch(`/api/processes/${initial!.id}`, { method: 'PATCH', body })
+      if (res.status === 409) {
+        const e = await res.json().catch(() => null)
+        throw new ReducaoDestrutiva(e?.message ?? 'Esta gravação removeria grande parte do workflow.')
+      }
       if (!res.ok) throw new Error('Erro ao salvar')
       return initial!.id
     }
@@ -306,15 +340,18 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     return (await res.json()).id as string
   }, [editing, initial, name, description, kind, nodes, edges, positions])
 
-  const handleSaveDraft = useCallback(async () => {
+  const handleSaveDraft = useCallback(async (confirmarReducao?: boolean) => {
     if (!name.trim()) { alert('Dê um nome ao workflow antes de salvar.'); return }
     setSaving(true)
-    try { const id = await persist(); router.push(`/processes/${id}/edit`) }
-    catch (err) { alert('Não foi possível salvar o workflow.'); console.error(err) }
+    try { const id = await persist(confirmarReducao); setReducao(null); router.push(`/processes/${id}/edit`) }
+    catch (err) {
+      if (err instanceof ReducaoDestrutiva) { setReducao({ msg: err.message, acao: 'rascunho' }); return }
+      alert('Não foi possível salvar o workflow.'); console.error(err)
+    }
     finally { setSaving(false) }
   }, [name, persist, router])
 
-  const handleActivate = useCallback(async () => {
+  const handleActivate = useCallback(async (confirmarReducao?: boolean) => {
     if (!name.trim()) { alert('Dê um nome ao workflow antes de ativar.'); return }
     // O tipo decide em que tela o workflow aparece no "Novo processo" — sem ele, o
     // workflow ficaria ativo e invisível para quem trabalha em Contratos/Parceiros.
@@ -323,11 +360,15 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     if (activityCount === 0) { alert('Adicione ao menos uma atividade antes de ativar.'); return }
     setActivating(true)
     try {
-      const id = await persist()
+      const id = await persist(confirmarReducao)
+      setReducao(null)
       const res = await apiFetch(`/api/processes/${id}/activate`, { method: 'PATCH' })
       if (!res.ok) { const e = await res.json().catch(() => null); alert(e?.message || 'Não foi possível ativar o workflow.'); router.push(`/processes/${id}`); return }
       router.push(`/processes/${id}`)
-    } catch (err) { alert('Não foi possível ativar o workflow.'); console.error(err) }
+    } catch (err) {
+      if (err instanceof ReducaoDestrutiva) { setReducao({ msg: err.message, acao: 'ativar' }); return }
+      alert('Não foi possível ativar o workflow.'); console.error(err)
+    }
     finally { setActivating(false) }
   }, [name, kind, activityCount, persist, router])
 
@@ -361,7 +402,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         backward: g.backward, variant, label: e.label,
       }
     })
-    return { width: layout.width, height: layout.height, nodes: enodes, edges: eedges }
+    return { width: layout.width, height: layout.height, nodes: enodes, edges: eedges, lanes: layout.lanes }
   }, [nodes, edges, layout, nodeById, resolvePapel])
 
   // Exporta o desenho atual (edições ao vivo, sem precisar salvar) como JPG ou PDF.
@@ -403,11 +444,35 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {exportError && <span className="text-[11px] text-destructive font-medium">{exportError}</span>}
+          {/* só faz sentido no que já foi salvo: workflow novo ainda não tem histórico */}
+          {editing && <ProcessHistoryDrawer processId={initial!.id} />}
+          <Button variant={swimlanes ? 'secondary' : 'outline'} size="sm" onClick={() => setSwimlanes((s) => !s)} aria-pressed={swimlanes}
+            title={swimlanes ? 'Voltar ao desenho livre (permite arrastar os quadros)' : 'Agrupar as atividades em raias por responsável — a raia vem do executor configurado'}>
+            <Rows3 className="h-4 w-4" />Ver por raia
+          </Button>
           <ExportMenu exporting={exporting} disabled={saving || activating} onExport={handleExport} />
-          <Button variant="outline" size="sm" onClick={handleSaveDraft} disabled={saving || activating}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Salvar rascunho</Button>
-          <Button size="sm" onClick={handleActivate} disabled={saving || activating}>{activating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}Ativar workflow</Button>
+          {/* ⚠️ `() =>` obrigatório: passar a função direto entregaria o MouseEvent como
+              `confirmarReducao` — truthy — e a guarda seria burlada em TODO salvamento. */}
+          <Button variant="outline" size="sm" onClick={() => handleSaveDraft()} disabled={saving || activating}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Salvar rascunho</Button>
+          <Button size="sm" onClick={() => handleActivate()} disabled={saving || activating}>{activating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}Ativar workflow</Button>
         </div>
       </div>
+
+      {/* Guarda de gravação destrutiva: a API recusou porque a gravação apagaria grande
+          parte do desenho. A pessoa decide, sabendo o que perde. */}
+      {reducao && (
+        <div className="flex items-start gap-3 px-4 py-2.5 border-b bg-destructive/10 text-destructive shrink-0">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <p className="text-[12.5px] leading-snug flex-1 min-w-0">{reducao.msg}</p>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button variant="ghost" size="sm" onClick={() => setReducao(null)}>Não salvar</Button>
+            <Button variant="destructive" size="sm" disabled={saving || activating}
+              onClick={() => (reducao.acao === 'ativar' ? handleActivate(true) : handleSaveDraft(true))}>
+              Salvar assim mesmo
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Canvas + Inspetor */}
       <div className="flex flex-1 overflow-hidden">
@@ -556,6 +621,8 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
   const GRID = 12, ALIGN = 6
   const startNodeDrag = (id: string, ev: React.PointerEvent) => {
     if ((ev.target as HTMLElement).closest('[data-port],[data-trash]')) return
+    // com RAIAS o layout é automático: arrastar tiraria o nó da banda do papel dele
+    if (layout.lanes) return
     const p = layout.nodes[id]; if (!p) return
     dragRef.current = { id, sx: ev.clientX, sy: ev.clientY, ox: p.x, oy: p.y, w: p.w, h: p.h, moved: false }
     const others = Object.entries(layout.nodes).filter(([oid]) => oid !== id).map(([, op]) => ({ cx: op.x + op.w / 2, cy: op.y + op.h / 2 }))
@@ -591,6 +658,18 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
       {/* espaçador com o tamanho JÁ ESCALADO: mantém as barras de rolagem corretas */}
       <div style={{ width: layout.width * scale, height: layout.height * scale, minWidth: '100%' }}>
       <div ref={canvasRef} className="relative" style={{ width: layout.width, height: layout.height, transform: `scale(${scale})`, transformOrigin: '0 0' }}>
+        {/* RAIAS — bandas atrás de tudo, com o papel na coluna da esquerda. Só leitura:
+            a banda vem do executor configurado, não se arrasta nada para dentro dela. */}
+        {layout.lanes?.map((b, i) => (
+          <div key={b.key} className="absolute left-0 pointer-events-none" style={{ top: b.y, height: b.h, width: layout.width }}>
+            <div className={cn('absolute inset-0 border-t border-border/70', i % 2 === 1 && 'bg-muted/25')} />
+            <div className="absolute inset-y-0 left-0 border-r border-border/70 bg-muted/40 flex items-center justify-center px-2" style={{ width: LANE_HEADER_W }}>
+              <span className={cn('text-[11px] font-semibold text-center leading-tight', b.key === LANE_SEM_RESPONSAVEL ? 'text-muted-foreground italic' : 'text-foreground')}
+                style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 3, overflow: 'hidden' }}>{b.label}</span>
+            </div>
+          </div>
+        ))}
+        {layout.lanes?.length ? <div className="absolute left-0 right-0 border-b border-border/70 pointer-events-none" style={{ top: layout.lanes[layout.lanes.length - 1].y + layout.lanes[layout.lanes.length - 1].h }} /> : null}
         <svg className="absolute inset-0 overflow-visible" style={{ width: layout.width, height: layout.height }}>
           <defs>
             <marker id="fl-arrow" markerWidth="8" markerHeight="8" refX="6.5" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="context-stroke" /></marker>
@@ -636,7 +715,7 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
           if (!p) return null
           return (
             <div key={n.id} data-node-id={n.id} onPointerDown={(e) => startNodeDrag(n.id, e)}
-              className={cn('absolute group select-none', dragId === n.id ? 'z-40 cursor-grabbing' : 'cursor-grab')}
+              className={cn('absolute group select-none', layout.lanes ? 'cursor-pointer' : dragId === n.id ? 'z-40 cursor-grabbing' : 'cursor-grab')}
               style={{ left: p.x, top: p.y, width: p.w, height: p.h }}>
               <FlowNodeView node={n} selected={n.id === selectedId} onClick={() => onSelect(n.id)} resolvePapel={resolvePapel} />
               {n.type !== 'start' && n.type !== 'end' && (

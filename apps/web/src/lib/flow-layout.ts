@@ -15,16 +15,33 @@
 
 export type FlowNodeType = 'start' | 'end' | 'userTask' | 'serviceTask' | 'exclusiveGateway' | 'parallelGateway'
 
-export interface FlowNode { id: string; type: FlowNodeType; name?: string }
+/** `lane` = RAIA (swimlane) do nó: o papel de quem executa. Quem calcula é o editor
+ *  (só ele conhece executor/papel); aqui ela só posiciona. Vazia em evento/gateway —
+ *  esses HERDAM a raia do vizinho no fluxo (ver `resolveBands`). */
+export interface FlowNode { id: string; type: FlowNodeType; name?: string; lane?: string }
 export interface FlowEdge { id: string; from: string; to: string; condition?: string; isDefault?: boolean; label?: string }
 export interface FlowGraph { nodes: FlowNode[]; edges: FlowEdge[]; startId: string }
 
 export interface PositionedNode { id: string; x: number; y: number; w: number; h: number; rank: number; lane: number }
-export interface LayoutResult { nodes: Record<string, PositionedNode>; width: number; height: number }
+/** Banda horizontal de uma raia, já posicionada (a tela e o exportador só desenham). */
+export interface LaneBand { key: string; label: string; y: number; h: number }
+export interface LayoutResult { nodes: Record<string, PositionedNode>; width: number; height: number; lanes?: LaneBand[] }
 
 const COL_GAP = 72          // espaço horizontal entre colunas
 const BRANCH_GAP = 168      // distância vertical entre faixas (≥ altura do card MAIS ALTO + folga)
 const MARGIN = 40
+
+/* ─── Raias ────────────────────────────────────────────────────────────────────
+   A raia é uma VISTA do que já está configurado (o papel do executor), nunca um
+   agrupamento à parte — senão o desenho poderia contradizer quem o motor de fato
+   aciona. Por isso não há campo "raia" para preencher: ela é derivada.
+   Ligada, o layout é automático e as posições MANUAIS são ignoradas (o nó tem de
+   ficar dentro da banda dele). Desligada, o canvas é o de sempre. */
+export const LANE_HEADER_W = 132 // coluna do rótulo da raia, à esquerda do desenho
+export const LANE_PAD = 16       // folga interna da banda
+/** Raia das atividades ainda sem executor. Durante a autoria é a maioria — ver o bloco
+ *  crescer é diagnóstico de configuração incompleta, não estorvo. */
+export const LANE_SEM_RESPONSAVEL = 'Sem responsável'
 
 /* Card da atividade: altura DINÂMICA pela descrição (nome). O restante do card
    (acento + ícone/rótulo + 2 linhas de meta = executor/ação + prazo + paddings) é
@@ -72,16 +89,68 @@ function labelOverflow(node: FlowNode): { x: number; y: number } {
   return { x: Math.max(0, (LABEL_W - SYMBOL) / 2), y: LABEL_H }
 }
 
-export function layoutGraph(graph: FlowGraph, manual?: Record<string, { x: number; y: number }>): LayoutResult {
+/** Raia de CADA nó. Atividade traz a sua; evento e gateway HERDAM — primeiro do
+ *  antecessor (ordem topológica), depois do sucessor. Assim o losango fica na banda
+ *  de quem decide, em vez de atravessar o desenho para uma faixa neutra. */
+function resolveBands(nodes: FlowNode[], topo: string[], inEdges: Record<string, FlowEdge[]>, outEdges: Record<string, FlowEdge[]>): Record<string, string> {
+  const band: Record<string, string> = {}
+  for (const n of nodes) if (n.lane) band[n.id] = n.lane
+  for (const id of topo) {
+    if (band[id]) continue
+    for (const e of inEdges[id] ?? []) if (band[e.from]) { band[id] = band[e.from]; break }
+  }
+  for (let i = topo.length - 1; i >= 0; i--) {
+    const id = topo[i]
+    if (band[id]) continue
+    for (const e of outEdges[id] ?? []) if (band[e.to]) { band[id] = band[e.to]; break }
+  }
+  // fluxo ainda sem nenhuma atividade (só início/fim): tudo numa banda só
+  for (const n of nodes) band[n.id] ??= LANE_SEM_RESPONSAVEL
+  return band
+}
+
+export function layoutGraph(
+  graph: FlowGraph,
+  manual?: Record<string, { x: number; y: number }>,
+  options?: { swimlanes?: boolean },
+): LayoutResult {
   const { nodes, edges, startId } = graph
+  const swimlanes = !!options?.swimlanes
   const outEdges: Record<string, FlowEdge[]> = {}
   const inEdges: Record<string, FlowEdge[]> = {}
   for (const n of nodes) { outEdges[n.id] = []; inEdges[n.id] = [] }
   for (const e of edges) { if (outEdges[e.from]) outEdges[e.from].push(e); if (inEdges[e.to]) inEdges[e.to].push(e) }
 
+  /* ── arestas de RETORNO fora do posicionamento ────────────────────────────────
+     Devolver para uma etapa anterior é recurso do motor, e cria CICLO no grafo. Kahn
+     não alcança nós dentro de um ciclo: todos ficariam no rank 0, empilhados numa
+     coluna só. Marca as arestas de volta (DFS: destino ainda na pilha) e posiciona
+     apenas o DAG restante. A aresta de retorno continua sendo DESENHADA — ela só não
+     manda no rank, na faixa nem em quem é fork/junção. */
+  const backEdge = new Set<string>()
+  {
+    const state: Record<string, 1 | 2> = {}
+    const visit = (u: string) => {
+      state[u] = 1
+      for (const e of outEdges[u] ?? []) {
+        if (state[e.to] === 1) { backEdge.add(e.id); continue } // destino na pilha = volta
+        if (!state[e.to]) visit(e.to)
+      }
+      state[u] = 2
+    }
+    if (outEdges[startId]) visit(startId)
+    for (const n of nodes) if (!state[n.id]) visit(n.id)
+  }
+  const fwdOut: Record<string, FlowEdge[]> = {}
+  const fwdIn: Record<string, FlowEdge[]> = {}
+  for (const n of nodes) {
+    fwdOut[n.id] = outEdges[n.id].filter((e) => !backEdge.has(e.id))
+    fwdIn[n.id] = inEdges[n.id].filter((e) => !backEdge.has(e.id))
+  }
+
   // ── rank (coluna) = maior caminho a partir do início (Kahn) ──
   const indeg: Record<string, number> = {}
-  for (const n of nodes) indeg[n.id] = inEdges[n.id].length
+  for (const n of nodes) indeg[n.id] = fwdIn[n.id].length
   const rank: Record<string, number> = {}
   for (const n of nodes) rank[n.id] = 0
   const topo: string[] = []
@@ -92,7 +161,7 @@ export function layoutGraph(graph: FlowGraph, manual?: Record<string, { x: numbe
   while (q.length) {
     const u = q.shift()!
     topo.push(u)
-    for (const e of outEdges[u]) {
+    for (const e of fwdOut[u]) {
       if (rank[e.to] < rank[u] + 1) rank[e.to] = rank[u] + 1
       if (--indegWork[e.to] === 0) q.push(e.to)
     }
@@ -111,7 +180,7 @@ export function layoutGraph(graph: FlowGraph, manual?: Record<string, { x: numbe
   // ── offset de faixa por aresta de FORK ──
   const edgeOffset: Record<string, number> = {}
   for (const n of nodes) {
-    const outs = outEdges[n.id]
+    const outs = fwdOut[n.id]
     if (outs.length <= 1) { for (const e of outs) edgeOffset[e.id] = 0; continue }
     if (n.type === 'exclusiveGateway') {
       // saída PADRÃO (default, ou sem condição) segue reto; condicionais abrem ±
@@ -133,7 +202,7 @@ export function layoutGraph(graph: FlowGraph, manual?: Record<string, { x: numbe
   lane[startId] = 0
   for (const id of topo) {
     if (id === startId) { lane[id] = 0; continue }
-    const ins = inEdges[id]
+    const ins = fwdIn[id]
     if (ins.length === 0) { lane[id] = 0; continue }
     if (ins.length === 1) {
       const e = ins[0]
@@ -147,9 +216,14 @@ export function layoutGraph(graph: FlowGraph, manual?: Record<string, { x: numbe
     }
   }
 
+  // raia de cada nó (só importa com swimlanes ligado, mas é barato e deixa o resto puro)
+  const band = resolveBands(nodes, topo, fwdIn, fwdOut)
+
   // ── anti-colisão: nós no MESMO rank não podem dividir a mesma faixa ──
-  const byRank: Record<number, string[]> = {}
-  for (const n of nodes) (byRank[rank[n.id]] ??= []).push(n.id)
+  // Com raias o conflito é por (coluna, RAIA): dois nós na mesma coluna e em bandas
+  // diferentes já não se tocam — separá-los aqui só inflaria a altura das bandas.
+  const byRank: Record<string, string[]> = {}
+  for (const n of nodes) (byRank[swimlanes ? `${rank[n.id]}|${band[n.id]}` : `${rank[n.id]}`] ??= []).push(n.id)
   for (const ids of Object.values(byRank)) {
     const used = new Set<number>()
     ids.sort((a, b) => (lane[a] ?? 0) - (lane[b] ?? 0))
@@ -178,6 +252,33 @@ export function layoutGraph(graph: FlowGraph, manual?: Record<string, { x: numbe
   // A faixa tem um EIXO horizontal e todo nó é centrado nele. Sem isso o losango (56px) e o
   // cartão (≈130px) ficariam alinhados pelo TOPO e a seta entre eles sairia torta.
   const rowH = Math.max(...nodes.map((n) => size[n.id].h), 0)
+  const offX = swimlanes ? LANE_HEADER_W : 0
+
+  /* Com RAIAS o y é de duas dimensões: a banda decide o bloco, e a faixa de ramificação
+     (já calculada) decide a LINHA dentro dele. A linha precisa comportar o nó mais alto E
+     o rótulo externo do losango, senão o nome vaza para a banda de baixo. */
+  const ROW_H = Math.max(rowH + 22, SYMBOL + 2 * LABEL_H)
+  const bandOrder: string[] = []
+  const bandTop: Record<string, number> = {}
+  const bandRows: Record<string, { min: number; max: number }> = {}
+  const bandList: LaneBand[] = []
+  if (swimlanes) {
+    for (const id of topo) if (!bandOrder.includes(band[id])) bandOrder.push(band[id]) // ordem de APARIÇÃO no fluxo
+    for (const n of nodes) {
+      const L = lane[n.id] ?? 0
+      const r = (bandRows[band[n.id]] ??= { min: L, max: L })
+      r.min = Math.min(r.min, L); r.max = Math.max(r.max, L)
+    }
+    let top = MARGIN
+    for (const key of bandOrder) {
+      const r = bandRows[key]
+      const h = (r.max - r.min + 1) * ROW_H + LANE_PAD * 2
+      bandTop[key] = top
+      bandList.push({ key, label: key, y: top, h })
+      top += h
+    }
+  }
+
   const positioned: Record<string, PositionedNode> = {}
   let maxX = 0
   let maxY = 0
@@ -185,16 +286,25 @@ export function layoutGraph(graph: FlowGraph, manual?: Record<string, { x: numbe
     const s = size[n.id]
     const r = rank[n.id]
     const over = labelOverflow(n)
-    const x = MARGIN + colLeft[r] + (colW[r] - s.w) / 2 // centralizado na coluna
-    const axis = MARGIN + rowH / 2 + (lane[n.id] - minLane) * BRANCH_GAP // eixo da faixa
+    const x = offX + MARGIN + colLeft[r] + (colW[r] - s.w) / 2 // centralizado na coluna
+    const axis = swimlanes
+      ? bandTop[band[n.id]] + LANE_PAD + ((lane[n.id] ?? 0) - bandRows[band[n.id]].min + 0.5) * ROW_H
+      : MARGIN + rowH / 2 + (lane[n.id] - minLane) * BRANCH_GAP // eixo da faixa
     const y = axis - s.h / 2
     positioned[n.id] = { id: n.id, x, y, w: s.w, h: s.h, rank: r, lane: lane[n.id] ?? 0 }
     maxX = Math.max(maxX, x + s.w + over.x)
     maxY = Math.max(maxY, y + s.h + over.y)
   }
+  // as bandas ocupam a largura toda do desenho; a altura vem delas, não dos nós
+  if (swimlanes && bandList.length) {
+    const last = bandList[bandList.length - 1]
+    maxY = Math.max(maxY, last.y + last.h)
+  }
 
   // ── posições MANUAIS (override do auto) ──
-  if (manual) {
+  // Ignoradas com RAIAS ligadas: o nó tem de ficar dentro da banda dele, e uma posição
+  // guardada de quando não havia raia colocaria a atividade na faixa do papel errado.
+  if (manual && !swimlanes) {
     for (const n of nodes) {
       const m = manual[n.id]
       if (!m) continue
@@ -211,7 +321,7 @@ export function layoutGraph(graph: FlowGraph, manual?: Record<string, { x: numbe
     }
   }
 
-  return { nodes: positioned, width: maxX + MARGIN, height: maxY + MARGIN }
+  return { nodes: positioned, width: maxX + MARGIN, height: maxY + MARGIN, lanes: swimlanes ? bandList : undefined }
 }
 
 /** Offsets simétricos ao redor do eixo para k saídas: k par → ±1,±2…; k ímpar → 0,±1,±2… */

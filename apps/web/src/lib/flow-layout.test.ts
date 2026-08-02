@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { layoutGraph, titleLineCount, nodeSize, type FlowGraph } from './flow-layout'
+import { layoutGraph, titleLineCount, nodeSize, LANE_HEADER_W, LANE_SEM_RESPONSAVEL, type FlowGraph } from './flow-layout'
 
 const g = (nodes: FlowGraph['nodes'], edges: FlowGraph['edges']): FlowGraph => ({ nodes, edges, startId: 'start' })
 
@@ -155,6 +155,44 @@ describe('layoutGraph', () => {
     expect(L.nodes.a.lane).not.toBe(L.nodes.b.lane)
   })
 
+  /* Devolução ("Não" volta para a etapa anterior) cria CICLO. Antes deste teste o Kahn
+     não alcançava os nós do ciclo, todos ficavam no rank 0 e o desenho empilhava numa
+     coluna só — só não aparecia porque as posições manuais mascaravam. */
+  it('aresta de RETORNO não colapsa as colunas', () => {
+    const graph = g(
+      [
+        { id: 'start', type: 'start' },
+        { id: 'preencher', type: 'userTask', name: 'Preencher' },
+        { id: 'gw', type: 'exclusiveGateway', name: 'Aprova?' },
+        { id: 'seguir', type: 'userTask', name: 'Seguir' },
+        { id: 'end', type: 'end' },
+      ],
+      [
+        { id: 'e1', from: 'start', to: 'preencher' },
+        { id: 'e2', from: 'preencher', to: 'gw' },
+        { id: 'e3', from: 'gw', to: 'seguir', label: 'Sim' },
+        { id: 'e4', from: 'gw', to: 'preencher', label: 'Não' }, // ← retorno
+        { id: 'e5', from: 'seguir', to: 'end' },
+      ],
+    )
+    const L = layoutGraph(graph)
+    // cada etapa numa coluna própria, da esquerda para a direita
+    expect(L.nodes.preencher.x).toBeGreaterThan(L.nodes.start.x)
+    expect(L.nodes.gw.x).toBeGreaterThan(L.nodes.preencher.x)
+    expect(L.nodes.seguir.x).toBeGreaterThan(L.nodes.gw.x)
+    expect(L.nodes.end.x).toBeGreaterThan(L.nodes.seguir.x)
+    // o retorno não faz o gateway parecer um fork: a saída segue reta
+    expect(L.nodes.seguir.lane).toBe(L.nodes.gw.lane)
+  })
+
+  it('sem swimlanes não há bandas (o canvas de sempre)', () => {
+    const graph = g(
+      [ { id: 'start', type: 'start' }, { id: 'a', type: 'userTask', name: 'A', lane: 'Solicitante' }, { id: 'end', type: 'end' } ],
+      [ { id: 'e1', from: 'start', to: 'a' }, { id: 'e2', from: 'a', to: 'end' } ],
+    )
+    expect(layoutGraph(graph).lanes).toBeUndefined()
+  })
+
   it('posição manual sobrepõe o auto-layout (só do nó informado)', () => {
     const graph = g(
       [ { id: 'start', type: 'start' }, { id: 'a', type: 'userTask' }, { id: 'end', type: 'end' } ],
@@ -191,5 +229,83 @@ describe('layoutGraph', () => {
     const a = L.nodes.x, b = L.nodes.y
     const gap = Math.abs((a.y + a.h / 2) - (b.y + b.h / 2))
     expect(gap).toBeGreaterThanOrEqual(a.h) // sem sobreposição vertical
+  })
+})
+
+describe('raias (swimlanes)', () => {
+  /* Fluxo com 3 papéis: Solicitante preenche → Aprovador decide → Sistema formaliza. */
+  const fluxo = (): FlowGraph => g(
+    [
+      { id: 'start', type: 'start' },
+      { id: 'preencher', type: 'userTask', name: 'Preencher', lane: 'Solicitante' },
+      { id: 'gw', type: 'exclusiveGateway', name: 'Aprova?' },
+      { id: 'aprovar', type: 'userTask', name: 'Aprovar', lane: 'Aprovador' },
+      { id: 'criar', type: 'serviceTask', name: 'Criar contrato', lane: 'Sistema' },
+      { id: 'end', type: 'end' },
+    ],
+    [
+      { id: 'e1', from: 'start', to: 'preencher' },
+      { id: 'e2', from: 'preencher', to: 'gw' },
+      { id: 'e3', from: 'gw', to: 'aprovar' },
+      { id: 'e4', from: 'aprovar', to: 'criar' },
+      { id: 'e5', from: 'criar', to: 'end' },
+    ],
+  )
+  const bandaDe = (L: ReturnType<typeof layoutGraph>, id: string) =>
+    L.lanes!.find((b) => { const p = L.nodes[id]; const c = p.y + p.h / 2; return c >= b.y && c < b.y + b.h })
+
+  it('uma banda por papel, na ordem em que APARECEM no fluxo', () => {
+    const L = layoutGraph(fluxo(), undefined, { swimlanes: true })
+    expect(L.lanes!.map((b) => b.label)).toEqual(['Solicitante', 'Aprovador', 'Sistema'])
+  })
+
+  it('cada atividade cai na banda do seu papel', () => {
+    const L = layoutGraph(fluxo(), undefined, { swimlanes: true })
+    expect(bandaDe(L, 'preencher')!.label).toBe('Solicitante')
+    expect(bandaDe(L, 'aprovar')!.label).toBe('Aprovador')
+    expect(bandaDe(L, 'criar')!.label).toBe('Sistema')
+  })
+
+  it('gateway HERDA a raia do antecessor (fica na banda de quem decide)', () => {
+    const L = layoutGraph(fluxo(), undefined, { swimlanes: true })
+    expect(bandaDe(L, 'gw')!.label).toBe('Solicitante') // vem de "Preencher"
+  })
+
+  it('atividade sem executor vai para a raia "Sem responsável"', () => {
+    const graph = g(
+      [ { id: 'start', type: 'start' }, { id: 'a', type: 'userTask', name: 'A', lane: LANE_SEM_RESPONSAVEL }, { id: 'end', type: 'end' } ],
+      [ { id: 'e1', from: 'start', to: 'a' }, { id: 'e2', from: 'a', to: 'end' } ],
+    )
+    const L = layoutGraph(graph, undefined, { swimlanes: true })
+    expect(L.lanes!.map((b) => b.label)).toContain(LANE_SEM_RESPONSAVEL)
+  })
+
+  it('as bandas se encostam sem buraco nem sobreposição, e nenhum nó vaza da sua', () => {
+    const L = layoutGraph(fluxo(), undefined, { swimlanes: true })
+    for (let i = 1; i < L.lanes!.length; i++) {
+      expect(L.lanes![i].y).toBe(L.lanes![i - 1].y + L.lanes![i - 1].h) // encostadas
+    }
+    for (const id of Object.keys(L.nodes)) {
+      const b = bandaDe(L, id)!, p = L.nodes[id]
+      expect(p.y).toBeGreaterThanOrEqual(b.y)
+      expect(p.y + p.h).toBeLessThanOrEqual(b.y + b.h)
+    }
+  })
+
+  it('o desenho abre espaço à esquerda para o rótulo da raia', () => {
+    const L = layoutGraph(fluxo(), undefined, { swimlanes: true })
+    for (const p of Object.values(L.nodes)) expect(p.x).toBeGreaterThanOrEqual(LANE_HEADER_W)
+  })
+
+  it('com raias a posição MANUAL é ignorada (o nó tem de ficar na banda dele)', () => {
+    const L = layoutGraph(fluxo(), { aprovar: { x: 999, y: 777 } }, { swimlanes: true })
+    expect(L.nodes.aprovar.x).not.toBe(999)
+    expect(bandaDe(L, 'aprovar')!.label).toBe('Aprovador')
+  })
+
+  it('fluxo sem nenhuma atividade não quebra: uma banda só', () => {
+    const graph = g([ { id: 'start', type: 'start' }, { id: 'end', type: 'end' } ], [ { id: 'e1', from: 'start', to: 'end' } ])
+    const L = layoutGraph(graph, undefined, { swimlanes: true })
+    expect(L.lanes).toHaveLength(1)
   })
 })

@@ -132,8 +132,54 @@ model ProcessDefinition {
 
   organization Organization      @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   instances    ProcessInstance[]
+  versions     ProcessDefinitionVersion[]
+  auditLogs    ProcessAuditLog[]
 
   @@map("process_definitions")
+}
+
+// Instantâneo de uma definição de workflow. Existe porque `ProcessDefinition` é UMA
+// linha, sobrescrita no lugar: sem isto, uma gravação ruim apaga o desenho sem volta
+// (aconteceu em 01/08/2026 — 4 atividades viraram 0, e só houve recuperação porque o
+// `compiledGraph` guardava cópia por acidente de implementação, não por projeto).
+// Gravado ANTES de cada sobrescrita e DEPOIS de cada ativação — ver processes.service.
+model ProcessDefinitionVersion {
+  id            String   @id @default(cuid())
+  processId     String
+  version       Int      // ProcessDefinition.version no instante do retrato
+  bpmnXml       String   @db.NVarChar(Max)
+  formSchema    String   @db.NVarChar(Max)
+  compiledGraph String?  @db.NVarChar(Max)
+  status        String   // status do processo no instante do retrato
+  reason        String   // SOBRESCRITA | ATIVACAO | RESTAURACAO
+  atividades    Int      @default(0) // nº de atividades — resumo p/ a lista, sem abrir o JSON
+  user          String   // nome do autor (snapshot; fallback quando userId nulo)
+  userId        String?  // id estável do autor → nome resolvido ao vivo (sem FK, de propósito)
+  createdAt     DateTime @default(now())
+
+  process ProcessDefinition @relation(fields: [processId], references: [id], onDelete: Cascade)
+
+  @@index([processId, createdAt])
+  @@map("process_definition_versions")
+}
+
+// Auditoria da DEFINIÇÃO do workflow (quem mexeu no desenho), no molde de
+// ContractAuditLog. Não confundir com WorkflowEvent, que é o histórico de EXECUÇÃO
+// de uma instância — este responde "quem alterou o processo", aquele "o que aconteceu
+// no processo".
+model ProcessAuditLog {
+  id        String   @id @default(cuid())
+  processId String
+  user      String
+  userId    String?
+  event     String   // CRIADO | ATUALIZADO | ATIVADO | INATIVADO | REATIVADO | RESTAURADO
+  changes   String   @default("[]") @db.NVarChar(Max) // [JSON] [{ field, label, before, after }]
+  createdAt DateTime @default(now())
+
+  process ProcessDefinition @relation(fields: [processId], references: [id], onDelete: Cascade)
+
+  @@index([processId])
+  @@map("process_audit_logs")
 }
 
 model ProcessInstance {

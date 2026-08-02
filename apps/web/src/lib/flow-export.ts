@@ -8,7 +8,7 @@
    (extensão cently interferindo no carregamento interno de imagem da lib).
    Saída: JPG (toDataURL) ou PDF (jspdf, import dinâmico). CSP já cobre data:/blob:. */
 
-import { titleLineCount, LABEL_W } from './flow-layout'
+import { titleLineCount, LABEL_W, LANE_HEADER_W } from './flow-layout'
 
 export type FlowExportFormat = 'jpg' | 'pdf'
 
@@ -25,7 +25,9 @@ export interface ExportEdge {
   backward?: boolean
   variant: 'exclusive' | 'parallel' | 'normal'; label?: string
 }
-export interface ExportModel { width: number; height: number; nodes: ExportNode[]; edges: ExportEdge[] }
+/** Banda de raia (swimlane), já posicionada pelo layout. */
+export interface ExportLane { key: string; label: string; y: number; h: number }
+export interface ExportModel { width: number; height: number; nodes: ExportNode[]; edges: ExportEdge[]; lanes?: ExportLane[] }
 
 const KIND_LABEL: Record<string, string> = { CONTRATO: 'Contrato', ADITIVO: 'Aditivo', PARCEIRO: 'Parceiro' }
 const BRAND = { tile: '#0C1410', bar: '#18C07A', chevron: '#C6F24E' }
@@ -145,7 +147,29 @@ function arrowHead(ctx: CanvasRenderingContext2D, x: number, y: number, dx: numb
 
 interface Theme { bg: string; fg: string; muted: string; primary: string; border: string; card: string; sans: string; mono: string }
 
+/** RAIAS — bandas atrás de tudo, com o papel na coluna da esquerda. Mesmas medidas da
+ *  tela (vêm prontas do layout), senão o arquivo sai diferente do que o usuário desenhou. */
+function drawLanes(ctx: CanvasRenderingContext2D, model: ExportModel, C: Theme, offX: number, offY: number) {
+  const lanes = model.lanes
+  if (!lanes?.length) return
+  for (let i = 0; i < lanes.length; i++) {
+    const b = lanes[i]
+    const y = offY + b.y
+    if (i % 2 === 1) { ctx.fillStyle = withAlpha(C.muted, 0.08); ctx.fillRect(offX, y, model.width, b.h) }
+    ctx.fillStyle = withAlpha(C.muted, 0.12); ctx.fillRect(offX, y, LANE_HEADER_W, b.h)
+    ctx.strokeStyle = C.border; ctx.lineWidth = 1
+    ctx.beginPath(); ctx.moveTo(offX, y); ctx.lineTo(offX + model.width, y); ctx.stroke()
+    ctx.beginPath(); ctx.moveTo(offX + LANE_HEADER_W, y); ctx.lineTo(offX + LANE_HEADER_W, y + b.h); ctx.stroke()
+    ctx.fillStyle = C.fg; ctx.font = `600 11px ${C.sans}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.fillText(ellipsize(ctx, b.label, LANE_HEADER_W - 16), offX + LANE_HEADER_W / 2, y + b.h / 2)
+  }
+  const last = lanes[lanes.length - 1]
+  ctx.strokeStyle = C.border; ctx.lineWidth = 1
+  ctx.beginPath(); ctx.moveTo(offX, offY + last.y + last.h); ctx.lineTo(offX + model.width, offY + last.y + last.h); ctx.stroke()
+}
+
 function drawDiagram(ctx: CanvasRenderingContext2D, model: ExportModel, C: Theme, offX: number, offY: number) {
+  drawLanes(ctx, model, C, offX, offY)
   // arestas (atrás dos nós)
   for (const e of model.edges) {
     // ⚠️ a aresta NORMAL não pode usar `--border`: some no fundo claro (mesmo motivo pelo

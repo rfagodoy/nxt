@@ -37,7 +37,13 @@ const SelectContent = React.forwardRef<
     <SelectPrimitive.Content
       ref={ref}
       className={cn(
-        'glass relative z-50 min-w-[8rem] overflow-hidden rounded-xl text-popover-foreground',
+        /* ⚠️ z ACIMA de qualquer sobreposição do sistema. O balão sai num portal no
+           <body>, no MESMO contexto de empilhamento dos modais e drawers (que vão de
+           z-[60] a z-[80]) — com z-50 ele abria ATRÁS deles e o campo ficava
+           impossível de escolher (modal de atividade do workflow, field-drawers,
+           editor de telas, delegar/devolver tarefa…). Popup sempre flutua por cima
+           de quem o abriu: ao criar uma sobreposição nova, mantenha-a abaixo disto. */
+        'glass relative z-[100] min-w-[8rem] overflow-hidden rounded-xl text-popover-foreground',
         position === 'popper' && 'translate-y-1',
         className,
       )}
