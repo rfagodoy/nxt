@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Save, Zap, Trash2, User, Clock, LayoutTemplate,
   CircleDot, Loader2, UserSquare, Rows3, AlertTriangle, Building2,
+  Minus, Plus, Maximize2,
   Download, FileImage, FileText, ChevronDown, PanelRightClose, PanelRightOpen,
   X, SlidersHorizontal, Undo2, Check,
 } from 'lucide-react'
@@ -576,6 +577,13 @@ const STEP_TONE: Record<string, string> = {
   serviceTask: 'text-amber-600 dark:text-amber-400 bg-amber-500/10',
 }
 
+/* Zoom do canvas. O teto acima de 100% existe para LER: com o desenho grande, é o que
+   permite conferir prazo e executor sem abrir a atividade. O piso é o mesmo do
+   enquadramento automático — abaixo disso o texto do cartão vira borrão. */
+const ZOOM_MIN = 0.25
+const ZOOM_MAX = 2
+const ZOOM_PASSOS = [0.25, 0.4, 0.5, 0.65, 0.8, 1, 1.25, 1.5, 2]
+
 function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onConnect, onCreateConnected, onDeleteEdge, onDeleteNode, onSetPosition, resolvePapel, resolveEntidade }: {
   canvasRef: React.RefObject<HTMLDivElement | null>
   nodes: ENode[]; edges: EEdge[]; layout: ReturnType<typeof layoutGraph>
@@ -599,20 +607,60 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
   // nasce fora da tela e o usuário não vê (nem alcança) as ligações que chegam nele.
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const [scale, setScale] = useState(1)
+  /* O enquadramento automático só vale ENQUANTO o usuário não pediu um zoom. Antes
+     disto ele reagia a cada atividade nova e desfazia qualquer ajuste manual — era o
+     que fazia o desenho "ir ficando pequeno" sem que houvesse como reagir. */
+  const [autoFit, setAutoFit] = useState(true)
+
+  const fitScale = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return 1
+    const availW = el.clientWidth - 24, availH = el.clientHeight - 24
+    if (availW <= 0 || availH <= 0) return 1
+    return Math.max(ZOOM_MIN, Math.min(1, availW / layout.width, availH / layout.height))
+  }, [layout.width, layout.height])
+
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    const fit = () => {
-      const availW = el.clientWidth - 24, availH = el.clientHeight - 24
-      if (availW <= 0 || availH <= 0) return
-      // só REDUZ (nunca amplia) e nunca abaixo de 0.5, senão vira ilegível — aí rola.
-      setScale(Math.max(0.5, Math.min(1, availW / layout.width, availH / layout.height)))
-    }
-    fit()
-    const ro = new ResizeObserver(fit)
+    const aplicar = () => { if (autoFit) setScale(fitScale()) }
+    aplicar()
+    const ro = new ResizeObserver(aplicar)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [layout.width, layout.height])
+  }, [fitScale, autoFit])
+
+  /** Muda o zoom mantendo FIXO o ponto sob o cursor (ou o centro da área visível).
+   *  Sem ancorar, ampliar joga o desenho para longe e a pessoa se perde. */
+  const zoomPara = useCallback((novo: number, ancoraClientX?: number, ancoraClientY?: number) => {
+    const el = scrollRef.current
+    if (!el) return
+    const s2 = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, novo))
+    setScale((s1) => {
+      if (s2 === s1) return s1
+      const r = el.getBoundingClientRect()
+      const ax = ancoraClientX !== undefined ? ancoraClientX - r.left : el.clientWidth / 2
+      const ay = ancoraClientY !== undefined ? ancoraClientY - r.top : el.clientHeight / 2
+      const gx = (el.scrollLeft + ax) / s1, gy = (el.scrollTop + ay) / s1
+      requestAnimationFrame(() => { el.scrollLeft = gx * s2 - ax; el.scrollTop = gy * s2 - ay })
+      return s2
+    })
+    setAutoFit(false)
+  }, [])
+
+  /* Ctrl/⌘ + roda = zoom, o gesto que todo mundo tenta primeiro. Precisa de listener
+     NÃO-PASSIVO: sem `preventDefault` o navegador aplica o zoom DELE na página. */
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      zoomPara(scale * (e.deltaY < 0 ? 1.12 : 1 / 1.12), e.clientX, e.clientY)
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [scale, zoomPara])
   const dragRef = useRef<{ id: string; sx: number; sy: number; ox: number; oy: number; w: number; h: number; moved: boolean } | null>(null)
 
   const nodeById = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n])), [nodes])
@@ -686,7 +734,11 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
   // div do grafo não cobre toda a área visível, e clicar no vazio abaixo dela não
   // deselecionava — o painel ficava preso no inspetor do nó.
   return (
-    <div ref={scrollRef} className="flex-1 min-w-0 min-h-0 overflow-auto bg-muted/20 [background-image:radial-gradient(circle_at_1px_1px,hsl(var(--border))_1px,transparent_0)] [background-size:24px_24px]"
+    <div className="flex-1 min-w-0 min-h-0 relative">
+    <ZoomBar scale={scale} autoFit={autoFit}
+      onZoom={(s) => zoomPara(s)}
+      onFit={() => { setAutoFit(true); setScale(fitScale()) }} />
+    <div ref={scrollRef} className="absolute inset-0 overflow-auto bg-muted/20 [background-image:radial-gradient(circle_at_1px_1px,hsl(var(--border))_1px,transparent_0)] [background-size:24px_24px]"
       onClick={(e) => { if (!(e.target as HTMLElement).closest('[data-node-id]')) onSelect(null) }}>
       {/* espaçador com o tamanho JÁ ESCALADO: mantém as barras de rolagem corretas */}
       <div style={{ width: layout.width * scale, height: layout.height * scale, minWidth: '100%' }}>
@@ -775,6 +827,33 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
         {menu && <CreateMenu x={menu.x} y={menu.y} onPick={(t) => { onCreateConnected(menu.from, t); setMenu(null) }} onClose={() => setMenu(null)} />}
       </div>
       </div>
+    </div>
+    </div>
+  )
+}
+
+/** Controle de zoom, flutuante sobre o canvas. "Ajustar" devolve o enquadramento
+ *  automático — e volta a valer a cada atividade nova, até você mexer no zoom. */
+function ZoomBar({ scale, autoFit, onZoom, onFit }: {
+  scale: number; autoFit: boolean; onZoom: (s: number) => void; onFit: () => void
+}) {
+  // vai para o degrau seguinte/anterior da escala — o zoom da roda cai entre eles
+  const passo = (dir: 1 | -1) => {
+    const alvo = dir > 0
+      ? ZOOM_PASSOS.find((s) => s > scale + 0.001)
+      : [...ZOOM_PASSOS].reverse().find((s) => s < scale - 0.001)
+    onZoom(alvo ?? (dir > 0 ? ZOOM_MAX : ZOOM_MIN))
+  }
+  const btn = 'h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-40 disabled:hover:bg-transparent'
+  return (
+    <div className="glass absolute bottom-3 right-3 z-30 flex items-center gap-0.5 rounded-xl p-1 shadow-sm">
+      <button type="button" onClick={() => passo(-1)} disabled={scale <= ZOOM_MIN + 0.001} className={btn} title="Afastar (Ctrl + roda do mouse)"><Minus className="h-3.5 w-3.5" /></button>
+      <button type="button" onClick={() => onZoom(1)} className="h-7 min-w-[3.25rem] px-1 rounded-md text-[11px] font-semibold tabular-nums text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="Voltar para 100%">
+        {Math.round(scale * 100)}%
+      </button>
+      <button type="button" onClick={() => passo(1)} disabled={scale >= ZOOM_MAX - 0.001} className={btn} title="Aproximar (Ctrl + roda do mouse)"><Plus className="h-3.5 w-3.5" /></button>
+      <span className="w-px h-4 bg-border mx-0.5" />
+      <button type="button" onClick={onFit} className={cn(btn, autoFit && 'text-primary')} title="Ajustar à tela"><Maximize2 className="h-3.5 w-3.5" /></button>
     </div>
   )
 }
