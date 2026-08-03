@@ -759,14 +759,22 @@ function LaneHeader({ bandas, largura, scale, scrollTop, arrastando, onStartDrag
               </button>
             </div>
             {/* nome — SEM truncar: quebra inclusive em "/" (papel composto é comum) */}
+            {/* ⚠️ A faixa é MOLDURA, não conteúdo: o rótulo usa `muted-foreground`, o mesmo
+                idiom dos cabeçalhos de tabela do sistema, e só sobe para `foreground` na
+                raia sob o mouse. Em preto pleno ele competia com os cartões.
+                E NADA de cor nova aqui: neste canvas o vocabulário de cor já está todo
+                alocado (sky = tarefa, âmbar = ação automática, violeta = decisão, rosa =
+                paralelo, esmeralda = início/fim). A raia sem executor se distingue por
+                FORMA — é a primeira e está em itálico —, não por um sexto tom. */}
             <div className="flex-1 min-w-0 flex flex-col justify-center pr-2">
-              <span className={cn('text-[11px] font-semibold leading-tight select-none [overflow-wrap:anywhere]',
-                semDono ? 'text-amber-700 dark:text-amber-400' : 'text-foreground')}>
+              <span className={cn('text-[11px] font-semibold leading-tight select-none [overflow-wrap:anywhere] transition-colors',
+                arrastando === b.key ? 'text-foreground' : 'text-muted-foreground group-hover/lane:text-foreground',
+                semDono && 'italic')}>
                 {b.label.replace(/\//g, '/​')}
               </span>
               {/* a raia sem executor é a LISTA do que falta configurar, não um resto */}
               {semDono && b.atividades > 0 && alt > 34 && (
-                <span className="text-[10px] leading-tight text-amber-700/80 dark:text-amber-400/80 select-none">
+                <span className="text-[10px] leading-tight text-muted-foreground/80 select-none">
                   {b.atividades} sem executor
                 </span>
               )}
