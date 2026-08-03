@@ -719,9 +719,12 @@ function LaneHeader({ bandas, largura, scale, scrollTop, arrastando, onStartDrag
   onReorder: (key: string, destino: number) => void
 }) {
   if (!bandas?.length) return null
+  /* ⚠️ O CONTÊINER é transparente. Pintar a faixa toda (`inset-y-0` com fundo) fazia a
+     área acima da primeira banda e abaixo da última receber a mesma cor — e a primeira e
+     a última raia pareciam maiores que a banda a que correspondem. Cor e bordas
+     pertencem a cada LINHA, que tem a altura exata da sua banda. */
   return (
-    <div className="absolute inset-y-0 left-0 z-20 overflow-hidden"
-      style={{ width: largura, background: 'hsl(var(--foreground) / 0.075)', borderRight: '1px solid hsl(var(--foreground) / 0.22)' }}>
+    <div className="absolute inset-y-0 left-0 z-20 overflow-hidden pointer-events-none" style={{ width: largura }}>
       {bandas.map((b, i) => {
         /* `b.y` já é a coordenada do DESENHO (inclui a margem do layout); escalada e
            descontada a rolagem, ela é a posição na tela. Somar qualquer folga aqui
@@ -732,11 +735,14 @@ function LaneHeader({ bandas, largura, scale, scrollTop, arrastando, onStartDrag
         return (
           <div key={b.key} data-lane-handle onPointerDown={(e) => onStartDrag(b.key, e)}
             title="Arraste para cima ou para baixo para reordenar a raia"
-            className={cn('absolute left-0 right-0 flex items-stretch group/lane',
-              arrastando === b.key ? 'cursor-grabbing' : 'cursor-grab',
-              i > 0 && 'border-t border-[hsl(var(--foreground)/0.16)]',
-              arrastando === b.key && 'bg-primary/10')}
-            style={{ top, height: alt }}>
+            className={cn('absolute left-0 right-0 flex items-stretch group/lane pointer-events-auto',
+              arrastando === b.key ? 'cursor-grabbing' : 'cursor-grab')}
+            style={{
+              top, height: alt,
+              background: arrastando === b.key ? 'hsl(var(--primary) / 0.12)' : 'hsl(var(--foreground) / 0.075)',
+              borderRight: '1px solid hsl(var(--foreground) / 0.22)',
+              borderTop: i === 0 ? 'none' : '1px solid hsl(var(--foreground) / 0.16)',
+            }}>
             {/* calha dos controles — largura fixa, nunca sobrepõe o texto */}
             <div className="flex flex-col items-center justify-center shrink-0" style={{ width: LANE_CTRL_W }}
               onPointerDown={(e) => e.stopPropagation()}>
