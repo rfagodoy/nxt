@@ -18,13 +18,16 @@ export type FlowNodeType = 'start' | 'end' | 'userTask' | 'serviceTask' | 'exclu
 /** `lane` = RAIA (swimlane) do nó: o papel de quem executa. Quem calcula é o editor
  *  (só ele conhece executor/papel); aqui ela só posiciona. Vazia em evento/gateway —
  *  esses HERDAM a raia do vizinho no fluxo (ver `resolveBands`). */
-export interface FlowNode { id: string; type: FlowNodeType; name?: string; lane?: string }
+/** `metaLines` = quantas linhas de rodapé a atividade mostra (executor, unidade, prazo).
+ *  Varia por cartão, então a ALTURA acompanha — sem isto, ou o cartão sobra espaço vazio
+ *  quando há pouca informação, ou corta a última linha quando há muita. */
+export interface FlowNode { id: string; type: FlowNodeType; name?: string; lane?: string; metaLines?: number }
 export interface FlowEdge { id: string; from: string; to: string; condition?: string; isDefault?: boolean; label?: string }
 export interface FlowGraph { nodes: FlowNode[]; edges: FlowEdge[]; startId: string }
 
-export interface PositionedNode { id: string; x: number; y: number; w: number; h: number; rank: number; lane: number }
+export interface PositionedNode { id: string; x: number; y: number; w: number; h: number; rank: number; lane: number; band?: string }
 /** Banda horizontal de uma raia, já posicionada (a tela e o exportador só desenham). */
-export interface LaneBand { key: string; label: string; y: number; h: number }
+export interface LaneBand { key: string; label: string; y: number; h: number; atividades: number }
 export interface LayoutResult { nodes: Record<string, PositionedNode>; width: number; height: number; lanes?: LaneBand[] }
 
 const COL_GAP = 72          // espaço horizontal entre colunas
@@ -37,7 +40,11 @@ const MARGIN = 40
    aciona. Por isso não há campo "raia" para preencher: ela é derivada.
    Ligada, o layout é automático e as posições MANUAIS são ignoradas (o nó tem de
    ficar dentro da banda dele). Desligada, o canvas é o de sempre. */
-export const LANE_HEADER_W = 132 // coluna do rótulo da raia, à esquerda do desenho
+/** Coluna do rótulo da raia. ⚠️ SÓ o EXPORTADOR usa: no arquivo o rótulo é desenhado
+ *  junto, em coordenadas do desenho. Na TELA a coluna virou uma faixa FIXA, fora do
+ *  canvas escalado — só assim o nome fica legível em qualquer zoom e não some ao rolar
+ *  o desenho para a direita. Por isso o layout não reserva mais espaço para ela. */
+export const LANE_HEADER_W = 132
 export const LANE_PAD = 16       // folga interna da banda
 /** Raia das atividades ainda sem executor. Durante a autoria é a maioria — ver o bloco
  *  crescer é diagnóstico de configuração incompleta, não estorvo. */
@@ -50,8 +57,10 @@ export const LANE_SEM_RESPONSAVEL = 'Sem responsável'
 const TASK_W = 190
 const TITLE_CHARS_PER_LINE = 20 // ~largura útil do título (170px) / ~8.5px por char (13px semibold)
 const TITLE_MAX_LINES = 3
-const CARD_BASE_H = 96          // tudo menos as linhas do título
+const CARD_SHELL_H = 68         // acento + ícone/rótulo + paddings (sem título e sem meta)
 const CARD_LINE_H = 17          // altura de cada linha do título
+const CARD_META_H = 14          // altura de cada linha de meta (executor, unidade, prazo)
+export const CARD_META_PADRAO = 2 // quantas linhas de meta um cartão tem por padrão
 
 /** Nº de linhas que a descrição da atividade ocupa no card (1..MAX). Compartilhado
  *  entre o layout (altura da caixa) e o card (line-clamp) para casarem exatamente. */
@@ -78,7 +87,10 @@ export function nodeSize(node: FlowNode, _outDeg: number, _inDeg: number): { w: 
       return { w: SYMBOL, h: SYMBOL }
     case 'userTask':
     case 'serviceTask':
-      return { w: TASK_W, h: CARD_BASE_H + titleLineCount(node.name) * CARD_LINE_H }
+      return {
+        w: TASK_W,
+        h: CARD_SHELL_H + titleLineCount(node.name) * CARD_LINE_H + (node.metaLines ?? CARD_META_PADRAO) * CARD_META_H,
+      }
   }
 }
 
@@ -112,7 +124,7 @@ function resolveBands(nodes: FlowNode[], topo: string[], inEdges: Record<string,
 export function layoutGraph(
   graph: FlowGraph,
   manual?: Record<string, { x: number; y: number }>,
-  options?: { swimlanes?: boolean },
+  options?: { swimlanes?: boolean; laneOrder?: string[] },
 ): LayoutResult {
   const { nodes, edges, startId } = graph
   const swimlanes = !!options?.swimlanes
@@ -252,29 +264,73 @@ export function layoutGraph(
   // A faixa tem um EIXO horizontal e todo nó é centrado nele. Sem isso o losango (56px) e o
   // cartão (≈130px) ficariam alinhados pelo TOPO e a seta entre eles sairia torta.
   const rowH = Math.max(...nodes.map((n) => size[n.id].h), 0)
-  const offX = swimlanes ? LANE_HEADER_W : 0
 
-  /* Com RAIAS o y é de duas dimensões: a banda decide o bloco, e a faixa de ramificação
-     (já calculada) decide a LINHA dentro dele. A linha precisa comportar o nó mais alto E
-     o rótulo externo do losango, senão o nome vaza para a banda de baixo. */
-  const ROW_H = Math.max(rowH + 22, SYMBOL + 2 * LABEL_H)
+  // x de cada nó — precisa vir ANTES do y, porque com raias a linha depende de quem
+  // ocupa qual trecho horizontal dentro da banda.
+  const xOf: Record<string, number> = {}
+  for (const n of nodes) xOf[n.id] = MARGIN + colLeft[rank[n.id]] + (colW[rank[n.id]] - size[n.id].w) / 2
+
+  /* Com RAIAS o y é de duas dimensões: a banda decide o bloco e a LINHA decide onde
+     dentro dele. A linha NÃO vem da faixa de ramificação: essa faixa é um offset global
+     (±1, ±2, ±3…) que separa ramos ao longo de todo o desenho, e usá-la aqui esparramava
+     a banda — "Solicitante" chegava a 6 linhas com os cartões espalhados, cada um numa
+     coluna diferente. Dentro de uma banda a vertical não carrega significado (quem
+     carrega é a banda), então as linhas são EMPACOTADAS: cada nó vai para a primeira
+     linha em que não esbarra horizontalmente em quem já está lá. É o que "justifica" o
+     desenho — nós de colunas diferentes dividem a mesma linha.
+
+     A altura da linha também é POR BANDA: o cartão mais alto do fluxo inteiro não tem
+     por que esticar a banda que só tem losangos. */
+  const alturaDaLinha = (n: FlowNode) => {
+    const h = size[n.id].h
+    // evento/gateway com nome precisa de espaço para o rótulo que fica FORA da forma
+    const rotuloFora = n.type !== 'userTask' && n.type !== 'serviceTask' && !!n.name
+    return rotuloFora ? Math.max(h + 22, SYMBOL + 2 * LABEL_H) : h + 22
+  }
+  const FOLGA_X = 28 // respiro entre dois nós que dividem a linha
   const bandOrder: string[] = []
   const bandTop: Record<string, number> = {}
-  const bandRows: Record<string, { min: number; max: number }> = {}
+  const rowOfNode: Record<string, number> = {}
+  const bandRowH: Record<string, number> = {}
   const bandList: LaneBand[] = []
   if (swimlanes) {
     for (const id of topo) if (!bandOrder.includes(band[id])) bandOrder.push(band[id]) // ordem de APARIÇÃO no fluxo
-    for (const n of nodes) {
-      const L = lane[n.id] ?? 0
-      const r = (bandRows[band[n.id]] ??= { min: L, max: L })
-      r.min = Math.min(r.min, L); r.max = Math.max(r.max, L)
+    /* "Sem responsável" nasce PRIMEIRA: ela é a lista do que ainda falta configurar, e
+       lista de pendência escondida no rodapé não é lista de pendência. Quem quiser outra
+       ordem arrasta — a escolha manual continua vencendo. */
+    const iSem = bandOrder.indexOf(LANE_SEM_RESPONSAVEL)
+    if (iSem > 0) bandOrder.unshift(...bandOrder.splice(iSem, 1))
+    /* Ordem ESCOLHIDA pelo usuário (arrastando a raia) vence a de aparição. Chaves que
+       não existem mais são ignoradas, e raias novas entram no fim — assim trocar o
+       executor de uma atividade nunca deixa o desenho num estado inválido. */
+    if (options?.laneOrder?.length) {
+      const escolhida = options.laneOrder.filter((k) => bandOrder.includes(k))
+      const novas = bandOrder.filter((k) => !escolhida.includes(k))
+      bandOrder.splice(0, bandOrder.length, ...escolhida, ...novas)
     }
     let top = MARGIN
     for (const key of bandOrder) {
-      const r = bandRows[key]
-      const h = (r.max - r.min + 1) * ROW_H + LANE_PAD * 2
+      const daBanda = nodes
+        .filter((n) => band[n.id] === key)
+        // da esquerda para a direita; faixa como desempate, para o resultado ser estável
+        .sort((a, b) => xOf[a.id] - xOf[b.id] || (lane[a.id] ?? 0) - (lane[b.id] ?? 0))
+      const fimDaLinha: number[] = [] // maior x ocupado em cada linha
+      for (const n of daBanda) {
+        const over = labelOverflow(n)
+        const ini = xOf[n.id] - over.x
+        const fim = xOf[n.id] + size[n.id].w + over.x
+        let linha = fimDaLinha.findIndex((f) => ini >= f + FOLGA_X)
+        if (linha === -1) linha = fimDaLinha.length
+        fimDaLinha[linha] = fim
+        rowOfNode[n.id] = linha
+      }
+      bandRowH[key] = Math.max(...daBanda.map(alturaDaLinha), SYMBOL + 22)
+      const h = Math.max(1, fimDaLinha.length) * bandRowH[key] + LANE_PAD * 2
       bandTop[key] = top
-      bandList.push({ key, label: key, y: top, h })
+      bandList.push({
+        key, label: key, y: top, h,
+        atividades: daBanda.filter((n) => n.type === 'userTask' || n.type === 'serviceTask').length,
+      })
       top += h
     }
   }
@@ -286,31 +342,39 @@ export function layoutGraph(
     const s = size[n.id]
     const r = rank[n.id]
     const over = labelOverflow(n)
-    const x = offX + MARGIN + colLeft[r] + (colW[r] - s.w) / 2 // centralizado na coluna
+    const x = xOf[n.id]
+    const b = band[n.id]
     const axis = swimlanes
-      ? bandTop[band[n.id]] + LANE_PAD + ((lane[n.id] ?? 0) - bandRows[band[n.id]].min + 0.5) * ROW_H
+      ? bandTop[b] + LANE_PAD + (rowOfNode[n.id] + 0.5) * bandRowH[b]
       : MARGIN + rowH / 2 + (lane[n.id] - minLane) * BRANCH_GAP // eixo da faixa
     const y = axis - s.h / 2
-    positioned[n.id] = { id: n.id, x, y, w: s.w, h: s.h, rank: r, lane: lane[n.id] ?? 0 }
+    positioned[n.id] = { id: n.id, x, y, w: s.w, h: s.h, rank: r, lane: lane[n.id] ?? 0, band: swimlanes ? b : undefined }
     maxX = Math.max(maxX, x + s.w + over.x)
     maxY = Math.max(maxY, y + s.h + over.y)
   }
-  // as bandas ocupam a largura toda do desenho; a altura vem delas, não dos nós
-  if (swimlanes && bandList.length) {
-    const last = bandList[bandList.length - 1]
-    maxY = Math.max(maxY, last.y + last.h)
-  }
 
-  // ── posições MANUAIS (override do auto) ──
-  // Ignoradas com RAIAS ligadas: o nó tem de ficar dentro da banda dele, e uma posição
-  // guardada de quando não havia raia colocaria a atividade na faixa do papel errado.
-  if (manual && !swimlanes) {
+  /* ── posições MANUAIS (override do auto) ──────────────────────────────────────
+     Com RAIAS o arrasto continua valendo — organizar o desenho é legítimo —, mas o
+     movimento é PRESO À FAIXA do nó: horizontalmente livre, verticalmente limitado
+     à banda dele. Soltar um cartão na faixa de outro papel faria o desenho mentir
+     sobre quem executa, que é exatamente o que a raia existe para evitar. */
+  if (manual) {
     for (const n of nodes) {
       const m = manual[n.id]
       if (!m) continue
       const p = positioned[n.id]
-      p.x = Math.max(MARGIN, m.x)
-      p.y = Math.max(MARGIN, m.y)
+      if (swimlanes) {
+        const b = bandList.find((x) => x.key === band[n.id])
+        p.x = Math.max(MARGIN, m.x)
+        if (b) {
+          const topo = b.y + LANE_PAD
+          const base = b.y + b.h - LANE_PAD - p.h
+          p.y = base < topo ? b.y + (b.h - p.h) / 2 : Math.min(Math.max(m.y, topo), base)
+        }
+      } else {
+        p.x = Math.max(MARGIN, m.x)
+        p.y = Math.max(MARGIN, m.y)
+      }
     }
     maxX = 0; maxY = 0
     for (const n of nodes) {
@@ -319,6 +383,13 @@ export function layoutGraph(
       maxX = Math.max(maxX, p.x + p.w + over.x)
       maxY = Math.max(maxY, p.y + p.h + over.y)
     }
+  }
+
+  // A altura das BANDAS é o piso do desenho — vem delas, não dos nós. Fica depois do
+  // bloco manual porque ele recalcula a extensão do zero e apagaria este piso.
+  if (swimlanes && bandList.length) {
+    const ultima = bandList[bandList.length - 1]
+    maxY = Math.max(maxY, ultima.y + ultima.h)
   }
 
   return { nodes: positioned, width: maxX + MARGIN, height: maxY + MARGIN, lanes: swimlanes ? bandList : undefined }

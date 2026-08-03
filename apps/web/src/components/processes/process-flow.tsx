@@ -4,7 +4,8 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Save, Zap, Trash2, User, Clock, LayoutTemplate,
-  CircleDot, Loader2, UserSquare, Rows3, AlertTriangle,
+  CircleDot, Loader2, UserSquare, AlertTriangle, Building2,
+  Minus, Plus, Maximize2, GripVertical, ChevronUp, Redo2,
   Download, FileImage, FileText, ChevronDown, PanelRightClose, PanelRightOpen,
   X, SlidersHorizontal, Undo2, Check,
 } from 'lucide-react'
@@ -17,12 +18,12 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { EntitySelect, type EntityKind } from '@/components/ui/entity-select'
+import { EntitySelect, useEntityLabels, type EntityKind } from '@/components/ui/entity-select'
 import { useScreens } from '@/hooks/use-screens'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import type { ScreenSubject } from '@/lib/screen-types'
 import { PAPEIS_KEY, INIT_PAPEIS, REFERENCIA, ORIGEM, referenciaDoPapelEntry } from '@/lib/contract-roles'
-import { layoutGraph, titleLineCount, LABEL_W, LANE_HEADER_W, LANE_SEM_RESPONSAVEL, type FlowNode as LNode, type FlowNodeType } from '@/lib/flow-layout'
+import { layoutGraph, titleLineCount, LABEL_W, LANE_SEM_RESPONSAVEL, type FlowNode as LNode, type FlowNodeType, type LaneBand } from '@/lib/flow-layout'
 import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, type ExportEdge } from '@/lib/flow-export'
 import { apiFetch } from '@/lib/http'
 import { ProcessHistoryDrawer } from './process-history-drawer'
@@ -51,6 +52,8 @@ export interface FlowInitial {
   bpmnXml: string
   steps: StepFormSchema[]
   positions?: Record<string, { x: number; y: number }>
+  positionsRaia?: Record<string, { x: number; y: number }>
+  laneOrder?: string[]
   graph?: ProcessFormSchema['graph']
 }
 
@@ -63,6 +66,15 @@ const isActivity = (t: NType) => t === 'userTask' || t === 'serviceTask'
 /** A API recusou uma gravação que apagaria grande parte do desenho (409). Não é falha:
  *  é a guarda pedindo confirmação consciente. Ver `update()` em processes.service. */
 class ReducaoDestrutiva extends Error {}
+
+/** Retrato do DESENHO para desfazer/refazer. */
+interface Retrato {
+  nodes: ENode[]
+  edges: EEdge[]
+  positionsRaia: Record<string, { x: number; y: number }>
+  laneOrder: string[]
+}
+const MAX_HISTORIA = 60
 const rnd = () => Math.random().toString(36).slice(2, 9)
 const nid = (p: string) => `${p}_${rnd()}`
 
@@ -189,7 +201,12 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const [kind, setKind] = useState(initial?.kind ?? '')
   const [nodes, setNodes] = useState<ENode[]>(seed.nodes)
   const [edges, setEdges] = useState<EEdge[]>(seed.edges)
-  const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>(initial?.positions ?? {})
+  /* Posições MANUAIS separadas por modo. Um desenho arrumado no canvas livre tem outro
+     eixo vertical (não há bandas) e outro zero horizontal (não há coluna de rótulo) do
+     que o mesmo desenho arrumado por raia — misturar os dois faria o fluxo "pular" a
+     cada vez que o modo fosse alternado. */
+  const [positionsRaia, setPositionsRaia] = useState<Record<string, { x: number; y: number }>>(initial?.positionsRaia ?? {})
+  const [laneOrder, setLaneOrder] = useState<string[]>(initial?.laneOrder ?? [])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   /* Atividade em CONFIGURAÇÃO (modal). Separado da seleção: fechar o modal não
      deseleciona o nó, e o painel lateral segue mostrando o resumo dele. */
@@ -200,9 +217,32 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const [exportError, setExportError] = useState<string | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
 
+  /* ─── Desfazer / refazer ──────────────────────────────────────────────────────
+     Guarda RETRATOS do desenho (nós, ligações, posições e ordem das raias). Nome,
+     descrição e tipo ficam de fora de propósito: são campos de texto, e o navegador
+     já desfaz digitação neles — capturá-los faria um Ctrl+Z "engolir" uma letra.
+
+     O retrato é tirado por OBSERVAÇÃO do estado, não em cada ponto de mutação: o
+     editor altera o desenho em uma dúzia de lugares, e exigir que cada um lembrasse
+     de registrar seria uma regra que se perde na primeira alteração futura. */
+  const [historia, setHistoria] = useState<Retrato[]>(() => [{
+    nodes: seed.nodes, edges: seed.edges,
+    positionsRaia: initial?.positionsRaia ?? {}, laneOrder: initial?.laneOrder ?? [],
+  }])
+  const [hIndice, setHIndice] = useState(0)
+  const aplicandoHistorico = useRef(false)
+
   const papeis = useLookupTable(PAPEIS_KEY, INIT_PAPEIS)
   const { screens } = useScreens()
   const resolvePapel = useCallback((id: string) => papeis.entries.find((p) => p.id === id)?.label, [papeis.entries])
+  /* Nomes das entidades que hospedam os papéis (unidade, empresa, parceiro…) — o cartão
+     mostra QUAL unidade executa, não só o papel. Só carrega os tipos que o fluxo usa. */
+  const tiposEntidade = useMemo(() => {
+    const s = new Set<EntityKind>()
+    for (const n of nodes) { const t = n.step?.executor?.entityType; if (t && t !== 'ORG') s.add(t as EntityKind) }
+    return Array.from(s)
+  }, [nodes])
+  const resolveEntidade = useEntityLabels(tiposEntidade)
 
   const nodeById = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n])), [nodes])
   const selected = selectedId ? nodeById[selectedId] : null
@@ -215,16 +255,61 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     setConfigId(id && isActivity(nodeById[id]?.type) ? id : null)
   }, [nodeById])
 
-  /* VER POR RAIA — modo de visualização, não um elemento que se desenha. Ligado, o
-     layout vira bandas por papel e as posições manuais são ignoradas (o nó tem de ficar
-     na banda dele); desligado, é o canvas de sempre, com arrasto livre. */
-  const [swimlanes, setSwimlanes] = useState(false)
-  const hasManual = Object.keys(positions).length > 0
+  /* RAIA é o único modo do editor (decisão do PO em 02/08): workflow é sobre passagem de
+     bastão, e manter dois canvas custava dois caminhos de layout, dois mapas de posição e
+     duas superfícies de defeito — dois bugs desta semana só existiam num dos modos.
+     ⚠️ `positions` (do antigo canvas livre) fica ignorado: aquelas coordenadas foram
+     feitas noutro eixo e colocariam a atividade na banda do papel errado. */
+  const hasManual = Object.keys(positionsRaia).length > 0
   const layout = useMemo(() => layoutGraph(
-    { nodes: nodes.map((n) => ({ ...toLNode(n), lane: laneOf(n, resolvePapel) })), edges, startId: nodes.find((n) => n.type === 'start')?.id ?? 'Start_1' },
-    hasManual ? positions : undefined,
-    { swimlanes },
-  ), [nodes, edges, positions, hasManual, swimlanes, resolvePapel])
+    {
+      nodes: nodes.map((n) => ({
+        ...toLNode(n),
+        lane: laneOf(n, resolvePapel),
+        // a altura da caixa acompanha o rodapé REAL do cartão (executor, unidade, prazo)
+        metaLines: isActivity(n.type) ? metaDaAtividade(n, resolvePapel, resolveEntidade).length : undefined,
+      })),
+      edges,
+      startId: nodes.find((n) => n.type === 'start')?.id ?? 'Start_1',
+    },
+    hasManual ? positionsRaia : undefined,
+    { swimlanes: true, laneOrder },
+  ), [nodes, edges, positionsRaia, hasManual, laneOrder, resolvePapel, resolveEntidade])
+
+  /* Reordenar RAIAS: a banda inteira sobe/desce e as atividades vão junto (o y delas
+     deriva do topo da banda). As posições manuais são deslocadas pelo MESMO delta, para
+     o arranjo que a pessoa fez dentro da banda não se perder na mudança de ordem.
+     A altura de cada banda não depende da ordem, então dá para calcular os topos novos
+     a partir das alturas atuais — sem esperar o layout recalcular. */
+  const reordenarRaias = useCallback((chave: string, destino: number) => {
+    const atuais = layout.lanes
+    if (!atuais?.length) return
+    const ordem = atuais.map((b) => b.key)
+    const de = ordem.indexOf(chave)
+    if (de < 0) return
+    const alvo = Math.max(0, Math.min(ordem.length - 1, destino > de ? destino - 1 : destino))
+    if (alvo === de) return
+
+    const nova = [...ordem]
+    nova.splice(alvo, 0, ...nova.splice(de, 1))
+
+    const altura = Object.fromEntries(atuais.map((b) => [b.key, b.h]))
+    const topoAntes = Object.fromEntries(atuais.map((b) => [b.key, b.y]))
+    const topoDepois: Record<string, number> = {}
+    let t = atuais[0].y
+    for (const k of nova) { topoDepois[k] = t; t += altura[k] }
+
+    setPositionsRaia((prev) => {
+      const out = { ...prev }
+      for (const [id, p] of Object.entries(prev)) {
+        const b = layout.nodes[id]?.band
+        if (!b || topoDepois[b] === undefined) continue
+        out[id] = { x: p.x, y: p.y + (topoDepois[b] - topoAntes[b]) }
+      }
+      return out
+    })
+    setLaneOrder(nova)
+  }, [layout])
 
   /* Painel lateral RETRÁTIL — o canvas é a superfície principal; recolher devolve os
      320px (e o enquadramento reaproveita o espaço, subindo a escala do desenho).
@@ -244,7 +329,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     })
   }, [])
 
-  const setPosition = useCallback((id: string, pos: { x: number; y: number }) => setPositions((prev) => ({ ...prev, [id]: pos })), [])
+  const setPosition = useCallback((id: string, pos: { x: number; y: number }) => {
+    setPositionsRaia((prev) => ({ ...prev, [id]: pos }))
+  }, [])
   // (o botão "Organizar" — que zerava as posições manuais para realinhar tudo — foi
   // removido do cabeçalho a pedido; o auto-layout segue valendo enquanto ninguém
   // arrastar um nó, que é quando `positions` deixa de ficar vazio.)
@@ -300,13 +387,67 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       return [...rest, ...bridges]
     })
     setNodes((ns) => ns.filter((n) => n.id !== id))
-    setPositions((prev) => { if (!prev[id]) return prev; const n = { ...prev }; delete n[id]; return n })
+    const esquecer = (prev: Record<string, { x: number; y: number }>) => {
+      if (!prev[id]) return prev
+      const n = { ...prev }; delete n[id]; return n
+    }
+    setPositionsRaia(esquecer)
     setSelectedId((cur) => (cur === id ? null : cur))
   }, [])
 
   const setEdge = useCallback((edgeId: string, patch: Partial<EEdge>) => {
     setEdges((prev) => prev.map((e) => (e.id === edgeId ? { ...e, ...patch } : e)))
   }, [])
+
+  /* Registra um retrato quando o desenho para de mudar. A espera COALESCE o que é uma
+     ação só aos olhos de quem edita: arrastar um cartão dispara dezenas de atualizações
+     de posição, e sem isso um Ctrl+Z desfaria um pixel do arrasto em vez do arrasto. */
+  useEffect(() => {
+    if (aplicandoHistorico.current) { aplicandoHistorico.current = false; return }
+    const t = setTimeout(() => {
+      const atual = historia[hIndice]
+      if (atual && atual.nodes === nodes && atual.edges === edges
+        && atual.positionsRaia === positionsRaia && atual.laneOrder === laneOrder) return
+      const proximo = [...historia.slice(0, hIndice + 1), { nodes, edges, positionsRaia, laneOrder }] // um passo novo descarta o "refazer"
+      const excedente = Math.max(0, proximo.length - MAX_HISTORIA)
+      setHistoria(excedente ? proximo.slice(excedente) : proximo)
+      setHIndice(proximo.length - 1 - excedente)
+    }, 350)
+    return () => clearTimeout(t)
+  }, [nodes, edges, positionsRaia, laneOrder, historia, hIndice])
+
+  const irPara = useCallback((i: number) => {
+    const r = historia[i]
+    if (!r) return
+    aplicandoHistorico.current = true
+    setNodes(r.nodes); setEdges(r.edges); setPositionsRaia(r.positionsRaia); setLaneOrder(r.laneOrder)
+    setHIndice(i)
+    setSelectedId((cur) => (cur && r.nodes.some((n) => n.id === cur) ? cur : null))
+    setConfigId(null)
+  }, [historia])
+
+  const podeDesfazer = hIndice > 0
+  const podeRefazer = hIndice < historia.length - 1
+  const desfazer = useCallback(() => { if (hIndice > 0) irPara(hIndice - 1) }, [hIndice, irPara])
+  const refazer = useCallback(() => { if (hIndice < historia.length - 1) irPara(hIndice + 1) }, [hIndice, historia.length, irPara])
+
+  /* Ctrl+Z / Ctrl+Y (e Ctrl+Shift+Z, que é o refazer de boa parte dos editores).
+     ⚠️ Fica fora quando o foco está num campo: lá o desfazer é o do NAVEGADOR, e roubá-lo
+     faria o atalho apagar o desenho enquanto a pessoa só queria corrigir uma palavra. */
+  useEffect(() => {
+    const emCampo = (el: EventTarget | null) => {
+      const t = el as HTMLElement | null
+      return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || emCampo(e.target)) return
+      const k = e.key.toLowerCase()
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); desfazer() }
+      else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); refazer() }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [desfazer, refazer])
 
   /* Gravação que apagaria grande parte do desenho: a API recusa com 409 e diz quanto
      seria removido. Guardamos a pergunta aqui e só reenviamos com `confirmarReducao`
@@ -317,14 +458,20 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const persist = useCallback(async (confirmarReducao?: boolean): Promise<string> => {
     const bpmnXml = generateBpmn(buildWfGraph(nodes, edges))
     const steps = nodes.filter((n) => isActivity(n.type) && n.step).map((n) => ({ ...n.step!, stepId: n.id, stepName: n.step!.stepName, stepType: n.type as 'userTask' | 'serviceTask' }))
-    // mantém só posições de nós existentes
-    const pos = Object.fromEntries(Object.entries(positions).filter(([id]) => nodes.some((n) => n.id === id)))
+    // mantém só posições de nós existentes (nos dois modos)
+    const vivos = (m: Record<string, { x: number; y: number }>) =>
+      Object.fromEntries(Object.entries(m).filter(([id]) => nodes.some((n) => n.id === id)))
+    const posRaia = vivos(positionsRaia)
     // grafo do editor (fonte de verdade da autoria; sobrevive a rascunhos incompletos)
     const graph: ProcessFormSchema['graph'] = {
       nodes: nodes.map((n) => ({ id: n.id, type: n.type, name: isActivity(n.type) ? (n.step?.stepName || '') : n.name })),
       edges: edges.map((e) => ({ id: e.id, from: e.from, to: e.to, condition: e.condition || undefined, isDefault: e.isDefault, label: e.label })),
     }
-    const formSchema: ProcessFormSchema = { steps, positions: Object.keys(pos).length ? pos : undefined, graph }
+    const formSchema: ProcessFormSchema = {
+      steps, graph,
+      positionsRaia: Object.keys(posRaia).length ? posRaia : undefined,
+      laneOrder: laneOrder.length ? laneOrder : undefined,
+    }
     const body = JSON.stringify({ name: name.trim(), description: description.trim() || undefined, bpmnXml, formSchema, kind: kind || undefined, ...(confirmarReducao ? { confirmarReducao: true } : {}) })
     if (editing) {
       const res = await apiFetch(`/api/processes/${initial!.id}`, { method: 'PATCH', body })
@@ -338,7 +485,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     const res = await apiFetch(`/api/processes`, { method: 'POST', body })
     if (!res.ok) throw new Error('Erro ao salvar')
     return (await res.json()).id as string
-  }, [editing, initial, name, description, kind, nodes, edges, positions])
+  }, [editing, initial, name, description, kind, nodes, edges, positionsRaia, laneOrder])
 
   const handleSaveDraft = useCallback(async (confirmarReducao?: boolean) => {
     if (!name.trim()) { alert('Dê um nome ao workflow antes de salvar.'); return }
@@ -378,13 +525,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       const p = layout.nodes[n.id]
       const base = { id: n.id, type: n.type, x: p.x, y: p.y, w: p.w, h: p.h }
       if (isActivity(n.type)) {
-        const step = n.step
-        const role = step?.executor?.papelId ? (resolvePapel(step.executor.papelId) ?? 'Responsável') : null
-        const connector = findConnector(step?.connector)?.label
-        const due = dueText(step)
-        const meta = [n.type === 'serviceTask' ? (connector ?? 'Sem ação') : (role ?? 'Sem executor')]
-        if (due) meta.push(due)
-        return { ...base, name: step?.stepName || 'Sem nome', typeLabel: n.type === 'serviceTask' ? 'Ação automática' : 'Tarefa', meta }
+        // MESMA fonte do cartão da tela — o arquivo exportado não pode contar outra história
+        const meta = metaDaAtividade(n, resolvePapel, resolveEntidade).map((m) => m.text)
+        return { ...base, name: n.step?.stepName || 'Sem nome', typeLabel: n.type === 'serviceTask' ? 'Ação automática' : 'Tarefa', meta }
       }
       if (n.type === 'exclusiveGateway' || n.type === 'parallelGateway') return { ...base, name: n.name, isFork: !!n.name }
       return { ...base, name: n.name }
@@ -403,7 +546,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       }
     })
     return { width: layout.width, height: layout.height, nodes: enodes, edges: eedges, lanes: layout.lanes }
-  }, [nodes, edges, layout, nodeById, resolvePapel])
+  }, [nodes, edges, layout, nodeById, resolvePapel, resolveEntidade])
 
   // Exporta o desenho atual (edições ao vivo, sem precisar salvar) como JPG ou PDF.
   const handleExport = useCallback(async (format: FlowExportFormat) => {
@@ -444,12 +587,19 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {exportError && <span className="text-[11px] text-destructive font-medium">{exportError}</span>}
+          <div className="flex items-center rounded-md border bg-card shadow-sm mr-1">
+            <button type="button" onClick={desfazer} disabled={!podeDesfazer} title="Desfazer (Ctrl+Z)"
+              className="h-8 w-8 flex items-center justify-center rounded-l-md text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent transition-colors">
+              <Undo2 className="h-4 w-4" />
+            </button>
+            <span className="w-px h-4 bg-border" />
+            <button type="button" onClick={refazer} disabled={!podeRefazer} title="Refazer (Ctrl+Y)"
+              className="h-8 w-8 flex items-center justify-center rounded-r-md text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent transition-colors">
+              <Redo2 className="h-4 w-4" />
+            </button>
+          </div>
           {/* só faz sentido no que já foi salvo: workflow novo ainda não tem histórico */}
           {editing && <ProcessHistoryDrawer processId={initial!.id} />}
-          <Button variant={swimlanes ? 'secondary' : 'outline'} size="sm" onClick={() => setSwimlanes((s) => !s)} aria-pressed={swimlanes}
-            title={swimlanes ? 'Voltar ao desenho livre (permite arrastar os quadros)' : 'Agrupar as atividades em raias por responsável — a raia vem do executor configurado'}>
-            <Rows3 className="h-4 w-4" />Ver por raia
-          </Button>
           <ExportMenu exporting={exporting} disabled={saving || activating} onExport={handleExport} />
           {/* ⚠️ `() =>` obrigatório: passar a função direto entregaria o MouseEvent como
               `confirmarReducao` — truthy — e a guarda seria burlada em TODO salvamento. */}
@@ -476,7 +626,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
       {/* Canvas + Inspetor */}
       <div className="flex flex-1 overflow-hidden">
-        <FlowCanvas canvasRef={canvasRef} nodes={nodes} edges={edges} layout={layout} selectedId={selectedId} onSelect={selectNode} onConnect={onConnect} onCreateConnected={onCreateConnected} onDeleteEdge={onDeleteEdge} onDeleteNode={removeNode} onSetPosition={setPosition} resolvePapel={resolvePapel} />
+        <FlowCanvas canvasRef={canvasRef} nodes={nodes} edges={edges} layout={layout} selectedId={selectedId} onSelect={selectNode} onConnect={onConnect} onCreateConnected={onCreateConnected} onDeleteEdge={onDeleteEdge} onDeleteNode={removeNode} onSetPosition={setPosition} resolvePapel={resolvePapel} resolveEntidade={resolveEntidade} onReorderLanes={reordenarRaias} />
         {/* trilho do toggle: fica SEMPRE visível (é a alça para trazer o painel de volta) */}
         <div className="w-8 border-l bg-card flex flex-col items-center pt-2.5 shrink-0">
           <button type="button" onClick={togglePanel}
@@ -515,6 +665,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
                 <div className="rounded-md border border-dashed bg-muted/20 p-3">
                   <p className="text-xs font-semibold flex items-center gap-1.5"><LayoutTemplate className="h-3.5 w-3.5 text-primary" />Monte o fluxo</p>
                   <p className="text-[11px] text-muted-foreground mt-1 leading-snug">Passe o mouse num quadro e <span className="font-medium">arraste uma das bolinhas</span> (nos 4 lados) até outro quadro para conectar — solte em qualquer parte dele. Ou solte no vazio para criar já ligado. Clique num quadro para configurá-lo.</p>
+                  <p className="text-[11px] text-muted-foreground mt-1.5 leading-snug border-t pt-1.5">
+                    As atividades ficam na <span className="font-medium">raia de quem executa</span>. Para reordenar uma raia, arraste-a pela faixa do nome, à esquerda — ou use as setas <span className="font-medium">↑ ↓</span> que aparecem nela. As atividades vão junto.
+                  </p>
                 </div>
               </div>
             </div>
@@ -542,7 +695,98 @@ const STEP_TONE: Record<string, string> = {
   serviceTask: 'text-amber-600 dark:text-amber-400 bg-amber-500/10',
 }
 
-function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onConnect, onCreateConnected, onDeleteEdge, onDeleteNode, onSetPosition, resolvePapel }: {
+/* Zoom do canvas. O teto acima de 100% existe para LER: com o desenho grande, é o que
+   permite conferir prazo e executor sem abrir a atividade. O piso é o mesmo do
+   enquadramento automático — abaixo disso o texto do cartão vira borrão. */
+const ZOOM_MIN = 0.25
+const ZOOM_MAX = 2
+const ZOOM_PASSOS = [0.25, 0.4, 0.5, 0.65, 0.8, 1, 1.25, 1.5, 2]
+
+/** Calha RESERVADA para grip e setas dentro da faixa de rótulos. Fixa de propósito: o
+ *  controle nunca invade o nome, e o nome nunca muda de lugar quando o mouse chega. */
+const LANE_CTRL_W = 22
+
+/** Faixa dos nomes das raias — FIXA na tela, fora do canvas escalado. Por isso o nome
+ *  continua legível em qualquer zoom e não some quando o desenho é rolado para a direita
+ *  (era o que acontecia quando a coluna morava dentro do desenho). */
+function LaneHeader({ bandas, largura, scale, scrollTop, arrastando, onStartDrag, onReorder }: {
+  bandas: LaneBand[] | undefined
+  largura: number
+  scale: number
+  scrollTop: number
+  arrastando: string | null
+  onStartDrag: (key: string, ev: React.PointerEvent) => void
+  onReorder: (key: string, destino: number) => void
+}) {
+  if (!bandas?.length) return null
+  /* ⚠️ O CONTÊINER é transparente. Pintar a faixa toda (`inset-y-0` com fundo) fazia a
+     área acima da primeira banda e abaixo da última receber a mesma cor — e a primeira e
+     a última raia pareciam maiores que a banda a que correspondem. Cor e bordas
+     pertencem a cada LINHA, que tem a altura exata da sua banda. */
+  return (
+    <div className="absolute inset-y-0 left-0 z-20 overflow-hidden pointer-events-none" style={{ width: largura }}>
+      {bandas.map((b, i) => {
+        /* `b.y` já é a coordenada do DESENHO (inclui a margem do layout); escalada e
+           descontada a rolagem, ela é a posição na tela. Somar qualquer folga aqui
+           contaria a margem duas vezes e a faixa deslizaria em relação às bandas. */
+        const top = b.y * scale - scrollTop
+        const alt = b.h * scale
+        const semDono = b.key === LANE_SEM_RESPONSAVEL
+        return (
+          <div key={b.key} data-lane-handle onPointerDown={(e) => onStartDrag(b.key, e)}
+            title="Arraste para cima ou para baixo para reordenar a raia"
+            className={cn('absolute left-0 right-0 flex items-stretch group/lane pointer-events-auto',
+              arrastando === b.key ? 'cursor-grabbing' : 'cursor-grab')}
+            style={{
+              top, height: alt,
+              background: arrastando === b.key ? 'hsl(var(--primary) / 0.12)' : 'hsl(var(--foreground) / 0.075)',
+              borderRight: '1px solid hsl(var(--foreground) / 0.22)',
+              borderTop: i === 0 ? 'none' : '1px solid hsl(var(--foreground) / 0.16)',
+            }}>
+            {/* calha dos controles — largura fixa, nunca sobrepõe o texto */}
+            <div className="flex flex-col items-center justify-center shrink-0" style={{ width: LANE_CTRL_W }}
+              onPointerDown={(e) => e.stopPropagation()}>
+              <button type="button" disabled={i === 0} title="Subir a raia"
+                onClick={() => onReorder(b.key, i - 1)}
+                className="h-4 w-4 flex items-center justify-center rounded text-muted-foreground opacity-0 group-hover/lane:opacity-100 hover:text-foreground hover:bg-muted disabled:opacity-0 transition-opacity">
+                <ChevronUp className="h-3 w-3" />
+              </button>
+              <GripVertical className="h-3.5 w-3.5 text-muted-foreground/60 my-0.5 pointer-events-none" aria-hidden />
+              <button type="button" disabled={i === bandas.length - 1} title="Descer a raia"
+                onClick={() => onReorder(b.key, i + 2)}
+                className="h-4 w-4 flex items-center justify-center rounded text-muted-foreground opacity-0 group-hover/lane:opacity-100 hover:text-foreground hover:bg-muted disabled:opacity-0 transition-opacity">
+                <ChevronDown className="h-3 w-3" />
+              </button>
+            </div>
+            {/* nome — SEM truncar: quebra inclusive em "/" (papel composto é comum) */}
+            {/* ⚠️ A faixa é MOLDURA, não conteúdo: o rótulo usa `muted-foreground`, o mesmo
+                idiom dos cabeçalhos de tabela do sistema, e só sobe para `foreground` na
+                raia sob o mouse. Em preto pleno ele competia com os cartões.
+                E NADA de cor nova aqui: neste canvas o vocabulário de cor já está todo
+                alocado (sky = tarefa, âmbar = ação automática, violeta = decisão, rosa =
+                paralelo, esmeralda = início/fim). A raia sem executor se distingue por
+                FORMA — é a primeira e está em itálico —, não por um sexto tom. */}
+            <div className="flex-1 min-w-0 flex flex-col justify-center pr-2">
+              <span className={cn('text-[11px] font-semibold leading-tight select-none [overflow-wrap:anywhere] transition-colors',
+                arrastando === b.key ? 'text-foreground' : 'text-muted-foreground group-hover/lane:text-foreground',
+                semDono && 'italic')}>
+                {b.label.replace(/\//g, '/​')}
+              </span>
+              {/* a raia sem executor é a LISTA do que falta configurar, não um resto */}
+              {semDono && b.atividades > 0 && alt > 34 && (
+                <span className="text-[10px] leading-tight text-muted-foreground/80 select-none">
+                  {b.atividades} sem executor
+                </span>
+              )}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onConnect, onCreateConnected, onDeleteEdge, onDeleteNode, onSetPosition, resolvePapel, resolveEntidade, onReorderLanes }: {
   canvasRef: React.RefObject<HTMLDivElement | null>
   nodes: ENode[]; edges: EEdge[]; layout: ReturnType<typeof layoutGraph>
   selectedId: string | null; onSelect: (id: string | null) => void
@@ -552,6 +796,8 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
   onDeleteNode: (id: string) => void
   onSetPosition: (id: string, pos: { x: number; y: number }) => void
   resolvePapel: (id: string) => string | undefined
+  resolveEntidade: (kind: string | undefined, id: string | undefined) => string | undefined
+  onReorderLanes: (key: string, destino: number) => void
 }) {
   const [connecting, setConnecting] = useState<string | null>(null)
   const [rubber, setRubber] = useState('')
@@ -564,20 +810,62 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
   // nasce fora da tela e o usuário não vê (nem alcança) as ligações que chegam nele.
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const [scale, setScale] = useState(1)
+  // a faixa de rótulos vive FORA do canvas rolável, então precisa acompanhar a rolagem
+  const [scrollTop, setScrollTop] = useState(0)
+  /* O enquadramento automático só vale ENQUANTO o usuário não pediu um zoom. Antes
+     disto ele reagia a cada atividade nova e desfazia qualquer ajuste manual — era o
+     que fazia o desenho "ir ficando pequeno" sem que houvesse como reagir. */
+  const [autoFit, setAutoFit] = useState(true)
+
+  const fitScale = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return 1
+    const availW = el.clientWidth - 24, availH = el.clientHeight - 24
+    if (availW <= 0 || availH <= 0) return 1
+    return Math.max(ZOOM_MIN, Math.min(1, availW / layout.width, availH / layout.height))
+  }, [layout.width, layout.height])
+
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    const fit = () => {
-      const availW = el.clientWidth - 24, availH = el.clientHeight - 24
-      if (availW <= 0 || availH <= 0) return
-      // só REDUZ (nunca amplia) e nunca abaixo de 0.5, senão vira ilegível — aí rola.
-      setScale(Math.max(0.5, Math.min(1, availW / layout.width, availH / layout.height)))
-    }
-    fit()
-    const ro = new ResizeObserver(fit)
+    const aplicar = () => { if (autoFit) setScale(fitScale()) }
+    aplicar()
+    const ro = new ResizeObserver(aplicar)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [layout.width, layout.height])
+  }, [fitScale, autoFit])
+
+  /** Muda o zoom mantendo FIXO o ponto sob o cursor (ou o centro da área visível).
+   *  Sem ancorar, ampliar joga o desenho para longe e a pessoa se perde. */
+  const zoomPara = useCallback((novo: number, ancoraClientX?: number, ancoraClientY?: number) => {
+    const el = scrollRef.current
+    if (!el) return
+    const s2 = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, novo))
+    setScale((s1) => {
+      if (s2 === s1) return s1
+      const r = el.getBoundingClientRect()
+      const ax = ancoraClientX !== undefined ? ancoraClientX - r.left : el.clientWidth / 2
+      const ay = ancoraClientY !== undefined ? ancoraClientY - r.top : el.clientHeight / 2
+      const gx = (el.scrollLeft + ax) / s1, gy = (el.scrollTop + ay) / s1
+      requestAnimationFrame(() => { el.scrollLeft = gx * s2 - ax; el.scrollTop = gy * s2 - ay })
+      return s2
+    })
+    setAutoFit(false)
+  }, [])
+
+  /* Ctrl/⌘ + roda = zoom, o gesto que todo mundo tenta primeiro. Precisa de listener
+     NÃO-PASSIVO: sem `preventDefault` o navegador aplica o zoom DELE na página. */
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      zoomPara(scale * (e.deltaY < 0 ? 1.12 : 1 / 1.12), e.clientX, e.clientY)
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [scale, zoomPara])
   const dragRef = useRef<{ id: string; sx: number; sy: number; ox: number; oy: number; w: number; h: number; moved: boolean } | null>(null)
 
   const nodeById = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n])), [nodes])
@@ -617,12 +905,54 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
     window.addEventListener('pointerup', up)
   }
 
+  /* Largura da faixa de rótulos: ADAPTATIVA ao papel de nome mais longo, entre um piso e
+     um teto. Fixa em 132px, "Executor contratual/administrativo/jurídico" era cortado; e
+     fixar no maior caso roubaria largura de quem só tem nomes curtos. Estimativa
+     determinística (~5,6px por caractere a 11px semibold), como o resto do layout faz. */
+  const laneHeaderW = useMemo(() => {
+    const rotulos = layout.lanes?.map((b) => b.label) ?? []
+    if (!rotulos.length) return 0
+    // maior pedaço INDIVISÍVEL (quebramos em espaço e em "/") define o piso da largura
+    const maiorPedaco = Math.max(...rotulos.flatMap((r) => r.split(/[\s/]+/).map((p) => p.length)), 6)
+    const maisLongo = Math.max(...rotulos.map((r) => r.length))
+    const porPedaco = maiorPedaco * 5.6 + LANE_CTRL_W + 18
+    const porTotal = (maisLongo * 5.6) / 2 + LANE_CTRL_W + 18 // mirando 2 linhas
+    return Math.round(Math.min(240, Math.max(124, porPedaco, porTotal)))
+  }, [layout.lanes])
+
+  /* Arrastar a RAIA pela faixa do rótulo. Só a vertical importa: a banda cai entre duas
+     outras, e as atividades acompanham porque o y delas deriva do topo da banda. */
+  const [laneDrag, setLaneDrag] = useState<{ key: string; destino: number; linha: number | null } | null>(null)
+  const startLaneDrag = (key: string, ev: React.PointerEvent) => {
+    ev.preventDefault(); ev.stopPropagation()
+    const bandas = layout.lanes
+    if (!bandas || bandas.length < 2) return
+    // fronteiras entre bandas, em coordenadas do GRAFO (o canvas está sob transform: scale)
+    const fronteiras = [bandas[0].y, ...bandas.map((b) => b.y + b.h)]
+    const alvoDe = (clientY: number) => {
+      const r = canvasRef.current!.getBoundingClientRect()
+      const y = (clientY - r.top) / scale
+      let i = 0
+      for (let k = 1; k < fronteiras.length; k++) if (Math.abs(fronteiras[k] - y) < Math.abs(fronteiras[i] - y)) i = k
+      return i
+    }
+    setLaneDrag({ key, destino: bandas.findIndex((b) => b.key === key), linha: null })
+    const move = (e: PointerEvent) => {
+      const i = alvoDe(e.clientY)
+      setLaneDrag((d) => (d ? { ...d, destino: i, linha: fronteiras[i] } : d))
+    }
+    const up = (e: PointerEvent) => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
+      onReorderLanes(key, alvoDe(e.clientY))
+      setLaneDrag(null)
+    }
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
+  }
+
   // arrastar a CAIXA (corpo do nó) → posição manual, com snap na grade + guias de alinhamento
   const GRID = 12, ALIGN = 6
   const startNodeDrag = (id: string, ev: React.PointerEvent) => {
     if ((ev.target as HTMLElement).closest('[data-port],[data-trash]')) return
-    // com RAIAS o layout é automático: arrastar tiraria o nó da banda do papel dele
-    if (layout.lanes) return
     const p = layout.nodes[id]; if (!p) return
     dragRef.current = { id, sx: ev.clientX, sy: ev.clientY, ox: p.x, oy: p.y, w: p.w, h: p.h, moved: false }
     const others = Object.entries(layout.nodes).filter(([oid]) => oid !== id).map(([, op]) => ({ cx: op.x + op.w / 2, cy: op.y + op.h / 2 }))
@@ -653,24 +983,53 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
   // div do grafo não cobre toda a área visível, e clicar no vazio abaixo dela não
   // deselecionava — o painel ficava preso no inspetor do nó.
   return (
-    <div ref={scrollRef} className="flex-1 min-w-0 min-h-0 overflow-auto bg-muted/20 [background-image:radial-gradient(circle_at_1px_1px,hsl(var(--border))_1px,transparent_0)] [background-size:24px_24px]"
+    <div className="flex-1 min-w-0 min-h-0 relative">
+    <ZoomBar scale={scale} autoFit={autoFit}
+      onZoom={(s) => zoomPara(s)}
+      onFit={() => { setAutoFit(true); setScale(fitScale()) }} />
+    <LaneHeader bandas={layout.lanes} largura={laneHeaderW} scale={scale} scrollTop={scrollTop}
+      arrastando={laneDrag?.key ?? null} onStartDrag={startLaneDrag} onReorder={onReorderLanes} />
+    <div ref={scrollRef} className="absolute inset-y-0 right-0 overflow-auto bg-muted/20 [background-image:radial-gradient(circle_at_1px_1px,hsl(var(--border))_1px,transparent_0)] [background-size:24px_24px]"
+      style={{ left: laneHeaderW }}
+      onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
       onClick={(e) => { if (!(e.target as HTMLElement).closest('[data-node-id]')) onSelect(null) }}>
       {/* espaçador com o tamanho JÁ ESCALADO: mantém as barras de rolagem corretas */}
       <div style={{ width: layout.width * scale, height: layout.height * scale, minWidth: '100%' }}>
       <div ref={canvasRef} className="relative" style={{ width: layout.width, height: layout.height, transform: `scale(${scale})`, transformOrigin: '0 0' }}>
         {/* RAIAS — bandas atrás de tudo, com o papel na coluna da esquerda. Só leitura:
-            a banda vem do executor configurado, não se arrasta nada para dentro dela. */}
+            a banda vem do executor configurado, não se arrasta nada para dentro dela.
+
+            ⚠️ A moldura NÃO usa `--border`/`--muted`: no tema claro esses tokens têm a
+            mesma luminosidade do fundo (88% contra 88%) e a raia sumia — funcionava só
+            no escuro. Sai de `--foreground` com alfa, que contrasta com o fundo por
+            construção nos dois temas. */}
+        {layout.lanes?.length ? (
+          <div className="absolute left-0 pointer-events-none rounded-sm"
+            style={{
+              top: layout.lanes[0].y, width: layout.width,
+              height: layout.lanes[layout.lanes.length - 1].y + layout.lanes[layout.lanes.length - 1].h - layout.lanes[0].y,
+              border: '1px solid hsl(var(--foreground) / 0.22)', // contorno do "pool"
+              background: 'hsl(var(--card) / 0.55)',
+            }} />
+        ) : null}
         {layout.lanes?.map((b, i) => (
-          <div key={b.key} className="absolute left-0 pointer-events-none" style={{ top: b.y, height: b.h, width: layout.width }}>
-            <div className={cn('absolute inset-0 border-t border-border/70', i % 2 === 1 && 'bg-muted/25')} />
-            <div className="absolute inset-y-0 left-0 border-r border-border/70 bg-muted/40 flex items-center justify-center px-2" style={{ width: LANE_HEADER_W }}>
-              <span className={cn('text-[11px] font-semibold text-center leading-tight', b.key === LANE_SEM_RESPONSAVEL ? 'text-muted-foreground italic' : 'text-foreground')}
-                style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 3, overflow: 'hidden' }}>{b.label}</span>
-            </div>
+          <div key={b.key} className="absolute left-0 pointer-events-none z-[1]" style={{ top: b.y, height: b.h, width: layout.width }}>
+            <div className="absolute inset-0" style={{
+              borderTop: i === 0 ? 'none' : '1px solid hsl(var(--foreground) / 0.16)',
+              background: laneDrag?.key === b.key ? 'hsl(var(--primary) / 0.10)' : i % 2 === 1 ? 'hsl(var(--foreground) / 0.045)' : 'transparent',
+            }} />
           </div>
         ))}
-        {layout.lanes?.length ? <div className="absolute left-0 right-0 border-b border-border/70 pointer-events-none" style={{ top: layout.lanes[layout.lanes.length - 1].y + layout.lanes[layout.lanes.length - 1].h }} /> : null}
-        <svg className="absolute inset-0 overflow-visible" style={{ width: layout.width, height: layout.height }}>
+        {/* onde a raia arrastada vai pousar */}
+        {laneDrag && laneDrag.linha !== null && (
+          <div className="absolute left-0 pointer-events-none z-20" style={{ top: laneDrag.linha - 1, width: layout.width, height: 2, background: 'hsl(var(--primary))' }} />
+        )}
+        {/* ⚠️ `pointer-events-none` na RAIZ do svg. Um <svg> inline é hit-testável em TODA
+            a sua caixa, e esta cobre o canvas inteiro — vindo depois das raias no DOM, ele
+            engolia o mouse sobre a coluna de rótulos e a raia não podia ser pega nem
+            arrastada. Só as arestas voltam a receber evento (`pointer-events-auto` no
+            <g>), que é o que precisa de hover para o botão de apagar. */}
+        <svg className="absolute inset-0 overflow-visible pointer-events-none" style={{ width: layout.width, height: layout.height }}>
           <defs>
             <marker id="fl-arrow" markerWidth="8" markerHeight="8" refX="6.5" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="context-stroke" /></marker>
           </defs>
@@ -682,7 +1041,7 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
             const col = edgeColor(e)
             const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2
             return (
-              <g key={e.id} onMouseEnter={() => setHoverEdge(e.id)} onMouseLeave={() => setHoverEdge((h) => (h === e.id ? null : h))}>
+              <g key={e.id} className="pointer-events-auto" onMouseEnter={() => setHoverEdge(e.id)} onMouseLeave={() => setHoverEdge((h) => (h === e.id ? null : h))}>
                 <path d={d} fill="none" stroke="transparent" strokeWidth={16} style={{ cursor: 'pointer' }} />
                 <path d={d} fill="none" stroke={col} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" markerEnd="url(#fl-arrow)" style={{ color: col }} />
                 {hoverEdge === e.id && (
@@ -715,9 +1074,9 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
           if (!p) return null
           return (
             <div key={n.id} data-node-id={n.id} onPointerDown={(e) => startNodeDrag(n.id, e)}
-              className={cn('absolute group select-none', layout.lanes ? 'cursor-pointer' : dragId === n.id ? 'z-40 cursor-grabbing' : 'cursor-grab')}
+              className={cn('absolute group select-none', dragId === n.id ? 'z-40 cursor-grabbing' : 'cursor-grab')}
               style={{ left: p.x, top: p.y, width: p.w, height: p.h }}>
-              <FlowNodeView node={n} selected={n.id === selectedId} onClick={() => onSelect(n.id)} resolvePapel={resolvePapel} />
+              <FlowNodeView node={n} selected={n.id === selectedId} onClick={() => onSelect(n.id)} resolvePapel={resolvePapel} resolveEntidade={resolveEntidade} />
               {n.type !== 'start' && n.type !== 'end' && (
                 <button data-trash onClick={(e) => { e.stopPropagation(); onDeleteNode(n.id) }} title="Excluir"
                   className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-card border border-border text-muted-foreground hover:text-destructive hover:border-destructive shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-20">
@@ -742,6 +1101,33 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
         {menu && <CreateMenu x={menu.x} y={menu.y} onPick={(t) => { onCreateConnected(menu.from, t); setMenu(null) }} onClose={() => setMenu(null)} />}
       </div>
       </div>
+    </div>
+    </div>
+  )
+}
+
+/** Controle de zoom, flutuante sobre o canvas. "Ajustar" devolve o enquadramento
+ *  automático — e volta a valer a cada atividade nova, até você mexer no zoom. */
+function ZoomBar({ scale, autoFit, onZoom, onFit }: {
+  scale: number; autoFit: boolean; onZoom: (s: number) => void; onFit: () => void
+}) {
+  // vai para o degrau seguinte/anterior da escala — o zoom da roda cai entre eles
+  const passo = (dir: 1 | -1) => {
+    const alvo = dir > 0
+      ? ZOOM_PASSOS.find((s) => s > scale + 0.001)
+      : [...ZOOM_PASSOS].reverse().find((s) => s < scale - 0.001)
+    onZoom(alvo ?? (dir > 0 ? ZOOM_MAX : ZOOM_MIN))
+  }
+  const btn = 'h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-40 disabled:hover:bg-transparent'
+  return (
+    <div className="glass absolute bottom-3 right-3 z-30 flex items-center gap-0.5 rounded-xl p-1 shadow-sm">
+      <button type="button" onClick={() => passo(-1)} disabled={scale <= ZOOM_MIN + 0.001} className={btn} title="Afastar (Ctrl + roda do mouse)"><Minus className="h-3.5 w-3.5" /></button>
+      <button type="button" onClick={() => onZoom(1)} className="h-7 min-w-[3.25rem] px-1 rounded-md text-[11px] font-semibold tabular-nums text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="Voltar para 100%">
+        {Math.round(scale * 100)}%
+      </button>
+      <button type="button" onClick={() => passo(1)} disabled={scale >= ZOOM_MAX - 0.001} className={btn} title="Aproximar (Ctrl + roda do mouse)"><Plus className="h-3.5 w-3.5" /></button>
+      <span className="w-px h-4 bg-border mx-0.5" />
+      <button type="button" onClick={onFit} className={cn(btn, autoFit && 'text-primary')} title="Ajustar à tela"><Maximize2 className="h-3.5 w-3.5" /></button>
     </div>
   )
 }
@@ -831,7 +1217,11 @@ function GatewayGlyph({ kind, className }: { kind: 'exclusive' | 'parallel'; cla
 const XorGlyph = (p: { className?: string }) => <GatewayGlyph kind="exclusive" {...p} />
 const AndGlyph = (p: { className?: string }) => <GatewayGlyph kind="parallel" {...p} />
 
-function FlowNodeView({ node, selected, onClick, resolvePapel }: { node: ENode; selected: boolean; onClick: () => void; resolvePapel: (id: string) => string | undefined }) {
+function FlowNodeView({ node, selected, onClick, resolvePapel, resolveEntidade }: {
+  node: ENode; selected: boolean; onClick: () => void
+  resolvePapel: (id: string) => string | undefined
+  resolveEntidade: (kind: string | undefined, id: string | undefined) => string | undefined
+}) {
   if (node.type === 'start' || node.type === 'end') {
     // BPMN: início = anel FINO, fim = anel GROSSO. O raio compensa a espessura para os
     // dois círculos terem o mesmo diâmetro externo (senão o "Fim" parece maior).
@@ -873,9 +1263,7 @@ function FlowNodeView({ node, selected, onClick, resolvePapel }: { node: ENode; 
   const tone = STEP_TONE[type]
   const Icon = type === 'serviceTask' ? Zap : UserSquare
   const step = node.step
-  const role = step?.executor?.papelId ? (resolvePapel(step.executor.papelId) ?? 'Responsável') : null
-  const connector = findConnector(step?.connector)?.label
-  const due = dueText(step)
+  const meta = metaDaAtividade(node, resolvePapel, resolveEntidade)
   return (
     <button onClick={onClick} className={cn('group/card w-full h-full text-left rounded-xl glass overflow-hidden flex flex-col transition-all hover:-translate-y-0.5 hover:shadow-lg', selected && 'ring-2 ring-primary')}>
       <div className={cn('h-1 shrink-0', type === 'serviceTask' ? 'bg-amber-500/70' : 'bg-sky-500/70')} />
@@ -886,12 +1274,58 @@ function FlowNodeView({ node, selected, onClick, resolvePapel }: { node: ENode; 
         </div>
         <p className="text-[13px] font-semibold leading-tight mt-1.5 shrink-0" style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: titleLineCount(step?.stepName), overflow: 'hidden' }}>{step?.stepName || <span className="text-muted-foreground italic font-normal">Sem nome</span>}</p>
         <div className="mt-auto space-y-0.5 pt-1.5 min-h-0 overflow-hidden">
-          <MetaRow icon={type === 'serviceTask' ? <Zap className="h-3 w-3" /> : <User className="h-3 w-3" />} text={type === 'serviceTask' ? (connector ?? 'Sem ação') : (role ?? 'Sem executor')} />
-          {due && <MetaRow icon={<Clock className="h-3 w-3" />} text={due} />}
+          {meta.map((m, i) => (
+            <MetaRow key={i} icon={m.kind === 'exec' && type === 'serviceTask' ? <Zap className="h-3 w-3" /> : META_ICON[m.kind]} text={m.text} />
+          ))}
         </div>
       </div>
     </button>
   )
+}
+
+/** Linhas de rodapé de uma atividade — FONTE ÚNICA. O cartão desenha por esta lista, o
+ *  layout mede a altura da caixa por ela (`metaLines`) e o exportador repete o mesmo.
+ *  Se cada um contasse por si, a caixa cortaria a última linha ou sobraria vazio.
+ *
+ *  A UNIDADE (ou a entidade que hospeda o papel) entra como linha própria: o papel
+ *  sozinho não diz QUEM executa — "Solicitante" de qual unidade é a informação que
+ *  faltava para ler o fluxo sem abrir cada atividade. Existir a linha depende do DADO
+ *  configurado, nunca de o nome já ter chegado da rede — senão o cartão mudaria de
+ *  altura quando a lista carregasse, e o desenho inteiro pularia. */
+type MetaLinha = { kind: 'exec' | 'entidade' | 'prazo'; text: string }
+
+function metaDaAtividade(
+  node: ENode,
+  resolvePapel: (id: string) => string | undefined,
+  resolveEntidade: (kind: string | undefined, id: string | undefined) => string | undefined,
+): MetaLinha[] {
+  const step = node.step
+  const linhas: MetaLinha[] = []
+
+  if (node.type === 'serviceTask') {
+    linhas.push({ kind: 'exec', text: findConnector(step?.connector)?.label ?? 'Sem ação' })
+  } else {
+    const papel = step?.executor?.papelId ? (resolvePapel(step.executor.papelId) ?? 'Responsável') : null
+    linhas.push({ kind: 'exec', text: papel ?? 'Sem executor' })
+    const ex = step?.executor
+    if (ex?.papelId) {
+      if (ex.mode === 'VARIAVEL' && ex.entityVar) {
+        linhas.push({ kind: 'entidade', text: `${entityKindLabel(ex.entityType)} da variável ${ex.entityVar}` })
+      } else if (ex.entityId) {
+        linhas.push({ kind: 'entidade', text: resolveEntidade(ex.entityType, ex.entityId) ?? `${entityKindLabel(ex.entityType)}…` })
+      }
+    }
+  }
+
+  const due = dueText(step)
+  if (due) linhas.push({ kind: 'prazo', text: due })
+  return linhas
+}
+
+const META_ICON: Record<MetaLinha['kind'], React.ReactNode> = {
+  exec: <User className="h-3 w-3" />,
+  entidade: <Building2 className="h-3 w-3" />,
+  prazo: <Clock className="h-3 w-3" />,
 }
 
 function MetaRow({ icon, text }: { icon: React.ReactNode; text: string }) {

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Building2, Plus, Pencil, Trash2, X, ChevronRight, ChevronDown,
   Network, Search, Phone, MapPin, CreditCard, Users, UserCog,
+  FolderInput, CornerDownRight, AlertTriangle, Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
@@ -244,9 +245,118 @@ function CompanyModal({ editId, initial, onSave, onClose }: {
 
 /* ─── linha da tabela do organograma ─────────────────────── */
 
-function UnitRow({ row, flatMode, typeMap, onToggle, onAddChild, onEdit, onRemove }: {
+/* ─── mover unidade ──────────────────────────────────────────
+   Escolher o destino numa lista buscável, e não arrastar: o organograma carrega
+   nível a nível e é virtualizado, então o destino quase nunca está visível na hora
+   em que se quer mover. A lista já vem do servidor SEM a própria unidade e sem a
+   subárvore dela — assim não há como escolher um destino que soltaria o ramo. */
+
+interface Alvo { id: string; codigo: string | null; nome: string; natureza: string; parentId: string | null }
+
+function MoveUnitModal({ unit, typeMap, onDone, onClose }: {
+  unit: Unit; typeMap: Record<string, LookupEntry>; onDone: () => void; onClose: () => void
+}) {
+  const [dados, setDados] = useState<{ atual: { parentId: string | null }; destinos: Alvo[] } | null>(null)
+  const [q, setQ] = useState('')
+  const [sel, setSel] = useState<string | null | undefined>(undefined) // undefined = nada escolhido · null = raiz
+  const [erro, setErro] = useState<string | null>(null)
+  const [salvando, setSalvando] = useState(false)
+
+  useEffect(() => {
+    void api<{ atual: { parentId: string | null }; destinos: Alvo[] }>(`/api/org-units/${unit.id}/move-targets`)
+      .then((d) => setDados(d ?? { atual: { parentId: null }, destinos: [] }))
+  }, [unit.id])
+
+  const filtrados = useMemo(() => {
+    const t = q.trim().toLowerCase()
+    const lista = dados?.destinos ?? []
+    return t ? lista.filter((a) => `${a.codigo ?? ''} ${a.nome}`.toLowerCase().includes(t)) : lista
+  }, [dados, q])
+
+  const paiAtual = dados?.atual.parentId ?? null
+  const mudou = sel !== undefined && sel !== paiAtual
+
+  const mover = async () => {
+    if (!mudou) return
+    setSalvando(true); setErro(null)
+    try {
+      const res = await apiFetch(`/api/org-units/${unit.id}`, {
+        method: 'PATCH', body: JSON.stringify({ parentId: sel }),
+      })
+      if (!res.ok) {
+        const e = await res.json().catch(() => null)
+        setErro(e?.message ?? 'Não foi possível mover a unidade.')
+        return
+      }
+      onDone()
+    } catch { setErro('Não foi possível mover a unidade.') }
+    finally { setSalvando(false) }
+  }
+
+  return (
+    <Modal title={`Mover "${unit.nome}"`} onClose={onClose}>
+      <p className="text-[11.5px] text-muted-foreground leading-snug">
+        Escolha a unidade que passa a ficar <strong>acima</strong> desta. As subunidades vão junto.
+      </p>
+
+      {erro && (
+        <p className="flex items-start gap-2 rounded-md bg-destructive/10 text-destructive px-3 py-2 text-[11.5px]">
+          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />{erro}
+        </p>
+      )}
+
+      <div className="relative">
+        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar unidade de destino..."
+          className={cn(inputCls, 'pl-7')} />
+      </div>
+
+      <div className="rounded-md border divide-y max-h-64 overflow-auto">
+        <button type="button" onClick={() => setSel(null)}
+          className={cn('w-full text-left px-3 py-2 text-xs transition-colors hover:bg-muted/60 flex items-center justify-between gap-2',
+            sel === null && 'bg-primary/10')}>
+          <span className="flex items-center gap-1.5"><Network className="h-3.5 w-3.5 text-muted-foreground" />Raiz — sem unidade acima</span>
+          {paiAtual === null && <span className="text-[10px] text-muted-foreground shrink-0">atual</span>}
+        </button>
+
+        {!dados ? (
+          <p className="px-3 py-4 text-xs text-muted-foreground flex items-center gap-2"><Loader2 className="h-3.5 w-3.5 animate-spin" />Carregando destinos…</p>
+        ) : filtrados.length === 0 ? (
+          <p className="px-3 py-4 text-xs text-muted-foreground">
+            {q.trim() ? 'Nenhuma unidade encontrada.' : 'Não há outra unidade nesta empresa para receber esta.'}
+          </p>
+        ) : filtrados.map((a) => {
+          const view = unitTypeView(typeMap, a.natureza)
+          return (
+            <button key={a.id} type="button" onClick={() => setSel(a.id)}
+              className={cn('w-full text-left px-3 py-2 text-xs transition-colors hover:bg-muted/60 flex items-center justify-between gap-2',
+                sel === a.id && 'bg-primary/10')}>
+              <span className="flex items-center gap-1.5 min-w-0">
+                <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', view.dot)} />
+                <span className="font-mono text-[10px] text-muted-foreground shrink-0">{a.codigo || '—'}</span>
+                <span className="truncate">{a.nome}</span>
+              </span>
+              {paiAtual === a.id && <span className="text-[10px] text-muted-foreground shrink-0">atual</span>}
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="flex items-center justify-end gap-2 pt-1">
+        <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground px-3 py-1.5">Cancelar</button>
+        <button type="button" onClick={mover} disabled={!mudou || salvando}
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground shadow-sm disabled:opacity-50 hover:bg-primary/90 transition-colors">
+          {salvando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CornerDownRight className="h-3.5 w-3.5" />}Mover
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+function UnitRow({ row, flatMode, typeMap, onToggle, onAddChild, onEdit, onMove, onRemove }: {
   row: FlatRow; flatMode?: boolean; typeMap: Record<string, LookupEntry>
-  onToggle: (u: Unit) => void; onAddChild: (u: Unit) => void; onEdit: (u: Unit) => void; onRemove: (u: Unit) => void
+  onToggle: (u: Unit) => void; onAddChild: (u: Unit) => void; onEdit: (u: Unit) => void
+  onMove: (u: Unit) => void; onRemove: (u: Unit) => void
 }) {
   const { unit: u, depth, expanded } = row
   const view = unitTypeView(typeMap, u.natureza)
@@ -271,6 +381,7 @@ function UnitRow({ row, flatMode, typeMap, onToggle, onAddChild, onEdit, onRemov
       <div className="absolute right-2 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center gap-0.5 rounded-md bg-card/95 px-1 shadow-sm ring-1 ring-border">
         <button type="button" title="Adicionar subunidade" onClick={() => onAddChild(u)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-primary"><Plus className="h-3.5 w-3.5" /></button>
         <button type="button" title="Editar" onClick={() => onEdit(u)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"><Pencil className="h-3 w-3" /></button>
+        <button type="button" title="Mover para outra unidade" onClick={() => onMove(u)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-primary"><FolderInput className="h-3.5 w-3.5" /></button>
         <button type="button" title="Remover" onClick={() => onRemove(u)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive"><Trash2 className="h-3 w-3" /></button>
       </div>
     </div>
@@ -289,6 +400,7 @@ function OrgChart({ companyId, onChanged }: { companyId: string; onChanged: () =
   const [search,   setSearch]   = useState('')
   const [results,  setResults]  = useState<Unit[] | null>(null)
   const [scrollTop, setScrollTop] = useState(0)
+  const [moving, setMoving] = useState<Unit | null>(null)
   const ws = useWorkspace()
   /* abrir unidade (editar) ou nova unidade como ABA na área de trabalho */
   const openEditUnit = (u: Unit) => ws.open({ id: `unit:${u.id}`, kind: 'unit', mode: 'detail', label: u.nome, data: u })
@@ -413,7 +525,7 @@ function OrgChart({ companyId, onChanged }: { companyId: string; onChanged: () =
             {slice.map((row, i) => (
               <div key={row.unit.id} style={{ position: 'absolute', top: (start + i) * ROW_H, left: 0, right: 0 }}>
                 <UnitRow row={row} flatMode={inSearch} typeMap={typeMap} onToggle={toggle}
-                  onAddChild={u => openNewUnit(u)} onEdit={u => openEditUnit(u)} onRemove={removeUnit} />
+                  onAddChild={u => openNewUnit(u)} onEdit={u => openEditUnit(u)} onMove={u => setMoving(u)} onRemove={removeUnit} />
               </div>
             ))}
           </div>
@@ -430,6 +542,10 @@ function OrgChart({ companyId, onChanged }: { companyId: string; onChanged: () =
         <span className="text-[10px] text-muted-foreground">{inSearch ? `${total} resultado(s)` : `${total} unidade(s) visível(is)`}</span>
       </div>
 
+      {moving && (
+        <MoveUnitModal unit={moving} typeMap={typeMap} onClose={() => setMoving(null)}
+          onDone={() => { setMoving(null); void refresh() }} />
+      )}
     </div>
   )
 }

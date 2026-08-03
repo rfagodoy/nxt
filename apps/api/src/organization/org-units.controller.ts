@@ -38,6 +38,12 @@ export class OrgUnitsController {
     return this.service.findChildren(groupCompanyId, parentId, organizationId)
   }
 
+  @Get(':id/move-targets')
+  @ApiOperation({ summary: 'Destinos válidos para mover a unidade (exclui ela e a subárvore)' })
+  moveTargets(@Param('id') id: string, @CurrentOrg() organizationId: string) {
+    return this.service.moveTargets(id, organizationId)
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Detalhe completo de uma unidade (inclui usuários)' })
   findOne(@Param('id') id: string, @CurrentOrg() organizationId: string) {

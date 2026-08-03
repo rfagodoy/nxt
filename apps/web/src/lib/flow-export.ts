@@ -152,24 +152,52 @@ interface Theme { bg: string; fg: string; muted: string; primary: string; border
 function drawLanes(ctx: CanvasRenderingContext2D, model: ExportModel, C: Theme, offX: number, offY: number) {
   const lanes = model.lanes
   if (!lanes?.length) return
+  const total = LANE_HEADER_W + model.width // coluna do rótulo + desenho
   for (let i = 0; i < lanes.length; i++) {
     const b = lanes[i]
     const y = offY + b.y
-    if (i % 2 === 1) { ctx.fillStyle = withAlpha(C.muted, 0.08); ctx.fillRect(offX, y, model.width, b.h) }
-    ctx.fillStyle = withAlpha(C.muted, 0.12); ctx.fillRect(offX, y, LANE_HEADER_W, b.h)
-    ctx.strokeStyle = C.border; ctx.lineWidth = 1
-    ctx.beginPath(); ctx.moveTo(offX, y); ctx.lineTo(offX + model.width, y); ctx.stroke()
+    if (i % 2 === 1) { ctx.fillStyle = withAlpha(C.fg, 0.045); ctx.fillRect(offX, y, total, b.h) }
+    ctx.fillStyle = withAlpha(C.fg, 0.075); ctx.fillRect(offX, y, LANE_HEADER_W, b.h)
+    ctx.strokeStyle = withAlpha(C.fg, 0.16); ctx.lineWidth = 1
+    if (i > 0) { ctx.beginPath(); ctx.moveTo(offX, y); ctx.lineTo(offX + total, y); ctx.stroke() }
+    ctx.strokeStyle = withAlpha(C.fg, 0.22)
     ctx.beginPath(); ctx.moveTo(offX + LANE_HEADER_W, y); ctx.lineTo(offX + LANE_HEADER_W, y + b.h); ctx.stroke()
-    ctx.fillStyle = C.fg; ctx.font = `600 11px ${C.sans}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-    ctx.fillText(ellipsize(ctx, b.label, LANE_HEADER_W - 16), offX + LANE_HEADER_W / 2, y + b.h / 2)
+    // o nome NÃO é truncado: quebra em até 3 linhas dentro da coluna
+    ctx.fillStyle = C.fg; ctx.font = `600 11px ${C.sans}`; ctx.textAlign = 'center'
+    const linhas = quebrar(ctx, b.label, LANE_HEADER_W - 14, 3)
+    ctx.textBaseline = 'middle'
+    linhas.forEach((ln, k) => ctx.fillText(ln, offX + LANE_HEADER_W / 2, y + b.h / 2 + (k - (linhas.length - 1) / 2) * 13))
   }
+  // contorno do "pool"
   const last = lanes[lanes.length - 1]
-  ctx.strokeStyle = C.border; ctx.lineWidth = 1
-  ctx.beginPath(); ctx.moveTo(offX, offY + last.y + last.h); ctx.lineTo(offX + model.width, offY + last.y + last.h); ctx.stroke()
+  ctx.strokeStyle = withAlpha(C.fg, 0.22); ctx.lineWidth = 1
+  ctx.strokeRect(offX, offY + lanes[0].y, total, last.y + last.h - lanes[0].y)
 }
+
+/** Quebra em palavras, permitindo corte em "/" — nome de papel costuma ser composto
+ *  ("Executor contratual/administrativo/jurídico") e sem isso vira uma palavra só. */
+function quebrar(ctx: CanvasRenderingContext2D, texto: string, maxW: number, maxLinhas: number): string[] {
+  const pedacos = texto.split(/(?<=\/)|\s+/).filter(Boolean)
+  const linhas: string[] = []
+  let cur = ''
+  for (const p of pedacos) {
+    const teste = cur ? (cur.endsWith('/') ? cur + p : `${cur} ${p}`) : p
+    if (ctx.measureText(teste).width > maxW && cur) { linhas.push(cur); cur = p } else cur = teste
+    if (linhas.length === maxLinhas) break
+  }
+  if (cur && linhas.length < maxLinhas) linhas.push(cur)
+  return linhas.length ? linhas : [texto]
+}
+
+/** No ARQUIVO a coluna dos rótulos é desenhada junto do diagrama (não há rolagem nem
+ *  zoom para justificar uma faixa fixa). Como o layout deixou de reservar esse espaço —
+ *  na tela a coluna é chrome, não desenho —, o exportador desloca o diagrama para a
+ *  direita e abre a coluna aqui. */
+export const laneGutter = (model: ExportModel) => (model.lanes?.length ? LANE_HEADER_W : 0)
 
 function drawDiagram(ctx: CanvasRenderingContext2D, model: ExportModel, C: Theme, offX: number, offY: number) {
   drawLanes(ctx, model, C, offX, offY)
+  offX += laneGutter(model)
   // arestas (atrás dos nós)
   for (const e of model.edges) {
     // ⚠️ a aresta NORMAL não pode usar `--border`: some no fundo claro (mesmo motivo pelo
@@ -286,7 +314,8 @@ export async function exportFlow(
   const { sans, mono } = C
 
   // layout do documento (CSS px)
-  const contentW = Math.max(model.width, 600)
+  // a coluna dos rótulos entra na largura do documento (na tela ela é chrome, aqui é desenho)
+  const contentW = Math.max(model.width + laneGutter(model), 600)
   const docW = contentW + PAD * 2
   const yTitle = PAD + 64, ySub = PAD + 84, yDivider = PAD + 100, yDiagram = PAD + 126
   const yFootLine = yDiagram + model.height + 24, yFootText = yFootLine + 18
@@ -325,7 +354,7 @@ export async function exportFlow(
   ctx.beginPath(); ctx.moveTo(PAD, yDivider); ctx.lineTo(docW - PAD, yDivider); ctx.stroke()
 
   // desenho do fluxo (centralizado)
-  drawDiagram(ctx, model, C, PAD + (contentW - model.width) / 2, yDiagram)
+  drawDiagram(ctx, model, C, PAD + (contentW - model.width - laneGutter(model)) / 2, yDiagram)
 
   // rodapé
   ctx.strokeStyle = C.border; ctx.lineWidth = 1

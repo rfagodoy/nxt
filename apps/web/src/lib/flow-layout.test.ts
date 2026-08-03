@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { layoutGraph, titleLineCount, nodeSize, LANE_HEADER_W, LANE_SEM_RESPONSAVEL, type FlowGraph } from './flow-layout'
+import { layoutGraph, titleLineCount, nodeSize, LANE_SEM_RESPONSAVEL, type FlowGraph } from './flow-layout'
 
 const g = (nodes: FlowGraph['nodes'], edges: FlowGraph['edges']): FlowGraph => ({ nodes, edges, startId: 'start' })
 
@@ -14,6 +14,19 @@ describe('titleLineCount / altura dinâmica do card', () => {
     const short = nodeSize({ id: 'x', type: 'userTask', name: 'Aprovar' }, 1, 1).h
     const long = nodeSize({ id: 'y', type: 'userTask', name: 'a'.repeat(50) }, 1, 1).h
     expect(long).toBeGreaterThan(short)
+  })
+
+  /* O rodapé varia por cartão (executor, unidade, prazo). Se a caixa não acompanhasse,
+     mostrar a unidade cortaria a última linha nos cartões que já tinham prazo. */
+  it('a altura acompanha também o nº de linhas do RODAPÉ', () => {
+    const base = { id: 'x', type: 'userTask' as const, name: 'Aprovar' }
+    const duas = nodeSize({ ...base, metaLines: 2 }, 1, 1).h
+    const tres = nodeSize({ ...base, metaLines: 3 }, 1, 1).h
+    const uma = nodeSize({ ...base, metaLines: 1 }, 1, 1).h
+    expect(tres).toBeGreaterThan(duas)
+    expect(duas).toBeGreaterThan(uma)
+    // sem informar, mantém o cartão de sempre (2 linhas) — compatibilidade
+    expect(nodeSize(base, 1, 1).h).toBe(duas)
   })
 })
 
@@ -271,6 +284,26 @@ describe('raias (swimlanes)', () => {
     expect(bandaDe(L, 'gw')!.label).toBe('Solicitante') // vem de "Preencher"
   })
 
+  /* A raia sem executor é a LISTA do que falta configurar; escondida no rodapé ela não
+     cumpre esse papel. Nasce primeira — mas a escolha manual do usuário ainda vence. */
+  it('"Sem responsável" nasce PRIMEIRA, e a ordem manual ainda vence', () => {
+    const graph = g(
+      [
+        { id: 'start', type: 'start' },
+        { id: 'a', type: 'userTask', name: 'A', lane: 'Solicitante' },
+        { id: 'b', type: 'userTask', name: 'B', lane: LANE_SEM_RESPONSAVEL },
+        { id: 'end', type: 'end' },
+      ],
+      [ { id: 'e1', from: 'start', to: 'a' }, { id: 'e2', from: 'a', to: 'b' }, { id: 'e3', from: 'b', to: 'end' } ],
+    )
+    const L = layoutGraph(graph, undefined, { swimlanes: true })
+    expect(L.lanes![0].label).toBe(LANE_SEM_RESPONSAVEL)
+    expect(L.lanes![0].atividades).toBe(1)
+
+    const manual = layoutGraph(graph, undefined, { swimlanes: true, laneOrder: ['Solicitante', LANE_SEM_RESPONSAVEL] })
+    expect(manual.lanes![0].label).toBe('Solicitante')
+  })
+
   it('atividade sem executor vai para a raia "Sem responsável"', () => {
     const graph = g(
       [ { id: 'start', type: 'start' }, { id: 'a', type: 'userTask', name: 'A', lane: LANE_SEM_RESPONSAVEL }, { id: 'end', type: 'end' } ],
@@ -292,15 +325,157 @@ describe('raias (swimlanes)', () => {
     }
   })
 
-  it('o desenho abre espaço à esquerda para o rótulo da raia', () => {
-    const L = layoutGraph(fluxo(), undefined, { swimlanes: true })
-    for (const p of Object.values(L.nodes)) expect(p.x).toBeGreaterThanOrEqual(LANE_HEADER_W)
+  /* A faixa de ramificação é um offset GLOBAL e fica esparsa dentro de uma banda.
+     Sem compactar, uma banda com nós nas faixas -3 e +4 virava 8 linhas para 2 cartões
+     — que foi o desenho cheio de vazio que o PO mostrou. */
+  it('a banda usa só as linhas que precisa (faixas esparsas compactam)', () => {
+    /* Fluxo largo: um paralelo abre 4 ramos, e o 1º e o 4º voltam ao MESMO papel.
+       As faixas deles ficam distantes; a banda tem de ter 2 linhas, não 4+. */
+    const graph = g(
+      [
+        { id: 'start', type: 'start' },
+        { id: 'p', type: 'parallelGateway', name: 'Em paralelo' },
+        { id: 'a', type: 'userTask', name: 'A', lane: 'Fulano' },
+        { id: 'b', type: 'userTask', name: 'B', lane: 'Outro 1' },
+        { id: 'c', type: 'userTask', name: 'C', lane: 'Outro 2' },
+        { id: 'd', type: 'userTask', name: 'D', lane: 'Fulano' },
+        { id: 'end', type: 'end' },
+      ],
+      [
+        { id: 'e0', from: 'start', to: 'p' },
+        { id: 'e1', from: 'p', to: 'a' }, { id: 'e2', from: 'p', to: 'b' },
+        { id: 'e3', from: 'p', to: 'c' }, { id: 'e4', from: 'p', to: 'd' },
+        { id: 'e5', from: 'a', to: 'end' }, { id: 'e6', from: 'b', to: 'end' },
+        { id: 'e7', from: 'c', to: 'end' }, { id: 'e8', from: 'd', to: 'end' },
+      ],
+    )
+    const L = layoutGraph(graph, undefined, { swimlanes: true })
+    // A e D estão em faixas de ramificação DISTANTES (extremos do leque)
+    const intervaloCru = Math.abs(L.nodes.a.lane - L.nodes.d.lane) + 1
+    expect(intervaloCru).toBeGreaterThan(2)
+    // a banda não herda esse intervalo — as linhas são empacotadas
+    const banda = L.lanes!.find((x) => x.label === 'Fulano')!
+    const alturaDeUmaLinha = L.nodes.a.h + 22
+    expect(banda.h).toBeLessThan(intervaloCru * alturaDeUmaLinha)
+    // A e D estão na MESMA coluna, então continuam em linhas diferentes (sem sobrepor)
+    expect(L.nodes.a.x).toBeCloseTo(L.nodes.d.x)
+    expect(L.nodes.a.y).not.toBeCloseTo(L.nodes.d.y)
   })
 
-  it('com raias a posição MANUAL é ignorada (o nó tem de ficar na banda dele)', () => {
-    const L = layoutGraph(fluxo(), { aprovar: { x: 999, y: 777 } }, { swimlanes: true })
-    expect(L.nodes.aprovar.x).not.toBe(999)
-    expect(bandaDe(L, 'aprovar')!.label).toBe('Aprovador')
+  /* O que o PO chamou de "justificar": nós do mesmo papel em COLUNAS diferentes não
+     precisam de linhas diferentes — a vertical dentro da banda não significa nada. */
+  it('nós do mesmo papel em colunas diferentes DIVIDEM a linha', () => {
+    const graph = g(
+      [
+        { id: 'start', type: 'start' },
+        { id: 'a', type: 'userTask', name: 'A', lane: 'Solicitante' },
+        { id: 'meio', type: 'userTask', name: 'Meio', lane: 'Outro' },
+        { id: 'z', type: 'userTask', name: 'Z', lane: 'Solicitante' },
+        { id: 'end', type: 'end' },
+      ],
+      [
+        { id: 'e1', from: 'start', to: 'a' },
+        { id: 'e2', from: 'a', to: 'meio' },
+        { id: 'e3', from: 'meio', to: 'z' },
+        { id: 'e4', from: 'z', to: 'end' },
+      ],
+    )
+    const L = layoutGraph(graph, undefined, { swimlanes: true })
+    expect(L.nodes.z.x).toBeGreaterThan(L.nodes.a.x)          // colunas diferentes
+    expect(L.nodes.a.y).toBeCloseTo(L.nodes.z.y)              // mesma linha
+    const banda = L.lanes!.find((b) => b.label === 'Solicitante')!
+    expect(banda.h).toBeLessThan(2 * (L.nodes.a.h + 22))      // uma linha só
+  })
+
+  it('banda só de losangos não herda a altura do cartão mais alto do fluxo', () => {
+    const graph = g(
+      [
+        { id: 'start', type: 'start' },
+        { id: 'grande', type: 'userTask', name: 'a'.repeat(60), lane: 'Solicitante' },
+        { id: 'gw', type: 'exclusiveGateway', name: 'Decide?', lane: 'Comitê' },
+        { id: 'end', type: 'end' },
+      ],
+      [
+        { id: 'e1', from: 'start', to: 'grande' },
+        { id: 'e2', from: 'grande', to: 'gw' },
+        { id: 'e3', from: 'gw', to: 'end' },
+      ],
+    )
+    const L = layoutGraph(graph, undefined, { swimlanes: true })
+    const doCartao = L.lanes!.find((b) => b.label === 'Solicitante')!
+    const doLosango = L.lanes!.find((b) => b.label === 'Comitê')!
+    expect(doLosango.h).toBeLessThan(doCartao.h)
+  })
+
+  describe('ordem escolhida pelo usuário', () => {
+    it('a ordem manual vence a ordem de aparição, e as atividades vão junto', () => {
+      const auto = layoutGraph(fluxo(), undefined, { swimlanes: true })
+      expect(auto.lanes!.map((b) => b.label)).toEqual(['Solicitante', 'Aprovador', 'Sistema'])
+
+      const L = layoutGraph(fluxo(), undefined, { swimlanes: true, laneOrder: ['Sistema', 'Aprovador', 'Solicitante'] })
+      expect(L.lanes!.map((b) => b.label)).toEqual(['Sistema', 'Aprovador', 'Solicitante'])
+      // a atividade do Sistema, que era a última, passou a ficar ACIMA das outras
+      expect(L.nodes.criar.y).toBeLessThan(L.nodes.preencher.y)
+      expect(L.nodes.criar.y).toBeLessThan(L.nodes.aprovar.y)
+      // e cada nó continua dentro da banda do seu papel
+      expect(bandaDe(L, 'criar')!.label).toBe('Sistema')
+      expect(bandaDe(L, 'preencher')!.label).toBe('Solicitante')
+    })
+
+    it('chave que não existe mais é ignorada e raia nova entra no fim', () => {
+      const L = layoutGraph(fluxo(), undefined, {
+        swimlanes: true,
+        laneOrder: ['Papel apagado', 'Sistema', 'Solicitante'], // sem "Aprovador"
+      })
+      // a inexistente some; a que ficou de fora da lista entra depois das escolhidas
+      expect(L.lanes!.map((b) => b.label)).toEqual(['Sistema', 'Solicitante', 'Aprovador'])
+    })
+
+    it('as bandas continuam encostadas depois de reordenar', () => {
+      const L = layoutGraph(fluxo(), undefined, { swimlanes: true, laneOrder: ['Sistema', 'Solicitante', 'Aprovador'] })
+      for (let i = 1; i < L.lanes!.length; i++) {
+        expect(L.lanes![i].y).toBe(L.lanes![i - 1].y + L.lanes![i - 1].h)
+      }
+    })
+  })
+
+  /* A faixa dos rótulos saiu do DESENHO e virou chrome fixo na tela (só assim o nome
+     fica legível em qualquer zoom e não some ao rolar). Logo o layout não reserva mais
+     espaço para ela — o desenho começa na margem, como o canvas livre sempre começou. */
+  it('o desenho não reserva mais espaço para a coluna do rótulo', () => {
+    const comRaia = layoutGraph(fluxo(), undefined, { swimlanes: true })
+    const semRaia = layoutGraph(fluxo())
+    expect(Math.min(...Object.values(comRaia.nodes).map((p) => p.x)))
+      .toBe(Math.min(...Object.values(semRaia.nodes).map((p) => p.x)))
+  })
+
+  /* Arrastar continua valendo com raia — organizar o desenho é legítimo. O que não pode
+     é o cartão sair da faixa dele: pousado na banda de outro papel, o desenho mentiria
+     sobre quem executa, que é justamente o que a raia existe para evitar. */
+  it('com raias o arrasto é LIVRE na horizontal', () => {
+    const L = layoutGraph(fluxo(), { aprovar: { x: 999, y: 0 } }, { swimlanes: true })
+    expect(L.nodes.aprovar.x).toBe(999)
+    expect(L.width).toBeGreaterThan(999) // o desenho cresce para acomodar
+  })
+
+  it('com raias o arrasto é PRESO à banda na vertical', () => {
+    const alvo = layoutGraph(fluxo(), undefined, { swimlanes: true }).lanes!.find((b) => b.label === 'Aprovador')!
+
+    // puxar muito para CIMA (para dentro da banda de outro papel) para no topo da própria
+    const acima = layoutGraph(fluxo(), { aprovar: { x: 300, y: -5000 } }, { swimlanes: true })
+    expect(acima.nodes.aprovar.y).toBeGreaterThanOrEqual(alvo.y)
+    expect(bandaDe(acima, 'aprovar')!.label).toBe('Aprovador')
+
+    // puxar muito para BAIXO para na base da própria banda
+    const abaixo = layoutGraph(fluxo(), { aprovar: { x: 300, y: 5000 } }, { swimlanes: true })
+    const p = abaixo.nodes.aprovar
+    expect(p.y + p.h).toBeLessThanOrEqual(alvo.y + alvo.h)
+    expect(bandaDe(abaixo, 'aprovar')!.label).toBe('Aprovador')
+  })
+
+  it('com raias o nó arrastado para fora não sai pela esquerda do desenho', () => {
+    const L = layoutGraph(fluxo(), { aprovar: { x: -500, y: 0 } }, { swimlanes: true })
+    expect(L.nodes.aprovar.x).toBeGreaterThan(0)
   })
 
   it('fluxo sem nenhuma atividade não quebra: uma banda só', () => {
