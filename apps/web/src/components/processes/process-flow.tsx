@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Save, Zap, Trash2, User, Clock, LayoutTemplate,
   CircleDot, Loader2, UserSquare, AlertTriangle, Building2,
-  Minus, Plus, Maximize2, GripVertical, ChevronUp,
+  Minus, Plus, Maximize2, GripVertical, ChevronUp, Redo2,
   Download, FileImage, FileText, ChevronDown, PanelRightClose, PanelRightOpen,
   X, SlidersHorizontal, Undo2, Check,
 } from 'lucide-react'
@@ -66,6 +66,15 @@ const isActivity = (t: NType) => t === 'userTask' || t === 'serviceTask'
 /** A API recusou uma gravação que apagaria grande parte do desenho (409). Não é falha:
  *  é a guarda pedindo confirmação consciente. Ver `update()` em processes.service. */
 class ReducaoDestrutiva extends Error {}
+
+/** Retrato do DESENHO para desfazer/refazer. */
+interface Retrato {
+  nodes: ENode[]
+  edges: EEdge[]
+  positionsRaia: Record<string, { x: number; y: number }>
+  laneOrder: string[]
+}
+const MAX_HISTORIA = 60
 const rnd = () => Math.random().toString(36).slice(2, 9)
 const nid = (p: string) => `${p}_${rnd()}`
 
@@ -207,6 +216,21 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const [exporting, setExporting] = useState<FlowExportFormat | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
+
+  /* ─── Desfazer / refazer ──────────────────────────────────────────────────────
+     Guarda RETRATOS do desenho (nós, ligações, posições e ordem das raias). Nome,
+     descrição e tipo ficam de fora de propósito: são campos de texto, e o navegador
+     já desfaz digitação neles — capturá-los faria um Ctrl+Z "engolir" uma letra.
+
+     O retrato é tirado por OBSERVAÇÃO do estado, não em cada ponto de mutação: o
+     editor altera o desenho em uma dúzia de lugares, e exigir que cada um lembrasse
+     de registrar seria uma regra que se perde na primeira alteração futura. */
+  const [historia, setHistoria] = useState<Retrato[]>(() => [{
+    nodes: seed.nodes, edges: seed.edges,
+    positionsRaia: initial?.positionsRaia ?? {}, laneOrder: initial?.laneOrder ?? [],
+  }])
+  const [hIndice, setHIndice] = useState(0)
+  const aplicandoHistorico = useRef(false)
 
   const papeis = useLookupTable(PAPEIS_KEY, INIT_PAPEIS)
   const { screens } = useScreens()
@@ -375,6 +399,56 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     setEdges((prev) => prev.map((e) => (e.id === edgeId ? { ...e, ...patch } : e)))
   }, [])
 
+  /* Registra um retrato quando o desenho para de mudar. A espera COALESCE o que é uma
+     ação só aos olhos de quem edita: arrastar um cartão dispara dezenas de atualizações
+     de posição, e sem isso um Ctrl+Z desfaria um pixel do arrasto em vez do arrasto. */
+  useEffect(() => {
+    if (aplicandoHistorico.current) { aplicandoHistorico.current = false; return }
+    const t = setTimeout(() => {
+      const atual = historia[hIndice]
+      if (atual && atual.nodes === nodes && atual.edges === edges
+        && atual.positionsRaia === positionsRaia && atual.laneOrder === laneOrder) return
+      const proximo = [...historia.slice(0, hIndice + 1), { nodes, edges, positionsRaia, laneOrder }] // um passo novo descarta o "refazer"
+      const excedente = Math.max(0, proximo.length - MAX_HISTORIA)
+      setHistoria(excedente ? proximo.slice(excedente) : proximo)
+      setHIndice(proximo.length - 1 - excedente)
+    }, 350)
+    return () => clearTimeout(t)
+  }, [nodes, edges, positionsRaia, laneOrder, historia, hIndice])
+
+  const irPara = useCallback((i: number) => {
+    const r = historia[i]
+    if (!r) return
+    aplicandoHistorico.current = true
+    setNodes(r.nodes); setEdges(r.edges); setPositionsRaia(r.positionsRaia); setLaneOrder(r.laneOrder)
+    setHIndice(i)
+    setSelectedId((cur) => (cur && r.nodes.some((n) => n.id === cur) ? cur : null))
+    setConfigId(null)
+  }, [historia])
+
+  const podeDesfazer = hIndice > 0
+  const podeRefazer = hIndice < historia.length - 1
+  const desfazer = useCallback(() => { if (hIndice > 0) irPara(hIndice - 1) }, [hIndice, irPara])
+  const refazer = useCallback(() => { if (hIndice < historia.length - 1) irPara(hIndice + 1) }, [hIndice, historia.length, irPara])
+
+  /* Ctrl+Z / Ctrl+Y (e Ctrl+Shift+Z, que é o refazer de boa parte dos editores).
+     ⚠️ Fica fora quando o foco está num campo: lá o desfazer é o do NAVEGADOR, e roubá-lo
+     faria o atalho apagar o desenho enquanto a pessoa só queria corrigir uma palavra. */
+  useEffect(() => {
+    const emCampo = (el: EventTarget | null) => {
+      const t = el as HTMLElement | null
+      return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || emCampo(e.target)) return
+      const k = e.key.toLowerCase()
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); desfazer() }
+      else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); refazer() }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [desfazer, refazer])
+
   /* Gravação que apagaria grande parte do desenho: a API recusa com 409 e diz quanto
      seria removido. Guardamos a pergunta aqui e só reenviamos com `confirmarReducao`
      depois que a pessoa disser que é intencional — sem diálogo nativo, que trava a
@@ -513,6 +587,17 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {exportError && <span className="text-[11px] text-destructive font-medium">{exportError}</span>}
+          <div className="flex items-center rounded-md border bg-card shadow-sm mr-1">
+            <button type="button" onClick={desfazer} disabled={!podeDesfazer} title="Desfazer (Ctrl+Z)"
+              className="h-8 w-8 flex items-center justify-center rounded-l-md text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent transition-colors">
+              <Undo2 className="h-4 w-4" />
+            </button>
+            <span className="w-px h-4 bg-border" />
+            <button type="button" onClick={refazer} disabled={!podeRefazer} title="Refazer (Ctrl+Y)"
+              className="h-8 w-8 flex items-center justify-center rounded-r-md text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent transition-colors">
+              <Redo2 className="h-4 w-4" />
+            </button>
+          </div>
           {/* só faz sentido no que já foi salvo: workflow novo ainda não tem histórico */}
           {editing && <ProcessHistoryDrawer processId={initial!.id} />}
           <ExportMenu exporting={exporting} disabled={saving || activating} onExport={handleExport} />
@@ -638,7 +723,10 @@ function LaneHeader({ bandas, largura, scale, scrollTop, arrastando, onStartDrag
     <div className="absolute inset-y-0 left-0 z-20 overflow-hidden"
       style={{ width: largura, background: 'hsl(var(--foreground) / 0.075)', borderRight: '1px solid hsl(var(--foreground) / 0.22)' }}>
       {bandas.map((b, i) => {
-        const top = b.y * scale - scrollTop + 12 // 12 = mesma folga do espaçador do canvas
+        /* `b.y` já é a coordenada do DESENHO (inclui a margem do layout); escalada e
+           descontada a rolagem, ela é a posição na tela. Somar qualquer folga aqui
+           contaria a margem duas vezes e a faixa deslizaria em relação às bandas. */
+        const top = b.y * scale - scrollTop
         const alt = b.h * scale
         const semDono = b.key === LANE_SEM_RESPONSAVEL
         return (
