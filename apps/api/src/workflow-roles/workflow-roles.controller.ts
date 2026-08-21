@@ -1,8 +1,10 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body } from '@nestjs/common'
+import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards } from '@nestjs/common'
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger'
 import { WorkflowRolesService } from './workflow-roles.service'
 import { CreateWorkflowRoleDto, UpdateWorkflowRoleDto } from './dto/workflow-role.dto'
 import { CurrentOrg } from '../auth/current-org.decorator'
+import { Roles } from '../auth/roles.decorator'
+import { RolesGuard } from '../auth/roles.guard'
 
 @ApiTags('workflow-roles')
 @ApiBearerAuth()
@@ -18,18 +20,24 @@ export class WorkflowRolesController {
 
   @Post()
   @ApiOperation({ summary: 'Cria um papel' })
+  @UseGuards(RolesGuard)
+  @Roles('admin')
   create(@Body() dto: CreateWorkflowRoleDto, @CurrentOrg() organizationId: string) {
     return this.service.create(organizationId, dto)
   }
 
   @Patch(':id')
   @ApiOperation({ summary: 'Atualiza um papel (nome/descrição/participantes)' })
+  @UseGuards(RolesGuard)
+  @Roles('admin')
   update(@Param('id') id: string, @Body() dto: UpdateWorkflowRoleDto, @CurrentOrg() organizationId: string) {
     return this.service.update(organizationId, id, dto)
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Remove um papel' })
+  @UseGuards(RolesGuard)
+  @Roles('admin')
   remove(@Param('id') id: string, @CurrentOrg() organizationId: string) {
     return this.service.remove(organizationId, id)
   }

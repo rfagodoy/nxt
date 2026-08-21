@@ -1,8 +1,10 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common'
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger'
 import { ScreensService } from './screens.service'
 import { SaveScreenDto, PutValuesDto, BatchValuesDto } from './dto/screen.dto'
 import { CurrentOrg } from '../auth/current-org.decorator'
+import { Roles } from '../auth/roles.decorator'
+import { RolesGuard } from '../auth/roles.guard'
 import { CurrentUser, CurrentUserData } from '../auth/current-user.decorator'
 
 @ApiTags('screens')
@@ -28,18 +30,24 @@ export class ScreensController {
 
   @Post('screens')
   @ApiOperation({ summary: 'Cria uma Tela' })
+  @UseGuards(RolesGuard)
+  @Roles('admin')
   create(@CurrentOrg() org: string, @Body() dto: SaveScreenDto) {
     return this.service.create(org, dto)
   }
 
   @Put('screens/:id')
   @ApiOperation({ summary: 'Atualiza a Tela (definição completa; upsert por id)' })
+  @UseGuards(RolesGuard)
+  @Roles('admin')
   update(@CurrentOrg() org: string, @Param('id') id: string, @Body() dto: SaveScreenDto) {
     return this.service.update(org, id, dto)
   }
 
   @Delete('screens/:id')
   @ApiOperation({ summary: 'Remove a Tela (valores preenchidos permanecem)' })
+  @UseGuards(RolesGuard)
+  @Roles('admin')
   remove(@CurrentOrg() org: string, @Param('id') id: string) {
     return this.service.remove(org, id)
   }

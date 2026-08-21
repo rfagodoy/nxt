@@ -2,8 +2,9 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSession, logout } from '@/lib/session-context'
+import { filtrarSecoesPorPapel } from '@/lib/nav-visibility'
 import { useTheme } from 'next-themes'
 import {
   LayoutDashboard, GitBranch, PanelLeft, Activity,
@@ -14,13 +15,15 @@ import { Logo } from './logo'
 import { ChangePasswordModal } from './change-password-modal'
 import { NotificationBell } from './notification-bell'
 
-interface NavItem    { href: string; label: string; icon?: React.ElementType }
+interface NavItem    { href: string; label: string; icon?: React.ElementType; adminOnly?: boolean }
 interface NavSection {
   label: string
   items: NavItem[]
   /** Recolhe por padrão. Só para grupos de uso ESPORÁDICO — esconder o que se usa
    *  todo dia troca um clique economizado por um clique cobrado. */
   recolhivel?: boolean
+  /** Só administradores veem (a barreira real é o RolesGuard na API). */
+  adminOnly?: boolean
 }
 
 const sections: NavSection[] = [
@@ -37,7 +40,8 @@ const sections: NavSection[] = [
       { href: '/processos', label: 'Processos', icon: Activity },
       { href: '/modules/contratos',  label: 'Contratos',  icon: FileText },
       { href: '/modules/parceiros',  label: 'Parceiros',  icon: Handshake },
-      { href: '/modules/estrutura',  label: 'Estrutura organizacional', icon: Building2 },
+      // Decisão do PO (2026-08-21): Estrutura organizacional é admin-only.
+      { href: '/modules/estrutura',  label: 'Estrutura organizacional', icon: Building2, adminOnly: true },
       { href: '/modules/relatorios', label: 'Relatórios', icon: FileBarChart },
     ],
   },
@@ -47,6 +51,7 @@ const sections: NavSection[] = [
   {
     label: 'Configurações',
     recolhivel: true,
+    adminOnly: true,
     items: [
       { href: '/settings/usuarios',   label: 'Usuários',     icon: Users     },
       { href: '/processes',           label: 'Workflows',    icon: GitBranch },
@@ -57,6 +62,7 @@ const sections: NavSection[] = [
   {
     label: 'Instalação',
     recolhivel: true,
+    adminOnly: true,
     items: [
       { href: '/settings/calendario', label: 'Calendário',   icon: CalendarDays },
       { href: '/settings/email',      label: 'E-mail',       icon: Mail      },
@@ -75,6 +81,12 @@ const TITULO_SECAO = 'px-2.5 mb-0.5 text-[9px] font-semibold uppercase tracking-
 export function Sidebar() {
   const pathname              = usePathname()
   const { collapsed, toggle } = useSidebar()
+  const { data: session }     = useSession()
+
+  /* Menu filtrado por papel — ver nav-visibility.ts para a regra (e o porquê de a
+     sessão carregando cair na visão de usuário comum). */
+  const role = session?.user.role
+  const secoesVisiveis = useMemo(() => filtrarSecoesPorPapel(sections, role), [role])
 
   const isActive = (href: string) => pathname.startsWith(href)
 
@@ -133,7 +145,7 @@ export function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 p-2 overflow-hidden overflow-y-auto space-y-2">
-        {sections.map((section) => {
+        {secoesVisiveis.map((section) => {
           const aberta = secaoAberta(section)
           return (
           <div key={section.label || '__root'}>
