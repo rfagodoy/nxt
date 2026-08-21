@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Loader2, RefreshCw, AlertTriangle, X, CheckCircle2, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
+import { LoadErrorBlock } from '@/components/list/load-error'
 import { apiJson } from '@/lib/http'
 import { cn } from '@/lib/utils'
 import { useWorkspace } from '@/contexts/workspace-context'
@@ -14,9 +15,13 @@ export default function TarefasPage() {
   const [tasks, setTasks] = useState<Task[] | null>(null)
   const [notice, setNotice] = useState<{ msg: string; tom: 'aviso' | 'sucesso' } | null>(null)
 
+  /* Falha de carga ≠ caixa vazia — sem isto, API fora do ar viraria "Tudo em dia! 🎉",
+     o pior falso-negativo possível numa caixa de trabalho (load-error.tsx). */
+  const [erroCarga, setErroCarga] = useState(false)
   const load = useCallback(async () => {
     const data = await apiJson<Task[]>('/api/instances/tasks')
-    setTasks(data ?? [])
+    if (data) { setTasks(data); setErroCarga(false) }
+    else { setErroCarga(true); setTasks((atual) => atual ?? []) }
   }, [])
   useEffect(() => { load() }, [load])
 
@@ -105,7 +110,9 @@ export default function TarefasPage() {
         <div className="flex items-center justify-center py-16 text-xs text-muted-foreground xl:flex-1"><Loader2 className="h-4 w-4 animate-spin mr-2" /> Carregando…</div>
       ) : tasks.length === 0 ? (
         <div className="rounded-xl border bg-card shadow-sm flex items-center justify-center xl:flex-1 xl:min-h-0">
-          <EmptyState icon={CheckCircle2} tone="success" size="lg" title="Tudo em dia! 🎉" description="Nenhuma tarefa aguardando você." />
+          {erroCarga
+            ? <LoadErrorBlock onRetry={() => void load()} />
+            : <EmptyState icon={CheckCircle2} tone="success" size="lg" title="Tudo em dia! 🎉" description="Nenhuma tarefa aguardando você." />}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 xl:grid-rows-1 gap-3 items-start xl:items-stretch xl:flex-1 xl:min-h-0">

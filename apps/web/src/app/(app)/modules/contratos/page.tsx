@@ -8,6 +8,7 @@ import { StartProcessButton } from '@/components/processes/start-process-button'
 import { useViews, type ViewState } from '@/hooks/use-views'
 import { exportExcel } from '@/lib/export-excel'
 import { ListToolbar } from '@/components/list/list-toolbar'
+import { LoadErrorRow } from '@/components/list/load-error'
 import { TablePagination } from '@/components/ui/table-pagination'
 import { CLIENT_OPERATORS, type FilterRow } from '@/lib/list-filter'
 import { SettingsDrawer } from '@/components/contracts/field-drawer'
@@ -96,6 +97,9 @@ export default function ContratosPage() {
   const [allContratos, setAllContratos] = useState<Row[]>([])
   /* valores custom (Telas) por contrato: subjectId → fieldId → valor bruto */
   const [screenVals, setScreenVals] = useState<Record<string, Record<string, string>>>({})
+  /* Falha de carga ≠ lista vazia — sem isto, API fora do ar viraria "Nenhum contrato
+     cadastrado" (ver components/list/load-error.tsx). */
+  const [erroCarga, setErroCarga] = useState(false)
   const loadContratos = useCallback(async (): Promise<Row[]> => {
     try {
       const res = await apiFetch(`/api/contracts`)
@@ -103,9 +107,11 @@ export default function ContratosPage() {
         const data = await res.json() as { rows: Row[] }
         const rows = data.rows ?? []
         setAllContratos(rows)
+        setErroCarga(false)
         return rows
       }
     } catch {}
+    setErroCarga(true)
     return []
   }, [])
   useEffect(() => { void loadContratos() }, [loadContratos])
@@ -435,9 +441,13 @@ export default function ContratosPage() {
           </thead>
           <tbody>
             {pageRows.length === 0 ? (
+              erroCarga ? (
+                <LoadErrorRow colSpan={orderedColumns.length} onRetry={() => void loadContratos()} />
+              ) : (
               <tr><td colSpan={orderedColumns.length} className="px-3 py-8 text-center text-xs text-muted-foreground">
                 {totalAll === 0 ? 'Nenhum contrato cadastrado.' : 'Nenhum contrato encontrado com os filtros aplicados.'}
               </td></tr>
+              )
             ) : pageRows.map(r => (
               <tr key={r.id} className="group/row border-b last:border-0 hover:bg-muted/30 transition-colors">
                 {orderedColumns.map((col, colIdx) => renderCell(r, col.key, colIdx))}

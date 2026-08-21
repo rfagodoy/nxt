@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Globe, Tag, FileSearch, Coins, CreditCard, TrendingUp, UserCheck, Paperclip, Network, SlidersHorizontal, Scale, Briefcase } from 'lucide-react'
+import { Globe, Tag, FileSearch, Coins, CreditCard, TrendingUp, UserCheck, Paperclip, Network, SlidersHorizontal, Scale, Briefcase, FilePlus2, Wallet } from 'lucide-react'
 
 const TABLES = [
   {
@@ -64,6 +64,23 @@ const TABLES = [
     label:       'Condições de pagamento',
     description: 'Formas e periodicidades de pagamento: à vista, mensal, anual...',
     color:       'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  },
+  /* Os dois abaixo existiam desde sempre, mas só eram linkados pelo hub antigo
+     /settings/contratos — que nenhuma tela referencia. Sem o card aqui, a tabela
+     só era alcançável digitando a URL (achado da auditoria de 2026-08-21). */
+  {
+    href:        '/settings/contratos/formas-pagamento',
+    icon:        Wallet,
+    label:       'Formas de pagamento',
+    description: 'Meios dos lançamentos: PIX, boleto, transferência, cartão...',
+    color:       'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400',
+  },
+  {
+    href:        '/settings/contratos/tipos-aditivo',
+    icon:        FilePlus2,
+    label:       'Tipos de aditivo',
+    description: 'Categorias de termo aditivo: prorrogação, reajuste, escopo, cessão...',
+    color:       'bg-teal-500/10 text-teal-600 dark:text-teal-400',
   },
   {
     href:        '/settings/contratos/indices',

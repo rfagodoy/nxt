@@ -8,6 +8,7 @@ import { useViews, type ViewState } from '@/hooks/use-views'
 import { cacheRead, pushSetting, pullSetting } from '@/lib/settings-store'
 import { exportExcel } from '@/lib/export-excel'
 import { ListToolbar } from '@/components/list/list-toolbar'
+import { LoadErrorRow } from '@/components/list/load-error'
 import { TablePagination } from '@/components/ui/table-pagination'
 import { SERVER_OPERATORS, type FilterRow } from '@/lib/list-filter'
 import { SettingsDrawer } from '@/components/partners/field-drawer'
@@ -130,6 +131,8 @@ export default function ParceirosPage() {
   const [serverTotal,     setServerTotal]     = useState(0)
   const [serverStats,     setServerStats]     = useState({ total: 0, ativo: 0, inativo: 0, emCadastramento: 0 })
   const [serverLoading,   setServerLoading]   = useState(false)
+  /* Falha de carga ≠ lista vazia (ver components/list/load-error.tsx). */
+  const [erroCarga,       setErroCarga]       = useState(false)
   /* valores dos campos custom (Telas) da página corrente: subjectId → fieldId → valor bruto */
   const [screenVals,      setScreenVals]      = useState<Record<string, Record<string, string>>>({})
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -260,8 +263,9 @@ export default function ParceirosPage() {
         setServerRows(data.rows)
         setServerTotal(data.total)
         if (data.stats) setServerStats(data.stats)
-      }
-    } catch {}
+        setErroCarga(false)
+      } else setErroCarga(true)
+    } catch { if (reqId === reqIdRef.current) setErroCarga(true) }
     finally { if (reqId === reqIdRef.current) setServerLoading(false) }
   }, [page, pageSize, debouncedSearch, sort, filters, logic]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -564,6 +568,9 @@ export default function ParceirosPage() {
           </thead>
           <tbody>
             {pageRows.length === 0 ? (
+              erroCarga ? (
+                <LoadErrorRow colSpan={orderedColumns.length} onRetry={() => void queryServer()} />
+              ) : (
               <tr>
                 <td colSpan={orderedColumns.length} className="px-3 py-8 text-center text-xs text-muted-foreground">
                   {(search.trim() || filters.some(f => f.value.trim()))
@@ -571,6 +578,7 @@ export default function ParceirosPage() {
                     : 'Nenhum parceiro cadastrado.'}
                 </td>
               </tr>
+              )
             ) : pageRows.map(p => (
               <tr key={p.id} className="group/row border-b last:border-0 hover:bg-muted/30 transition-colors">
                 {orderedColumns.map((col, colIdx) => renderCell(p, col.key, colIdx))}
