@@ -83,7 +83,7 @@ export function WorkspaceBar() {
       </div>
 
       {/* seta esquerda */}
-      <button type="button" onClick={() => scrollBy('left')}
+      <button type="button" aria-label="Rolar abas para a esquerda" onClick={() => scrollBy('left')}
         className={cn(arrowCls, canL ? 'hover:bg-card hover:text-foreground' : 'opacity-0 pointer-events-none')}>
         <ChevronLeft className="h-4 w-4" />
       </button>
@@ -114,7 +114,7 @@ export function WorkspaceBar() {
               <span className="text-xs font-medium max-w-[160px] truncate">{t.label}</span>
               <span className="relative ml-0.5 flex h-4 w-4 items-center justify-center shrink-0">
                 {isDirty && <span className="absolute h-1.5 w-1.5 rounded-full bg-amber-500 group-hover:opacity-0 transition-opacity" title="Alterações não salvas" />}
-                <button type="button" onClick={e => { e.stopPropagation(); askClose(t.id, e.clientX, e.clientY) }}
+                <button type="button" aria-label="Fechar aba" onClick={e => { e.stopPropagation(); askClose(t.id, e.clientX, e.clientY) }}
                   className="flex h-4 w-4 items-center justify-center rounded opacity-0 group-hover:opacity-100 hover:bg-muted transition-all hover:text-foreground">
                   <X className="h-2.5 w-2.5" />
                 </button>
@@ -125,7 +125,7 @@ export function WorkspaceBar() {
       </div>
 
       {/* seta direita */}
-      <button type="button" onClick={() => scrollBy('right')}
+      <button type="button" aria-label="Rolar abas para a direita" onClick={() => scrollBy('right')}
         className={cn(arrowCls, canR ? 'hover:bg-card hover:text-foreground' : 'opacity-0 pointer-events-none')}>
         <ChevronRight className="h-4 w-4" />
       </button>
