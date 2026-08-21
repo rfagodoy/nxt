@@ -12,22 +12,9 @@
     "brace-expansion). PRODUÇÃO ESTÁ SEM NENHUM HIGH.",
     "A lição vale para a próxima revisão: o item estava marcado como 'sem correção",
     "possível' e a correção existia — só não vinha do mantenedor do exceljs, e sim de",
-    "atualizar o que ELE consome."
+    "atualizar o que ELE consome.",
+    "",
+    "REVISÃO DE 2026-08-21: lista ZERADA. O item uuid saiu — override no package.json (exceljs > uuid ^11.1.1) elimina o advisory na raiz; exceljs provado com smoke de escrita+releitura. Na mesma rodada: deepmerge-ts ^8.0.2 por override (o @prisma/config pinna 7.1.5 vulnerável até no prisma 7 mais novo; CLI provado com migrate status) e refresh de lock puxou nanoid 3.3.18, brace-expansion 5.0.9 e dompurify 3.4.14."
   ],
-  "aceitos": [
-    {
-      "modulo": "uuid",
-      "advisory": "GHSA-w5hq-g745-h8pq",
-      "titulo": "Falta de verificação de limites de buffer em v3/v5/v6 quando `buf` é informado",
-      "severidade": "moderate",
-      "chega_por": "exceljs > uuid",
-      "porque_aceito": [
-        "Só afeta quem chama uuid.v3/v5/v6 passando um buffer de saída próprio. O exceljs usa v4 (aleatório, sem buffer externo), então o caminho vulnerável não é exercitado.",
-        "O `npm audit fix --force` propõe DOWNGRADE do exceljs para 3.4.0 — trocar uma falha teórica por uma biblioteca mais velha e com menos correções.",
-        "Severidade moderate: não bloqueia o portão, que corta em `high`. Fica aqui para não ser esquecido."
-      ],
-      "sai_daqui_quando": "exceljs publicar versão com uuid >= 11.1.1, ou trocarmos a biblioteca de Excel",
-      "revisar_em": "2027-01-31"
-    }
-  ]
+  "aceitos": []
 }
