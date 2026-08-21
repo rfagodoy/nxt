@@ -10,12 +10,12 @@ import { exportExcel } from '@/lib/export-excel'
 import { ListToolbar } from '@/components/list/list-toolbar'
 import { LoadErrorRow } from '@/components/list/load-error'
 import { TablePagination } from '@/components/ui/table-pagination'
-import { CLIENT_OPERATORS, type FilterRow } from '@/lib/list-filter'
+import { SERVER_OPERATORS, type FilterRow } from '@/lib/list-filter'
 import { SettingsDrawer } from '@/components/contracts/field-drawer'
 import { effectiveSituacao } from '@/lib/contract-options'
 import { cacheRead, pushSetting, pullSetting } from '@/lib/settings-store'
 import { useContractFields, useContractDefaultColumns, useContractFieldVisibility, NATIVE_FIELDS, COLUMN_ORDER_RESET_EVENT } from '@/hooks/use-contract-fields'
-import { useScreens, getScreenValuesBatch } from '@/hooks/use-screens'
+import { useScreens } from '@/hooks/use-screens'
 import { pickDefaultScreen } from '@/lib/screen-contract-layout'
 import { formatScreenCellValue } from '@/lib/screen-value-format'
 import type { ScreenField } from '@/lib/screen-types'
@@ -40,28 +40,8 @@ const COL_ORDER_KEY = 'nxt:columns:contratos'
 interface SortState { col: string; dir: 'asc' | 'desc' }
 
 
-function fieldValue(r: Row, key: string): string {
-  if (key === 'valor_total')     return String(r.valor_total)
-  if (key === 'termino')         return r.termino ?? ''
-  /* a coluna "Partes" abrange contratante + contratada (nome e documento) */
-  if (key === 'parte_principal') return [r.parte_principal, r.contratante_nome, r.contratante_doc, r.contratada_nome, r.contratada_doc].filter(Boolean).join(' ')
-  return String(r[key as keyof Row] ?? '')
-}
-
-function applyOp(field: string, op: string, val: string): boolean {
-  const f = field.toLowerCase(), v = val.toLowerCase()
-  switch (op) {
-    case 'eq':         return f === v
-    case 'neq':        return f !== v
-    case 'contains':   return f.includes(v)
-    case 'notContains':return !f.includes(v)
-    case 'startsWith': return f.startsWith(v)
-    case 'endsWith':   return f.endsWith(v)
-    case 'gt':  return f > v; case 'gte': return f >= v
-    case 'lt':  return f < v; case 'lte': return f <= v
-    default:    return true
-  }
-}
+/* fieldValue/applyOp (filtro client-side) MORRERAM aqui: busca/filtro/ordenação agora
+   são server-side — a matriz de comparação vive em apps/api/src/contracts/list-query.ts. */
 
 function stateKey(s: ViewState): string {
   return JSON.stringify({ sort: s.sort, filters: s.filters.filter(f => f.value.trim()), logic: s.logic })
@@ -80,9 +60,9 @@ export default function ContratosPage() {
 
   /* ── campos personalizados das TELAS (Marco 3b — análogo ao de Parceiros) ──
      A tela padrão do Contrato define os campos custom disponíveis como colunas.
-     A chave da coluna é o id do campo (cuid); o valor vem de ScreenFieldValue (em lote).
-     Como a listagem é client-side, os valores mesclados nas linhas já ficam ordenáveis/
-     filtráveis/pesquisáveis por `fieldValue`. Colunas nascem OCULTAS. */
+     A chave da coluna é o id do campo (cuid); filtro/busca/ordenação sobre eles
+     acontecem no SERVIDOR (rótulo resolvido lá); o valor bruto da página vem na
+     resposta da consulta para exibição. Colunas nascem OCULTAS. */
   const { screens: contratoScreens } = useScreens('CONTRATO')
   const defaultScreen = useMemo(() => pickDefaultScreen(contratoScreens), [contratoScreens])
   const screenCustomFields = useMemo<ScreenField[]>(
@@ -94,47 +74,28 @@ export default function ContratosPage() {
     [screenCustomFields, isVisibleInTable],
   )
 
-  const [allContratos, setAllContratos] = useState<Row[]>([])
-  /* valores custom (Telas) por contrato: subjectId → fieldId → valor bruto */
-  const [screenVals, setScreenVals] = useState<Record<string, Record<string, string>>>({})
+  /* ── consulta SERVER-SIDE (auditoria 2026-08-21): a página deixa de baixar a base
+     inteira + valores custom de todos os contratos; busca/filtro/ordenação/paginação
+     acontecem na API (POST /api/contracts/query, espelho do padrão de Parceiros) e o
+     navegador recebe SÓ a página corrente com os valores custom dela. ── */
+  interface ContractStats { total: number; byEffective: Record<string, number> }
+  const [serverRows,  setServerRows]  = useState<Row[]>([])
+  const [serverTotal, setServerTotal] = useState(0)
+  const [serverStats, setServerStats] = useState<ContractStats>({ total: 0, byEffective: {} })
   /* Falha de carga ≠ lista vazia — sem isto, API fora do ar viraria "Nenhum contrato
      cadastrado" (ver components/list/load-error.tsx). */
   const [erroCarga, setErroCarga] = useState(false)
-  const loadContratos = useCallback(async (): Promise<Row[]> => {
-    try {
-      const res = await apiFetch(`/api/contracts`)
-      if (res.ok) {
-        const data = await res.json() as { rows: Row[] }
-        const rows = data.rows ?? []
-        setAllContratos(rows)
-        setErroCarga(false)
-        return rows
-      }
-    } catch {}
-    setErroCarga(true)
-    return []
-  }, [])
-  useEffect(() => { void loadContratos() }, [loadContratos])
-
-  /* busca os valores custom (Telas) de TODOS os contratos, em lote (listagem client-side) */
-  useEffect(() => {
-    const ids = allContratos.map(r => r.id)
-    if (!ids.length || screenCustomFields.length === 0) { setScreenVals({}); return }
-    let cancelled = false
-    void getScreenValuesBatch('CONTRACT', ids).then(rows => {
-      if (cancelled) return
-      const map: Record<string, Record<string, string>> = {}
-      for (const r of rows) (map[r.subjectId] ??= {})[r.fieldId] = r.value
-      setScreenVals(map)
-    })
-    return () => { cancelled = true }
-  }, [allContratos, screenCustomFields])
+  /* valores custom (Telas) da página corrente: subjectId → fieldId → valor bruto */
+  const [screenVals, setScreenVals] = useState<Record<string, Record<string, string>>>({})
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const reqIdRef    = useRef(0)
 
   /* linhas com os valores custom já FORMATADOS sob a chave do campo (id) — assim
      `fieldValue`/`renderCell`/ordenação/filtro/busca funcionam sem tratamento especial */
   const contratos = useMemo<Row[]>(() => {
-    if (screenCustomFields.length === 0) return allContratos
-    return allContratos.map(r => {
+    if (screenCustomFields.length === 0) return serverRows
+    return serverRows.map(r => {
       const vals = screenVals[r.id]
       if (!vals) return r
       const extra: Record<string, string> = {}
@@ -144,7 +105,7 @@ export default function ContratosPage() {
       }
       return { ...r, ...extra } as Row
     })
-  }, [allContratos, screenVals, screenCustomFields])
+  }, [serverRows, screenVals, screenCustomFields])
 
   /* ── column order + drag ── */
   const [columnOrder, setColumnOrder] = useState<string[]>(() => COLUMNS.map(c => c.key))
@@ -213,6 +174,34 @@ export default function ContratosPage() {
   const [pageSize,     setPageSize]     = useState(25)
   const [showFields,   setShowFields]   = useState(false)
 
+  /* ── query server-side (mesmo desenho do módulo Parceiros) ── */
+  const queryServer = useCallback(async () => {
+    const reqId = ++reqIdRef.current
+    try {
+      const res = await apiFetch(`/api/contracts/query`, {
+        method: 'POST',
+        body: JSON.stringify({
+          page,
+          pageSize,
+          search:  debouncedSearch || undefined,
+          sort:    sort ?? undefined,
+          filters: filters.filter(f => f.value.trim()).map(({ col, op, value }) => ({ col, op, value })),
+          logic,
+        }),
+      })
+      if (reqId !== reqIdRef.current) return
+      if (res.ok) {
+        const data = await res.json() as { rows: Row[]; total: number; stats: ContractStats; customValues: Record<string, Record<string, string>> }
+        setServerRows(data.rows)
+        setServerTotal(data.total)
+        setServerStats(data.stats)
+        setScreenVals(data.customValues ?? {})
+        setErroCarga(false)
+      } else setErroCarga(true)
+    } catch { if (reqId === reqIdRef.current) setErroCarga(true) }
+  }, [page, pageSize, debouncedSearch, sort, filters, logic])
+  useEffect(() => { void queryServer() }, [queryServer])
+
   /* ── área de trabalho global (abas no shell, sobrevivem à navegação) ── */
   const ws = useWorkspace()
   const openContract    = (row: Row) => ws.open({ id: `contract:${row.id}`, kind: 'contract', mode: 'detail', label: row.numero, data: row })
@@ -220,12 +209,12 @@ export default function ContratosPage() {
 
   /* recarrega a lista quando um documento é salvo/transicionado na área de trabalho */
   useEffect(() => {
-    const h = () => { void loadContratos() }
+    const h = () => { void queryServer() }
     window.addEventListener('nxt:workspace:refresh', h)
     return () => window.removeEventListener('nxt:workspace:refresh', h)
-  }, [loadContratos])
+  }, [queryServer])
 
-  useEffect(() => { setPage(1) }, [search, filters, sort, logic, pageSize])
+  useEffect(() => { setPage(1) }, [debouncedSearch, filters, sort, logic, pageSize])
 
   const selectView = (id: string | null) => {
     setActiveViewId(id)
@@ -258,6 +247,30 @@ export default function ContratosPage() {
   }
 
   const handleExport = async () => {
+    /* A exportação leva o RECORTE atual inteiro (não só a página): repete a consulta
+       com teto de 10.000 — mesmo desenho do módulo Parceiros. Os valores custom vêm
+       na própria resposta. */
+    let rows: Row[] = []
+    let vals: Record<string, Record<string, string>> = {}
+    try {
+      const res = await apiFetch(`/api/contracts/query`, {
+        method: 'POST',
+        body: JSON.stringify({
+          page: 1,
+          pageSize: 10000,
+          search:  debouncedSearch || undefined,
+          sort:    sort ?? undefined,
+          filters: filters.filter(f => f.value.trim()).map(({ col, op, value }) => ({ col, op, value })),
+          logic,
+        }),
+      })
+      if (!res.ok) return
+      const data = await res.json() as { rows: Row[]; customValues: Record<string, Record<string, string>> }
+      rows = data.rows; vals = data.customValues ?? {}
+    } catch { return }
+    if (!rows.length) return
+    const fieldById = new Map(screenCustomFields.map(f => [f.id, f]))
+
     const exportName = activeViewId ? (views.find(v => v.id === activeViewId)?.name ?? 'Todos') : 'Todos'
     /* A planilha leva EXATAMENTE as colunas visíveis na tela, na ordem escolhida
        (colunas padrão + nativas extras + personalizadas das Telas). */
@@ -266,7 +279,11 @@ export default function ContratosPage() {
       sheet: 'Contratos',
       title: `Exportação — ${exportName}`,
       columns: orderedColumns.map(c => ({ header: c.label })),
-      rows: filteredRows.map(r => orderedColumns.map(c => cellText(r, c.key))),
+      rows: rows.map(r => orderedColumns.map(c => {
+        const f = fieldById.get(c.key)
+        if (f) return formatScreenCellValue(f, vals[r.id]?.[f.id]) ?? ''
+        return cellText(r, c.key)
+      })),
     })
   }
 
@@ -276,21 +293,10 @@ export default function ContratosPage() {
     return stateKey({ sort, filters, logic }) !== stateKey({ sort: v.sort, filters: v.filters, logic: v.logic })
   }, [activeViewId, views, sort, filters, logic])
 
-  const filteredRows = useMemo(() => {
-    let data = [...contratos]
-    const q = search.trim().toLowerCase()
-    if (q) data = data.filter(r => orderedColumns.some(c => fieldValue(r, c.key).toLowerCase().includes(q)))
-    const active = filters.filter(f => f.value.trim())
-    if (active.length) data = data.filter(r => { const res = active.map(f => applyOp(fieldValue(r, f.col), f.op, f.value)); return logic === 'AND' ? res.every(Boolean) : res.some(Boolean) })
-    if (sort) data.sort((a, b) => { const cmp = fieldValue(a, sort.col).localeCompare(fieldValue(b, sort.col), 'pt-BR', { sensitivity: 'base' }); return sort.dir === 'asc' ? cmp : -cmp })
-    return data
-  }, [contratos, search, sort, filters, logic, orderedColumns])
-
-  const totalFiltered      = filteredRows.length
-  const totalPages         = Math.max(1, Math.ceil(totalFiltered / pageSize))
-  const safePage           = Math.min(page, totalPages)
-  const pageRows           = filteredRows.slice((safePage - 1) * pageSize, safePage * pageSize)
-  const totalAll           = allContratos.length
+  /* busca/filtro/ordenação/paginação acontecem na API — `contratos` JÁ É a página. */
+  const pageRows           = contratos
+  const totalFiltered      = serverTotal
+  const totalAll           = serverStats.total
   const activeViewName     = activeViewId ? (views.find(v => v.id === activeViewId)?.name ?? 'Todos') : 'Todos'
 
   function renderCell(row: Row, key: string, colIdx: number) {
@@ -379,13 +385,14 @@ export default function ContratosPage() {
           nenhuma coluna, e a conta simplesmente não batia na tela. */}
       <div className="grid grid-cols-4 lg:grid-cols-7 gap-2">
         {[
-          { label: 'Total',       value: totalAll,                                                          cls: 'text-foreground'  },
-          { label: 'Vigentes',    value: allContratos.filter(r => effectiveSituacao(r.situacao, r.termino) === 'VIGENTE').length,     cls: 'text-emerald-600 dark:text-emerald-400' },
-          { label: 'Em cadastro', value: allContratos.filter(r => effectiveSituacao(r.situacao, r.termino) === 'EM_CADASTRO').length, cls: 'text-blue-600 dark:text-blue-400'       },
-          { label: 'Vencidos',    value: allContratos.filter(r => effectiveSituacao(r.situacao, r.termino) === 'VENCIDO').length,     cls: 'text-amber-600 dark:text-amber-400'     },
-          { label: 'Encerrados',  value: allContratos.filter(r => effectiveSituacao(r.situacao, r.termino) === 'ENCERRADO').length,   cls: 'text-muted-foreground'                  },
-          { label: 'Rescindidos', value: allContratos.filter(r => effectiveSituacao(r.situacao, r.termino) === 'RESCINDIDO').length,  cls: 'text-red-600 dark:text-red-400'         },
-          { label: 'Cancelados',  value: allContratos.filter(r => effectiveSituacao(r.situacao, r.termino) === 'CANCELADO').length,  cls: 'text-muted-foreground'                  },
+          /* Contagem pela situação EFETIVA, agora vinda do servidor (stats.byEffective). */
+          { label: 'Total',       value: totalAll,                                    cls: 'text-foreground'  },
+          { label: 'Vigentes',    value: serverStats.byEffective.VIGENTE ?? 0,        cls: 'text-emerald-600 dark:text-emerald-400' },
+          { label: 'Em cadastro', value: serverStats.byEffective.EM_CADASTRO ?? 0,    cls: 'text-blue-600 dark:text-blue-400'       },
+          { label: 'Vencidos',    value: serverStats.byEffective.VENCIDO ?? 0,        cls: 'text-amber-600 dark:text-amber-400'     },
+          { label: 'Encerrados',  value: serverStats.byEffective.ENCERRADO ?? 0,      cls: 'text-muted-foreground'                  },
+          { label: 'Rescindidos', value: serverStats.byEffective.RESCINDIDO ?? 0,     cls: 'text-red-600 dark:text-red-400'         },
+          { label: 'Cancelados',  value: serverStats.byEffective.CANCELADO ?? 0,      cls: 'text-muted-foreground'                  },
         ].map(({ label, value, cls }) => (
           <div key={label} className="rounded-xl border bg-card px-3 py-2 flex items-center justify-between shadow-sm">
             <p className="text-[11px] text-muted-foreground">{label}</p>
@@ -396,8 +403,12 @@ export default function ContratosPage() {
 
       {/* toolbar */}
       <ListToolbar
-        search={search} onSearch={setSearch}
-        columns={orderedColumns} operators={CLIENT_OPERATORS}
+        search={search} onSearch={(v) => {
+          setSearch(v)
+          clearTimeout(debounceRef.current)
+          debounceRef.current = setTimeout(() => setDebouncedSearch(v), 300)
+        }}
+        columns={orderedColumns} operators={SERVER_OPERATORS}
         filters={filters} onFiltersChange={setFilters}
         logic={logic} onLogicChange={setLogic}
         views={views} activeViewId={activeViewId}
@@ -442,7 +453,7 @@ export default function ContratosPage() {
           <tbody>
             {pageRows.length === 0 ? (
               erroCarga ? (
-                <LoadErrorRow colSpan={orderedColumns.length} onRetry={() => void loadContratos()} />
+                <LoadErrorRow colSpan={orderedColumns.length} onRetry={() => void queryServer()} />
               ) : (
               <tr><td colSpan={orderedColumns.length} className="px-3 py-8 text-center text-xs text-muted-foreground">
                 {totalAll === 0 ? 'Nenhum contrato cadastrado.' : 'Nenhum contrato encontrado com os filtros aplicados.'}
