@@ -41,14 +41,14 @@ export function TablePagination({ page, pageSize, total, onPage, onPageSize, pag
         <span className="text-[11px] text-muted-foreground">{total === 0 ? '0' : `${first}–${last}`} de {total}</span>
       </div>
       <div className="flex items-center gap-0.5">
-        <button onClick={() => onPage(1)} disabled={safePage === 1} className={navBtn}><ChevronsLeft className="h-3.5 w-3.5" /></button>
-        <button onClick={() => onPage(Math.max(1, safePage - 1))} disabled={safePage === 1} className={navBtn}><ChevronLeft className="h-3.5 w-3.5" /></button>
+        <button aria-label="Primeira página" onClick={() => onPage(1)} disabled={safePage === 1} className={navBtn}><ChevronsLeft className="h-3.5 w-3.5" /></button>
+        <button aria-label="Página anterior" onClick={() => onPage(Math.max(1, safePage - 1))} disabled={safePage === 1} className={navBtn}><ChevronLeft className="h-3.5 w-3.5" /></button>
         {pageWindow(safePage, totalPages).map((p, i) =>
           p === '...' ? <span key={`e${i}`} className="flex h-6 w-6 items-center justify-center text-[11px] text-muted-foreground">…</span>
           : <button key={p} onClick={() => onPage(p)} className={cn('flex h-6 w-6 items-center justify-center rounded text-[11px] font-medium transition-colors', safePage === p ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>{p}</button>
         )}
-        <button onClick={() => onPage(Math.min(totalPages, safePage + 1))} disabled={safePage === totalPages} className={navBtn}><ChevronRight className="h-3.5 w-3.5" /></button>
-        <button onClick={() => onPage(totalPages)} disabled={safePage === totalPages} className={navBtn}><ChevronsRight className="h-3.5 w-3.5" /></button>
+        <button aria-label="Próxima página" onClick={() => onPage(Math.min(totalPages, safePage + 1))} disabled={safePage === totalPages} className={navBtn}><ChevronRight className="h-3.5 w-3.5" /></button>
+        <button aria-label="Última página" onClick={() => onPage(totalPages)} disabled={safePage === totalPages} className={navBtn}><ChevronsRight className="h-3.5 w-3.5" /></button>
       </div>
     </div>
   )

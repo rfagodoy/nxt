@@ -33,8 +33,10 @@ const EVENTO: Record<string, string> = {
 const SITUACAO: Record<string, string> = {
   DRAFT: 'Rascunho', ACTIVE: 'Ativo', INACTIVE: 'Inativo', ARCHIVED: 'Arquivado',
 }
+/* Com segundos: numa sessão de edição intensa dois retratos caem no MESMO minuto e
+   ficavam indistinguíveis (auditoria 2026-08-21: 40 cartões idênticos). */
 const quando = (iso: string) =>
-  new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
 export function ProcessHistoryDrawer({ processId }: { processId: string }) {
   const [open, setOpen] = useState(false)
@@ -122,14 +124,30 @@ export function ProcessHistoryDrawer({ processId }: { processId: string }) {
                   <p className="text-[11.5px] text-muted-foreground rounded-md border border-dashed p-3 leading-snug">
                     Ainda não há versões guardadas. A partir de agora, cada alteração e cada ativação deixam um retrato aqui — é dele que se volta atrás.
                   </p>
-                ) : versoes.map((v) => (
+                ) : versoes.map((v, i) => {
+                  /* Delta de atividades vs o retrato ANTERIOR (lista vem em ordem
+                     decrescente): é o que separa o cartão que importa da sequência de
+                     salvamentos iguais — 40 "Antes de uma alteração" idênticos eram
+                     loteria na hora de escolher para onde voltar. */
+                  const anterior = versoes[i + 1]
+                  const delta = anterior ? v.atividades - anterior.atividades : null
+                  return (
                   <div key={v.id} className="rounded-lg border bg-card/60 p-2.5">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="text-xs font-medium leading-tight">{MOTIVO[v.reason] ?? v.reason}</p>
                         <p className="text-[11px] text-muted-foreground mt-0.5">{quando(v.createdAt)}</p>
                       </div>
-                      <span className="text-[10px] font-semibold rounded-full bg-muted px-2 py-0.5 shrink-0">v{v.version}</span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {delta != null && delta !== 0 && (
+                          <span title="Diferença de atividades para o retrato anterior"
+                            className={cn('text-[10px] font-semibold rounded-full px-2 py-0.5',
+                              delta > 0 ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'bg-destructive/10 text-destructive')}>
+                            {delta > 0 ? `+${delta}` : delta} atividade{Math.abs(delta) === 1 ? '' : 's'}
+                          </span>
+                        )}
+                        <span className="text-[10px] font-semibold rounded-full bg-muted px-2 py-0.5">v{v.version}</span>
+                      </div>
                     </div>
                     <div className="flex items-center gap-2 mt-1.5 text-[11px] text-muted-foreground">
                       <span className={cn('font-medium', v.atividades === 0 && 'text-destructive')}>
@@ -160,7 +178,7 @@ export function ProcessHistoryDrawer({ processId }: { processId: string }) {
                       </button>
                     )}
                   </div>
-                ))
+                )})
               ) : auditoria.length === 0 ? (
                 <p className="text-[11.5px] text-muted-foreground rounded-md border border-dashed p-3">Nenhuma alteração registrada ainda.</p>
               ) : auditoria.map((a) => (

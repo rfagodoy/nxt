@@ -264,16 +264,23 @@ function SidebarFooter({ collapsed }: { collapsed: boolean }) {
           {Avatar}<NotificationBell />{ThemeBtn}{PasswordBtn}{LogoutBtn}
         </div>
       ) : (
-        <div className="flex items-center gap-2">
-          {Avatar}
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-medium tracking-tight text-sidebar-foreground">{name}</p>
-            {email && <p className="truncate text-[10px] text-sidebar-muted">{email}</p>}
+        /* Duas linhas: os 4 botões de ícone na MESMA linha do nome deixavam ~24px para
+           ele — "Rafael Godoy" virava "Ra…" (auditoria 2026-08-21). Identidade em cima
+           com a largura toda; ações embaixo. */
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            {Avatar}
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-medium tracking-tight text-sidebar-foreground">{name}</p>
+              {email && <p className="truncate text-[10px] text-sidebar-muted">{email}</p>}
+            </div>
           </div>
-          <NotificationBell />
-          {ThemeBtn}
-          {PasswordBtn}
-          {LogoutBtn}
+          <div className="flex items-center justify-between px-0.5">
+            <NotificationBell />
+            {ThemeBtn}
+            {PasswordBtn}
+            {LogoutBtn}
+          </div>
         </div>
       )}
       {pwOpen && <ChangePasswordModal onClose={() => setPwOpen(false)} />}

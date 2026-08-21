@@ -299,22 +299,31 @@ export class ContractsService {
 
   /** Resolve o número do contrato: no modo AUTO gera pela config e incrementa o contador;
    *  no modo MANUAL (ou sem config) usa o número informado pelo cliente.
-   *  Read-modify-write do contador (concorrência baixa neste ERP interno). */
+   *  O incremento é um CAS pelo `updatedAt` da linha (o @updatedAt muda a cada gravação):
+   *  duas criações simultâneas liam o mesmo `proximo` e saíam com o MESMO número — o
+   *  perdedor da corrida agora relê e pega o seguinte (auditoria 2026-08-21). */
   private async resolveNumero(organizationId: string, provided?: string): Promise<string> {
     const where = { organizationId_userId_key: { organizationId, userId: '', key: CONTRACT_NUMBERING_KEY } }
-    const row = await this.prisma.appSetting.findUnique({ where })
-    const cfg = (row?.value ?? null) as NumberingCfg | null
-    if (!cfg || cfg.modo !== 'AUTO') return (provided ?? '').trim()
+    for (let tentativa = 0; tentativa < 5; tentativa++) {
+      const row = await this.prisma.appSetting.findUnique({ where })
+      const cfg = (row?.value ?? null) as NumberingCfg | null
+      if (!row || !cfg || cfg.modo !== 'AUTO') return (provided ?? '').trim()
 
-    const year = new Date().getFullYear()
-    let seq: number
-    let ano = cfg.ano ?? year
-    if (cfg.incluirAno && cfg.ano !== year) { seq = cfg.inicio ?? 1; ano = year } // reinício anual
-    else seq = cfg.proximo ?? cfg.inicio ?? 1
+      const year = new Date().getFullYear()
+      let seq: number
+      let ano = cfg.ano ?? year
+      if (cfg.incluirAno && cfg.ano !== year) { seq = cfg.inicio ?? 1; ano = year } // reinício anual
+      else seq = cfg.proximo ?? cfg.inicio ?? 1
 
-    const numero = formatNumero(cfg, seq, year)
-    await this.prisma.appSetting.update({ where, data: { value: { ...cfg, proximo: seq + 1, ano } as never } })
-    return numero
+      const numero = formatNumero(cfg, seq, year)
+      const gravado = await this.prisma.appSetting.updateMany({
+        where: { organizationId, userId: '', key: CONTRACT_NUMBERING_KEY, updatedAt: row.updatedAt },
+        data:  { value: { ...cfg, proximo: seq + 1, ano } as never },
+      })
+      if (gravado.count === 1) return numero
+      // outra criação incrementou o contador entre a leitura e a gravação — relê.
+    }
+    throw new ServiceUnavailableException('Não foi possível gerar o número do contrato — tente novamente.')
   }
 
   /* mapas id -> rótulo das tabelas auxiliares, para a auditoria mostrar nomes (não ids) */

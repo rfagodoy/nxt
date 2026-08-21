@@ -93,7 +93,7 @@ export function ListToolbar({
                   <button onClick={() => { onSelectView(v.id); setShowViews(false) }} className={cn('flex flex-1 min-w-0 items-center gap-3 px-3 py-2 text-xs transition-colors', activeViewId === v.id ? 'text-primary font-medium' : 'text-foreground hover:bg-muted')}>
                     <Check className={cn('h-3.5 w-3.5 shrink-0', activeViewId === v.id ? 'opacity-100' : 'opacity-0')} /><span className="truncate">{v.name}</span>
                   </button>
-                  <button onClick={(e) => onDeleteView(e, v.id)} className="mr-2 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 group-hover/item:opacity-100 hover:text-destructive transition-all"><X className="h-3 w-3" /></button>
+                  <button aria-label="Excluir visão" onClick={(e) => onDeleteView(e, v.id)} className="mr-2 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 group-hover/item:opacity-100 hover:text-destructive transition-all"><X className="h-3 w-3" /></button>
                 </div>
               ))}
             </div>
@@ -106,8 +106,8 @@ export function ListToolbar({
               onKeyDown={(e) => { if (e.key === 'Enter') saveNow(); if (e.key === 'Escape') { setSaving(false); setViewName('') } }}
               placeholder="Nome da visão..."
               className="h-7 w-40 rounded-md border border-input bg-background px-2.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
-            <button onClick={saveNow} disabled={!viewName.trim()} className="inline-flex items-center justify-center h-7 w-7 rounded-md bg-primary text-primary-foreground disabled:opacity-40 hover:bg-primary/90 transition-colors"><Check className="h-3.5 w-3.5" /></button>
-            <button onClick={() => { setSaving(false); setViewName('') }} className="inline-flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"><X className="h-3.5 w-3.5" /></button>
+            <button aria-label="Salvar visão" onClick={saveNow} disabled={!viewName.trim()} className="inline-flex items-center justify-center h-7 w-7 rounded-md bg-primary text-primary-foreground disabled:opacity-40 hover:bg-primary/90 transition-colors"><Check className="h-3.5 w-3.5" /></button>
+            <button aria-label="Cancelar" onClick={() => { setSaving(false); setViewName('') }} className="inline-flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"><X className="h-3.5 w-3.5" /></button>
           </div>
         ) : (
           <button onClick={() => { setSaving(true); setShowViews(false) }}
@@ -150,7 +150,7 @@ export function ListToolbar({
                 </select>
                 <input value={f.value} onChange={(e) => updateFilter(f.id, 'value', e.target.value)} placeholder="Valor..."
                   className="h-7 flex-1 rounded-md border border-input bg-background px-2.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
-                <button onClick={() => removeFilter(f.id)} className="text-muted-foreground hover:text-destructive transition-colors"><X className="h-3.5 w-3.5" /></button>
+                <button aria-label="Remover condição" onClick={() => removeFilter(f.id)} className="text-muted-foreground hover:text-destructive transition-colors"><X className="h-3.5 w-3.5" /></button>
               </div>
             ))}
           </div>
