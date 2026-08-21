@@ -27,6 +27,7 @@ import { layoutGraph, titleLineCount, LABEL_W, LANE_SEM_RESPONSAVEL, type FlowNo
 import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, type ExportEdge } from '@/lib/flow-export'
 import { apiFetch } from '@/lib/http'
 import { ProcessHistoryDrawer } from './process-history-drawer'
+import { NoticeDialog } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
 
 /** Preferência de painel recolhido (por usuário desta máquina). */
@@ -454,6 +455,10 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
      depois que a pessoa disser que é intencional — sem diálogo nativo, que trava a
      janela e destoa do resto do sistema. */
   const [reducao, setReducao] = useState<{ msg: string; acao: 'rascunho' | 'ativar' } | null>(null)
+  /* Dialog do DS no lugar do alert() nativo (auditoria 2026-08-21). `aoFechar` cobre o
+     caso em que o alert bloqueante segurava um router.push — aqui a navegação só
+     acontece quando a pessoa fecha o aviso, senão o dialog morreria junto da tela. */
+  const [aviso, setAviso] = useState<{ msg: string; aoFechar?: () => void } | null>(null)
 
   const persist = useCallback(async (confirmarReducao?: boolean): Promise<string> => {
     const bpmnXml = generateBpmn(buildWfGraph(nodes, edges))
@@ -488,33 +493,37 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   }, [editing, initial, name, description, kind, nodes, edges, positionsRaia, laneOrder])
 
   const handleSaveDraft = useCallback(async (confirmarReducao?: boolean) => {
-    if (!name.trim()) { alert('Dê um nome ao workflow antes de salvar.'); return }
+    if (!name.trim()) { setAviso({ msg: 'Dê um nome ao workflow antes de salvar.' }); return }
     setSaving(true)
     try { const id = await persist(confirmarReducao); setReducao(null); router.push(`/processes/${id}/edit`) }
     catch (err) {
       if (err instanceof ReducaoDestrutiva) { setReducao({ msg: err.message, acao: 'rascunho' }); return }
-      alert('Não foi possível salvar o workflow.'); console.error(err)
+      setAviso({ msg: 'Não foi possível salvar o workflow.' }); console.error(err)
     }
     finally { setSaving(false) }
   }, [name, persist, router])
 
   const handleActivate = useCallback(async (confirmarReducao?: boolean) => {
-    if (!name.trim()) { alert('Dê um nome ao workflow antes de ativar.'); return }
+    if (!name.trim()) { setAviso({ msg: 'Dê um nome ao workflow antes de ativar.' }); return }
     // O tipo decide em que tela o workflow aparece no "Novo processo" — sem ele, o
     // workflow ficaria ativo e invisível para quem trabalha em Contratos/Parceiros.
     // (O backend também recusa; aqui o aviso chega antes de salvar.)
-    if (!kind) { alert('Escolha o tipo do workflow (contrato, aditivo ou parceiro) antes de ativar.'); return }
-    if (activityCount === 0) { alert('Adicione ao menos uma atividade antes de ativar.'); return }
+    if (!kind) { setAviso({ msg: 'Escolha o tipo do workflow (contrato, aditivo ou parceiro) antes de ativar.' }); return }
+    if (activityCount === 0) { setAviso({ msg: 'Adicione ao menos uma atividade antes de ativar.' }); return }
     setActivating(true)
     try {
       const id = await persist(confirmarReducao)
       setReducao(null)
       const res = await apiFetch(`/api/processes/${id}/activate`, { method: 'PATCH' })
-      if (!res.ok) { const e = await res.json().catch(() => null); alert(e?.message || 'Não foi possível ativar o workflow.'); router.push(`/processes/${id}`); return }
+      if (!res.ok) {
+        const e = await res.json().catch(() => null)
+        setAviso({ msg: e?.message || 'Não foi possível ativar o workflow.', aoFechar: () => router.push(`/processes/${id}`) })
+        return
+      }
       router.push(`/processes/${id}`)
     } catch (err) {
       if (err instanceof ReducaoDestrutiva) { setReducao({ msg: err.message, acao: 'ativar' }); return }
-      alert('Não foi possível ativar o workflow.'); console.error(err)
+      setAviso({ msg: 'Não foi possível ativar o workflow.' }); console.error(err)
     }
     finally { setActivating(false) }
   }, [name, kind, activityCount, persist, router])
@@ -623,6 +632,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
           </div>
         </div>
       )}
+
+      <NoticeDialog open={!!aviso} message={aviso?.msg}
+        onClose={() => { const depois = aviso?.aoFechar; setAviso(null); depois?.() }} />
 
       {/* Canvas + Inspetor */}
       <div className="flex flex-1 overflow-hidden">

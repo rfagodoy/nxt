@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { ConfirmDialog, NoticeDialog } from '@/components/ui/confirm-dialog'
 import {
   Building2, Plus, Pencil, Trash2, X, ChevronRight, ChevronDown,
   Network, Search, Phone, MapPin, CreditCard, Users, UserCog,
@@ -475,10 +476,14 @@ function OrgChart({ companyId, onChanged }: { companyId: string; onChanged: () =
     return () => window.removeEventListener('nxt:workspace:refresh', h)
   }, [refresh])
 
-  const removeUnit = async (u: Unit) => {
-    if (!confirm(`Remover a unidade "${u.nome}" e todas as subunidades?`)) return
-    const ok = await api(`/api/org-units/${u.id}`, { method: 'DELETE' })
-    if (!ok) { alert('Não foi possível remover a unidade.'); return }
+  /* Dialogs do DS no lugar de confirm()/alert() nativos (auditoria 2026-08-21). */
+  const [removendo, setRemovendo] = useState<Unit | null>(null)
+  const [aviso, setAviso] = useState<string | null>(null)
+  const removeUnit = (u: Unit) => setRemovendo(u)
+  const confirmarRemocao = async () => {
+    if (!removendo) return
+    const ok = await api(`/api/org-units/${removendo.id}`, { method: 'DELETE' })
+    if (!ok) { setAviso('Não foi possível remover a unidade.'); return }
     await refresh()
   }
 
@@ -546,6 +551,11 @@ function OrgChart({ companyId, onChanged }: { companyId: string; onChanged: () =
         <MoveUnitModal unit={moving} typeMap={typeMap} onClose={() => setMoving(null)}
           onDone={() => { setMoving(null); void refresh() }} />
       )}
+
+      <ConfirmDialog open={!!removendo} tone="danger" title="Remover unidade" confirmLabel="Remover"
+        description={<>Remover a unidade <b>“{removendo?.nome}”</b> e <b>todas as subunidades</b>? Esta ação não pode ser desfeita.</>}
+        onConfirm={confirmarRemocao} onClose={() => setRemovendo(null)} />
+      <NoticeDialog open={!!aviso} message={aviso} onClose={() => setAviso(null)} />
     </div>
   )
 }
@@ -589,10 +599,14 @@ export default function EmpresasPage() {
     await loadCompanies()
     return true
   }
-  const removeCompany = async (c: Company) => {
-    if (!confirm(`Remover a empresa "${c.razaoSocial}" e todas as suas unidades?`)) return
-    const ok = await api(`/api/group-companies/${c.id}`, { method: 'DELETE' })
-    if (!ok) { alert('Não foi possível remover a empresa.'); return }
+  /* Dialogs do DS no lugar de confirm()/alert() nativos (auditoria 2026-08-21). */
+  const [removendoEmpresa, setRemovendoEmpresa] = useState<Company | null>(null)
+  const [avisoEmpresa, setAvisoEmpresa] = useState<string | null>(null)
+  const removeCompany = (c: Company) => setRemovendoEmpresa(c)
+  const confirmarRemocaoEmpresa = async () => {
+    if (!removendoEmpresa) return
+    const ok = await api(`/api/group-companies/${removendoEmpresa.id}`, { method: 'DELETE' })
+    if (!ok) { setAvisoEmpresa('Não foi possível remover a empresa.'); return }
     await loadCompanies()
   }
 
@@ -657,6 +671,11 @@ export default function EmpresasPage() {
       </div>
 
       {companyModal && <CompanyModal editId={companyModal.initial?.id} initial={companyModal.initial} onSave={saveCompany} onClose={() => setCompanyModal(null)} />}
+
+      <ConfirmDialog open={!!removendoEmpresa} tone="danger" title="Remover empresa" confirmLabel="Remover"
+        description={<>Remover a empresa <b>“{removendoEmpresa?.razaoSocial}”</b> e <b>todas as suas unidades</b>? Esta ação não pode ser desfeita.</>}
+        onConfirm={confirmarRemocaoEmpresa} onClose={() => setRemovendoEmpresa(null)} />
+      <NoticeDialog open={!!avisoEmpresa} message={avisoEmpresa} onClose={() => setAvisoEmpresa(null)} />
     </div>
   )
 }
