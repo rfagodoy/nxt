@@ -13,6 +13,7 @@ import { useWorkspace } from '@/contexts/workspace-context'
 import { exportExcel } from '@/lib/export-excel'
 import { TablePagination } from '@/components/ui/table-pagination'
 import { ListToolbar } from '@/components/list/list-toolbar'
+import { LoadErrorRow } from '@/components/list/load-error'
 import { type FilterRow, matchOp, norm } from '@/lib/list-filter'
 import { STATUS, fmt, humanDuration, pontualidadeLabel, type Inst } from '@/lib/processos-ui'
 
@@ -110,9 +111,13 @@ export default function ProcessosPage() {
   const configRef = useRef<HTMLDivElement>(null)
   const mounted = useRef(false)
 
+  /* Falha de carga ≠ lista vazia (ver components/list/load-error.tsx). Num refresh
+     que falha, as linhas já carregadas ficam de pé — dado velho é melhor que sumiço. */
+  const [erroCarga, setErroCarga] = useState(false)
   const load = useCallback(async () => {
     const insts = await apiJson<Inst[]>('/api/instances')
-    setRows(insts ?? [])
+    if (insts) { setRows(insts); setErroCarga(false) }
+    else { setErroCarga(true); setRows((atual) => atual ?? []) }
   }, [])
   useEffect(() => { load() }, [load])
 
@@ -286,9 +291,13 @@ export default function ProcessosPage() {
               {rows === null ? (
                 <tr><td colSpan={visibleCols.length} className="px-3 py-10 text-center text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin inline mr-2" />Carregando…</td></tr>
               ) : pageRows.length === 0 ? (
+                erroCarga ? (
+                  <LoadErrorRow colSpan={visibleCols.length} onRetry={() => void load()} />
+                ) : (
                 <tr><td colSpan={visibleCols.length} className="px-3 py-8 text-center text-xs text-muted-foreground">
                   {all.length === 0 ? 'Nenhum processo iniciado.' : 'Nenhum processo encontrado com os filtros aplicados.'}
                 </td></tr>
+                )
               ) : pageRows.map((i) => (
                 <tr key={i.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => openDetail(i)}>
                   {visibleCols.map((col) => (
