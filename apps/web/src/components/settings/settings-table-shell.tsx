@@ -2,7 +2,6 @@
 
 import { useState, useEffect, type ElementType, type ReactNode } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
 import { ChevronLeft, Search, FileDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -46,9 +45,10 @@ export function SettingsTableShell({
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
 
-  const pathname = usePathname()
-  // Destino do "voltar" = hub pai (um nível acima na URL).
-  const backHref = pathname.split('/').slice(0, -1).join('/') || '/settings'
+  /* Destino do "voltar": o hub ÚNICO de Tabelas. Era "um nível acima na URL", mas as
+     telas de /settings/contratos/* têm como pai o hub antigo, removido em 2026-08-21 —
+     a derivação mandaria para um 404. Todas as tabelas de apoio pertencem ao mesmo hub. */
+  const backHref = '/settings/tabelas'
 
   return (
     <div className="max-w-4xl mx-auto space-y-3">
