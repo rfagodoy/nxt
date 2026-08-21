@@ -14,6 +14,7 @@ import { exportExcel } from '@/lib/export-excel'
 import { TablePagination } from '@/components/ui/table-pagination'
 import { ListToolbar } from '@/components/list/list-toolbar'
 import { type FilterRow, matchOp, norm } from '@/lib/list-filter'
+import { ConfirmDialog, NoticeDialog } from '@/components/ui/confirm-dialog'
 
 interface ProcessRow {
   id: string
@@ -100,11 +101,16 @@ export default function WorkflowsPage() {
     document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h)
   }, [])
 
+  /* Dialogs do DS no lugar de confirm()/alert() nativos (auditoria 2026-08-21).
+     `aviso.tom` distingue erro de informação (ex.: "foi arquivado"). */
+  const [aviso, setAviso] = useState<{ msg: string; tom?: 'error' | 'info' } | null>(null)
+  const [excluindo, setExcluindo] = useState<ProcessRow | null>(null)
+
   const activate = async (id: string) => {
     setBusy(id)
     try {
       const res = await apiFetch(`/api/processes/${id}/activate`, { method: 'PATCH' })
-      if (!res.ok) { const err = await res.json().catch(() => null); alert(err?.message || 'Não foi possível ativar o workflow.'); return }
+      if (!res.ok) { const err = await res.json().catch(() => null); setAviso({ msg: err?.message || 'Não foi possível ativar o workflow.' }); return }
       await load()
     } finally { setBusy(null) }
   }
@@ -113,18 +119,19 @@ export default function WorkflowsPage() {
     setBusy(id)
     try {
       const res = await apiFetch(`/api/processes/${id}/${action}`, { method: 'PATCH' })
-      if (!res.ok) { const err = await res.json().catch(() => null); alert(err?.message || 'Operação não permitida.'); return }
+      if (!res.ok) { const err = await res.json().catch(() => null); setAviso({ msg: err?.message || 'Operação não permitida.' }); return }
       await load()
     } finally { setBusy(null) }
   }
-  const remove = async (p: ProcessRow) => {
-    if (!confirm(`Excluir o workflow "${p.name}"? Se houver execuções, ele será apenas arquivado (o histórico é preservado).`)) return
-    setBusy(p.id)
+  const remove = (p: ProcessRow) => setExcluindo(p)
+  const confirmarExclusao = async () => {
+    if (!excluindo) return
+    setBusy(excluindo.id)
     try {
-      const res = await apiFetch(`/api/processes/${p.id}`, { method: 'DELETE' })
+      const res = await apiFetch(`/api/processes/${excluindo.id}`, { method: 'DELETE' })
       const body = await res.json().catch(() => null)
-      if (!res.ok) { alert(body?.message || 'Não foi possível excluir o workflow.'); return }
-      if (body?.action === 'archived') alert('Este workflow tem histórico de execuções, então foi ARQUIVADO (não excluído) — as instâncias e a auditoria foram preservadas.')
+      if (!res.ok) { setAviso({ msg: body?.message || 'Não foi possível excluir o workflow.' }); return }
+      if (body?.action === 'archived') setAviso({ tom: 'info', msg: 'Este workflow tem histórico de execuções, então foi ARQUIVADO (não excluído) — as instâncias e a auditoria foram preservadas.' })
       await load()
     } finally { setBusy(null) }
   }
@@ -312,6 +319,11 @@ export default function WorkflowsPage() {
         </div>
         <TablePagination page={page} pageSize={pageSize} total={sorted.length} onPage={setPage} onPageSize={setPageSize} />
       </div>
+
+      <ConfirmDialog open={!!excluindo} tone="danger" title="Excluir workflow" confirmLabel="Excluir"
+        description={<>Excluir o workflow <b>“{excluindo?.name}”</b>? Se houver execuções, ele será apenas <b>arquivado</b> — o histórico é preservado.</>}
+        onConfirm={confirmarExclusao} onClose={() => setExcluindo(null)} />
+      <NoticeDialog open={!!aviso} tone={aviso?.tom ?? 'error'} message={aviso?.msg} onClose={() => setAviso(null)} />
     </div>
   )
 }

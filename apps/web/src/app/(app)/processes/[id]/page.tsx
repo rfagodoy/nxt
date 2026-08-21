@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { apiFetch, apiJson } from '@/lib/http'
 import { InstanceRunner } from '@/components/processes/instance-runner'
+import { NoticeDialog } from '@/components/ui/confirm-dialog'
 import type { ProcessFormSchema } from '@nxt/types'
 
 interface Process {
@@ -45,13 +46,15 @@ export default function ProcessRunPage() {
     if (proc?.status === 'ACTIVE' && search.get('iniciar') === '1') setRunning(true)
   }, [proc?.status, search])
 
+  /* Dialog do DS no lugar do alert() nativo (auditoria 2026-08-21). */
+  const [aviso, setAviso] = useState<string | null>(null)
   const activate = async () => {
     setBusy(true)
     try {
       const res = await apiFetch(`/api/processes/${id}/activate`, { method: 'PATCH' })
       if (!res.ok) {
         const e = await res.json().catch(() => null)
-        alert(e?.message || 'Não foi possível ativar o workflow.')
+        setAviso(e?.message || 'Não foi possível ativar o workflow.')
         return
       }
       await load()
@@ -149,6 +152,8 @@ export default function ProcessRunPage() {
           )}
         </div>
       )}
+
+      <NoticeDialog open={!!aviso} message={aviso} onClose={() => setAviso(null)} />
     </div>
   )
 }
