@@ -1,9 +1,11 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, Query } from '@nestjs/common'
+import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards } from '@nestjs/common'
 import { ApiTags, ApiOperation, ApiQuery, ApiBearerAuth } from '@nestjs/swagger'
 import { OrgUnitsService } from './org-units.service'
 import { CreateOrgUnitDto } from './dto/create-org-unit.dto'
 import { UpdateOrgUnitDto } from './dto/update-org-unit.dto'
 import { CurrentOrg } from '../auth/current-org.decorator'
+import { Roles } from '../auth/roles.decorator'
+import { RolesGuard } from '../auth/roles.guard'
 
 @ApiTags('org-units')
 @ApiBearerAuth()
@@ -13,6 +15,8 @@ export class OrgUnitsController {
 
   @Post()
   @ApiOperation({ summary: 'Cria uma unidade organizacional' })
+  @UseGuards(RolesGuard)
+  @Roles('admin')
   create(@Body() dto: CreateOrgUnitDto, @CurrentOrg() organizationId: string) {
     return this.service.create(dto, organizationId)
   }
@@ -52,12 +56,16 @@ export class OrgUnitsController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Atualiza unidade organizacional' })
+  @UseGuards(RolesGuard)
+  @Roles('admin')
   update(@Param('id') id: string, @Body() dto: UpdateOrgUnitDto, @CurrentOrg() organizationId: string) {
     return this.service.update(id, dto, organizationId)
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Remove unidade organizacional (e suas filhas)' })
+  @UseGuards(RolesGuard)
+  @Roles('admin')
   remove(@Param('id') id: string, @CurrentOrg() organizationId: string) {
     return this.service.remove(id, organizationId)
   }

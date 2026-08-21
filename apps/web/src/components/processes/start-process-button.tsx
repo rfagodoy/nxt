@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Plus, GitBranch, Loader2, X, Play } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiJson } from '@/lib/http'
+import { useSession } from '@/lib/session-context'
 import { EmptyState } from '@/components/ui/empty-state'
 
 interface ProcRow {
@@ -27,6 +28,8 @@ export function StartProcessButton({ variant = 'outline', className, kinds }: {
   kinds?: string[]
 }) {
   const router = useRouter()
+  // O CTA "Criar workflow" leva a uma tela de admin — usuário comum vê só a explicação.
+  const isAdmin = useSession().data?.user.role === 'admin'
   const [open, setOpen] = useState(false)
   const [procs, setProcs] = useState<ProcRow[] | null>(null)
 
@@ -73,13 +76,16 @@ export function StartProcessButton({ variant = 'outline', className, kinds }: {
                   <Loader2 className="h-4 w-4 animate-spin mr-2" /> Carregando…
                 </div>
               ) : procs.length === 0 ? (
-                <EmptyState icon={GitBranch} size="sm" title="Nenhum processo ativo" description="Crie e ative um workflow em Configurações › Workflows."
-                  action={
+                <EmptyState icon={GitBranch} size="sm" title="Nenhum processo ativo"
+                  description={isAdmin
+                    ? 'Crie e ative um workflow em Configurações › Workflows.'
+                    : 'Peça a um administrador para criar e ativar um workflow.'}
+                  action={isAdmin ? (
                     <button onClick={() => { setOpen(false); router.push('/processes/new') }}
                       className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
                       <Plus className="h-3.5 w-3.5" /> Criar workflow
                     </button>
-                  } />
+                  ) : undefined} />
               ) : (
                 <ul className="divide-y">
                   {procs.map((p) => (
