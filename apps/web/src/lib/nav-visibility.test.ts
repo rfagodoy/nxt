@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { filtrarSecoesPorPapel } from './nav-visibility'
 
-const menu = [
+/* Tipo explícito: o literal heterogêneo (uns itens com adminOnly, outros sem) cai na
+   checagem de "weak type" do TS contra NavVisibilityItem (só props opcionais). */
+interface ItemTeste { href: string; adminOnly?: boolean }
+interface SecaoTeste { label: string; adminOnly?: boolean; items: ItemTeste[] }
+
+const menu: SecaoTeste[] = [
   { label: '', items: [{ href: '/dashboard' }] },
   {
     label: 'Gestão',
@@ -32,7 +37,7 @@ describe('filtrarSecoesPorPapel', () => {
   })
 
   it('seção que ficar sem itens some inteira', () => {
-    const soAdmin = [{ label: 'X', items: [{ href: '/a', adminOnly: true }] }]
+    const soAdmin: SecaoTeste[] = [{ label: 'X', items: [{ href: '/a', adminOnly: true }] }]
     expect(filtrarSecoesPorPapel(soAdmin, 'user')).toEqual([])
   })
 })
