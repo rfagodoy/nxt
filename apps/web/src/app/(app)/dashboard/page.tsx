@@ -228,6 +228,7 @@ export default function DashboardPage() {
             tipo="barras"
             total={c?.total ?? 0}
             onClick={() => router.push('/modules/contratos')}
+            ctaVazio={{ rotulo: 'Cadastrar contrato', acao: () => ws.open({ id: 'contract:new', kind: 'contract', mode: 'new', label: 'Novo contrato' }) }}
             fatias={[
               { nome: 'Vigentes',    valor: c?.byStatus.VIGENTE ?? 0,     cor: 'hsl(154 70% 40%)' },
               { nome: 'Vencidos',    valor: c?.byStatus.VENCIDO ?? 0,     cor: 'hsl(38 92% 50%)'  },
@@ -244,6 +245,7 @@ export default function DashboardPage() {
             label="Parceiros"
             total={p?.total ?? 0}
             onClick={() => router.push('/modules/parceiros')}
+            ctaVazio={{ rotulo: 'Cadastrar parceiro', acao: () => ws.open({ id: 'partner:new', kind: 'partner', mode: 'new', label: 'Novo parceiro' }) }}
             fatias={[
               { nome: 'Ativos',        valor: p?.byStatus.ATIVO ?? 0,             cor: 'hsl(154 70% 40%)' },
               { nome: 'Em cadastro',   valor: p?.byStatus.EM_CADASTRAMENTO ?? 0,  cor: 'hsl(210 90% 55%)' },
@@ -282,7 +284,7 @@ interface Fatia { nome: string; valor: number; cor: string }
  *  Fatia zerada é OMITIDA do gráfico e da legenda: uma situação sem nenhum registro
  *  não é informação, é ruído — e com seis situações possíveis a legenda ficaria mais
  *  alta que o próprio gráfico. */
-function Composicao({ icon, label, hint, total, fatias, onClick, tipo = 'rosca' }: {
+function Composicao({ icon, label, hint, total, fatias, onClick, tipo = 'rosca', ctaVazio }: {
   icon: React.ReactNode; label: string; total: number; fatias: Fatia[]
   /** Explica no hover uma diferença que o número sozinho não conta (ex.: por que o
    *  Total daqui não bate com o da listagem). */
@@ -291,6 +293,8 @@ function Composicao({ icon, label, hint, total, fatias, onClick, tipo = 'rosca' 
   /** Rosca para POUCAS categorias (parte/todo); barras quando são muitas — com seis
    *  fatias a rosca vira um mosaico de lascas que ninguém consegue comparar. */
   tipo?: 'rosca' | 'barras'
+  /** Primeiro passo quando o card está zerado (ex.: "Cadastrar contrato"). */
+  ctaVazio?: { rotulo: string; acao: () => void }
 }) {
   const visiveis = fatias.filter((f) => f.valor > 0)
   const soma = visiveis.reduce((acc, f) => acc + f.valor, 0)
@@ -310,9 +314,17 @@ function Composicao({ icon, label, hint, total, fatias, onClick, tipo = 'rosca' 
       </div>
 
       {soma === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-1 py-2 text-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-1.5 py-2 text-center">
           <p className="text-3xl font-bold leading-none tabular-nums text-muted-foreground/40">0</p>
           <p className="text-[11px] text-muted-foreground">Nenhum registro ainda.</p>
+          {/* O vazio aponta o primeiro passo — o card inteiro navega para a LISTA;
+             este botão vai direto ao FORMULÁRIO (por isso o stopPropagation). */}
+          {ctaVazio && (
+            <button type="button" onClick={(e) => { e.stopPropagation(); ctaVazio.acao() }}
+              className="mt-1 inline-flex items-center gap-1 rounded-md border border-primary/40 px-2.5 py-1 text-[11px] font-medium text-primary hover:bg-primary/10 transition-colors">
+              <Plus className="h-3 w-3" />{ctaVazio.rotulo}
+            </button>
+          )}
         </div>
       ) : tipo === 'rosca' ? (
         <div className="flex flex-1 flex-col gap-2 lg:min-h-0">

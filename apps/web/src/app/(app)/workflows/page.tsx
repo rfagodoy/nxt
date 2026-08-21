@@ -44,7 +44,7 @@ const COLS: Col[] = [
     key: 'processo', label: 'Workflow', text: (p) => p.name, sortVal: (p) => norm(p.name),
     node: (p) => (
       <>
-        <Link href={`/processes/${p.id}/edit`} className="font-medium hover:underline">{p.name}</Link>
+        <Link href={`/workflows/${p.id}/edit`} className="font-medium hover:underline">{p.name}</Link>
         {p.description && <p className="text-[11px] text-muted-foreground truncate max-w-md">{p.description}</p>}
       </>
     ),
@@ -219,7 +219,7 @@ export default function WorkflowsPage() {
         </div>
         <div className="flex items-center gap-2">
           <Link
-            href="/processes/instancias"
+            href="/workflows/instancias"
             className={cn('inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors',
               errCount > 0 ? 'border-red-300 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300' : 'hover:bg-muted')}
             title="Painel de instâncias com erro"
@@ -228,7 +228,7 @@ export default function WorkflowsPage() {
             {errCount > 0 && <span className="ml-0.5 inline-flex items-center justify-center rounded-full bg-red-600 px-1.5 text-[10px] font-semibold text-white min-w-[16px]">{errCount}</span>}
           </Link>
           <Button variant="outline" size="sm" onClick={load} title="Recarregar"><RefreshCw className="h-3.5 w-3.5" /></Button>
-          <Link href="/processes/new" className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
+          <Link href="/workflows/new" className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
             <Plus className="h-3.5 w-3.5" />Novo workflow
           </Link>
         </div>
@@ -304,7 +304,7 @@ export default function WorkflowsPage() {
                           <Power className="h-3.5 w-3.5" />Reativar
                         </button>
                       )}
-                      <Link href={`/processes/${p.id}/edit`} className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs hover:bg-muted transition-colors" title="Abrir no editor">
+                      <Link href={`/workflows/${p.id}/edit`} className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs hover:bg-muted transition-colors" title="Abrir no editor">
                         <Pencil className="h-3.5 w-3.5" />Editar
                       </Link>
                       <button onClick={() => remove(p)} disabled={busy === p.id} className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50" title="Excluir (ou arquivar se houver execuções)">
