@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger'
 import { ContractsService } from './contracts.service'
 import { CreateContractDto } from './dto/create-contract.dto'
 import { UpdateContractDto } from './dto/update-contract.dto'
+import { QueryContractsDto } from './dto/query-contracts.dto'
 import { CurrentOrg } from '../auth/current-org.decorator'
 import { CurrentUser, CurrentUserData } from '../auth/current-user.decorator'
 
@@ -22,6 +23,13 @@ export class ContractsController {
   @ApiOperation({ summary: 'Lista contratos da organização' })
   findAll(@CurrentOrg() organizationId: string) {
     return this.contractsService.findAll(organizationId)
+  }
+
+  /* Rota literal ANTES de ':id' para não ser capturada como um id. */
+  @Post('query')
+  @ApiOperation({ summary: 'Consulta paginada da listagem (busca/filtros/ordenação server-side)' })
+  query(@Body() dto: QueryContractsDto, @CurrentOrg() organizationId: string) {
+    return this.contractsService.query(dto, organizationId)
   }
 
   /* Import de valores mensais de índice do Banco Central (série SGS). Rota literal ANTES

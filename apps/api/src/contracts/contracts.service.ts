@@ -9,6 +9,9 @@ import { StorageService } from '../files/storage.service'
 import { collectAttachmentKeys } from '../files/attachment-keys'
 import { CreateContractDto } from './dto/create-contract.dto'
 import { UpdateContractDto } from './dto/update-contract.dto'
+import { QueryContractsDto } from './dto/query-contracts.dto'
+import { applyQuery, computeStats, type ListRow } from './list-query'
+import type { CustomFieldMeta } from '../partners/custom-field-query'
 
 /* ─── Numeração automática de contratos (Parâmetros gerais) ───────────────────
    Config em AppSetting (org-level, userId=''). Formatação ESPELHADA no front
@@ -375,6 +378,12 @@ export class ContractsService {
   }
 
   async findAll(organizationId: string) {
+    return { rows: await this.loadDerivedRows(organizationId) }
+  }
+
+  /** Todas as linhas da org já DERIVADAS (aditivos aplicados, partes/rótulos ao vivo) —
+   *  base do findAll e da consulta paginada. */
+  private async loadDerivedRows(organizationId: string): Promise<ListRow[]> {
     const data = await this.prisma.contract.findMany({
       where:   { organizationId },
       orderBy: { createdAt: 'desc' },
@@ -395,7 +404,57 @@ export class ContractsService {
       for (const p of (c.partes as Array<Record<string, string>>) ?? []) p.papel = live(papeisMap, p.papel)
     }
 
-    return { rows: data.map(c => toRow(c as ContractRecord)) }
+    return data.map(c => toRow(c as ContractRecord)) as ListRow[]
+  }
+
+  /** Campos personalizados da tela padrão de CONTRATO: id → tipo/opções (rótulos). */
+  private async loadContractCustomFields(organizationId: string): Promise<Map<string, CustomFieldMeta>> {
+    const fields = await this.prisma.screenField.findMany({
+      where:  { source: 'CUSTOM', screen: { organizationId, subjectType: 'CONTRATO' } },
+      select: { id: true, type: true, options: true },
+    })
+    return new Map(fields.map((f) => [f.id, {
+      type:    f.type,
+      options: (f.options as unknown as { value: string; label: string }[] | null) ?? [],
+    } as CustomFieldMeta]))
+  }
+
+  /** Consulta PAGINADA da listagem (ver list-query.ts para o porquê de derivar em
+   *  memória). Devolve só a página + os valores custom DELA (o front deixou de baixar
+   *  a base inteira e o lote de valores de todos os contratos). */
+  async query(dto: QueryContractsDto, organizationId: string) {
+    const page     = Math.max(1, dto.page ?? 1)
+    const pageSize = Math.min(Math.max(1, dto.pageSize ?? 25), 10000)
+
+    const [rows, customMeta, valores] = await Promise.all([
+      this.loadDerivedRows(organizationId),
+      this.loadContractCustomFields(organizationId),
+      this.prisma.screenFieldValue.findMany({
+        where:  { organizationId, subjectType: 'CONTRACT' },
+        select: { subjectId: true, fieldId: true, value: true },
+      }),
+    ])
+    const customValues = new Map<string, Map<string, string>>()
+    for (const v of valores) {
+      if (!customValues.has(v.subjectId)) customValues.set(v.subjectId, new Map())
+      customValues.get(v.subjectId)!.set(v.fieldId, v.value ?? '')
+    }
+
+    const stats = computeStats(rows) // tiles contam a ORG inteira, não o recorte
+    const filtered = applyQuery(rows, {
+      search: dto.search, filters: dto.filters, logic: dto.logic, sort: dto.sort ?? null,
+      customMeta, customValues,
+    })
+    const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize)
+
+    /* Valores custom BRUTOS só da página — o front formata para exibir, como antes. */
+    const pageValues: Record<string, Record<string, string>> = {}
+    for (const r of pageRows) {
+      const vals = customValues.get(r.id)
+      if (vals?.size) pageValues[r.id] = Object.fromEntries(vals)
+    }
+
+    return { rows: pageRows, total: filtered.length, stats, customValues: pageValues }
   }
 
   async findOne(id: string, organizationId: string) {
