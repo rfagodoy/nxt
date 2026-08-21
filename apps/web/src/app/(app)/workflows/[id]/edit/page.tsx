@@ -40,7 +40,7 @@ export default function EditProcessPage() {
   if (initial === null) {
     return (
       <div className="space-y-3">
-        <Link href="/processes" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+        <Link href="/workflows" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-3.5 w-3.5" /> Workflows
         </Link>
         <p className="text-sm">Processo não encontrado.</p>

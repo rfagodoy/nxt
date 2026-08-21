@@ -53,6 +53,12 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }]
   },
+  /* /processes → /workflows (2026-08-21): a rota em inglês diferia de /processos (a
+     LISTA de execuções, pt) por UMA letra — receita de abrir a tela errada. O nome novo
+     casa com o rótulo do menu ("Workflows"). Permanentes: favoritos antigos seguem. */
+  async redirects() {
+    return [{ source: '/processes/:path*', destination: '/workflows/:path*', permanent: true }]
+  },
 }
 
 export default nextConfig

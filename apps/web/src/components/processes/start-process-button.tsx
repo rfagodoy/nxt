@@ -17,7 +17,7 @@ interface ProcRow {
 }
 
 /** Botão "+ Novo processo" (iniciar uma execução). Abre um modal com os workflows
- *  ATIVOS; escolher um leva ao runner (`/processes/[id]?iniciar=1`). Reutilizável no
+ *  ATIVOS; escolher um leva ao runner (`/workflows/[id]?iniciar=1`). Reutilizável no
  *  Dashboard, Contratos e Parceiros. `variant='hero'` casa com o card escuro do topo.
  *  `kinds` filtra por tipo de workflow: Contratos passa ['CONTRATO','ADITIVO']; sem
  *  `kinds` (Dashboard) mostra TODOS. Workflows sem tipo só aparecem no Dashboard.
@@ -42,7 +42,7 @@ export function StartProcessButton({ variant = 'outline', className, kinds }: {
       ))
     }
   }
-  const start = (id: string) => { setOpen(false); router.push(`/processes/${id}?iniciar=1`) }
+  const start = (id: string) => { setOpen(false); router.push(`/workflows/${id}?iniciar=1`) }
 
   const triggerCls = variant === 'hero'
     ? 'inline-flex items-center gap-1.5 rounded-md bg-white/15 px-3 py-1.5 text-xs font-medium text-white ring-1 ring-inset ring-white/25 hover:bg-white/25 transition-colors'
@@ -81,7 +81,7 @@ export function StartProcessButton({ variant = 'outline', className, kinds }: {
                     ? 'Crie e ative um workflow em Configurações › Workflows.'
                     : 'Peça a um administrador para criar e ativar um workflow.'}
                   action={isAdmin ? (
-                    <button onClick={() => { setOpen(false); router.push('/processes/new') }}
+                    <button onClick={() => { setOpen(false); router.push('/workflows/new') }}
                       className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
                       <Plus className="h-3.5 w-3.5" /> Criar workflow
                     </button>

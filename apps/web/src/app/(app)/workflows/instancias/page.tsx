@@ -67,7 +67,7 @@ export default function InstanciasErroPage() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <Link href="/processes" className="text-muted-foreground hover:text-foreground transition-colors" title="Voltar aos processos">
+            <Link href="/workflows" className="text-muted-foreground hover:text-foreground transition-colors" title="Voltar aos processos">
               <ArrowLeft className="h-4 w-4" />
             </Link>
             <h1 className="text-base font-semibold tracking-tight">Instâncias com erro</h1>

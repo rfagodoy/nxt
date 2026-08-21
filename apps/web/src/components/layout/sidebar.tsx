@@ -54,7 +54,7 @@ const sections: NavSection[] = [
     adminOnly: true,
     items: [
       { href: '/settings/usuarios',   label: 'Usuários',     icon: Users     },
-      { href: '/processes',           label: 'Workflows',    icon: GitBranch },
+      { href: '/workflows',           label: 'Workflows',    icon: GitBranch },
       { href: '/settings/telas',      label: 'Telas',        icon: LayoutTemplate },
       { href: '/settings/tabelas',    label: 'Tabelas',      icon: Table2    },
     ],

@@ -73,7 +73,7 @@ export default function ProcessRunPage() {
   if (proc === null) {
     return (
       <div className="space-y-3">
-        <Link href="/processes" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+        <Link href="/workflows" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-3.5 w-3.5" /> Workflows
         </Link>
         <p className="text-sm">Workflow não encontrado.</p>
@@ -83,7 +83,7 @@ export default function ProcessRunPage() {
 
   return (
     <div className="space-y-4 max-w-3xl">
-      <Link href="/processes" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+      <Link href="/workflows" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
         <ArrowLeft className="h-3.5 w-3.5" /> Workflows
       </Link>
 
@@ -107,7 +107,7 @@ export default function ProcessRunPage() {
           )}
           {!running && (
             <Link
-              href={`/processes/${id}/edit`}
+              href={`/workflows/${id}/edit`}
               className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs hover:bg-muted transition-colors"
             >
               <Pencil className="h-3.5 w-3.5" /> Editar
@@ -128,7 +128,7 @@ export default function ProcessRunPage() {
           formSchema={proc.formSchema}
           onClose={() => {
             setRunning(false)
-            router.replace(`/processes/${id}`)
+            router.replace(`/workflows/${id}`)
           }}
         />
       ) : (

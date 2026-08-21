@@ -495,7 +495,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const handleSaveDraft = useCallback(async (confirmarReducao?: boolean) => {
     if (!name.trim()) { setAviso({ msg: 'Dê um nome ao workflow antes de salvar.' }); return }
     setSaving(true)
-    try { const id = await persist(confirmarReducao); setReducao(null); router.push(`/processes/${id}/edit`) }
+    try { const id = await persist(confirmarReducao); setReducao(null); router.push(`/workflows/${id}/edit`) }
     catch (err) {
       if (err instanceof ReducaoDestrutiva) { setReducao({ msg: err.message, acao: 'rascunho' }); return }
       setAviso({ msg: 'Não foi possível salvar o workflow.' }); console.error(err)
@@ -517,10 +517,10 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       const res = await apiFetch(`/api/processes/${id}/activate`, { method: 'PATCH' })
       if (!res.ok) {
         const e = await res.json().catch(() => null)
-        setAviso({ msg: e?.message || 'Não foi possível ativar o workflow.', aoFechar: () => router.push(`/processes/${id}`) })
+        setAviso({ msg: e?.message || 'Não foi possível ativar o workflow.', aoFechar: () => router.push(`/workflows/${id}`) })
         return
       }
-      router.push(`/processes/${id}`)
+      router.push(`/workflows/${id}`)
     } catch (err) {
       if (err instanceof ReducaoDestrutiva) { setReducao({ msg: err.message, acao: 'ativar' }); return }
       setAviso({ msg: 'Não foi possível ativar o workflow.' }); console.error(err)
@@ -590,7 +590,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     <div className="flex flex-col h-full -m-6">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b bg-card shrink-0">
-        <Button variant="ghost" size="icon" onClick={() => router.push('/processes')} className="h-8 w-8"><ArrowLeft className="h-4 w-4" /></Button>
+        <Button variant="ghost" size="icon" onClick={() => router.push('/workflows')} className="h-8 w-8"><ArrowLeft className="h-4 w-4" /></Button>
         <div className="flex-1 min-w-0">
           <Input className="h-8 text-sm font-semibold border-0 shadow-none px-0 focus-visible:ring-0 bg-transparent" placeholder="Nome do workflow..." value={name} onChange={(e) => setName(e.target.value)} />
         </div>
