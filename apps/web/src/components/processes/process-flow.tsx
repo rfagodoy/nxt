@@ -13,7 +13,7 @@ import { createPortal } from 'react-dom'
 import { generateBpmn, compileBpmn, type WfGraph, type WfNode, type WfEdge } from '@nxt/workflow-core'
 import type { StepFormSchema, ProcessFormSchema, EdgeConditionSpec, EdgeConditionRule } from '@nxt/types'
 import { CONNECTORS, findConnector, isRetiredConnector, isCompensable } from '@nxt/types'
-import { camposDisponiveis, gerarExpressao, rotuloDaCondicao, montarVarsSimulacao, decidirSaida, OPS_POR_TIPO, type CampoDisponivel } from '@/lib/flow-conditions'
+import { camposDisponiveis, gerarExpressao, rotuloDaCondicao, montarVarsSimulacao, decidirSaida, saidaTemFiltro, derivarCasoContrario, OPS_POR_TIPO, type CampoDisponivel } from '@/lib/flow-conditions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -1971,7 +1971,7 @@ function GatewayInspector({ node, nodes, edges, onPatchNode, onConfigure, onRemo
             </dl>
             {!temPadrao && outs.length > 1 && (
               <p className="text-[11px] rounded-md border border-amber-300 dark:border-amber-900 bg-amber-500/10 text-amber-700 dark:text-amber-400 px-2 py-1.5 leading-snug">
-                Falta a saída “caso contrário” — a ativação vai recusar.
+                Nenhum caminho ficou como “caso contrário” — deixe exatamente um sem filtros.
               </p>
             )}
             <Button size="sm" className="w-full" onClick={onConfigure}><SlidersHorizontal className="h-3.5 w-3.5" />Configurar decisão</Button>
@@ -2002,12 +2002,20 @@ function DecisionConfigModal({ node, nodes, edges, screens, onPatchNode, onSetEd
   onClose: () => void
 }) {
   const outs = edges.filter((e) => e.from === node.id)
-  const temPadrao = outs.some((e) => e.isDefault)
   const campos = useMemo(() => camposDisponiveis(nodes, edges, node.id, screens), [nodes, edges, node.id, screens])
   const nomeDestino = (e: EEdge) => {
     const d = nodes.find((n) => n.id === e.to)
     return d?.step?.stepName || d?.name || (d?.type === 'end' ? 'Fim' : 'próxima etapa')
   }
+
+  /* "Caso contrário" DERIVADO (decisão do PO): o caminho sem filtros é o padrão —
+     não há botão. Idempotente, então o efeito converge em uma rodada. */
+  const chaveDerivacao = outs.map((e) => `${e.id}|${e.condition ?? ''}|${JSON.stringify(e.conditionSpec ?? null)}|${e.isDefault ? 1 : 0}`).join('·')
+  useEffect(() => {
+    for (const patch of derivarCasoContrario(outs)) onSetEdge(patch.id, { isDefault: patch.isDefault })
+  }, [chaveDerivacao]) // eslint-disable-line react-hooks/exhaustive-deps
+  const vazias = outs.filter((e) => !saidaTemFiltro(e))
+  const algumaComFiltro = outs.some((e) => saidaTemFiltro(e))
 
   /* retrato para o Cancelar (mesma semântica do modal de atividade) */
   const original = useRef<{ name: string; edges: Array<Pick<EEdge, 'id' | 'condition' | 'conditionSpec' | 'isDefault' | 'label'>> }>({
@@ -2083,12 +2091,17 @@ function DecisionConfigModal({ node, nodes, edges, screens, onPatchNode, onSetEd
           </Field>
 
           <p className="text-[11.5px] text-muted-foreground leading-snug">
-            Para cada caminho, diga <span className="font-medium">quando</span> ele é escolhido. Um deles é o
-            <span className="font-medium"> caso contrário</span> — usado quando nenhuma condição casa.
+            Monte os filtros de cada caminho. O caminho que ficar <span className="font-medium">sem filtros</span> vira
+            o <span className="font-medium">caso contrário</span> — é por ele que o processo segue quando nenhum filtro casa.
           </p>
-          {!temPadrao && outs.length > 1 && (
+          {outs.length > 1 && vazias.length === 0 && (
             <p className="text-[11.5px] rounded-md border border-amber-300 dark:border-amber-900 bg-amber-500/10 text-amber-700 dark:text-amber-400 px-2.5 py-1.5 leading-snug">
-              Nenhuma saída está marcada como “caso contrário” — a ativação vai recusar. Marque uma abaixo.
+              Todos os caminhos têm filtros — deixe <span className="font-semibold">um</span> sem filtros para ser o caso contrário, senão a ativação recusa.
+            </p>
+          )}
+          {outs.length > 1 && vazias.length > 1 && algumaComFiltro && (
+            <p className="text-[11.5px] rounded-md border border-amber-300 dark:border-amber-900 bg-amber-500/10 text-amber-700 dark:text-amber-400 px-2.5 py-1.5 leading-snug">
+              {vazias.length} caminhos sem filtros — deixe apenas <span className="font-semibold">um</span> assim (o caso contrário) e monte filtros nos demais.
             </p>
           )}
 
@@ -2145,12 +2158,16 @@ function DecisionConfigModal({ node, nodes, edges, screens, onPatchNode, onSetEd
               acesa && 'border-primary ring-1 ring-primary/40 bg-primary/5',
               apagada && 'opacity-40')}>
               {e.isDefault ? (
-                <div className="flex items-center gap-2.5 flex-wrap">
-                  <span className="text-[11px] font-extrabold tracking-widest text-muted-foreground">SENÃO</span>
-                  <span className="text-[13px] font-semibold truncate">{nomeDestino(e)}</span>
-                  <Badge variant="outline" className="text-[10px] shrink-0 border-dashed">caso contrário</Badge>
-                  {acesa && <span className="text-[11px] font-bold text-primary shrink-0">✓ é por aqui</span>}
-                </div>
+                <>
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <span className="text-[11px] font-extrabold tracking-widest text-muted-foreground">SENÃO</span>
+                    <span className="text-[13px] font-semibold truncate">{nomeDestino(e)}</span>
+                    <Badge variant="outline" className="text-[10px] shrink-0 border-dashed">caso contrário</Badge>
+                    {acesa && <span className="text-[11px] font-bold text-primary shrink-0">✓ é por aqui</span>}
+                  </div>
+                  <p className="text-[10.5px] text-muted-foreground leading-snug">Este caminho ficou sem filtros — para ele deixar de ser o “caso contrário”, monte um filtro aqui e esvazie outro.</p>
+                  <CondBuilder edge={e} campos={campos} onSet={(patch) => onSetEdge(e.id, patch)} />
+                </>
               ) : (
                 <>
                   <div className="flex items-start gap-2.5">
@@ -2163,10 +2180,6 @@ function DecisionConfigModal({ node, nodes, edges, screens, onPatchNode, onSetEd
                     <span className="text-[11px] font-extrabold tracking-widest text-violet-600 dark:text-violet-400">SEGUE PARA</span>
                     <span className="text-[13px] font-semibold truncate">{nomeDestino(e)}</span>
                     {acesa && <span className="text-[11px] font-bold text-primary shrink-0">✓ é por aqui</span>}
-                    <button className="ml-auto text-[11px] text-muted-foreground hover:text-foreground shrink-0"
-                      onClick={() => { outs.forEach((o) => onSetEdge(o.id, { isDefault: false })); onSetEdge(e.id, { isDefault: true, condition: '', conditionSpec: undefined, label: e.label || 'Caso contrário' }) }}>
-                      tornar “caso contrário”
-                    </button>
                   </div>
                 </>
               )}
@@ -2193,8 +2206,6 @@ function CondBuilder({ edge, campos, onSet }: {
   edge: EEdge; campos: CampoDisponivel[]; onSet: (patch: Partial<EEdge>) => void
 }) {
   const spec = edge.conditionSpec ?? null
-  /* condição legada digitada à mão (sem spec) abre direto no modo avançado */
-  const [avancado, setAvancado] = useState(!spec && !!edge.condition?.trim())
 
   const campoDe = (k: string) => campos.find((c) => c.key === k)
   const tipoDe = (k: string): CampoDisponivel['tipo'] => campoDe(k)?.tipo ?? 'texto'
@@ -2220,20 +2231,15 @@ function CondBuilder({ edge, campos, onSet }: {
   const setRule = (i: number, r: EdgeConditionRule) => aplicar({ logic, rules: rules.map((x, j) => (j === i ? r : x)) })
   const dropRule = (i: number) => aplicar({ logic, rules: rules.filter((_, j) => j !== i) })
 
-  if (avancado) {
-    return (
-      <div className="space-y-1">
-        <Input className="h-8 text-xs font-mono" placeholder="ex.: contrato.valorTotal > 100000" value={edge.condition ?? ''}
-          onChange={(ev) => onSet({ condition: ev.target.value, conditionSpec: undefined })} />
-        <button className="text-[11px] text-primary hover:underline" onClick={() => { setAvancado(false); aplicar({ logic: 'AND', rules: [{ campo: '', op: 'eq', valor: '' }] }) }}>
-          usar o construtor (descarta a expressão digitada)
-        </button>
-      </div>
-    )
-  }
-
   return (
     <div className="space-y-1.5">
+      {/* Expressão antiga (digitada no modo avançado, que foi removido a pedido do PO):
+          mostrada como aviso; o primeiro filtro montado a substitui. */}
+      {!spec && !!edge.condition?.trim() && (
+        <p className="text-[10.5px] text-muted-foreground leading-snug rounded-md border border-dashed px-2.5 py-1.5">
+          Expressão antiga: <span className="font-mono">{edge.condition}</span> — montar filtros abaixo a substitui.
+        </p>
+      )}
       {campos.length === 0 ? (
         <p className="text-[11px] text-muted-foreground leading-snug rounded-md border border-dashed px-2.5 py-2">
           Nenhum campo disponível ainda: as condições testam o que as atividades <span className="font-medium">anteriores</span> capturam.
@@ -2290,7 +2296,6 @@ function CondBuilder({ edge, campos, onSet }: {
               ))}
             </div>
           )}
-          <button className="ml-auto text-[11px] text-muted-foreground hover:text-foreground" onClick={() => setAvancado(true)}>modo avançado</button>
         </div>
       )}
     </div>
