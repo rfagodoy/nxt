@@ -34,6 +34,7 @@ function formatNumero(cfg: NumberingCfg, seq: number, year: number): string {
 type ContractRecord = {
   id: string; numero: string; titulo: string; tipo: string
   situacao: string; inicioVigencia: string | null; terminoVigencia: string | null
+  maoDeObra?: boolean | null; maoDeObraLocal?: string | null
   dataAssinatura: string | null; moeda: string; valorTotal: number; valorParcela: number | null
   condicaoPagamento: string | null
   objeto: unknown
@@ -60,6 +61,7 @@ function toRow(c: ContractRecord) {
     documento:          p0.documento ?? '',
     papel:              p0.papel ?? '',
     data_assinatura:    c.dataAssinatura ?? '',
+    mao_de_obra:        c.maoDeObra == null ? '' : (c.maoDeObra ? 'Sim' : 'Não'),
     moeda:              c.moeda ?? '',
     valor_parcela:      c.valorParcela ?? 0,
     condicao_pagamento: c.condicaoPagamento ?? '',
@@ -97,6 +99,8 @@ const aMesAno = (x: unknown): string => {
 }
 const SIT_LABEL: Record<string, string> = { EM_CADASTRO: 'Em cadastro/revisão', VIGENTE: 'Vigente', ENCERRADO: 'Encerrado', RESCINDIDO: 'Rescindido', CANCELADO: 'Cancelado', PENDENTE: 'Em cadastro/revisão', ATIVO: 'Vigente' }
 const NAT_LABEL: Record<string, string> = { DESPESA: 'Despesa', RECEITA: 'Receita', AMBOS: 'Ambos' }
+const aSimNao = (x: unknown): string => (x == null || x === '' ? '' : x ? 'Sim' : 'Não')
+const MDO_LOCAL_LABEL: Record<string, string> = { CONTRATADA: 'Instalações da contratada', CONTRATANTE: 'Instalações da contratante', TERCEIRO: 'Instalações de terceiro' }
 const ACAO_LABEL: Record<string, string> = { MANUAL: 'Definir manualmente', RENOVAR: 'Renovar automaticamente', ENCERRAR: 'Encerrar automaticamente' }
 
 function diffContract(o: CRec, n: CRec, maps: Maps): AuditChange[] {
@@ -109,6 +113,8 @@ function diffContract(o: CRec, n: CRec, maps: Maps): AuditChange[] {
   push('titulo', 'Título', aVal(o.titulo), aVal(n.titulo))
   push('descricao', 'Descrição', aVal(o.descricao), aVal(n.descricao))
   push('natureza', 'Natureza', NAT_LABEL[aVal(o.natureza)] ?? aVal(o.natureza), NAT_LABEL[aVal(n.natureza)] ?? aVal(n.natureza))
+  push('maoDeObra', 'Mão de obra alocada', aSimNao(o.maoDeObra), aSimNao(n.maoDeObra))
+  push('maoDeObraLocal', 'Onde a equipe trabalha', MDO_LOCAL_LABEL[aVal(o.maoDeObraLocal)] ?? aVal(o.maoDeObraLocal), MDO_LOCAL_LABEL[aVal(n.maoDeObraLocal)] ?? aVal(n.maoDeObraLocal))
   push('tipo', 'Tipo de contrato', aLbl(maps.tipo, aVal(o.tipo)), aLbl(maps.tipo, aVal(n.tipo)))
   push('inicioVigencia', 'Início da vigência', aDate(o.inicioVigencia), aDate(n.inicioVigencia))
   push('terminoVigencia', 'Término da vigência', aDate(o.terminoVigencia), aDate(n.terminoVigencia))

@@ -63,6 +63,9 @@ export const CAMPOS_NATIVOS_CONTRATO: CampoDisponivel[] = [
     options: [{ value: 'DESPESA', label: 'Despesa' }, { value: 'RECEITA', label: 'Receita' }, { value: 'AMBOS', label: 'Ambos' }] },
   { key: 'contrato.moeda',             label: 'Moeda',                tipo: 'texto',    origem: 'Contrato' },
   { key: 'contrato.prazoIndeterminado', label: 'Prazo indeterminado', tipo: 'booleano', origem: 'Contrato' },
+  { key: 'contrato.maoDeObra',         label: 'Mão de obra alocada',  tipo: 'booleano', origem: 'Contrato' },
+  { key: 'contrato.maoDeObraLocal',    label: 'Onde a equipe trabalha', tipo: 'selecao', origem: 'Contrato',
+    options: [{ value: 'CONTRATADA', label: 'Instalações da contratada' }, { value: 'CONTRATANTE', label: 'Instalações da contratante' }, { value: 'TERCEIRO', label: 'Instalações de terceiro' }] },
   { key: 'contrato.inicioVigencia',    label: 'Início da vigência',   tipo: 'data',     origem: 'Contrato' },
   { key: 'contrato.terminoVigencia',   label: 'Término da vigência',  tipo: 'data',     origem: 'Contrato' },
 ]

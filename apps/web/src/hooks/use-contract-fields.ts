@@ -154,6 +154,7 @@ export const NATIVE_FIELDS: NativeField[] = [
   { key: 'documento',          label: 'CNPJ / CPF / Código'   },
   { key: 'papel',              label: 'Papel da parte'        },
   { key: 'data_assinatura',    label: 'Data de assinatura'    },
+  { key: 'mao_de_obra',        label: 'Mão de obra alocada'   },
   { key: 'moeda',              label: 'Moeda'                 },
   { key: 'valor_parcela',      label: 'Valor da parcela'      },
   { key: 'condicao_pagamento', label: 'Condição de pagamento' },

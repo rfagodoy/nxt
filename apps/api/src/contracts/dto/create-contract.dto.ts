@@ -19,6 +19,16 @@ export class CreateContractDto {
   @IsString()
   natureza?: string
 
+  @ApiPropertyOptional({ description: 'Há mão de obra alocada? (caracteriza cessão de mão de obra)' })
+  @IsOptional()
+  @IsBoolean()
+  maoDeObra?: boolean
+
+  @ApiPropertyOptional({ description: 'Onde a equipe trabalha: CONTRATADA | CONTRATANTE | TERCEIRO' })
+  @IsOptional()
+  @IsString()
+  maoDeObraLocal?: string
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

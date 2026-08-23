@@ -48,6 +48,7 @@ const CONTR_FIELDS: NativeStructure['fieldsBySection'] = {
     { key: 'tipo', label: 'Tipo de contrato' }, { key: 'situacao', label: 'Situação' },
     { key: 'titulo', label: 'Título' }, { key: 'descricao', label: 'Descrição' },
     { key: 'objeto', label: 'Objeto do contrato' }, { key: 'data_assinatura', label: 'Data de assinatura' },
+    { key: 'mao_de_obra', label: 'Mão de obra alocada' },
   ],
   vigencia: [
     { key: 'inicio', label: 'Início da vigência' }, { key: 'prazo_indeterminado', label: 'Prazo indeterminado' },
