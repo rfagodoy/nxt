@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { camposDisponiveis, gerarExpressao, rotuloDaCondicao, tipoDoCampo, type CampoDisponivel } from './flow-conditions'
+import { camposDisponiveis, gerarExpressao, rotuloDaCondicao, tipoDoCampo, montarVarsSimulacao, decidirSaida, type CampoDisponivel } from './flow-conditions'
 import { evalCondition } from '@nxt/workflow-core'
 import type { EdgeConditionSpec } from '@nxt/types'
 
@@ -98,6 +98,35 @@ describe('rotuloDaCondicao', () => {
       { campo: 'contrato.fld_patrimonio', op: 'eq', valor: 'Sim' },
       { campo: 'contrato.fld_patrimonio', op: 'neq', valor: 'X' },
     ] }, labelDe, valorLabel)).toBe('Parecer do Patrimônio é Sim e +1')
+  })
+})
+
+describe('simulador — montarVarsSimulacao + decidirSaida (motor real)', () => {
+  const tipoDe = (k: string) => (k === 'contrato.valorTotal' ? 'numero' as const : k === 'contrato.urgente' ? 'booleano' as const : 'selecao' as const)
+
+  it('aninha chaves com ponto e coage número pt-BR e booleano', () => {
+    const vars = montarVarsSimulacao({ 'contrato.valorTotal': '1.234,56', 'contrato.urgente': 'true', 'contrato.fld_patrimonio': 'Sim' }, tipoDe)
+    expect(vars).toEqual({ contrato: { valorTotal: 1234.56, urgente: true, fld_patrimonio: 'Sim' } })
+  })
+
+  it('o caso do PO de ponta a ponta: Sim acende a saída da validação; Não cai na padrão', () => {
+    const outs = [
+      { id: 'p_patrimonio', condition: "contrato.fld_patrimonio == 'Sim'" },
+      { id: 'p_rh', condition: 'contrato.valorTotal > 100000' },
+      { id: 'p_padrao', isDefault: true },
+    ]
+    expect(decidirSaida(outs, montarVarsSimulacao({ 'contrato.fld_patrimonio': 'Sim' }, tipoDe))).toBe('p_patrimonio')
+    expect(decidirSaida(outs, montarVarsSimulacao({ 'contrato.fld_patrimonio': 'Nao', 'contrato.valorTotal': '200000' }, tipoDe))).toBe('p_rh')
+    expect(decidirSaida(outs, montarVarsSimulacao({ 'contrato.fld_patrimonio': 'Nao' }, tipoDe))).toBe('p_padrao')
+  })
+
+  it('sem padrão e nada casando → null (o simulador mostra o aviso, o motor erraria)', () => {
+    expect(decidirSaida([{ id: 'a', condition: "x == 'y'" }], {})).toBeNull()
+  })
+
+  it('expressão inválida (modo avançado quebrado) não casa nem derruba o simulador', () => {
+    const outs = [{ id: 'a', condition: 'isso não é ((expressão' }, { id: 'p', isDefault: true }]
+    expect(decidirSaida(outs, {})).toBe('p')
   })
 })
 

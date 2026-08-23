@@ -10,6 +10,7 @@
  * (instances.service) — é ela que as expressões `contrato.*` leem.
  */
 import type { EdgeConditionSpec, EdgeConditionRule, CondOp, FieldType } from '@nxt/types'
+import { evalCondition } from '@nxt/workflow-core'
 
 export interface CampoDisponivel {
   /** chave da variável em runtime (ex.: `aprovacao`, `contrato.valorTotal`, `contrato.<fieldId>`) */
@@ -166,6 +167,50 @@ export function gerarExpressao(spec: EdgeConditionSpec, tipoDe: (key: string) =>
     .filter((r) => r.campo && r.valor !== '')
     .map((r) => `${r.campo} ${OP_EXPR[r.op]} ${literal(r.valor, tipoDe(r.campo))}`)
   return partes.join(spec.logic === 'OR' ? ' || ' : ' && ')
+}
+
+/* ── Simulador ("Testar decisão"): o MESMO avaliador da execução, com variáveis de
+      mentira. Nada é gravado — é uma lente sobre o desenho. ── */
+
+/** Chaves com ponto (`contrato.fld_x`) viram objeto aninhado — o avaliador resolve
+ *  caminhos por ponto sobre as variáveis, exatamente como em runtime. Coerção pelo
+ *  tipo do campo: número aceita vírgula; booleano vira true/false. */
+export function montarVarsSimulacao(
+  valores: Record<string, string>,
+  tipoDe: (key: string) => CampoDisponivel['tipo'],
+): Record<string, unknown> {
+  const vars: Record<string, unknown> = {}
+  for (const [key, bruto] of Object.entries(valores)) {
+    if (bruto === '') continue
+    const tipo = tipoDe(key)
+    const valor: unknown =
+      tipo === 'numero' ? Number(bruto.replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.')) :
+      tipo === 'booleano' ? bruto === 'true' :
+      bruto
+    const partes = key.split('.')
+    let alvo = vars
+    for (let i = 0; i < partes.length - 1; i++) {
+      const p = partes[i]
+      if (typeof alvo[p] !== 'object' || alvo[p] === null) alvo[p] = {}
+      alvo = alvo[p] as Record<string, unknown>
+    }
+    alvo[partes[partes.length - 1]] = valor
+  }
+  return vars
+}
+
+/** Decide a saída vencedora — espelho fiel do pickExclusive do motor: primeira
+ *  condição verdadeira NA ORDEM das saídas; nenhuma casou → a padrão; sem padrão →
+ *  null (em execução seria erro; o simulador mostra o aviso). */
+export function decidirSaida(
+  outs: Array<{ id: string; condition?: string; isDefault?: boolean }>,
+  vars: Record<string, unknown>,
+): string | null {
+  for (const e of outs) {
+    if (e.isDefault) continue
+    try { if (evalCondition(e.condition, vars)) return e.id } catch { /* expressão inválida não casa */ }
+  }
+  return outs.find((e) => e.isDefault)?.id ?? null
 }
 
 /** Rótulo humano da condição (auto-rótulo da seta): "Parecer do Patrimônio é Sim". */
