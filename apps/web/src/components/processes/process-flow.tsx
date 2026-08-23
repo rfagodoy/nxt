@@ -7,13 +7,13 @@ import {
   CircleDot, Loader2, UserSquare, AlertTriangle, Building2,
   Minus, Plus, Maximize2, GripVertical, ChevronUp, Redo2,
   Download, FileImage, FileText, ChevronDown, PanelRightClose, PanelRightOpen,
-  X, SlidersHorizontal, Undo2, Check,
+  X, SlidersHorizontal, Undo2, Check, Play,
 } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { generateBpmn, compileBpmn, type WfGraph, type WfNode, type WfEdge } from '@nxt/workflow-core'
 import type { StepFormSchema, ProcessFormSchema, EdgeConditionSpec, EdgeConditionRule } from '@nxt/types'
 import { CONNECTORS, findConnector, isRetiredConnector, isCompensable } from '@nxt/types'
-import { camposDisponiveis, gerarExpressao, rotuloDaCondicao, OPS_POR_TIPO, type CampoDisponivel } from '@/lib/flow-conditions'
+import { camposDisponiveis, gerarExpressao, rotuloDaCondicao, montarVarsSimulacao, decidirSaida, OPS_POR_TIPO, type CampoDisponivel } from '@/lib/flow-conditions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -210,6 +210,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const [positionsRaia, setPositionsRaia] = useState<Record<string, { x: number; y: number }>>(initial?.positionsRaia ?? {})
   const [laneOrder, setLaneOrder] = useState<string[]>(initial?.laneOrder ?? [])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  /* "Testar decisão" (simulador do losango): a saída vencedora acende no canvas.
+     O GatewayInspector é o dono do estado; aqui só o reflexo para o desenho. */
+  const [simulacao, setSimulacao] = useState<{ gatewayId: string; vencedora: string | null } | null>(null)
   /* Atividade em CONFIGURAÇÃO (modal). Separado da seleção: fechar o modal não
      deseleciona o nó, e o painel lateral segue mostrando o resumo dele. */
   const [configId, setConfigId] = useState<string | null>(null)
@@ -639,7 +642,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
       {/* Canvas + Inspetor */}
       <div className="flex flex-1 overflow-hidden">
-        <FlowCanvas canvasRef={canvasRef} nodes={nodes} edges={edges} layout={layout} selectedId={selectedId} onSelect={selectNode} onConnect={onConnect} onCreateConnected={onCreateConnected} onDeleteEdge={onDeleteEdge} onDeleteNode={removeNode} onSetPosition={setPosition} resolvePapel={resolvePapel} resolveEntidade={resolveEntidade} onReorderLanes={reordenarRaias} />
+        <FlowCanvas canvasRef={canvasRef} nodes={nodes} edges={edges} layout={layout} selectedId={selectedId} onSelect={selectNode} onConnect={onConnect} onCreateConnected={onCreateConnected} onDeleteEdge={onDeleteEdge} onDeleteNode={removeNode} onSetPosition={setPosition} resolvePapel={resolvePapel} resolveEntidade={resolveEntidade} onReorderLanes={reordenarRaias} simulacao={simulacao} />
         {/* trilho do toggle: fica SEMPRE visível (é a alça para trazer o painel de volta) */}
         <div className="w-8 border-l bg-card flex flex-col items-center pt-2.5 shrink-0">
           <button type="button" onClick={togglePanel}
@@ -654,7 +657,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
               <ActivitySummaryPanel node={selected} papeis={papeis}
                 onConfigure={() => setConfigId(selected.id)} onRemove={() => removeNode(selected.id)} />
             ) : (
-              <GatewayInspector key={selected.id} node={selected} nodes={nodes} edges={edges} screens={screens} onPatchNode={(p) => patchNode(selected.id, p)} onSetEdge={setEdge} />
+              <GatewayInspector key={selected.id} node={selected} nodes={nodes} edges={edges} screens={screens} onPatchNode={(p) => patchNode(selected.id, p)} onSetEdge={setEdge} onSimulacao={setSimulacao} />
             )
           ) : (
             /* Nada selecionado → propriedades do workflow (padrão de editor visual: painel = documento) */
@@ -799,7 +802,7 @@ function LaneHeader({ bandas, largura, scale, scrollTop, arrastando, onStartDrag
   )
 }
 
-function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onConnect, onCreateConnected, onDeleteEdge, onDeleteNode, onSetPosition, resolvePapel, resolveEntidade, onReorderLanes }: {
+function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onConnect, onCreateConnected, onDeleteEdge, onDeleteNode, onSetPosition, resolvePapel, resolveEntidade, onReorderLanes, simulacao }: {
   canvasRef: React.RefObject<HTMLDivElement | null>
   nodes: ENode[]; edges: EEdge[]; layout: ReturnType<typeof layoutGraph>
   selectedId: string | null; onSelect: (id: string | null) => void
@@ -810,6 +813,8 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
   onSetPosition: (id: string, pos: { x: number; y: number }) => void
   resolvePapel: (id: string) => string | undefined
   resolveEntidade: (kind: string | undefined, id: string | undefined) => string | undefined
+  /** "Testar decisão": acende a saída vencedora do losango e apaga as perdedoras. */
+  simulacao?: { gatewayId: string; vencedora: string | null } | null
   onReorderLanes: (key: string, destino: number) => void
 }) {
   const [connecting, setConnecting] = useState<string | null>(null)
@@ -1053,10 +1058,16 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
             const d = edgeBezier(a, aDir, b, bDir)
             const col = edgeColor(e)
             const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2
+            /* simulação: a saída vencedora do losango acende; as irmãs perdedoras apagam */
+            const simDoGateway = simulacao && e.from === simulacao.gatewayId
+            const acesa = !!simDoGateway && simulacao!.vencedora === e.id
+            const apagada = !!simDoGateway && !acesa
+            const colFinal = acesa ? '#18c07a' : col
             return (
-              <g key={e.id} className="pointer-events-auto" onMouseEnter={() => setHoverEdge(e.id)} onMouseLeave={() => setHoverEdge((h) => (h === e.id ? null : h))}>
+              <g key={e.id} className="pointer-events-auto" opacity={apagada ? 0.25 : 1} onMouseEnter={() => setHoverEdge(e.id)} onMouseLeave={() => setHoverEdge((h) => (h === e.id ? null : h))}>
                 <path d={d} fill="none" stroke="transparent" strokeWidth={16} style={{ cursor: 'pointer' }} />
-                <path d={d} fill="none" stroke={col} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" markerEnd="url(#fl-arrow)" style={{ color: col }} />
+                {acesa && <path d={d} fill="none" stroke="#18c07a" strokeWidth={8} strokeLinecap="round" strokeLinejoin="round" opacity={0.22} />}
+                <path d={d} fill="none" stroke={colFinal} strokeWidth={acesa ? 3 : 2.25} strokeLinecap="round" strokeLinejoin="round" markerEnd="url(#fl-arrow)" style={{ color: colFinal }} />
                 {hoverEdge === e.id && (
                   <g transform={`translate(${mx},${my})`} style={{ cursor: 'pointer' }} onClick={() => onDeleteEdge(e.id)}>
                     <circle r={9} fill="#fff" stroke="#dc2626" strokeWidth={1.5} />
@@ -1914,9 +1925,11 @@ const ENTITY_MODE_HINT: Record<string, string> = {
   VIEW:   'A atividade apenas MOSTRA o registro, em leitura: nenhum campo pode ser alterado e nada é gravado. Serve para etapas de análise, conferência e ciência.',
 }
 
-function GatewayInspector({ node, nodes, edges, screens, onPatchNode, onSetEdge }: {
+function GatewayInspector({ node, nodes, edges, screens, onPatchNode, onSetEdge, onSimulacao }: {
   node: ENode; nodes: ENode[]; edges: EEdge[]; screens: Screens
   onPatchNode: (patch: Partial<ENode>) => void; onSetEdge: (edgeId: string, patch: Partial<EEdge>) => void
+  /** Reporta a simulação ao editor (o canvas acende a saída vencedora). */
+  onSimulacao?: (sim: { gatewayId: string; vencedora: string | null } | null) => void
 }) {
   const isExcl = node.type === 'exclusiveGateway'
   const outs = edges.filter((e) => e.from === node.id)
@@ -1928,6 +1941,27 @@ function GatewayInspector({ node, nodes, edges, screens, onPatchNode, onSetEdge 
     const d = nodes.find((n) => n.id === e.to)
     return d?.step?.stepName || d?.name || (d?.type === 'end' ? 'Fim' : 'próxima etapa')
   }
+  /* ── "Testar decisão": o MESMO avaliador da execução, com valores de exemplo.
+        Nada é gravado; a frase vencedora acende aqui e a seta acende no canvas. ── */
+  const [simAberto, setSimAberto] = useState(false)
+  const [simValores, setSimValores] = useState<Record<string, string>>({})
+  const campoDe = (k: string) => campos.find((c) => c.key === k)
+  const camposDoTeste = useMemo(() => {
+    const usados = new Set<string>()
+    for (const e of outs) for (const r of e.conditionSpec?.rules ?? []) if (r.campo) usados.add(r.campo)
+    return campos.filter((c) => usados.has(c.key))
+  }, [outs, campos])
+  const temTextoLivre = outs.some((e) => !e.isDefault && !e.conditionSpec && !!e.condition?.trim())
+  const vencedora = useMemo(() => {
+    if (!simAberto || !isExcl) return null
+    const vars = montarVarsSimulacao(simValores, (k) => campoDe(k)?.tipo ?? 'texto')
+    return decidirSaida(outs, vars)
+  }, [simAberto, isExcl, simValores, outs, campos]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    onSimulacao?.(simAberto && isExcl ? { gatewayId: node.id, vencedora } : null)
+    return () => onSimulacao?.(null)
+  }, [simAberto, isExcl, vencedora, node.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="flex flex-col h-full">
       <div className="px-4 py-3 border-b shrink-0">
@@ -1948,25 +1982,87 @@ function GatewayInspector({ node, nodes, edges, screens, onPatchNode, onSetEdge 
                 Nenhuma saída está marcada como “caso contrário” — a ativação vai recusar. Marque uma abaixo.
               </p>
             )}
-            {outs.map((e) => (
-              <div key={e.id} className="rounded-md border bg-muted/20 p-2 space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-medium truncate">→ {nomeDestino(e)}</span>
-                  {e.isDefault ? <Badge variant="outline" className="text-[10px] shrink-0">caso contrário</Badge> : (
-                    <button className="text-[10px] text-muted-foreground hover:text-foreground shrink-0"
-                      onClick={() => { outs.forEach((o) => onSetEdge(o.id, { isDefault: false })); onSetEdge(e.id, { isDefault: true, condition: '', conditionSpec: undefined, label: e.label || 'Caso contrário' }) }}>
-                      tornar “caso contrário”
-                    </button>
+            {/* Testar decisão — recolhido por padrão; quem só configura nunca tromba com ele */}
+            <div className={cn('rounded-md border', simAberto ? 'border-primary/40 bg-primary/5' : 'bg-muted/20')}>
+              <button type="button" className="w-full flex items-center gap-1.5 px-2 py-1.5 text-[11px] font-semibold text-left"
+                onClick={() => setSimAberto((v) => !v)}>
+                <Play className={cn('h-3 w-3', simAberto ? 'text-primary' : 'text-muted-foreground')} />
+                <span className={simAberto ? 'text-primary' : 'text-muted-foreground'}>Testar decisão</span>
+                <span className="ml-auto text-[10px] text-muted-foreground font-normal">{simAberto ? 'fechar' : 'valores de exemplo'}</span>
+              </button>
+              {simAberto && (
+                <div className="px-2 pb-2 space-y-1.5">
+                  {camposDoTeste.length === 0 ? (
+                    <p className="text-[10.5px] text-muted-foreground leading-snug">Monte ao menos uma condição no construtor — os campos usados aparecem aqui para você experimentar.</p>
+                  ) : camposDoTeste.map((c) => (
+                    <div key={c.key} className="flex items-center gap-2">
+                      <span className="text-[10.5px] text-muted-foreground flex-1 min-w-0 truncate" title={c.label}>{c.label}</span>
+                      {c.tipo === 'selecao' && c.options?.length ? (
+                        <Select value={simValores[c.key] || undefined} onValueChange={(v) => setSimValores((sv) => ({ ...sv, [c.key]: v }))}>
+                          <SelectTrigger className="h-6 text-[11px] w-[110px] shrink-0"><SelectValue placeholder="—" /></SelectTrigger>
+                          <SelectContent>{c.options.map((o) => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
+                        </Select>
+                      ) : c.tipo === 'booleano' ? (
+                        <Select value={simValores[c.key] || undefined} onValueChange={(v) => setSimValores((sv) => ({ ...sv, [c.key]: v }))}>
+                          <SelectTrigger className="h-6 text-[11px] w-[110px] shrink-0"><SelectValue placeholder="—" /></SelectTrigger>
+                          <SelectContent><SelectItem value="true" className="text-xs">Sim</SelectItem><SelectItem value="false" className="text-xs">Não</SelectItem></SelectContent>
+                        </Select>
+                      ) : (
+                        <Input className="h-6 text-[11px] w-[110px] shrink-0" type={c.tipo === 'data' ? 'date' : 'text'} inputMode={c.tipo === 'numero' ? 'decimal' : undefined}
+                          value={simValores[c.key] ?? ''} onChange={(ev) => setSimValores((sv) => ({ ...sv, [c.key]: ev.target.value }))} />
+                      )}
+                    </div>
+                  ))}
+                  {temTextoLivre && <p className="text-[10px] text-muted-foreground leading-snug">Há saída em modo avançado — ela é avaliada com os mesmos valores, mas os campos dela não aparecem acima.</p>}
+                  {camposDoTeste.length > 0 && (
+                    vencedora ? (
+                      <p className="text-[11px] font-semibold text-primary">→ o processo segue para {nomeDestino(outs.find((o) => o.id === vencedora)!)}</p>
+                    ) : (
+                      <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">Nenhuma condição casa e não há “caso contrário” — em execução isso seria erro.</p>
+                    )
                   )}
                 </div>
+              )}
+            </div>
+
+            {outs.map((e) => {
+              const acesa = simAberto && vencedora === e.id
+              const apagada = simAberto && vencedora !== null && vencedora !== e.id
+              return (
+              <div key={e.id} className={cn('rounded-md border p-2 space-y-1.5 transition-all',
+                e.isDefault ? 'border-dashed bg-muted/10' : 'bg-muted/20',
+                acesa && 'border-primary ring-1 ring-primary/40 bg-primary/5',
+                apagada && 'opacity-40')}>
+                {/* FRASE: SE …  SEGUE PARA … · SENÃO … */}
                 {e.isDefault ? (
-                  <p className="text-[10.5px] text-muted-foreground leading-snug">O processo segue por aqui quando nenhuma condição das outras saídas casa.</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-extrabold tracking-widest text-muted-foreground">SENÃO</span>
+                    <span className="text-[11.5px] font-semibold truncate">{nomeDestino(e)}</span>
+                    <Badge variant="outline" className="text-[10px] shrink-0 border-dashed">caso contrário</Badge>
+                    {acesa && <span className="text-[10px] font-bold text-primary shrink-0">✓ é por aqui</span>}
+                  </div>
                 ) : (
-                  <CondBuilder edge={e} campos={campos} onSet={(patch) => onSetEdge(e.id, patch)} />
+                  <>
+                    <div className="flex items-start gap-2">
+                      <span className="text-[10px] font-extrabold tracking-widest text-violet-600 dark:text-violet-400 mt-1.5">SE</span>
+                      <div className="flex-1 min-w-0">
+                        <CondBuilder edge={e} campos={campos} onSet={(patch) => onSetEdge(e.id, patch)} />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap pl-0.5">
+                      <span className="text-[10px] font-extrabold tracking-widest text-violet-600 dark:text-violet-400">SEGUE PARA</span>
+                      <span className="text-[11.5px] font-semibold truncate">{nomeDestino(e)}</span>
+                      {acesa && <span className="text-[10px] font-bold text-primary shrink-0">✓ é por aqui</span>}
+                      <button className="ml-auto text-[10px] text-muted-foreground hover:text-foreground shrink-0"
+                        onClick={() => { outs.forEach((o) => onSetEdge(o.id, { isDefault: false })); onSetEdge(e.id, { isDefault: true, condition: '', conditionSpec: undefined, label: e.label || 'Caso contrário' }) }}>
+                        tornar “caso contrário”
+                      </button>
+                    </div>
+                  </>
                 )}
                 <Input className="h-6 text-[11px] px-2" value={e.label ?? ''} placeholder="Rótulo da seta (preenchido sozinho pela condição)" onChange={(ev) => onSetEdge(e.id, { label: ev.target.value })} />
               </div>
-            ))}
+            )})}
           </div>
         ) : (
           <p className="text-[11px] text-muted-foreground leading-snug">Todas as saídas rodam ao mesmo tempo; o motor espera todas concluírem antes de seguir. Insira atividades em cada faixa com o <span className="font-medium">+</span> no conector.</p>
