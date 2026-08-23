@@ -15,19 +15,19 @@ describe('validarDecisoes', () => {
     expect(g([
       { from: 'g1', condition: "a == 'x'" },
       { from: 'g1', condition: "a == 'y'" },
-    ])).toMatch(/Necessita de parecer\?.*padrão/)
+    ])).toMatch(/Necessita de parecer\?.*sem filtros/)
   })
   it('recusa duas padrão', () => {
     expect(g([
       { from: 'g1', isDefault: true },
       { from: 'g1', isDefault: true },
-    ])).toMatch(/2 saídas marcadas/)
+    ])).toMatch(/2 caminhos/)
   })
   it('recusa saída sem condição que não é a padrão', () => {
     expect(g([
       { from: 'g1', condition: '' },
       { from: 'g1', isDefault: true },
-    ])).toMatch(/sem condição/)
+    ])).toMatch(/sem filtros que não é/)
   })
   it('losango com UMA saída não exige nada (passagem)', () => {
     expect(g([{ from: 'g1' }])).toBeNull()

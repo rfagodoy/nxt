@@ -16,14 +16,14 @@ export function validarDecisoes(nodes: NodeLike[], edges: EdgeLike[]): string | 
     const nome = n.name?.trim() ? `"${n.name.trim()}"` : 'sem nome'
     const padroes = saidas.filter((s) => s.isDefault)
     if (padroes.length === 0) {
-      return `A decisão ${nome} não tem saída padrão ("caso contrário"). Marque uma das saídas como padrão — é por ela que o processo segue quando nenhuma condição casa.`
+      return `A decisão ${nome} não tem o caminho "caso contrário": deixe exatamente uma saída sem filtros — é por ela que o processo segue quando nenhum filtro casa.`
     }
     if (padroes.length > 1) {
-      return `A decisão ${nome} tem ${padroes.length} saídas marcadas como padrão. Só pode haver uma.`
+      return `A decisão ${nome} tem ${padroes.length} caminhos "caso contrário". Deixe apenas um sem filtros.`
     }
     const semCondicao = saidas.filter((s) => !s.isDefault && !s.condition?.trim())
     if (semCondicao.length) {
-      return `A decisão ${nome} tem saída sem condição. Toda saída que não é a padrão precisa dizer QUANDO é escolhida.`
+      return `A decisão ${nome} tem caminho sem filtros que não é o "caso contrário". Monte os filtros dele — ou esvazie só o caminho que deve ser o caso contrário.`
     }
   }
   return null

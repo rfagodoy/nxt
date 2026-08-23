@@ -172,6 +172,33 @@ export function gerarExpressao(spec: EdgeConditionSpec, tipoDe: (key: string) =>
   return partes.join(spec.logic === 'OR' ? ' || ' : ' && ')
 }
 
+/* ── "Caso contrário" DERIVADO (decisão do PO, 2026-08-23): não existe mais botão
+      para marcar a saída padrão — o caminho que ficar SEM filtros é o "senão",
+      automaticamente. Também elimina uma armadilha do motor: saída sem condição
+      avaliava true e vencia sempre; derivada como padrão, ela vira o fallback. ── */
+
+/** Uma saída "tem filtro" quando há regra completa no spec ou expressão gravada. */
+export function saidaTemFiltro(e: { condition?: string; conditionSpec?: EdgeConditionSpec }): boolean {
+  if (e.conditionSpec) return e.conditionSpec.rules.some((r) => r.campo && r.valor !== '')
+  return !!e.condition?.trim()
+}
+
+/** Deriva o "caso contrário": exatamente UMA saída sem filtros → ela é a padrão.
+ *  Zero ou 2+ sem filtros → nenhuma padrão (o editor avisa; a ativação recusa).
+ *  Devolve só os patches necessários (idempotente — aplicar de novo não muda nada). */
+export function derivarCasoContrario(
+  outs: Array<{ id: string; condition?: string; conditionSpec?: EdgeConditionSpec; isDefault?: boolean }>,
+): Array<{ id: string; isDefault: boolean }> {
+  const vazias = outs.filter((e) => !saidaTemFiltro(e))
+  const alvo = vazias.length === 1 ? vazias[0].id : null
+  const patches: Array<{ id: string; isDefault: boolean }> = []
+  for (const e of outs) {
+    const deve = e.id === alvo
+    if (!!e.isDefault !== deve) patches.push({ id: e.id, isDefault: deve })
+  }
+  return patches
+}
+
 /* ── Simulador ("Testar decisão"): o MESMO avaliador da execução, com variáveis de
       mentira. Nada é gravado — é uma lente sobre o desenho. ── */
 
