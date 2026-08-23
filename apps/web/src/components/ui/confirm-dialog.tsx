@@ -20,7 +20,7 @@ function Shell({ onScrim, children }: { onScrim: () => void; children: ReactNode
   return createPortal(
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" onClick={(e) => e.stopPropagation()}>
       <div className="absolute inset-0 bg-black/40" onClick={onScrim} />
-      <div className="glass relative w-full max-w-md rounded-2xl text-foreground overflow-hidden">
+      <div className="glass relative w-full max-w-md max-h-[85vh] flex flex-col rounded-2xl text-foreground overflow-hidden">
         {children}
       </div>
     </div>,
@@ -52,7 +52,7 @@ export function ConfirmDialog({ open, title, description, confirmLabel = 'Confir
 
   return (
     <Shell onScrim={() => !submitting && onClose()}>
-      <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/40">
+      <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b bg-muted/40">
         <div className="flex items-center gap-2">
           <AlertTriangle className={tone === 'danger' ? 'h-4 w-4 text-destructive' : 'h-4 w-4 text-amber-500'} />
           <h2 className="text-sm font-semibold">{title}</h2>
@@ -61,8 +61,8 @@ export function ConfirmDialog({ open, title, description, confirmLabel = 'Confir
           <X className="h-4 w-4" />
         </button>
       </div>
-      <div className="px-4 py-4 text-xs text-muted-foreground [&_b]:text-foreground">{description}</div>
-      <div className="flex justify-end gap-2 px-4 pb-4">
+      <div className="px-4 py-4 text-xs text-muted-foreground [&_b]:text-foreground min-h-0 overflow-y-auto">{description}</div>
+      <div className="shrink-0 flex justify-end gap-2 px-4 pb-4">
         <Button variant="outline" size="sm" disabled={submitting} onClick={onClose}>Cancelar</Button>
         <Button variant={tone === 'danger' ? 'destructive' : 'default'} size="sm" disabled={submitting} onClick={() => void confirmar()}>
           {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}{confirmLabel}
@@ -84,7 +84,7 @@ export function NoticeDialog({ open, title, message, tone = 'error', onClose }: 
   if (!open) return null
   return (
     <Shell onScrim={onClose}>
-      <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/40">
+      <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b bg-muted/40">
         <div className="flex items-center gap-2">
           {tone === 'error'
             ? <AlertTriangle className="h-4 w-4 text-destructive" />
@@ -95,8 +95,8 @@ export function NoticeDialog({ open, title, message, tone = 'error', onClose }: 
           <X className="h-4 w-4" />
         </button>
       </div>
-      <div className="px-4 py-4 text-xs text-muted-foreground">{message}</div>
-      <div className="flex justify-end px-4 pb-4">
+      <div className="px-4 py-4 text-xs text-muted-foreground whitespace-pre-line min-h-0 overflow-y-auto">{message}</div>
+      <div className="shrink-0 flex justify-end px-4 pb-4">
         <Button size="sm" onClick={onClose}>Entendi</Button>
       </div>
     </Shell>

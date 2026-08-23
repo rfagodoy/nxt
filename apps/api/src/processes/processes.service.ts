@@ -3,8 +3,7 @@ import { PrismaService } from '../prisma.service'
 import { CreateProcessDto } from './dto/create-process.dto'
 import { UpdateProcessDto } from './dto/update-process.dto'
 import { ProcessFormSchema, isCompensable } from '@nxt/types'
-import { compileBpmn, CompileError, type WfGraph } from '@nxt/workflow-core'
-import { validarDecisoes } from './gateway-guard'
+import { compileBpmn, CompileError, type WfGraph, validarDesenho, validarDecisoes, validarAtividades, formatarProblemas, type ProblemaAtivacao } from '@nxt/workflow-core'
 
 /** Autor da ação, vindo do JWT (nunca do corpo da requisição). */
 export interface Autor { name: string; sub?: string }
@@ -168,40 +167,57 @@ export class ProcessesService {
       throw new BadRequestException('Informe o tipo do workflow (contrato, aditivo ou parceiro) antes de ativar.')
     }
 
-    // Compila o BPMN → grafo executável. É AQUI que o diagrama deixa de ser
-    // cosmético: se o desenho for inválido (seta órfã, sem início, construção
-    // não suportada), a ativação FALHA com a causa — em vez de "ativar" algo
-    // que o motor não consegue executar.
+    const formSchema = process.formSchema as unknown as ProcessFormSchema
+
+    // GUARDAS AMIGÁVEIS primeiro, no grafo do EDITOR (que tem os nomes): desenho
+    // conectado, decisões completas e atividades completas — TODOS os problemas de
+    // uma vez, na língua do usuário. O compilador (abaixo) segue validando, mas como
+    // rede de segurança: com os guardas na frente, o usuário não deve ver id interno.
+    const problemas: ProblemaAtivacao[] = []
+    const editorGraph = formSchema.graph
+    const nomeDoStep = new Map((formSchema.steps ?? []).map((s) => [s.stepId, s.stepName?.trim() || '']))
+    if (editorGraph) {
+      const vnodes = editorGraph.nodes.map((n) => ({ ...n, name: nomeDoStep.get(n.id) || n.name }))
+      problemas.push(...validarDesenho(vnodes, editorGraph.edges))
+      problemas.push(...validarDecisoes(vnodes, editorGraph.edges))
+    }
+    // OBRIGATORIEDADE (política do produto): toda TAREFA DO USUÁRIO precisa de nome,
+    // executor (papel) e prazo. O tipo vem do grafo do editor; processo legado sem
+    // grafo valida depois da compilação (o tipo compilado distingue serviceTask).
+    if (editorGraph) {
+      const stepsDeUsuario = (formSchema.steps ?? []).filter(
+        (s) => editorGraph.nodes.find((n) => n.id === s.stepId)?.type === 'userTask',
+      )
+      problemas.push(...validarAtividades(stepsDeUsuario))
+    }
+    if (problemas.length) throw new BadRequestException(formatarProblemas(problemas))
+
+    // Compila o BPMN → grafo executável. Rede de segurança: se ainda assim o desenho
+    // for inválido para o motor, a ativação falha — com os ids trocados pelos nomes
+    // das atividades, para a mensagem não vazar identificador interno.
     let graph: WfGraph
     try {
       graph = compileBpmn(process.bpmnXml)
     } catch (e) {
-      if (e instanceof CompileError) throw new BadRequestException(`Diagrama inválido: ${e.message}`)
+      if (e instanceof CompileError) {
+        let msg = e.message
+        for (const n of editorGraph?.nodes ?? []) {
+          const nome = nomeDoStep.get(n.id) || n.name
+          if (nome) msg = msg.split(`"${n.id}"`).join(`"${nome}"`)
+        }
+        throw new BadRequestException(`O desenho do fluxo tem um problema que impediu a ativação: ${msg}`)
+      }
       throw e
     }
 
-    // Decisões completas: uma saída padrão + condição nas demais (gateway-guard).
-    const erroDecisao = validarDecisoes(Object.values(graph.nodes), graph.edges)
-    if (erroDecisao) throw new BadRequestException(erroDecisao)
-
-    const formSchema = process.formSchema as unknown as ProcessFormSchema
-
-    // OBRIGATORIEDADE (política do produto): toda TAREFA DO USUÁRIO precisa de nome,
-    // executor (papel) e prazo (SLA). Bloqueia a ativação com a lista de pendências —
-    // em vez de deixar ativar um processo com atividades incompletas.
-    const incompletos: string[] = []
-    for (const step of formSchema.steps ?? []) {
-      const node = graph.nodes[step.stepId]
-      if (node?.type !== 'userTask') continue
-      const hasSla = (step.slaBusinessDays ?? 0) > 0 || (step.slaBusinessHours ?? 0) > 0 || (step.slaBusinessMinutes ?? 0) > 0
-      if (!step.stepName?.trim() || !step.executor?.papelId || !hasSla) {
-        incompletos.push(step.stepName?.trim() || 'Tarefa sem nome')
-      }
-    }
-    if (incompletos.length) {
-      throw new BadRequestException(
-        `Preencha nome, executor e prazo em todas as tarefas antes de ativar: ${incompletos.join(', ')}`,
-      )
+    // Processo legado sem grafo do editor: valida decisões e atividades sobre o
+    // grafo COMPILADO (única fonte de tipos disponível).
+    if (!editorGraph) {
+      const problemasLegado = [
+        ...validarDecisoes(Object.values(graph.nodes), graph.edges),
+        ...validarAtividades((formSchema.steps ?? []).filter((s) => graph.nodes[s.stepId]?.type === 'userTask')),
+      ]
+      if (problemasLegado.length) throw new BadRequestException(formatarProblemas(problemasLegado))
     }
 
     // Mescla o que foi configurado no painel "Atividade" do designer (guardado no
