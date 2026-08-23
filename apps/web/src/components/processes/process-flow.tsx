@@ -216,6 +216,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   /* Atividade em CONFIGURAÇÃO (modal). Separado da seleção: fechar o modal não
      deseleciona o nó, e o painel lateral segue mostrando o resumo dele. */
   const [configId, setConfigId] = useState<string | null>(null)
+  /* Decisão configura em MODAL, igual atividade (pedido do PO 2026-08-23) — a lateral vira resumo. */
+  const [decisaoId, setDecisaoId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [activating, setActivating] = useState(false)
   const [exporting, setExporting] = useState<FlowExportFormat | null>(null)
@@ -657,7 +659,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
               <ActivitySummaryPanel node={selected} papeis={papeis}
                 onConfigure={() => setConfigId(selected.id)} onRemove={() => removeNode(selected.id)} />
             ) : (
-              <GatewayInspector key={selected.id} node={selected} nodes={nodes} edges={edges} screens={screens} onPatchNode={(p) => patchNode(selected.id, p)} onSetEdge={setEdge} onSimulacao={setSimulacao} />
+              <GatewayInspector key={selected.id} node={selected} nodes={nodes} edges={edges} onPatchNode={(p) => patchNode(selected.id, p)}
+                onConfigure={() => setDecisaoId(selected.id)} onRemove={() => removeNode(selected.id)} />
             )
           ) : (
             /* Nada selecionado → propriedades do workflow (padrão de editor visual: painel = documento) */
@@ -693,6 +696,11 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
       {/* Configuração da atividade: modal amplo (a coluna de 320px não comporta o
           formulário — ver o comentário em ActivityConfigModal). */}
+      {decisaoId && nodeById[decisaoId] && (
+        <DecisionConfigModal key={decisaoId} node={nodeById[decisaoId]} nodes={nodes} edges={edges} screens={screens}
+          onPatchNode={(p) => patchNode(decisaoId, p)} onSetEdge={setEdge} onSimulacao={setSimulacao}
+          onRemove={() => { removeNode(decisaoId); setDecisaoId(null) }} onClose={() => setDecisaoId(null)} />
+      )}
       {configNode && configNode.step && (
         <ActivityConfigModal key={configNode.id} node={configNode} nodes={nodes} edges={edges} screens={screens} papeis={papeis}
           onPatchStep={(p) => patchStep(configNode.id, p)}
@@ -1925,24 +1933,104 @@ const ENTITY_MODE_HINT: Record<string, string> = {
   VIEW:   'A atividade apenas MOSTRA o registro, em leitura: nenhum campo pode ser alterado e nada é gravado. Serve para etapas de análise, conferência e ciência.',
 }
 
-function GatewayInspector({ node, nodes, edges, screens, onPatchNode, onSetEdge, onSimulacao }: {
-  node: ENode; nodes: ENode[]; edges: EEdge[]; screens: Screens
-  onPatchNode: (patch: Partial<ENode>) => void; onSetEdge: (edgeId: string, patch: Partial<EEdge>) => void
-  /** Reporta a simulação ao editor (o canvas acende a saída vencedora). */
-  onSimulacao?: (sim: { gatewayId: string; vencedora: string | null } | null) => void
+function GatewayInspector({ node, nodes, edges, onPatchNode, onConfigure, onRemove }: {
+  node: ENode; nodes: ENode[]; edges: EEdge[]
+  onPatchNode: (patch: Partial<ENode>) => void
+  onConfigure: () => void
+  onRemove: () => void
 }) {
   const isExcl = node.type === 'exclusiveGateway'
   const outs = edges.filter((e) => e.from === node.id)
   const temPadrao = outs.some((e) => e.isDefault)
   const tone = isExcl ? 'text-violet-600 dark:text-violet-400 bg-violet-500/10' : 'text-rose-600 dark:text-rose-400 bg-rose-500/10'
-  /* Vocabulário do construtor: SÓ campos capturados ANTES deste losango no fluxo. */
+  const nomeDestino = (e: EEdge) => {
+    const d = nodes.find((n) => n.id === e.to)
+    return d?.step?.stepName || d?.name || (d?.type === 'end' ? 'Fim' : 'próxima etapa')
+  }
+  return (
+    <div className="flex flex-col h-full">
+      <div className="px-4 py-3 border-b shrink-0 flex items-center justify-between">
+        <span className={cn('inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full', tone)}><GatewayGlyph kind={isExcl ? 'exclusive' : 'parallel'} className="h-3 w-3" />{isExcl ? 'Decisão (ou/ou)' : 'Paralelo (e/e)'}</span>
+        <button onClick={onRemove} title="Remover" className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        {isExcl ? (
+          <>
+            <h3 className="text-sm font-semibold leading-snug">{node.name || 'Decisão sem pergunta'}</h3>
+            {/* Resumo dos caminhos — a EDIÇÃO acontece no modal, como nas atividades. */}
+            <dl className="rounded-md border bg-muted/20 divide-y">
+              {outs.map((e) => (
+                <div key={e.id} className="px-2.5 py-1.5">
+                  <dt className="text-[10.5px] text-muted-foreground truncate">
+                    {e.isDefault ? 'Caso contrário' : (e.label?.trim() || (e.condition?.trim() ? e.condition : '— sem condição'))}
+                  </dt>
+                  <dd className="text-[11px] font-medium truncate">→ {nomeDestino(e)}</dd>
+                </div>
+              ))}
+              {outs.length === 0 && <div className="px-2.5 py-1.5 text-[11px] text-muted-foreground">Sem saídas — ligue este losango a atividades.</div>}
+            </dl>
+            {!temPadrao && outs.length > 1 && (
+              <p className="text-[11px] rounded-md border border-amber-300 dark:border-amber-900 bg-amber-500/10 text-amber-700 dark:text-amber-400 px-2 py-1.5 leading-snug">
+                Falta a saída “caso contrário” — a ativação vai recusar.
+              </p>
+            )}
+            <Button size="sm" className="w-full" onClick={onConfigure}><SlidersHorizontal className="h-3.5 w-3.5" />Configurar decisão</Button>
+          </>
+        ) : (
+          <>
+            <Field label="Rótulo">
+              <Input className="h-8 text-sm" placeholder="Ex.: Em paralelo" value={node.name} onChange={(e) => onPatchNode({ name: e.target.value })} />
+            </Field>
+            <p className="text-[11px] text-muted-foreground leading-snug">Todas as saídas rodam ao mesmo tempo; o motor espera todas concluírem antes de seguir. Insira atividades em cada faixa com o <span className="font-medium">+</span> no conector.</p>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ── Modal de configuração da DECISÃO — mesma anatomia do de atividade: edição ao
+     vivo com RETRATO na abertura; Cancelar/Esc restaura, Aplicar fecha. Quando o
+     "Testar decisão" está ligado, o scrim clareia para a seta vencedora aparecer
+     acesa no canvas atrás do modal. ── */
+function DecisionConfigModal({ node, nodes, edges, screens, onPatchNode, onSetEdge, onSimulacao, onRemove, onClose }: {
+  node: ENode; nodes: ENode[]; edges: EEdge[]; screens: Screens
+  onPatchNode: (patch: Partial<ENode>) => void
+  onSetEdge: (edgeId: string, patch: Partial<EEdge>) => void
+  onSimulacao?: (sim: { gatewayId: string; vencedora: string | null } | null) => void
+  onRemove: () => void
+  onClose: () => void
+}) {
+  const outs = edges.filter((e) => e.from === node.id)
+  const temPadrao = outs.some((e) => e.isDefault)
   const campos = useMemo(() => camposDisponiveis(nodes, edges, node.id, screens), [nodes, edges, node.id, screens])
   const nomeDestino = (e: EEdge) => {
     const d = nodes.find((n) => n.id === e.to)
     return d?.step?.stepName || d?.name || (d?.type === 'end' ? 'Fim' : 'próxima etapa')
   }
-  /* ── "Testar decisão": o MESMO avaliador da execução, com valores de exemplo.
-        Nada é gravado; a frase vencedora acende aqui e a seta acende no canvas. ── */
+
+  /* retrato para o Cancelar (mesma semântica do modal de atividade) */
+  const original = useRef<{ name: string; edges: Array<Pick<EEdge, 'id' | 'condition' | 'conditionSpec' | 'isDefault' | 'label'>> }>({
+    name: node.name ?? '',
+    edges: outs.map((e) => ({ id: e.id, condition: e.condition, conditionSpec: e.conditionSpec, isDefault: e.isDefault, label: e.label })),
+  })
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+
+  const cancelar = () => {
+    onPatchNode({ name: original.current.name })
+    for (const e of original.current.edges) {
+      onSetEdge(e.id, { condition: e.condition, conditionSpec: e.conditionSpec, isDefault: e.isDefault, label: e.label })
+    }
+    onClose()
+  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); cancelar() } }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  })
+
+  /* ── Testar decisão (o mesmo avaliador da execução, com valores de exemplo) ── */
   const [simAberto, setSimAberto] = useState(false)
   const [simValores, setSimValores] = useState<Record<string, string>>({})
   const campoDe = (k: string) => campos.find((c) => c.key === k)
@@ -1953,128 +2041,154 @@ function GatewayInspector({ node, nodes, edges, screens, onPatchNode, onSetEdge,
   }, [outs, campos])
   const temTextoLivre = outs.some((e) => !e.isDefault && !e.conditionSpec && !!e.condition?.trim())
   const vencedora = useMemo(() => {
-    if (!simAberto || !isExcl) return null
-    const vars = montarVarsSimulacao(simValores, (k) => campoDe(k)?.tipo ?? 'texto')
-    return decidirSaida(outs, vars)
-  }, [simAberto, isExcl, simValores, outs, campos]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!simAberto) return null
+    return decidirSaida(outs, montarVarsSimulacao(simValores, (k) => campoDe(k)?.tipo ?? 'texto'))
+  }, [simAberto, simValores, outs, campos]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    onSimulacao?.(simAberto && isExcl ? { gatewayId: node.id, vencedora } : null)
+    onSimulacao?.(simAberto ? { gatewayId: node.id, vencedora } : null)
     return () => onSimulacao?.(null)
-  }, [simAberto, isExcl, vencedora, node.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [simAberto, vencedora, node.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  return (
-    <div className="flex flex-col h-full">
-      <div className="px-4 py-3 border-b shrink-0">
-        <span className={cn('inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full', tone)}><GatewayGlyph kind={isExcl ? 'exclusive' : 'parallel'} className="h-3 w-3" />{isExcl ? 'Decisão (ou/ou)' : 'Paralelo (e/e)'}</span>
-      </div>
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        <Field label={isExcl ? 'Pergunta / rótulo' : 'Rótulo'}>
-          <Input className="h-8 text-sm" placeholder={isExcl ? 'Ex.: Necessita de parecer do Patrimônio?' : 'Ex.: Em paralelo'} value={node.name} onChange={(e) => onPatchNode({ name: e.target.value })} />
-        </Field>
-        {isExcl ? (
-          <div className="space-y-2">
-            <p className="text-[11px] text-muted-foreground leading-snug">
-              Para cada caminho, diga <span className="font-medium">quando</span> ele é escolhido. Um deles é o
-              <span className="font-medium"> caso contrário</span> — usado quando nenhuma condição casa.
-            </p>
-            {!temPadrao && outs.length > 1 && (
-              <p className="text-[11px] rounded-md border border-amber-300 dark:border-amber-900 bg-amber-500/10 text-amber-700 dark:text-amber-400 px-2 py-1.5 leading-snug">
-                Nenhuma saída está marcada como “caso contrário” — a ativação vai recusar. Marque uma abaixo.
-              </p>
-            )}
-            {/* Testar decisão — recolhido por padrão; quem só configura nunca tromba com ele */}
-            <div className={cn('rounded-md border', simAberto ? 'border-primary/40 bg-primary/5' : 'bg-muted/20')}>
-              <button type="button" className="w-full flex items-center gap-1.5 px-2 py-1.5 text-[11px] font-semibold text-left"
-                onClick={() => setSimAberto((v) => !v)}>
-                <Play className={cn('h-3 w-3', simAberto ? 'text-primary' : 'text-muted-foreground')} />
-                <span className={simAberto ? 'text-primary' : 'text-muted-foreground'}>Testar decisão</span>
-                <span className="ml-auto text-[10px] text-muted-foreground font-normal">{simAberto ? 'fechar' : 'valores de exemplo'}</span>
-              </button>
-              {simAberto && (
-                <div className="px-2 pb-2 space-y-1.5">
-                  {camposDoTeste.length === 0 ? (
-                    <p className="text-[10.5px] text-muted-foreground leading-snug">Monte ao menos uma condição no construtor — os campos usados aparecem aqui para você experimentar.</p>
-                  ) : camposDoTeste.map((c) => (
-                    <div key={c.key} className="flex items-center gap-2">
-                      <span className="text-[10.5px] text-muted-foreground flex-1 min-w-0 truncate" title={c.label}>{c.label}</span>
-                      {c.tipo === 'selecao' && c.options?.length ? (
-                        <Select value={simValores[c.key] || undefined} onValueChange={(v) => setSimValores((sv) => ({ ...sv, [c.key]: v }))}>
-                          <SelectTrigger className="h-6 text-[11px] w-[110px] shrink-0"><SelectValue placeholder="—" /></SelectTrigger>
-                          <SelectContent>{c.options.map((o) => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
-                        </Select>
-                      ) : c.tipo === 'booleano' ? (
-                        <Select value={simValores[c.key] || undefined} onValueChange={(v) => setSimValores((sv) => ({ ...sv, [c.key]: v }))}>
-                          <SelectTrigger className="h-6 text-[11px] w-[110px] shrink-0"><SelectValue placeholder="—" /></SelectTrigger>
-                          <SelectContent><SelectItem value="true" className="text-xs">Sim</SelectItem><SelectItem value="false" className="text-xs">Não</SelectItem></SelectContent>
-                        </Select>
-                      ) : (
-                        <Input className="h-6 text-[11px] w-[110px] shrink-0" type={c.tipo === 'data' ? 'date' : 'text'} inputMode={c.tipo === 'numero' ? 'decimal' : undefined}
-                          value={simValores[c.key] ?? ''} onChange={(ev) => setSimValores((sv) => ({ ...sv, [c.key]: ev.target.value }))} />
-                      )}
-                    </div>
-                  ))}
-                  {temTextoLivre && <p className="text-[10px] text-muted-foreground leading-snug">Há saída em modo avançado — ela é avaliada com os mesmos valores, mas os campos dela não aparecem acima.</p>}
-                  {camposDoTeste.length > 0 && (
-                    vencedora ? (
-                      <p className="text-[11px] font-semibold text-primary">→ o processo segue para {nomeDestino(outs.find((o) => o.id === vencedora)!)}</p>
-                    ) : (
-                      <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">Nenhuma condição casa e não há “caso contrário” — em execução isso seria erro.</p>
-                    )
-                  )}
-                </div>
-              )}
-            </div>
+  if (!mounted) return null
 
-            {outs.map((e) => {
-              const acesa = simAberto && vencedora === e.id
-              const apagada = simAberto && vencedora !== null && vencedora !== e.id
-              return (
-              <div key={e.id} className={cn('rounded-md border p-2 space-y-1.5 transition-all',
-                e.isDefault ? 'border-dashed bg-muted/10' : 'bg-muted/20',
-                acesa && 'border-primary ring-1 ring-primary/40 bg-primary/5',
-                apagada && 'opacity-40')}>
-                {/* FRASE: SE …  SEGUE PARA … · SENÃO … */}
-                {e.isDefault ? (
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[10px] font-extrabold tracking-widest text-muted-foreground">SENÃO</span>
-                    <span className="text-[11.5px] font-semibold truncate">{nomeDestino(e)}</span>
-                    <Badge variant="outline" className="text-[10px] shrink-0 border-dashed">caso contrário</Badge>
-                    {acesa && <span className="text-[10px] font-bold text-primary shrink-0">✓ é por aqui</span>}
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex items-start gap-2">
-                      <span className="text-[10px] font-extrabold tracking-widest text-violet-600 dark:text-violet-400 mt-1.5">SE</span>
-                      <div className="flex-1 min-w-0">
-                        <CondBuilder edge={e} campos={campos} onSet={(patch) => onSetEdge(e.id, patch)} />
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-wrap pl-0.5">
-                      <span className="text-[10px] font-extrabold tracking-widest text-violet-600 dark:text-violet-400">SEGUE PARA</span>
-                      <span className="text-[11.5px] font-semibold truncate">{nomeDestino(e)}</span>
-                      {acesa && <span className="text-[10px] font-bold text-primary shrink-0">✓ é por aqui</span>}
-                      <button className="ml-auto text-[10px] text-muted-foreground hover:text-foreground shrink-0"
-                        onClick={() => { outs.forEach((o) => onSetEdge(o.id, { isDefault: false })); onSetEdge(e.id, { isDefault: true, condition: '', conditionSpec: undefined, label: e.label || 'Caso contrário' }) }}>
-                        tornar “caso contrário”
-                      </button>
-                    </div>
-                  </>
-                )}
-                <Input className="h-6 text-[11px] px-2" value={e.label ?? ''} placeholder="Rótulo da seta (preenchido sozinho pela condição)" onChange={(ev) => onSetEdge(e.id, { label: ev.target.value })} />
-              </div>
-            )})}
+  return createPortal(
+    <>
+      {/* scrim clareia durante a simulação: a seta acesa no canvas é parte do show */}
+      <div className={cn('fixed inset-0 z-[60] transition-colors', simAberto ? 'bg-black/10' : 'bg-black/40')} onClick={cancelar} />
+      <div role="dialog" aria-modal="true"
+        className="fixed left-1/2 top-1/2 z-[70] w-[min(720px,94vw)] max-h-[min(680px,90vh)] -translate-x-1/2 -translate-y-1/2 glass-panel rounded-xl border shadow-2xl flex flex-col overflow-hidden">
+
+        <div className="flex items-start justify-between gap-4 px-5 py-3 border-b bg-muted/20 shrink-0">
+          <div className="min-w-0">
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full text-violet-600 dark:text-violet-400 bg-violet-500/10">
+              <GatewayGlyph kind="exclusive" className="h-3 w-3" />Decisão (ou/ou)
+            </span>
+            <h2 className="text-sm font-semibold mt-1 truncate">{node.name || 'Decisão sem pergunta'}</h2>
           </div>
-        ) : (
-          <p className="text-[11px] text-muted-foreground leading-snug">Todas as saídas rodam ao mesmo tempo; o motor espera todas concluírem antes de seguir. Insira atividades em cada faixa com o <span className="font-medium">+</span> no conector.</p>
-        )}
+          <div className="flex items-center gap-1 shrink-0">
+            <button onClick={onRemove} title="Remover decisão"
+              className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors">
+              <Trash2 className="h-4 w-4" />
+            </button>
+            <button onClick={cancelar} title="Fechar sem aplicar"
+              className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 min-h-0 overflow-y-auto rolagem-visivel px-5 py-4 space-y-4">
+          <Field label="Pergunta / rótulo">
+            <Input className="h-8 text-sm" placeholder="Ex.: Necessita de parecer do Patrimônio?" value={node.name} onChange={(e) => onPatchNode({ name: e.target.value })} />
+          </Field>
+
+          <p className="text-[11.5px] text-muted-foreground leading-snug">
+            Para cada caminho, diga <span className="font-medium">quando</span> ele é escolhido. Um deles é o
+            <span className="font-medium"> caso contrário</span> — usado quando nenhuma condição casa.
+          </p>
+          {!temPadrao && outs.length > 1 && (
+            <p className="text-[11.5px] rounded-md border border-amber-300 dark:border-amber-900 bg-amber-500/10 text-amber-700 dark:text-amber-400 px-2.5 py-1.5 leading-snug">
+              Nenhuma saída está marcada como “caso contrário” — a ativação vai recusar. Marque uma abaixo.
+            </p>
+          )}
+
+          {/* Testar decisão */}
+          <div className={cn('rounded-md border', simAberto ? 'border-primary/40 bg-primary/5' : 'bg-muted/20')}>
+            <button type="button" className="w-full flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-left"
+              onClick={() => setSimAberto((v) => !v)}>
+              <Play className={cn('h-3.5 w-3.5', simAberto ? 'text-primary' : 'text-muted-foreground')} />
+              <span className={simAberto ? 'text-primary' : 'text-muted-foreground'}>Testar decisão</span>
+              <span className="ml-auto text-[11px] text-muted-foreground font-normal">{simAberto ? 'fechar' : 'valores de exemplo — a seta acende no desenho'}</span>
+            </button>
+            {simAberto && (
+              <div className="px-3 pb-2.5 space-y-1.5">
+                {camposDoTeste.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground leading-snug">Monte ao menos uma condição abaixo — os campos usados aparecem aqui para você experimentar.</p>
+                ) : camposDoTeste.map((c) => (
+                  <div key={c.key} className="flex items-center gap-2">
+                    <span className="text-[11px] text-muted-foreground flex-1 min-w-0 truncate" title={c.label}>{c.label}</span>
+                    {c.tipo === 'selecao' && c.options?.length ? (
+                      <Select value={simValores[c.key] || undefined} onValueChange={(v) => setSimValores((sv) => ({ ...sv, [c.key]: v }))}>
+                        <SelectTrigger className="h-7 text-xs w-[160px] shrink-0"><SelectValue placeholder="—" /></SelectTrigger>
+                        <SelectContent>{c.options.map((o) => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    ) : c.tipo === 'booleano' ? (
+                      <Select value={simValores[c.key] || undefined} onValueChange={(v) => setSimValores((sv) => ({ ...sv, [c.key]: v }))}>
+                        <SelectTrigger className="h-7 text-xs w-[160px] shrink-0"><SelectValue placeholder="—" /></SelectTrigger>
+                        <SelectContent><SelectItem value="true" className="text-xs">Sim</SelectItem><SelectItem value="false" className="text-xs">Não</SelectItem></SelectContent>
+                      </Select>
+                    ) : (
+                      <Input className="h-7 text-xs w-[160px] shrink-0" type={c.tipo === 'data' ? 'date' : 'text'} inputMode={c.tipo === 'numero' ? 'decimal' : undefined}
+                        value={simValores[c.key] ?? ''} onChange={(ev) => setSimValores((sv) => ({ ...sv, [c.key]: ev.target.value }))} />
+                    )}
+                  </div>
+                ))}
+                {temTextoLivre && <p className="text-[10.5px] text-muted-foreground leading-snug">Há saída em modo avançado — ela é avaliada com os mesmos valores, mas os campos dela não aparecem acima.</p>}
+                {camposDoTeste.length > 0 && (
+                  vencedora ? (
+                    <p className="text-xs font-semibold text-primary">→ o processo segue para {nomeDestino(outs.find((o) => o.id === vencedora)!)}</p>
+                  ) : (
+                    <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">Nenhuma condição casa e não há “caso contrário” — em execução isso seria erro.</p>
+                  )
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Caminhos — frases com espaço para respirar */}
+          {outs.map((e) => {
+            const acesa = simAberto && vencedora === e.id
+            const apagada = simAberto && vencedora !== null && vencedora !== e.id
+            return (
+            <div key={e.id} className={cn('rounded-lg border p-3 space-y-2 transition-all',
+              e.isDefault ? 'border-dashed bg-muted/10' : 'bg-muted/20',
+              acesa && 'border-primary ring-1 ring-primary/40 bg-primary/5',
+              apagada && 'opacity-40')}>
+              {e.isDefault ? (
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <span className="text-[11px] font-extrabold tracking-widest text-muted-foreground">SENÃO</span>
+                  <span className="text-[13px] font-semibold truncate">{nomeDestino(e)}</span>
+                  <Badge variant="outline" className="text-[10px] shrink-0 border-dashed">caso contrário</Badge>
+                  {acesa && <span className="text-[11px] font-bold text-primary shrink-0">✓ é por aqui</span>}
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-start gap-2.5">
+                    <span className="text-[11px] font-extrabold tracking-widest text-violet-600 dark:text-violet-400 mt-2">SE</span>
+                    <div className="flex-1 min-w-0">
+                      <CondBuilder edge={e} campos={campos} onSet={(patch) => onSetEdge(e.id, patch)} />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <span className="text-[11px] font-extrabold tracking-widest text-violet-600 dark:text-violet-400">SEGUE PARA</span>
+                    <span className="text-[13px] font-semibold truncate">{nomeDestino(e)}</span>
+                    {acesa && <span className="text-[11px] font-bold text-primary shrink-0">✓ é por aqui</span>}
+                    <button className="ml-auto text-[11px] text-muted-foreground hover:text-foreground shrink-0"
+                      onClick={() => { outs.forEach((o) => onSetEdge(o.id, { isDefault: false })); onSetEdge(e.id, { isDefault: true, condition: '', conditionSpec: undefined, label: e.label || 'Caso contrário' }) }}>
+                      tornar “caso contrário”
+                    </button>
+                  </div>
+                </>
+              )}
+              <Input className="h-7 text-xs px-2.5" value={e.label ?? ''} placeholder="Rótulo da seta (preenchido sozinho pela condição)" onChange={(ev) => onSetEdge(e.id, { label: ev.target.value })} />
+            </div>
+          )})}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t bg-muted/20 shrink-0">
+          <Button variant="ghost" size="sm" onClick={cancelar}>Cancelar</Button>
+          <Button size="sm" onClick={onClose}>Aplicar</Button>
+        </div>
       </div>
-    </div>
+    </>,
+    document.body,
   )
 }
 
 /* ── Construtor de condição de UMA saída: [Campo] [operador] [Valor], com E/OU.
      Gera a expressão do motor a partir do spec; "modo avançado" expõe o texto cru
-     (editar o texto vira a fonte de verdade e apaga o spec). ── */
+     (editar o texto vira a fonte de verdade e apaga o spec). Dimensionado para o
+     MODAL (o painel lateral de 320px espremia os chips — achado do PO). ── */
 function CondBuilder({ edge, campos, onSet }: {
   edge: EEdge; campos: CampoDisponivel[]; onSet: (patch: Partial<EEdge>) => void
 }) {
@@ -2109,9 +2223,9 @@ function CondBuilder({ edge, campos, onSet }: {
   if (avancado) {
     return (
       <div className="space-y-1">
-        <Input className="h-7 text-xs font-mono" placeholder="ex.: contrato.valorTotal > 100000" value={edge.condition ?? ''}
+        <Input className="h-8 text-xs font-mono" placeholder="ex.: contrato.valorTotal > 100000" value={edge.condition ?? ''}
           onChange={(ev) => onSet({ condition: ev.target.value, conditionSpec: undefined })} />
-        <button className="text-[10px] text-primary hover:underline" onClick={() => { setAvancado(false); aplicar({ logic: 'AND', rules: [{ campo: '', op: 'eq', valor: '' }] }) }}>
+        <button className="text-[11px] text-primary hover:underline" onClick={() => { setAvancado(false); aplicar({ logic: 'AND', rules: [{ campo: '', op: 'eq', valor: '' }] }) }}>
           usar o construtor (descarta a expressão digitada)
         </button>
       </div>
@@ -2121,7 +2235,7 @@ function CondBuilder({ edge, campos, onSet }: {
   return (
     <div className="space-y-1.5">
       {campos.length === 0 ? (
-        <p className="text-[10.5px] text-muted-foreground leading-snug rounded-md border border-dashed px-2 py-1.5">
+        <p className="text-[11px] text-muted-foreground leading-snug rounded-md border border-dashed px-2.5 py-2">
           Nenhum campo disponível ainda: as condições testam o que as atividades <span className="font-medium">anteriores</span> capturam.
           Ligue uma atividade com Tela de contrato (ou com formulário) antes deste losango.
         </p>
@@ -2129,9 +2243,9 @@ function CondBuilder({ edge, campos, onSet }: {
         const c = campoDe(r.campo)
         const ops = OPS_POR_TIPO[c?.tipo ?? 'texto']
         return (
-          <div key={i} className="flex items-center gap-1">
+          <div key={i} className="flex items-center gap-1.5">
             <Select value={r.campo || undefined} onValueChange={(v) => { const t = campoDe(v)?.tipo ?? 'texto'; setRule(i, { campo: v, op: OPS_POR_TIPO[t][0].value, valor: '' }) }}>
-              <SelectTrigger className="h-7 text-[11px] flex-1 min-w-0"><SelectValue placeholder="Campo…" /></SelectTrigger>
+              <SelectTrigger className="h-8 text-xs flex-1 min-w-[180px]"><SelectValue placeholder="Campo…" /></SelectTrigger>
               <SelectContent>
                 {campos.map((cp) => (
                   <SelectItem key={cp.key} value={cp.key} className="text-xs">
@@ -2141,42 +2255,42 @@ function CondBuilder({ edge, campos, onSet }: {
               </SelectContent>
             </Select>
             <Select value={r.op} onValueChange={(v) => setRule(i, { ...r, op: v as EdgeConditionRule['op'] })}>
-              <SelectTrigger className="h-7 text-[11px] w-[92px] shrink-0"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-8 text-xs w-[150px] shrink-0"><SelectValue /></SelectTrigger>
               <SelectContent>{ops.map((o) => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
             </Select>
             {c?.tipo === 'selecao' && c.options?.length ? (
               <Select value={r.valor || undefined} onValueChange={(v) => setRule(i, { ...r, valor: v })}>
-                <SelectTrigger className="h-7 text-[11px] w-[104px] shrink-0"><SelectValue placeholder="Valor…" /></SelectTrigger>
+                <SelectTrigger className="h-8 text-xs w-[150px] shrink-0"><SelectValue placeholder="Valor…" /></SelectTrigger>
                 <SelectContent>{c.options.map((o) => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
               </Select>
             ) : c?.tipo === 'booleano' ? (
               <Select value={r.valor || undefined} onValueChange={(v) => setRule(i, { ...r, valor: v })}>
-                <SelectTrigger className="h-7 text-[11px] w-[104px] shrink-0"><SelectValue placeholder="Valor…" /></SelectTrigger>
+                <SelectTrigger className="h-8 text-xs w-[150px] shrink-0"><SelectValue placeholder="Valor…" /></SelectTrigger>
                 <SelectContent><SelectItem value="true" className="text-xs">Sim</SelectItem><SelectItem value="false" className="text-xs">Não</SelectItem></SelectContent>
               </Select>
             ) : (
-              <Input className="h-7 text-[11px] w-[104px] shrink-0" type={c?.tipo === 'numero' ? 'text' : c?.tipo === 'data' ? 'date' : 'text'}
+              <Input className="h-8 text-xs w-[150px] shrink-0" type={c?.tipo === 'numero' ? 'text' : c?.tipo === 'data' ? 'date' : 'text'}
                 inputMode={c?.tipo === 'numero' ? 'decimal' : undefined} placeholder="Valor"
                 value={r.valor} onChange={(ev) => setRule(i, { ...r, valor: ev.target.value })} />
             )}
             {rules.length > 1 && (
-              <button aria-label="Remover condição" className="text-muted-foreground hover:text-destructive shrink-0" onClick={() => dropRule(i)}><X className="h-3 w-3" /></button>
+              <button aria-label="Remover condição" className="text-muted-foreground hover:text-destructive shrink-0" onClick={() => dropRule(i)}><X className="h-3.5 w-3.5" /></button>
             )}
           </div>
         )
       })}
       {campos.length > 0 && (
-        <div className="flex items-center gap-2">
-          <button className="text-[10px] text-primary hover:underline" onClick={() => aplicar({ logic, rules: [...rules, { campo: '', op: 'eq', valor: '' }] })}>+ condição</button>
+        <div className="flex items-center gap-2.5">
+          <button className="text-[11px] text-primary hover:underline" onClick={() => aplicar({ logic, rules: [...rules, { campo: '', op: 'eq', valor: '' }] })}>+ condição</button>
           {rules.length > 1 && (
             <div className="flex rounded border overflow-hidden">
               {(['AND', 'OR'] as const).map((l) => (
-                <button key={l} className={cn('px-1.5 py-0.5 text-[10px] font-semibold transition-colors', logic === l ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}
+                <button key={l} className={cn('px-2 py-0.5 text-[11px] font-semibold transition-colors', logic === l ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}
                   onClick={() => aplicar({ logic: l, rules })}>{l === 'AND' ? 'E' : 'OU'}</button>
               ))}
             </div>
           )}
-          <button className="ml-auto text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setAvancado(true)}>modo avançado</button>
+          <button className="ml-auto text-[11px] text-muted-foreground hover:text-foreground" onClick={() => setAvancado(true)}>modo avançado</button>
         </div>
       )}
     </div>
