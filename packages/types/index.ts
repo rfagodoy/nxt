@@ -226,6 +226,16 @@ export const isRetiredConnector = (value?: string): boolean =>
 export const isCompensable = (connector?: string): boolean =>
   !!findConnector(connector)?.compensable
 
+/* ─── Condição ESTRUTURADA de uma saída de decisão (construtor do Storyboard) ───
+   O motor continua lendo APENAS a string `condition` (expressão) — o spec é a fonte
+   de autoria: o construtor gera a expressão a partir dele. Editar a expressão no
+   modo avançado apaga o spec (texto livre vira a verdade). Campos de Tela de
+   contrato são referenciados como `contrato.<fieldId>` (id estável; rótulo resolve
+   ao vivo no editor — renomear o campo não quebra o workflow). */
+export type CondOp = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte'
+export interface EdgeConditionRule { campo: string; op: CondOp; valor: string }
+export interface EdgeConditionSpec { logic: 'AND' | 'OR'; rules: EdgeConditionRule[] }
+
 export interface ProcessFormSchema {
   steps: StepFormSchema[]
   /** Posições MANUAIS por id de nó (editor Storyboard). Quando presente para um nó,
@@ -245,7 +255,7 @@ export interface ProcessFormSchema {
    *  verdade da AUTORIA; o bpmnXml é derivado dele para o motor. */
   graph?: {
     nodes: Array<{ id: string; type: string; name?: string }>
-    edges: Array<{ id: string; from: string; to: string; condition?: string; isDefault?: boolean; label?: string }>
+    edges: Array<{ id: string; from: string; to: string; condition?: string; isDefault?: boolean; label?: string; conditionSpec?: EdgeConditionSpec }>
   }
 }
 

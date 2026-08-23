@@ -4,6 +4,7 @@ import { CreateProcessDto } from './dto/create-process.dto'
 import { UpdateProcessDto } from './dto/update-process.dto'
 import { ProcessFormSchema, isCompensable } from '@nxt/types'
 import { compileBpmn, CompileError, type WfGraph } from '@nxt/workflow-core'
+import { validarDecisoes } from './gateway-guard'
 
 /** Autor da ação, vindo do JWT (nunca do corpo da requisição). */
 export interface Autor { name: string; sub?: string }
@@ -178,6 +179,10 @@ export class ProcessesService {
       if (e instanceof CompileError) throw new BadRequestException(`Diagrama inválido: ${e.message}`)
       throw e
     }
+
+    // Decisões completas: uma saída padrão + condição nas demais (gateway-guard).
+    const erroDecisao = validarDecisoes(Object.values(graph.nodes), graph.edges)
+    if (erroDecisao) throw new BadRequestException(erroDecisao)
 
     const formSchema = process.formSchema as unknown as ProcessFormSchema
 

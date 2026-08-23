@@ -11,8 +11,9 @@ import {
 } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { generateBpmn, compileBpmn, type WfGraph, type WfNode, type WfEdge } from '@nxt/workflow-core'
-import type { StepFormSchema, ProcessFormSchema } from '@nxt/types'
+import type { StepFormSchema, ProcessFormSchema, EdgeConditionSpec, EdgeConditionRule } from '@nxt/types'
 import { CONNECTORS, findConnector, isRetiredConnector, isCompensable } from '@nxt/types'
+import { camposDisponiveis, gerarExpressao, rotuloDaCondicao, OPS_POR_TIPO, type CampoDisponivel } from '@/lib/flow-conditions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -43,7 +44,7 @@ type AddType = 'userTask' | 'serviceTask' | 'exclusiveGateway' | 'parallelGatewa
 
 /** Nó do editor. Atividades carregam a config (StepFormSchema); gateways/eventos só nome. */
 interface ENode { id: string; type: NType; name: string; step?: StepFormSchema }
-interface EEdge { id: string; from: string; to: string; condition?: string; isDefault?: boolean; label?: string }
+interface EEdge { id: string; from: string; to: string; condition?: string; isDefault?: boolean; label?: string; conditionSpec?: EdgeConditionSpec }
 
 export interface FlowInitial {
   id: string
@@ -143,7 +144,7 @@ function fromInitial(initial: FlowInitial): { nodes: ENode[]; edges: EEdge[]; st
   let startId: string
   if (initial.graph && initial.graph.nodes?.length) {
     gnodes = initial.graph.nodes
-    gedges = initial.graph.edges.map((e) => ({ id: e.id, from: e.from, to: e.to, condition: e.condition, isDefault: e.isDefault, label: e.label }))
+    gedges = initial.graph.edges.map((e) => ({ id: e.id, from: e.from, to: e.to, condition: e.condition, isDefault: e.isDefault, label: e.label, conditionSpec: e.conditionSpec }))
     startId = gnodes.find((n) => n.type === 'start')?.id ?? 'Start_1'
   } else {
     try {
@@ -470,7 +471,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     // grafo do editor (fonte de verdade da autoria; sobrevive a rascunhos incompletos)
     const graph: ProcessFormSchema['graph'] = {
       nodes: nodes.map((n) => ({ id: n.id, type: n.type, name: isActivity(n.type) ? (n.step?.stepName || '') : n.name })),
-      edges: edges.map((e) => ({ id: e.id, from: e.from, to: e.to, condition: e.condition || undefined, isDefault: e.isDefault, label: e.label })),
+      edges: edges.map((e) => ({ id: e.id, from: e.from, to: e.to, condition: e.condition || undefined, isDefault: e.isDefault, label: e.label, conditionSpec: e.conditionSpec })),
     }
     const formSchema: ProcessFormSchema = {
       steps, graph,
@@ -653,7 +654,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
               <ActivitySummaryPanel node={selected} papeis={papeis}
                 onConfigure={() => setConfigId(selected.id)} onRemove={() => removeNode(selected.id)} />
             ) : (
-              <GatewayInspector key={selected.id} node={selected} edges={edges} onPatchNode={(p) => patchNode(selected.id, p)} onSetEdge={setEdge} />
+              <GatewayInspector key={selected.id} node={selected} nodes={nodes} edges={edges} screens={screens} onPatchNode={(p) => patchNode(selected.id, p)} onSetEdge={setEdge} />
             )
           ) : (
             /* Nada selecionado → propriedades do workflow (padrão de editor visual: painel = documento) */
@@ -1913,12 +1914,20 @@ const ENTITY_MODE_HINT: Record<string, string> = {
   VIEW:   'A atividade apenas MOSTRA o registro, em leitura: nenhum campo pode ser alterado e nada é gravado. Serve para etapas de análise, conferência e ciência.',
 }
 
-function GatewayInspector({ node, edges, onPatchNode, onSetEdge }: {
-  node: ENode; edges: EEdge[]; onPatchNode: (patch: Partial<ENode>) => void; onSetEdge: (edgeId: string, patch: Partial<EEdge>) => void
+function GatewayInspector({ node, nodes, edges, screens, onPatchNode, onSetEdge }: {
+  node: ENode; nodes: ENode[]; edges: EEdge[]; screens: Screens
+  onPatchNode: (patch: Partial<ENode>) => void; onSetEdge: (edgeId: string, patch: Partial<EEdge>) => void
 }) {
   const isExcl = node.type === 'exclusiveGateway'
   const outs = edges.filter((e) => e.from === node.id)
+  const temPadrao = outs.some((e) => e.isDefault)
   const tone = isExcl ? 'text-violet-600 dark:text-violet-400 bg-violet-500/10' : 'text-rose-600 dark:text-rose-400 bg-rose-500/10'
+  /* Vocabulário do construtor: SÓ campos capturados ANTES deste losango no fluxo. */
+  const campos = useMemo(() => camposDisponiveis(nodes, edges, node.id, screens), [nodes, edges, node.id, screens])
+  const nomeDestino = (e: EEdge) => {
+    const d = nodes.find((n) => n.id === e.to)
+    return d?.step?.stepName || d?.name || (d?.type === 'end' ? 'Fim' : 'próxima etapa')
+  }
   return (
     <div className="flex flex-col h-full">
       <div className="px-4 py-3 border-b shrink-0">
@@ -1926,22 +1935,36 @@ function GatewayInspector({ node, edges, onPatchNode, onSetEdge }: {
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         <Field label={isExcl ? 'Pergunta / rótulo' : 'Rótulo'}>
-          <Input className="h-8 text-sm" placeholder={isExcl ? 'Ex.: Valor acima de R$ 100 mil?' : 'Ex.: Em paralelo'} value={node.name} onChange={(e) => onPatchNode({ name: e.target.value })} />
+          <Input className="h-8 text-sm" placeholder={isExcl ? 'Ex.: Necessita de parecer do Patrimônio?' : 'Ex.: Em paralelo'} value={node.name} onChange={(e) => onPatchNode({ name: e.target.value })} />
         </Field>
         {isExcl ? (
           <div className="space-y-2">
-            <p className="text-[11px] text-muted-foreground">Condição de cada saída (a saída padrão é usada quando nenhuma casa):</p>
+            <p className="text-[11px] text-muted-foreground leading-snug">
+              Para cada caminho, diga <span className="font-medium">quando</span> ele é escolhido. Um deles é o
+              <span className="font-medium"> caso contrário</span> — usado quando nenhuma condição casa.
+            </p>
+            {!temPadrao && outs.length > 1 && (
+              <p className="text-[11px] rounded-md border border-amber-300 dark:border-amber-900 bg-amber-500/10 text-amber-700 dark:text-amber-400 px-2 py-1.5 leading-snug">
+                Nenhuma saída está marcada como “caso contrário” — a ativação vai recusar. Marque uma abaixo.
+              </p>
+            )}
             {outs.map((e) => (
               <div key={e.id} className="rounded-md border bg-muted/20 p-2 space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <Input className="h-6 text-[11px] w-24 px-2" value={e.label ?? ''} placeholder="Rótulo" onChange={(ev) => onSetEdge(e.id, { label: ev.target.value })} />
-                  {e.isDefault ? <Badge variant="outline" className="text-[10px]">padrão</Badge> : (
-                    <button className="text-[10px] text-muted-foreground hover:text-foreground" onClick={() => { outs.forEach((o) => onSetEdge(o.id, { isDefault: false })); onSetEdge(e.id, { isDefault: true, condition: '' }) }}>tornar padrão</button>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-medium truncate">→ {nomeDestino(e)}</span>
+                  {e.isDefault ? <Badge variant="outline" className="text-[10px] shrink-0">caso contrário</Badge> : (
+                    <button className="text-[10px] text-muted-foreground hover:text-foreground shrink-0"
+                      onClick={() => { outs.forEach((o) => onSetEdge(o.id, { isDefault: false })); onSetEdge(e.id, { isDefault: true, condition: '', conditionSpec: undefined, label: e.label || 'Caso contrário' }) }}>
+                      tornar “caso contrário”
+                    </button>
                   )}
                 </div>
-                {!e.isDefault && (
-                  <Input className="h-7 text-xs font-mono" placeholder="ex.: valor > 100000" value={e.condition ?? ''} onChange={(ev) => onSetEdge(e.id, { condition: ev.target.value })} />
+                {e.isDefault ? (
+                  <p className="text-[10.5px] text-muted-foreground leading-snug">O processo segue por aqui quando nenhuma condição das outras saídas casa.</p>
+                ) : (
+                  <CondBuilder edge={e} campos={campos} onSet={(patch) => onSetEdge(e.id, patch)} />
                 )}
+                <Input className="h-6 text-[11px] px-2" value={e.label ?? ''} placeholder="Rótulo da seta (preenchido sozinho pela condição)" onChange={(ev) => onSetEdge(e.id, { label: ev.target.value })} />
               </div>
             ))}
           </div>
@@ -1949,6 +1972,117 @@ function GatewayInspector({ node, edges, onPatchNode, onSetEdge }: {
           <p className="text-[11px] text-muted-foreground leading-snug">Todas as saídas rodam ao mesmo tempo; o motor espera todas concluírem antes de seguir. Insira atividades em cada faixa com o <span className="font-medium">+</span> no conector.</p>
         )}
       </div>
+    </div>
+  )
+}
+
+/* ── Construtor de condição de UMA saída: [Campo] [operador] [Valor], com E/OU.
+     Gera a expressão do motor a partir do spec; "modo avançado" expõe o texto cru
+     (editar o texto vira a fonte de verdade e apaga o spec). ── */
+function CondBuilder({ edge, campos, onSet }: {
+  edge: EEdge; campos: CampoDisponivel[]; onSet: (patch: Partial<EEdge>) => void
+}) {
+  const spec = edge.conditionSpec ?? null
+  /* condição legada digitada à mão (sem spec) abre direto no modo avançado */
+  const [avancado, setAvancado] = useState(!spec && !!edge.condition?.trim())
+
+  const campoDe = (k: string) => campos.find((c) => c.key === k)
+  const tipoDe = (k: string): CampoDisponivel['tipo'] => campoDe(k)?.tipo ?? 'texto'
+  const labelDe = (k: string) => campoDe(k)?.label ?? k
+  const valorLabelDe = (r: EdgeConditionRule) => {
+    const c = campoDe(r.campo)
+    if (c?.tipo === 'booleano') return r.valor === 'true' ? 'Sim' : 'Não'
+    return c?.options?.find((o) => o.value === r.valor)?.label ?? r.valor
+  }
+
+  /* Auto-rótulo da seta: acompanha a condição enquanto o usuário não escrever um
+     rótulo PRÓPRIO (detectado por diferir do auto-rótulo do spec anterior). */
+  const aplicar = (novo: EdgeConditionSpec) => {
+    const autoAnterior = spec ? rotuloDaCondicao(spec, labelDe, valorLabelDe) : ''
+    const auto = rotuloDaCondicao(novo, labelDe, valorLabelDe)
+    const patch: Partial<EEdge> = { conditionSpec: novo, condition: gerarExpressao(novo, tipoDe) }
+    if (!edge.label?.trim() || edge.label === autoAnterior) patch.label = auto
+    onSet(patch)
+  }
+
+  const rules: EdgeConditionRule[] = spec?.rules.length ? spec.rules : [{ campo: '', op: 'eq', valor: '' }]
+  const logic = spec?.logic ?? 'AND'
+  const setRule = (i: number, r: EdgeConditionRule) => aplicar({ logic, rules: rules.map((x, j) => (j === i ? r : x)) })
+  const dropRule = (i: number) => aplicar({ logic, rules: rules.filter((_, j) => j !== i) })
+
+  if (avancado) {
+    return (
+      <div className="space-y-1">
+        <Input className="h-7 text-xs font-mono" placeholder="ex.: contrato.valorTotal > 100000" value={edge.condition ?? ''}
+          onChange={(ev) => onSet({ condition: ev.target.value, conditionSpec: undefined })} />
+        <button className="text-[10px] text-primary hover:underline" onClick={() => { setAvancado(false); aplicar({ logic: 'AND', rules: [{ campo: '', op: 'eq', valor: '' }] }) }}>
+          usar o construtor (descarta a expressão digitada)
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {campos.length === 0 ? (
+        <p className="text-[10.5px] text-muted-foreground leading-snug rounded-md border border-dashed px-2 py-1.5">
+          Nenhum campo disponível ainda: as condições testam o que as atividades <span className="font-medium">anteriores</span> capturam.
+          Ligue uma atividade com Tela de contrato (ou com formulário) antes deste losango.
+        </p>
+      ) : rules.map((r, i) => {
+        const c = campoDe(r.campo)
+        const ops = OPS_POR_TIPO[c?.tipo ?? 'texto']
+        return (
+          <div key={i} className="flex items-center gap-1">
+            <Select value={r.campo || undefined} onValueChange={(v) => { const t = campoDe(v)?.tipo ?? 'texto'; setRule(i, { campo: v, op: OPS_POR_TIPO[t][0].value, valor: '' }) }}>
+              <SelectTrigger className="h-7 text-[11px] flex-1 min-w-0"><SelectValue placeholder="Campo…" /></SelectTrigger>
+              <SelectContent>
+                {campos.map((cp) => (
+                  <SelectItem key={cp.key} value={cp.key} className="text-xs">
+                    {cp.label} <span className="text-muted-foreground">· {cp.origem}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={r.op} onValueChange={(v) => setRule(i, { ...r, op: v as EdgeConditionRule['op'] })}>
+              <SelectTrigger className="h-7 text-[11px] w-[92px] shrink-0"><SelectValue /></SelectTrigger>
+              <SelectContent>{ops.map((o) => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
+            </Select>
+            {c?.tipo === 'selecao' && c.options?.length ? (
+              <Select value={r.valor || undefined} onValueChange={(v) => setRule(i, { ...r, valor: v })}>
+                <SelectTrigger className="h-7 text-[11px] w-[104px] shrink-0"><SelectValue placeholder="Valor…" /></SelectTrigger>
+                <SelectContent>{c.options.map((o) => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
+              </Select>
+            ) : c?.tipo === 'booleano' ? (
+              <Select value={r.valor || undefined} onValueChange={(v) => setRule(i, { ...r, valor: v })}>
+                <SelectTrigger className="h-7 text-[11px] w-[104px] shrink-0"><SelectValue placeholder="Valor…" /></SelectTrigger>
+                <SelectContent><SelectItem value="true" className="text-xs">Sim</SelectItem><SelectItem value="false" className="text-xs">Não</SelectItem></SelectContent>
+              </Select>
+            ) : (
+              <Input className="h-7 text-[11px] w-[104px] shrink-0" type={c?.tipo === 'numero' ? 'text' : c?.tipo === 'data' ? 'date' : 'text'}
+                inputMode={c?.tipo === 'numero' ? 'decimal' : undefined} placeholder="Valor"
+                value={r.valor} onChange={(ev) => setRule(i, { ...r, valor: ev.target.value })} />
+            )}
+            {rules.length > 1 && (
+              <button aria-label="Remover condição" className="text-muted-foreground hover:text-destructive shrink-0" onClick={() => dropRule(i)}><X className="h-3 w-3" /></button>
+            )}
+          </div>
+        )
+      })}
+      {campos.length > 0 && (
+        <div className="flex items-center gap-2">
+          <button className="text-[10px] text-primary hover:underline" onClick={() => aplicar({ logic, rules: [...rules, { campo: '', op: 'eq', valor: '' }] })}>+ condição</button>
+          {rules.length > 1 && (
+            <div className="flex rounded border overflow-hidden">
+              {(['AND', 'OR'] as const).map((l) => (
+                <button key={l} className={cn('px-1.5 py-0.5 text-[10px] font-semibold transition-colors', logic === l ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}
+                  onClick={() => aplicar({ logic: l, rules })}>{l === 'AND' ? 'E' : 'OU'}</button>
+              ))}
+            </div>
+          )}
+          <button className="ml-auto text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setAvancado(true)}>modo avançado</button>
+        </div>
+      )}
     </div>
   )
 }
