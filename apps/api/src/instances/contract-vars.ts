@@ -19,6 +19,8 @@ export interface ContratoParaVars {
   valorParcela?: number | null
   qtdParcelas?: number | null
   prazoIndeterminado?: boolean | null
+  maoDeObra?: boolean | null
+  maoDeObraLocal?: string | null
   inicioVigencia?: string | null
   terminoVigencia?: string | null
   condicaoPagamento?: string | null
@@ -39,6 +41,8 @@ export function montarVariavelContrato(
     valorParcela:       contrato.valorParcela ?? 0,
     qtdParcelas:        contrato.qtdParcelas ?? 0,
     prazoIndeterminado: !!contrato.prazoIndeterminado,
+    maoDeObra:          !!contrato.maoDeObra,
+    maoDeObraLocal:     contrato.maoDeObraLocal ?? '',
     inicioVigencia:     contrato.inicioVigencia ?? '',
     terminoVigencia:    contrato.terminoVigencia ?? '',
     condicaoPagamento:  contrato.condicaoPagamento ?? '',

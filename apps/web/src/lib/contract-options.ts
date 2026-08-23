@@ -205,6 +205,17 @@ export const INIT_FORMAS_PGTO: LookupEntry[] = [
   { id: '9', label: 'Outro',                   active: true },
 ]
 
+/* ─── mão de obra alocada (cessão de mão de obra — Lei 8.212/91) ── */
+export const MAO_DE_OBRA_OPCOES = [
+  { value: 'NAO', label: 'Não' },
+  { value: 'SIM', label: 'Sim' },
+]
+export const MAO_DE_OBRA_LOCAIS = [
+  { value: 'CONTRATADA',  label: 'Instalações da contratada' },
+  { value: 'CONTRATANTE', label: 'Instalações da contratante' },
+  { value: 'TERCEIRO',    label: 'Instalações de terceiro' },
+]
+
 /* ─── natureza do contrato ───────────────────────────────── */
 export const NATUREZAS = [
   { value: 'DESPESA', label: 'Despesa' },
@@ -311,6 +322,8 @@ export interface CAditivo {
 
 export interface ContractFormValues {
   numero: string; titulo: string; descricao: string; objeto: string[]; tipo: string; natureza: string
+  /** '' = não informado · 'SIM' | 'NAO'. No payload vira boolean (coluna maoDeObra). */
+  maoDeObra: string; maoDeObraLocal: string
   inicioVigencia: string; prazoIndeterminado: boolean; terminoVigencia: string; dataAssinatura: string
   acaoTermino: string; renovacaoAnos: string; renovacaoMeses: string; renovacaoDias: string
   situacao: string; moeda: string; valorParcela: string; valorTotal: string; qtdParcelas: string
@@ -535,6 +548,7 @@ export function objetoVigenteAntes(v: ContractFormValues, index: number): string
 export function emptyContractForm(): ContractFormValues {
   return {
     numero: '', titulo: '', descricao: '', objeto: [], tipo: '', natureza: '',
+    maoDeObra: '', maoDeObraLocal: '',
     inicioVigencia: '', prazoIndeterminado: false, terminoVigencia: '', dataAssinatura: '',
     acaoTermino: 'MANUAL', renovacaoAnos: '', renovacaoMeses: '', renovacaoDias: '',
     situacao: 'EM_CADASTRO', moeda: '', valorParcela: '', valorTotal: '', qtdParcelas: '',
@@ -566,6 +580,8 @@ export function contractFromApi(c: Record<string, any>): ContractFormValues {
   return {
     numero: c.numero ?? '', titulo: c.titulo ?? '', descricao: c.descricao ?? '',
     objeto: arr(c.objeto) as string[], tipo: c.tipo ?? '', natureza: c.natureza ?? '',
+    maoDeObra: c.maoDeObra == null ? '' : (c.maoDeObra ? 'SIM' : 'NAO'),
+    maoDeObraLocal: (c.maoDeObraLocal as string) ?? '',
     inicioVigencia: c.inicioVigencia ?? '', prazoIndeterminado: !!c.prazoIndeterminado,
     terminoVigencia: c.terminoVigencia ?? '', dataAssinatura: c.dataAssinatura ?? '',
     acaoTermino: c.acaoTermino || 'MANUAL', renovacaoAnos: numStr(c.renovacaoAnos), renovacaoMeses: numStr(c.renovacaoMeses), renovacaoDias: numStr(c.renovacaoDias),
@@ -609,6 +625,8 @@ export function contractToPayload(v: ContractFormValues, extra: Record<string, u
   return {
     numero: v.numero, titulo: v.titulo, descricao: v.descricao || undefined,
     objeto: v.objeto, tipo: v.tipo, natureza: v.natureza || undefined, situacao: v.situacao,
+    maoDeObra: v.maoDeObra === '' ? undefined : v.maoDeObra === 'SIM',
+    maoDeObraLocal: v.maoDeObra === 'SIM' ? (v.maoDeObraLocal || undefined) : undefined,
     inicioVigencia: v.inicioVigencia || undefined, prazoIndeterminado: v.prazoIndeterminado,
     terminoVigencia: v.prazoIndeterminado ? undefined : (v.terminoVigencia || undefined),
     acaoTermino: v.prazoIndeterminado ? undefined : (v.acaoTermino || undefined),

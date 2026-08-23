@@ -433,6 +433,8 @@ model Contract {
   titulo              String
   tipo                String
   natureza            String?  // DESPESA | RECEITA | AMBOS
+  maoDeObra           Boolean? // há mão de obra alocada? (caracteriza cessão de mão de obra — Lei 8.212/91)
+  maoDeObraLocal      String?  // CONTRATADA | CONTRATANTE | TERCEIRO — onde a equipe trabalha (só quando maoDeObra)
   descricao           String?  @db.NVarChar(Max) // texto livre longo
   objeto              String   @default("[]") @db.NVarChar(Max) // [JSON]
   situacao            String   @default("PENDENTE")

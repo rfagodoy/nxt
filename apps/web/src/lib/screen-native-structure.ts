@@ -43,11 +43,15 @@ const CONTR_SECTIONS: NativeSectionDef[] = [
   { key: 'historico',    label: 'Histórico' },
 ]
 const CONTR_FIELDS: NativeStructure['fieldsBySection'] = {
+  /* ⚠️ a ordem AQUI espelha a ordem real de renderização do formulário (contract-fields.tsx)
+     — o construtor de Telas lista os campos nesta ordem, e reconcileNative a estampa
+     nas telas existentes. Mudou o formulário? Mude aqui junto. */
   dados_gerais: [
-    { key: 'numero', label: 'Número' }, { key: 'natureza', label: 'Natureza do contrato' },
-    { key: 'tipo', label: 'Tipo de contrato' }, { key: 'situacao', label: 'Situação' },
-    { key: 'titulo', label: 'Título' }, { key: 'descricao', label: 'Descrição' },
-    { key: 'objeto', label: 'Objeto do contrato' }, { key: 'data_assinatura', label: 'Data de assinatura' },
+    { key: 'natureza', label: 'Natureza do contrato' }, { key: 'numero', label: 'Número' },
+    { key: 'situacao', label: 'Situação' }, { key: 'titulo', label: 'Título' },
+    { key: 'descricao', label: 'Descrição' }, { key: 'objeto', label: 'Objeto do contrato' },
+    { key: 'tipo', label: 'Tipo de contrato' }, { key: 'data_assinatura', label: 'Data de assinatura' },
+    { key: 'mao_de_obra', label: 'Mão de obra alocada' },
   ],
   vigencia: [
     { key: 'inicio', label: 'Início da vigência' }, { key: 'prazo_indeterminado', label: 'Prazo indeterminado' },
@@ -90,9 +94,11 @@ export function buildNativeSeed(subject: ScreenSubject): { sections: ScreenSecti
 
 /**
  * Reconcilia uma tela carregada com a estrutura nativa viva: acrescenta seções/campos
- * nativos que faltam (VISÍVEIS por padrão), poda os órfãos e re-parenta os campos nativos
- * para a seção certa — tudo por `nativeKey`, robusto a ids legados. Preserva CUSTOM e a
- * visibilidade (toggle do usuário).
+ * nativos que faltam (VISÍVEIS por padrão), poda os órfãos, re-parenta os campos nativos
+ * para a seção certa e NORMALIZA a ordem dentro de cada seção (nativos na ordem do seed —
+ * o construtor espelha o formulário real —, customs depois, ordem relativa preservada) —
+ * tudo por `nativeKey`, robusto a ids legados. Preserva CUSTOM e a visibilidade (toggle
+ * do usuário).
  */
 export function reconcileNative(screen: Screen): Screen {
   const seed = buildNativeSeed(screen.subjectType)
@@ -125,10 +131,31 @@ export function reconcileNative(screen: Screen): Screen {
   const fields   = prunedFields.map(reparent)
   const addFields = seed.fields.filter(f => !fldByNative.has(f.nativeKey)).map(reparent)
 
+  /* Normaliza a ORDEM dentro de cada seção: nativos seguem o seed (o construtor passa a
+     espelhar o formulário real); customs vêm depois, preservando a ordem relativa entre si. */
+  const merged = [...fields, ...addFields]
+  const seedOrder = new Map(seed.fields.map((f, i) => [f.nativeKey ?? '', i]))
+  const bySec = new Map<string, ScreenField[]>()
+  for (const f of merged) {
+    const k = f.sectionId ?? ''
+    bySec.set(k, [...(bySec.get(k) ?? []), f])
+  }
+  const novaOrdem = new Map<string, number>()
+  for (const irmaos of bySec.values()) {
+    const nativos = irmaos.filter(f => f.source === 'NATIVE')
+      .sort((a, b) => (seedOrder.get(a.nativeKey ?? '') ?? 999) - (seedOrder.get(b.nativeKey ?? '') ?? 999))
+    const customs = irmaos.filter(f => f.source !== 'NATIVE').sort((a, b) => a.order - b.order)
+    ;[...nativos, ...customs].forEach((f, i) => novaOrdem.set(f.id, i))
+  }
+  const fieldsFinais = merged.map(f => {
+    const o = novaOrdem.get(f.id) ?? f.order
+    return o === f.order ? f : { ...f, order: o }
+  })
+
   const changed = prunedSections.length !== screen.sections.length
     || prunedFields.length !== screen.fields.length
     || addSections.length > 0 || addFields.length > 0
-    || fields.some((f, i) => f !== prunedFields[i])
+    || fieldsFinais.some((f, i) => f !== prunedFields[i])
   if (!changed) return screen
-  return { ...screen, sections: [...prunedSections, ...addSections], fields: [...fields, ...addFields] }
+  return { ...screen, sections: [...prunedSections, ...addSections], fields: fieldsFinais }
 }

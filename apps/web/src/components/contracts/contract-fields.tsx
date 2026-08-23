@@ -26,6 +26,7 @@ import {
   tituloVigente, descricaoVigente, tituloVigenteInfo, descricaoVigenteInfo,
   periodosVigencia, historicoRenegociacao, historicoObjeto, historicoCessoes,
   newCParte, newCReajuste, newCReajusteRealizado, newCDocumento, newCLancamento, newCAditivo, newCCessao, uid,
+  MAO_DE_OBRA_OPCOES, MAO_DE_OBRA_LOCAIS,
   type ContractFormValues, type CParte, type CReajuste, type CReajusteRealizado, type CDocumento, type CLancamento, type CAditivo, type CCessao,
 } from '@/lib/contract-options'
 
@@ -353,6 +354,15 @@ export function IdentificacaoFields({ form, ro, autoNumero = false, numeroPrevie
       </Field>}
       {isVisible('tipo') && <Field label="Tipo de contrato" required><Sel value={v.tipo} onChange={x => form.set('tipo', x)} ro={ro} options={lookupOpts(tipos.active)} placeholder="Selecione..." /></Field>}
       {isVisible('data_assinatura') && <Field label="Data de assinatura"><Txt type="date" value={v.dataAssinatura} onChange={x => form.set('dataAssinatura', x)} ro={ro} /></Field>}
+      {/* Mão de obra (opção B do PO, 2026-08-23): duas perguntas — a segunda só existe
+          quando a primeira é "Sim"; trocar para "Não" limpa o onde (payload também). */}
+      {isVisible('mao_de_obra') && <Field label="Há mão de obra alocada neste contrato?" span2={v.maoDeObra !== 'SIM'}>
+        <Sel value={v.maoDeObra} onChange={x => { form.set('maoDeObra', x); if (x !== 'SIM') form.set('maoDeObraLocal', '') }} ro={ro} options={MAO_DE_OBRA_OPCOES} placeholder="Selecione..." />
+        {!ro && <p className="mt-0.5 text-[10px] text-muted-foreground normal-case">Caracteriza cessão de mão de obra para fins previdenciários (retenção de INSS).</p>}
+      </Field>}
+      {isVisible('mao_de_obra') && v.maoDeObra === 'SIM' && <Field label="Onde a equipe trabalha?">
+        <Sel value={v.maoDeObraLocal} onChange={x => form.set('maoDeObraLocal', x)} ro={ro} options={MAO_DE_OBRA_LOCAIS} placeholder="Selecione..." />
+      </Field>}
     </div>
   )
 }

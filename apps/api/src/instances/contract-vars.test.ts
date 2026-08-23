@@ -20,6 +20,16 @@ describe('montarVariavelContrato', () => {
     expect(v.fld_obs).toBe('')
   })
 
+  it('mão de obra: booleano + local (defaults seguros quando não informado)', () => {
+    const v = montarVariavelContrato({ ...contrato, maoDeObra: true, maoDeObraLocal: 'CONTRATANTE' }, [])
+    expect(v.maoDeObra).toBe(true)
+    expect(v.maoDeObraLocal).toBe('CONTRATANTE')
+    const semResposta = montarVariavelContrato(contrato, [])
+    expect(semResposta.maoDeObra).toBe(false)
+    expect(semResposta.maoDeObraLocal).toBe('')
+    expect(evalCondition("contrato.maoDeObra == true && contrato.maoDeObraLocal == 'CONTRATANTE'", { contrato: v })).toBe(true)
+  })
+
   it('o caso do PO avaliado pelo MOTOR de verdade, via variável contrato', () => {
     const vars = { contrato: montarVariavelContrato(contrato, custom) }
     expect(evalCondition("contrato.fld_patrimonio == 'Sim'", vars)).toBe(true)
