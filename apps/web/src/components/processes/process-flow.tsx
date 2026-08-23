@@ -10,7 +10,7 @@ import {
   X, SlidersHorizontal, Undo2, Check, Play,
 } from 'lucide-react'
 import { createPortal } from 'react-dom'
-import { generateBpmn, compileBpmn, type WfGraph, type WfNode, type WfEdge } from '@nxt/workflow-core'
+import { generateBpmn, compileBpmn, validarDesenho, validarDecisoes, validarAtividades, type ProblemaAtivacao, type WfGraph, type WfNode, type WfEdge } from '@nxt/workflow-core'
 import type { StepFormSchema, ProcessFormSchema, EdgeConditionSpec, EdgeConditionRule } from '@nxt/types'
 import { CONNECTORS, findConnector, isRetiredConnector, isCompensable } from '@nxt/types'
 import { camposDisponiveis, gerarExpressao, rotuloDaCondicao, montarVarsSimulacao, decidirSaida, saidaTemFiltro, derivarCasoContrario, OPS_POR_TIPO, type CampoDisponivel } from '@/lib/flow-conditions'
@@ -218,6 +218,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const [configId, setConfigId] = useState<string | null>(null)
   /* Decisão configura em MODAL, igual atividade (pedido do PO 2026-08-23) — a lateral vira resumo. */
   const [decisaoId, setDecisaoId] = useState<string | null>(null)
+  /* Painel de pendências de ativação (aberto pela pílula no canvas ou pelo "Ativar"). */
+  const [pendAberto, setPendAberto] = useState(false)
   const [saving, setSaving] = useState(false)
   const [activating, setActivating] = useState(false)
   const [exporting, setExporting] = useState<FlowExportFormat | null>(null)
@@ -254,6 +256,32 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const nodeById = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n])), [nodes])
   const selected = selectedId ? nodeById[selectedId] : null
   const configNode = configId ? nodeById[configId] : null
+
+  /* Pendências de ativação AO VIVO — as MESMAS regras que a API aplica ao ativar
+     (@nxt/workflow-core/activation-guard), recalculadas a cada mudança do desenho:
+     consertou, o item some da lista. Uma regra só, sem deriva cliente/servidor. */
+  const pendencias = useMemo<ProblemaAtivacao[]>(() => {
+    const vnodes = nodes.map((n) => ({ id: n.id, type: n.type, name: isActivity(n.type) ? (n.step?.stepName || '') : n.name }))
+    const vedges = edges.map((e) => ({ from: e.from, to: e.to, condition: e.condition, isDefault: e.isDefault }))
+    return [
+      ...validarDesenho(vnodes, vedges),
+      ...validarDecisoes(vnodes, vedges),
+      ...validarAtividades(nodes.filter((n) => n.type === 'userTask').map((n) => ({
+        stepId: n.id, stepName: n.step?.stepName, executor: n.step?.executor,
+        slaBusinessDays: n.step?.slaBusinessDays, slaBusinessHours: n.step?.slaBusinessHours, slaBusinessMinutes: n.step?.slaBusinessMinutes,
+      }))),
+    ]
+  }, [nodes, edges])
+
+  /* Clique numa pendência: seleciona o nó culpado e abre a superfície onde o conserto
+     mora (modal da atividade/decisão). Problemas de conexão só selecionam — o conserto
+     é arrastar seta no canvas. O centrar fica no FlowCanvas (dono do scroll). */
+  const focarPendencia = useCallback((p: ProblemaAtivacao) => {
+    if (!p.nodeId || p.tipo === 'inicio-desligado' || p.tipo === 'fim-inalcancavel') return
+    setSelectedId(p.nodeId)
+    if (p.tipo === 'atividade-incompleta') setConfigId(p.nodeId)
+    else if (p.tipo.startsWith('decisao-')) setDecisaoId(p.nodeId)
+  }, [])
 
   /* Clicar num quadro é o gesto de "quero configurar isto": seleciona e, sendo
      atividade, já abre o modal — era o que a coluna lateral fazia ao aparecer. */
@@ -464,7 +492,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   /* Dialog do DS no lugar do alert() nativo (auditoria 2026-08-21). `aoFechar` cobre o
      caso em que o alert bloqueante segurava um router.push — aqui a navegação só
      acontece quando a pessoa fecha o aviso, senão o dialog morreria junto da tela. */
-  const [aviso, setAviso] = useState<{ msg: string; aoFechar?: () => void } | null>(null)
+  const [aviso, setAviso] = useState<{ msg: string; titulo?: string; aoFechar?: () => void } | null>(null)
 
   const persist = useCallback(async (confirmarReducao?: boolean): Promise<string> => {
     const bpmnXml = generateBpmn(buildWfGraph(nodes, edges))
@@ -516,6 +544,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     // (O backend também recusa; aqui o aviso chega antes de salvar.)
     if (!kind) { setAviso({ msg: 'Escolha o tipo do workflow (contrato, aditivo ou parceiro) antes de ativar.' }); return }
     if (activityCount === 0) { setAviso({ msg: 'Adicione ao menos uma atividade antes de ativar.' }); return }
+    // Pendências conhecidas ANTES do servidor: abre a lista clicável em vez de um
+    // diálogo — o guard da API continua valendo como rede de segurança.
+    if (pendencias.length) { setPendAberto(true); return }
     setActivating(true)
     try {
       const id = await persist(confirmarReducao)
@@ -523,7 +554,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       const res = await apiFetch(`/api/processes/${id}/activate`, { method: 'PATCH' })
       if (!res.ok) {
         const e = await res.json().catch(() => null)
-        setAviso({ msg: e?.message || 'Não foi possível ativar o workflow.', aoFechar: () => router.push(`/workflows/${id}`) })
+        setAviso({ titulo: 'Ainda não dá para ativar', msg: e?.message || 'Não foi possível ativar o workflow.', aoFechar: () => router.push(`/workflows/${id}`) })
         return
       }
       router.push(`/workflows/${id}`)
@@ -532,7 +563,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       setAviso({ msg: 'Não foi possível ativar o workflow.' }); console.error(err)
     }
     finally { setActivating(false) }
-  }, [name, kind, activityCount, persist, router])
+  }, [name, kind, activityCount, pendencias, persist, router])
 
   // Monta o modelo do grafo (posições + textos) para o exportador desenhar em 2D.
   const buildExportModel = useCallback((): ExportModel => {
@@ -639,12 +670,12 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         </div>
       )}
 
-      <NoticeDialog open={!!aviso} message={aviso?.msg}
+      <NoticeDialog open={!!aviso} title={aviso?.titulo} message={aviso?.msg}
         onClose={() => { const depois = aviso?.aoFechar; setAviso(null); depois?.() }} />
 
       {/* Canvas + Inspetor */}
       <div className="flex flex-1 overflow-hidden">
-        <FlowCanvas canvasRef={canvasRef} nodes={nodes} edges={edges} layout={layout} selectedId={selectedId} onSelect={selectNode} onConnect={onConnect} onCreateConnected={onCreateConnected} onDeleteEdge={onDeleteEdge} onDeleteNode={removeNode} onSetPosition={setPosition} resolvePapel={resolvePapel} resolveEntidade={resolveEntidade} onReorderLanes={reordenarRaias} simulacao={simulacao} />
+        <FlowCanvas canvasRef={canvasRef} nodes={nodes} edges={edges} layout={layout} selectedId={selectedId} onSelect={selectNode} onConnect={onConnect} onCreateConnected={onCreateConnected} onDeleteEdge={onDeleteEdge} onDeleteNode={removeNode} onSetPosition={setPosition} resolvePapel={resolvePapel} resolveEntidade={resolveEntidade} onReorderLanes={reordenarRaias} simulacao={simulacao} pendencias={pendencias} pendAberto={pendAberto} onTogglePend={() => setPendAberto((v) => !v)} onFocar={focarPendencia} />
         {/* trilho do toggle: fica SEMPRE visível (é a alça para trazer o painel de volta) */}
         <div className="w-8 border-l bg-card flex flex-col items-center pt-2.5 shrink-0">
           <button type="button" onClick={togglePanel}
@@ -810,7 +841,7 @@ function LaneHeader({ bandas, largura, scale, scrollTop, arrastando, onStartDrag
   )
 }
 
-function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onConnect, onCreateConnected, onDeleteEdge, onDeleteNode, onSetPosition, resolvePapel, resolveEntidade, onReorderLanes, simulacao }: {
+function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onConnect, onCreateConnected, onDeleteEdge, onDeleteNode, onSetPosition, resolvePapel, resolveEntidade, onReorderLanes, simulacao, pendencias, pendAberto, onTogglePend, onFocar }: {
   canvasRef: React.RefObject<HTMLDivElement | null>
   nodes: ENode[]; edges: EEdge[]; layout: ReturnType<typeof layoutGraph>
   selectedId: string | null; onSelect: (id: string | null) => void
@@ -824,6 +855,11 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
   /** "Testar decisão": acende a saída vencedora do losango e apaga as perdedoras. */
   simulacao?: { gatewayId: string; vencedora: string | null } | null
   onReorderLanes: (key: string, destino: number) => void
+  /** Pendências de ativação (pílula + painel clicável sobre o canvas). */
+  pendencias?: ProblemaAtivacao[]
+  pendAberto?: boolean
+  onTogglePend?: () => void
+  onFocar?: (p: ProblemaAtivacao) => void
 }) {
   const [connecting, setConnecting] = useState<string | null>(null)
   const [rubber, setRubber] = useState('')
@@ -863,6 +899,18 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
 
   /** Muda o zoom mantendo FIXO o ponto sob o cursor (ou o centro da área visível).
    *  Sem ancorar, ampliar joga o desenho para longe e a pessoa se perde. */
+  /** Centraliza um nó na área visível — o "ir até ela" do painel de pendências. */
+  const centrarNo = useCallback((id: string) => {
+    const el = scrollRef.current
+    const p = layout.nodes[id]
+    if (!el || !p) return
+    el.scrollTo({
+      left: (p.x + p.w / 2) * scale - el.clientWidth / 2,
+      top: (p.y + p.h / 2) * scale - el.clientHeight / 2,
+      behavior: 'smooth',
+    })
+  }, [layout, scale])
+
   const zoomPara = useCallback((novo: number, ancoraClientX?: number, ancoraClientY?: number) => {
     const el = scrollRef.current
     if (!el) return
@@ -1013,6 +1061,39 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
     <ZoomBar scale={scale} autoFit={autoFit}
       onZoom={(s) => zoomPara(s)}
       onFit={() => { setAutoFit(true); setScale(fitScale()) }} />
+    {/* Pendências de ativação: pílula âmbar; o painel lista cada problema e clicar
+        centraliza o nó culpado (e o pai abre o modal onde o conserto mora). A lista
+        recalcula ao vivo — consertou, o item some; zerou, a pílula desaparece. */}
+    {(pendencias?.length ?? 0) > 0 && (
+      <div className="absolute bottom-3 z-20" style={{ left: laneHeaderW + 12 }}>
+        {pendAberto && (
+          <div className="mb-2 w-[400px] max-h-[60vh] overflow-y-auto rounded-xl border bg-card shadow-lg">
+            <div className="sticky top-0 px-3 py-2 border-b bg-card/95 backdrop-blur-sm">
+              <p className="text-xs font-semibold flex items-center gap-1.5"><AlertTriangle className="h-3.5 w-3.5 text-amber-500" />Ainda não dá para ativar</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Clique numa pendência para ir até ela no desenho.</p>
+            </div>
+            <ul className="p-1.5">
+              {pendencias!.map((p, i) => (
+                <li key={`${p.tipo}-${p.nodeId ?? i}`}>
+                  <button type="button"
+                    onClick={() => { if (p.nodeId) centrarNo(p.nodeId); onFocar?.(p) }}
+                    className="w-full text-left rounded-lg px-2.5 py-1.5 text-[11px] leading-snug text-muted-foreground hover:bg-muted hover:text-foreground transition-colors flex gap-2">
+                    <span className="mt-1 h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+                    <span>{p.mensagem}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <button type="button" onClick={() => onTogglePend?.()}
+          title={pendAberto ? 'Recolher pendências' : 'Ver o que falta para ativar'}
+          className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-600 dark:text-amber-400 shadow-sm backdrop-blur-sm hover:bg-amber-500/20 transition-colors">
+          <AlertTriangle className="h-3.5 w-3.5" />
+          {pendencias!.length} {pendencias!.length === 1 ? 'pendência' : 'pendências'} para ativar
+        </button>
+      </div>
+    )}
     <LaneHeader bandas={layout.lanes} largura={laneHeaderW} scale={scale} scrollTop={scrollTop}
       arrastando={laneDrag?.key ?? null} onStartDrag={startLaneDrag} onReorder={onReorderLanes} />
     <div ref={scrollRef} className="absolute inset-y-0 right-0 overflow-auto bg-muted/20 [background-image:radial-gradient(circle_at_1px_1px,hsl(var(--border))_1px,transparent_0)] [background-size:24px_24px]"
