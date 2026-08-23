@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { camposDisponiveis, gerarExpressao, rotuloDaCondicao, tipoDoCampo, montarVarsSimulacao, decidirSaida, type CampoDisponivel } from './flow-conditions'
+import { camposDisponiveis, gerarExpressao, rotuloDaCondicao, tipoDoCampo, montarVarsSimulacao, decidirSaida, saidaTemFiltro, derivarCasoContrario, type CampoDisponivel } from './flow-conditions'
 import { evalCondition } from '@nxt/workflow-core'
 import type { EdgeConditionSpec } from '@nxt/types'
 
@@ -127,6 +127,32 @@ describe('simulador — montarVarsSimulacao + decidirSaida (motor real)', () => 
   it('expressão inválida (modo avançado quebrado) não casa nem derruba o simulador', () => {
     const outs = [{ id: 'a', condition: 'isso não é ((expressão' }, { id: 'p', isDefault: true }]
     expect(decidirSaida(outs, {})).toBe('p')
+  })
+})
+
+describe('caso contrário derivado — saidaTemFiltro + derivarCasoContrario', () => {
+  const comFiltro = { id: 'a', conditionSpec: { logic: 'AND' as const, rules: [{ campo: 'x', op: 'eq' as const, valor: 'Sim' }] } }
+  const vazia = { id: 'b' }
+  const legada = { id: 'c', condition: 'x > 1' } // expressão antiga sem spec conta como filtro
+
+  it('exatamente uma saída sem filtros vira a padrão; as demais desmarcam', () => {
+    expect(derivarCasoContrario([comFiltro, vazia, legada])).toEqual([{ id: 'b', isDefault: true }])
+  })
+  it('spec só com regra INCOMPLETA conta como sem filtro', () => {
+    const incompleta = { id: 'i', conditionSpec: { logic: 'AND' as const, rules: [{ campo: '', op: 'eq' as const, valor: '' }] } }
+    expect(saidaTemFiltro(incompleta)).toBe(false)
+  })
+  it('duas saídas sem filtros → nenhuma padrão (e desmarca a que estava)', () => {
+    expect(derivarCasoContrario([{ ...vazia, isDefault: true }, { id: 'd' }, comFiltro]))
+      .toEqual([{ id: 'b', isDefault: false }])
+  })
+  it('idempotente: aplicar de novo não gera patch', () => {
+    expect(derivarCasoContrario([comFiltro, { ...vazia, isDefault: true }])).toEqual([])
+  })
+  it('caminho padrão que GANHA filtro perde o posto (e a outra vazia assume)', () => {
+    const antesPadrao = { id: 'b', isDefault: true, conditionSpec: { logic: 'AND' as const, rules: [{ campo: 'x', op: 'eq' as const, valor: 'Nao' }] } }
+    expect(derivarCasoContrario([antesPadrao, { id: 'e' }]).sort((a, b) => a.id.localeCompare(b.id)))
+      .toEqual([{ id: 'b', isDefault: false }, { id: 'e', isDefault: true }])
   })
 })
 
