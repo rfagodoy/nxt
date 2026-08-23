@@ -9,6 +9,7 @@ import { randomUUID } from 'crypto'
 import { PrismaService } from '../prisma.service'
 import { WorkflowRolesService } from '../workflow-roles/workflow-roles.service'
 import { canActOnTask } from './task-access'
+import { montarVariavelContrato, type ContratoParaVars } from './contract-vars'
 import { resolveContractId, resolvePartnerId, aditivoFromVars, applyInputMap } from './connector-helpers'
 import {
   startProcess,
@@ -126,6 +127,30 @@ export class InstancesService {
     if (days > 0 || hours > 0) return this.calendar.computeDue(new Date(), days, hours, cal)
     if (node.slaMinutes && node.slaMinutes > 0) return new Date(Date.now() + node.slaMinutes * 60_000)
     return null
+  }
+
+  /** Retrato do contrato do processo → variável `contrato` (ver comentário no
+   *  completeTask). Devolve os dados originais intocados quando não há contrato. */
+  private async hidratarContratoVars(
+    data: Record<string, unknown>,
+    prevState: WfState,
+    organizationId: string,
+  ): Promise<Record<string, unknown>> {
+    const contratoId = (data as { contratoId?: unknown }).contratoId ?? prevState.variables?.contratoId
+    if (typeof contratoId !== 'string' || !contratoId) return data
+    try {
+      const [contrato, valores] = await Promise.all([
+        this.prisma.contract.findFirst({ where: { id: contratoId, organizationId } }),
+        this.prisma.screenFieldValue.findMany({
+          where:  { organizationId, subjectType: 'CONTRACT', subjectId: contratoId },
+          select: { fieldId: true, value: true },
+        }),
+      ])
+      if (!contrato) return data
+      return { ...data, contrato: montarVariavelContrato(contrato as unknown as ContratoParaVars, valores) }
+    } catch {
+      return data // condição sem `contrato` avalia false → saída padrão
+    }
   }
 
   private isAdmin(actor?: CurrentUserData): boolean {
@@ -247,13 +272,22 @@ export class InstancesService {
     })
     if (claim.count === 0) throw new BadRequestException('Tarefa já concluída ou cancelada')
 
+    /* ── Variável `contrato` para as CONDIÇÕES dos losangos (construtor, 2026-08-23).
+       As atividades de Tela concluem só com o id — os campos do contrato nunca viravam
+       variáveis, e uma condição "contrato.<campo> == 'Sim'" não tinha o que ler. Aqui,
+       a CADA conclusão de tarefa humana com um contrato no processo, o retrato atual
+       (nativos + personalizados por fieldId) entra nas variáveis ANTES de o motor
+       avaliar o gateway. Falha na carga não derruba a conclusão: sem `contrato`, a
+       condição avalia false e o fluxo segue pela saída padrão. */
+    const dadosComContrato = await this.hidratarContratoVars(data, prevState, organizationId)
+
     // Avança o motor a partir do token desta tarefa (executando conectores). Erro do
     // MOTOR não vira 500: `settle` captura e a instância vai para ERRO.
     const settled = await this.settle(
       graph,
-      () => completeToken(graph, prevState, task.tokenId, data, runtime),
+      () => completeToken(graph, prevState, task.tokenId, dadosComContrato, runtime),
       { organizationId, actor },
-      { ...prevState, variables: { ...prevState.variables, ...data } },
+      { ...prevState, variables: { ...prevState.variables, ...dadosComContrato } },
     )
     const status = settled.errored ? 'ERROR' : settled.completed ? 'COMPLETED' : 'RUNNING'
 
