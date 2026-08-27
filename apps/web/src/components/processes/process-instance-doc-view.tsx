@@ -175,9 +175,16 @@ export function ProcessInstanceDocView({ inst }: { inst: Inst }) {
 
         {/* chips de situação — só conclusão/erro (prazo do processo e "reaberta N×"
             foram removidos a pedido; o detalhe de retrocesso vive no Histórico). */}
-        {(inst.status === 'COMPLETED' || (inst.status === 'ERROR' && inst.error) || (inst.status === 'CANCELLED' && inst.cancelReason)) && (
+        {(inst.status === 'COMPLETED' || inst.status === 'ENDED_INCOMPLETE' || (inst.status === 'ERROR' && inst.error) || (inst.status === 'CANCELLED' && inst.cancelReason)) && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px]">
             {inst.status === 'COMPLETED' && <span className="text-muted-foreground">Concluído em {fmt(inst.completedAt)} · durou {humanDuration(inst.durationMs)}</span>}
+            {/* Acabou o que havia para fazer sem passar pelo evento de fim: quem consulta
+                precisa ler isso na cara do documento, não deduzir do silêncio. */}
+            {inst.status === 'ENDED_INCOMPLETE' && (
+              <span className="text-amber-600 dark:text-amber-400">
+                Encerrado sem conclusão em {fmt(inst.completedAt)} · durou {humanDuration(inst.durationMs)} — nenhum caminho passou pelo fim do processo
+              </span>
+            )}
             {inst.status === 'ERROR' && inst.error && <span className="text-red-600 dark:text-red-400">{inst.error}</span>}
             {/* cancelamento sem motivo à vista é um fim de linha inexplicável */}
             {inst.status === 'CANCELLED' && inst.cancelReason && (

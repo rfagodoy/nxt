@@ -116,7 +116,10 @@ export interface WfToken {
   nodeId: string
 }
 
-export type WfStatus = 'running' | 'completed' | 'canceled'
+/** `incomplete` = a execução PAROU sem que nenhum caminho tivesse passado pelo
+ *  evento de fim (ou com uma junção paralela que nunca vai sincronizar). Não é
+ *  conclusão nem cancelamento: é "encerrada sem conclusão". */
+export type WfStatus = 'running' | 'completed' | 'canceled' | 'incomplete'
 
 /** Estado de execução de UMA instância. É serializável (vira JSON na instância). */
 export interface WfState {
@@ -129,6 +132,11 @@ export interface WfState {
   /** Contagem de chegadas por parallelGateway (para o join sincronizar). Interno
    *  ao motor, mas persistido junto ao estado para sobreviver entre chamadas. */
   joinCounts: Record<string, number>
+  /** Algum caminho já ATRAVESSOU um evento de fim. É o que dá significado ao fim:
+   *  sem esta marca, ficar sem token é parada, não conclusão. Ausente nos estados
+   *  gravados antes desta regra — e isso é seguro, porque naqueles desenhos o
+   *  token só desaparecia no próprio fim (ver interpreter.ts). */
+  reachedEnd?: boolean
 }
 
 /** Efeito que o interpretador PEDE ao backend para executar. O motor é puro:
@@ -143,8 +151,14 @@ export type WfEffect =
    *  CANCELADA na caixa. Sem isto, devolver de dentro de um ramo paralelo deixaria
    *  a tarefa irmã viva e órfã na caixa de alguém. */
   | { kind: 'cancelTask'; token: WfToken }
-  /** A instância chegou ao fim (não há mais tokens vivos). */
+  /** A instância CONCLUIU: não há mais tokens vivos e algum caminho passou pelo
+   *  evento de fim. */
   | { kind: 'completed' }
+  /** A instância PAROU sem concluir: não sobrou token, mas nenhum caminho passou
+   *  pelo fim (ou uma junção paralela ficou esperando um ramo que não vem). Não há
+   *  o que fazer nem o que esperar — o backend a encerra como "sem conclusão" em
+   *  vez de deixá-la viva para sempre. */
+  | { kind: 'endedIncomplete'; reason: 'sem-fim' | 'juncao-travada' }
 
 /** Resultado de uma operação do motor: o próximo estado + os efeitos a executar. */
 export interface WfRunResult {

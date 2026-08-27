@@ -10,9 +10,14 @@
 export interface ProblemaAtivacao {
   tipo:
     | 'inicio-desligado' | 'fim-inalcancavel'
-    | 'sem-saida' | 'gateway-sem-saida' | 'solto' | 'sem-chegada'
+    | 'sem-saida' | 'nao-alcanca-fim' | 'gateway-sem-saida' | 'solto' | 'sem-chegada'
+    | 'inalcancavel-do-inicio' | 'juncao-travada'
     | 'decisao-sem-padrao' | 'decisao-multipadrao' | 'decisao-filtro-faltando'
     | 'atividade-incompleta'
+  /** `erro` impede a ativação; `aviso` é informação — o desenho é legítimo, mas o
+   *  desenhista precisa saber o que ele significa em execução. Ausente = erro
+   *  (compatibilidade com quem consome o tipo sem tratar severidade). */
+  severidade?: 'erro' | 'aviso'
   /** Nó culpado — o editor centraliza/seleciona por ele. Ausente nos problemas de evento. */
   nodeId?: string
   /** Frase completa e autossuficiente: o que está errado, onde e como resolver. */
@@ -20,6 +25,14 @@ export interface ProblemaAtivacao {
   /** Rótulo curto para a forma AGREGADA (`"Aprovar"` ou `"Aprovar" — sem prazo`). */
   rotulo?: string
 }
+
+/** Só o que IMPEDE a ativação. Avisos ficam de fora — eles informam, não barram. */
+export const bloqueantes = (ps: ProblemaAtivacao[]): ProblemaAtivacao[] =>
+  ps.filter((p) => p.severidade !== 'aviso')
+
+/** Só o que INFORMA (não impede a ativação). */
+export const avisos = (ps: ProblemaAtivacao[]): ProblemaAtivacao[] =>
+  ps.filter((p) => p.severidade === 'aviso')
 
 interface NodeLike { id: string; type: string; name?: string }
 interface EdgeLike { from: string; to?: string; condition?: string; isDefault?: boolean }
@@ -36,12 +49,49 @@ function rotuloLongo(n: NodeLike): string {
 
 const nomeCurto = (n: NodeLike) => (n.name?.trim() ? `"${n.name.trim()}"` : '(sem nome)')
 
+/** Nós alcançáveis a partir de `origens`, andando no sentido das setas (ou contra,
+ *  com `reverso`) — é a base de toda checagem de CAMINHO deste arquivo. */
+function alcancaveis(origens: string[], edges: EdgeLike[], reverso = false): Set<string> {
+  const vistos = new Set(origens)
+  const fila = [...origens]
+  while (fila.length) {
+    const atual = fila.shift() as string
+    for (const e of edges) {
+      const de = reverso ? e.to : e.from
+      const para = reverso ? e.from : e.to
+      if (de !== atual || !para || vistos.has(para)) continue
+      vistos.add(para)
+      fila.push(para)
+    }
+  }
+  return vistos
+}
+
 /**
- * Desenho conectado: todo nó precisa de saída (menos o fim) e de chegada (menos o
- * início) — senão o processo fica preso ou tem pedaço morto.
+ * Desenho executável. Duas perguntas, nesta ordem:
+ *
+ * 1. CONEXÃO (erro): o início liga em algo, nada fica solto, nada fica sem chegada,
+ *    gateway tem saída — e, agora, o início ALCANÇA de fato o que desenhou. Grau de
+ *    entrada/saída não bastava: um punhado de atividades ligadas entre si, mas longe
+ *    do início, passava na checagem antiga e nunca executaria.
+ * 2. CAMINHO ATÉ O FIM: basta UM caminho do início ao evento de fim para ativar
+ *    (erro se não houver nenhum). Atividade que executa mas não leva ao fim é
+ *    legítima — vira AVISO: ela roda, e o processo simplesmente não termina por ela.
  */
 export function validarDesenho(nodes: NodeLike[], edges: EdgeLike[]): ProblemaAtivacao[] {
   const problemas: ProblemaAtivacao[] = []
+  const starts = nodes.filter((n) => n.type === 'start')
+  const ends = nodes.filter((n) => n.type === 'end')
+  // Sem nó de início no recorte recebido (fragmento de teste; o editor sempre tem um),
+  // "alcançável" é desconhecido — tratamos tudo como alcançável em vez de acusar o
+  // desenho inteiro de inalcançável.
+  const doInicio = starts.length
+    ? alcancaveis(starts.map((n) => n.id), edges)
+    : new Set(nodes.map((n) => n.id))
+  const chegamAoFim = alcancaveis(ends.map((n) => n.id), edges, true)
+  /** Nós já culpados por conexão — não repetimos o mesmo nó com outra frase. */
+  const jaCulpado = new Set<string>()
+
   for (const n of nodes) {
     const tem = {
       saida: edges.some((e) => e.from === n.id),
@@ -51,24 +101,63 @@ export function validarDesenho(nodes: NodeLike[], edges: EdgeLike[]): ProblemaAt
       if (!tem.saida) problemas.push({ tipo: 'inicio-desligado', nodeId: n.id, mensagem: 'O evento de início não está ligado a nada. Arraste uma seta dele até a primeira atividade.' })
       continue
     }
-    if (n.type === 'end') {
-      if (!tem.chegada) problemas.push({ tipo: 'fim-inalcancavel', nodeId: n.id, mensagem: 'Nenhum caminho chega ao evento de fim — o processo nunca terminaria. Ligue a última atividade a ele.' })
-      continue
-    }
+    if (n.type === 'end') continue // o fim é avaliado por CAMINHO, logo abaixo
     if (!tem.saida && !tem.chegada) {
+      jaCulpado.add(n.id)
       problemas.push({ tipo: 'solto', nodeId: n.id, rotulo: nomeCurto(n), mensagem: `${rotuloLongo(n)} está solta no desenho — nenhuma seta chega ou sai dela. Ligue-a ao fluxo ou exclua-a.` })
       continue
     }
-    if (!tem.saida) {
-      const gateway = n.type === 'exclusiveGateway' || n.type === 'parallelGateway'
-      problemas.push(gateway
-        ? { tipo: 'gateway-sem-saida', nodeId: n.id, rotulo: nomeCurto(n), mensagem: `${rotuloLongo(n)} não tem nenhuma saída. Ligue-a aos caminhos que ela deve abrir.` }
-        : { tipo: 'sem-saida', nodeId: n.id, rotulo: nomeCurto(n), mensagem: `${rotuloLongo(n)} não leva a lugar nenhum — o processo ficaria preso nela. Ligue a saída dela à próxima atividade ou ao evento de fim.` })
-    }
     if (!tem.chegada) {
+      jaCulpado.add(n.id)
       problemas.push({ tipo: 'sem-chegada', nodeId: n.id, rotulo: nomeCurto(n), mensagem: `${rotuloLongo(n)} está desconectada do fluxo — nenhuma seta chega até ela. Ligue uma etapa anterior a ela ou exclua-a.` })
+    } else if (!doInicio.has(n.id)) {
+      // Tem seta chegando, mas vinda de outro pedaço que o início também não alcança:
+      // um bloco inteiro desenhado longe do fluxo. Nunca executa.
+      jaCulpado.add(n.id)
+      problemas.push({ tipo: 'inalcancavel-do-inicio', nodeId: n.id, rotulo: nomeCurto(n), mensagem: `${rotuloLongo(n)} nunca será executada: não existe caminho do início até ela. Ligue-a ao fluxo que sai do início ou exclua-a.` })
+    }
+    if (!tem.saida && (n.type === 'exclusiveGateway' || n.type === 'parallelGateway')) {
+      jaCulpado.add(n.id)
+      problemas.push({ tipo: 'gateway-sem-saida', nodeId: n.id, rotulo: nomeCurto(n), mensagem: `${rotuloLongo(n)} não tem nenhuma saída. Ligue-a aos caminhos que ela deve abrir.` })
     }
   }
+
+  // Executa, mas não termina o processo: AVISO (a partir daqui é desenho válido).
+  for (const n of nodes) {
+    if (n.type === 'start' || n.type === 'end') continue
+    if (jaCulpado.has(n.id) || !doInicio.has(n.id) || chegamAoFim.has(n.id)) continue
+    const semSaida = !edges.some((e) => e.from === n.id)
+    problemas.push(semSaida
+      ? { tipo: 'sem-saida', severidade: 'aviso', nodeId: n.id, rotulo: nomeCurto(n), mensagem: `${rotuloLongo(n)} será executada, mas o processo não termina por ela: ela não leva a lugar nenhum. Se ela deve encerrar o processo, ligue-a ao evento de fim.` }
+      : { tipo: 'nao-alcanca-fim', severidade: 'aviso', nodeId: n.id, rotulo: nomeCurto(n), mensagem: `${rotuloLongo(n)} será executada, mas nenhum caminho a partir dela chega ao evento de fim — o processo não termina por esse lado.` })
+  }
+
+  // ── junção paralela que nunca sincroniza ────────────────────────────────────
+  // A junção só dispara quando TODOS os ramos que entram nela chegam. Se um deles
+  // vem de um trecho que o início não alcança, ela espera para sempre: o processo
+  // trava ali, sem tarefa em aberto e sem ninguém para agir.
+  for (const n of nodes) {
+    if (n.type !== 'parallelGateway') continue
+    const entradas = edges.filter((e) => e.to === n.id)
+    if (entradas.length < 2 || !doInicio.has(n.id)) continue
+    const mortos = entradas.filter((e) => !doInicio.has(e.from))
+    if (!mortos.length) continue
+    problemas.push({ tipo: 'juncao-travada', nodeId: n.id, rotulo: nomeCurto(n), mensagem: `${rotuloLongo(n)} espera ${entradas.length} caminhos, mas ${mortos.length === 1 ? 'um deles vem' : `${mortos.length} deles vêm`} de um trecho que o início nunca alcança — o processo travaria aí para sempre. Ligue esse trecho ao fluxo ou remova a seta que entra na junção.` })
+  }
+
+  // ── caminho até o fim ───────────────────────────────────────────────────────
+  // Por último de propósito: é um problema do DESENHO INTEIRO, não de um nó. Vindo
+  // depois, a lista abre pelos nós culpados — que é onde a pessoa vai clicar.
+  if (!ends.some((e) => doInicio.has(e.id))) {
+    problemas.push({
+      tipo: 'fim-inalcancavel',
+      nodeId: ends[0]?.id,
+      mensagem: ends.length === 0
+        ? 'O desenho não tem evento de fim — o processo nunca terminaria. Adicione um fim e ligue a última atividade a ele.'
+        : 'Nenhum caminho do início chega ao evento de fim — o processo nunca terminaria. Ligue ao fim pelo menos um dos caminhos que saem do início.',
+    })
+  }
+
   return problemas
 }
 
@@ -135,7 +224,7 @@ export function validarAtividades(
 const AGREGADO: Record<ProblemaAtivacao['tipo'], { plural: string; instrucao: string } | null> = {
   'inicio-desligado': null,
   'fim-inalcancavel': null,
-  'sem-saida': { plural: 'atividades não levam a lugar nenhum', instrucao: 'Ligue a saída de cada uma à próxima atividade ou ao evento de fim.' },
+  'sem-saida': { plural: 'atividades serão executadas sem terminar o processo', instrucao: 'Elas não levam a lugar nenhum — ligue-as ao evento de fim se devem encerrar o processo.' },
   'gateway-sem-saida': { plural: 'decisões não têm nenhuma saída', instrucao: 'Ligue cada uma aos caminhos que ela deve abrir.' },
   'solto': { plural: 'atividades estão soltas no desenho', instrucao: 'Ligue-as ao fluxo ou exclua-as.' },
   'sem-chegada': { plural: 'atividades estão desconectadas do fluxo (nenhuma seta chega até elas)', instrucao: 'Ligue uma etapa anterior a cada uma ou exclua-as.' },
@@ -143,6 +232,9 @@ const AGREGADO: Record<ProblemaAtivacao['tipo'], { plural: string; instrucao: st
   'decisao-multipadrao': { plural: 'decisões têm mais de um caminho "caso contrário"', instrucao: 'Deixe apenas um sem filtros em cada uma.' },
   'decisao-filtro-faltando': { plural: 'decisões têm caminho sem filtros que não é o "caso contrário"', instrucao: 'Monte os filtros que faltam.' },
   'atividade-incompleta': { plural: 'atividades com configuração incompleta', instrucao: 'Clique em cada uma e complete.' },
+  'nao-alcanca-fim': { plural: 'atividades serão executadas sem terminar o processo', instrucao: 'Nenhum caminho a partir delas chega ao evento de fim — ligue-as ao fim se elas devem encerrar o processo.' },
+  'inalcancavel-do-inicio': { plural: 'atividades nunca serão executadas (o início não chega até elas)', instrucao: 'Ligue-as ao fluxo que sai do início ou exclua-as.' },
+  'juncao-travada': { plural: 'junções esperam por caminhos que o início nunca alcança', instrucao: 'O processo travaria nelas: ligue esses trechos ao fluxo ou remova as setas que entram na junção.' },
 }
 
 /** `"A", "B" (3) e "C"` — repetições ganham contagem em vez de repetir a linha. */
@@ -156,8 +248,10 @@ function listarNomes(rotulos: string[]): string {
 /**
  * Mensagem única para o diálogo: 1 problema vai direto; vários são AGRUPADOS por
  * tipo — um bloco por tipo, com os nomes juntos e a instrução dita uma vez.
+ * Só entra o que IMPEDE a ativação: aviso não vira recusa.
  */
-export function formatarProblemas(problemas: ProblemaAtivacao[]): string {
+export function formatarProblemas(entrada: ProblemaAtivacao[]): string {
+  const problemas = bloqueantes(entrada)
   if (problemas.length === 0) return ''
   if (problemas.length === 1) return problemas[0].mensagem
   const porTipo = new Map<ProblemaAtivacao['tipo'], ProblemaAtivacao[]>()

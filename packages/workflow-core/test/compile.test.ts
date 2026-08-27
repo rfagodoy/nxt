@@ -168,6 +168,43 @@ describe('compileBpmn — `>` literal em atributo (XML válido)', () => {
   })
 })
 
+describe('compileBpmn — beco sem saída é permitido (regra do fim, 2026-08-27)', () => {
+  /* A atividade sem saída deixou de ser erro: ela executa e o ramo morre ali; quem
+     conclui o processo é o evento de fim. Gateway sem saída e início sem saída
+     continuam sendo erro — ali o token morre dentro da própria peça. */
+  it('atividade sem saída compila', () => {
+    const xml = `<bpmn:definitions xmlns:bpmn="http://x"><bpmn:process id="P">
+      <bpmn:startEvent id="S"/>
+      <bpmn:task id="T" name="Analisar"/>
+      <bpmn:task id="SOLTA" name="Arquivar"/>
+      <bpmn:endEvent id="E"/>
+      <bpmn:sequenceFlow id="F0" sourceRef="S" targetRef="T"/>
+      <bpmn:sequenceFlow id="F1" sourceRef="T" targetRef="E"/>
+      <bpmn:sequenceFlow id="F2" sourceRef="T" targetRef="SOLTA"/>
+    </bpmn:process></bpmn:definitions>`
+    const g = compileBpmn(xml)
+    expect(g.nodes.SOLTA.type).toBe('userTask')
+    expect(g.edges.filter((e) => e.from === 'SOLTA')).toEqual([])
+  })
+
+  it('gateway sem saída continua sendo erro', () => {
+    const xml = `<bpmn:definitions xmlns:bpmn="http://x"><bpmn:process id="P">
+      <bpmn:startEvent id="S"/>
+      <bpmn:exclusiveGateway id="G"/>
+      <bpmn:sequenceFlow id="F0" sourceRef="S" targetRef="G"/>
+    </bpmn:process></bpmn:definitions>`
+    expect(() => compileBpmn(xml)).toThrow(/Gateway "G" sem saída/)
+  })
+
+  it('início sem saída continua sendo erro', () => {
+    const xml = `<bpmn:definitions xmlns:bpmn="http://x"><bpmn:process id="P">
+      <bpmn:startEvent id="S"/>
+      <bpmn:endEvent id="E"/>
+    </bpmn:process></bpmn:definitions>`
+    expect(() => compileBpmn(xml)).toThrow(/início "S" não tem saída/)
+  })
+})
+
 describe('compileBpmn — erros claros', () => {
   it('BPMN vazio', () => {
     expect(() => compileBpmn('')).toThrow(CompileError)

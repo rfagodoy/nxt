@@ -34,6 +34,7 @@ interface Summary {
     concluidas: number
     canceladas: number
     comErro: number
+    semConclusao: number
   }
   activity:  { id: string; kind: 'partner' | 'contract'; title: string; detail: string; user: string | null; at: string }[]
   attentionCount: number
@@ -262,6 +263,7 @@ export default function DashboardPage() {
               { nome: 'concluídos', valor: data?.instances.concluidas ?? 0 },
               { nome: 'com erro',   valor: data?.instances.comErro ?? 0, alerta: true },
               { nome: 'cancelados', valor: data?.instances.canceladas ?? 0 },
+              { nome: 'sem conclusão', valor: data?.instances.semConclusao ?? 0 },
             ]}
           />
         </div>

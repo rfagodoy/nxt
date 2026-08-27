@@ -7,10 +7,10 @@ import {
   CircleDot, Loader2, UserSquare, AlertTriangle, Building2,
   Minus, Plus, Maximize2, GripVertical, ChevronUp, Redo2,
   Download, FileImage, FileText, ChevronDown, PanelRightClose, PanelRightOpen,
-  X, SlidersHorizontal, Undo2, Check, Play,
+  X, SlidersHorizontal, Undo2, Check, Play, Info,
 } from 'lucide-react'
 import { createPortal } from 'react-dom'
-import { generateBpmn, compileBpmn, validarDesenho, validarDecisoes, validarAtividades, type ProblemaAtivacao, type WfGraph, type WfNode, type WfEdge } from '@nxt/workflow-core'
+import { generateBpmn, compileBpmn, validarDesenho, validarDecisoes, validarAtividades, bloqueantes, avisos as avisosDe, type ProblemaAtivacao, type WfGraph, type WfNode, type WfEdge } from '@nxt/workflow-core'
 import type { StepFormSchema, ProcessFormSchema, EdgeConditionSpec, EdgeConditionRule } from '@nxt/types'
 import { CONNECTORS, findConnector, isRetiredConnector, isCompensable } from '@nxt/types'
 import { camposDisponiveis, gerarExpressao, rotuloDaCondicao, montarVarsSimulacao, decidirSaida, saidaTemFiltro, derivarCasoContrario, OPS_POR_TIPO, type CampoDisponivel } from '@/lib/flow-conditions'
@@ -96,17 +96,37 @@ const sidePoint = (b: Box, side: Side): Pt => {
  *  `backward` = RETORNO (laço para trás): o destino está à ESQUERDA na mesma faixa. Nesse
  *  caso sai e entra por BAIXO, arcando por fora — senão o traço cai EXATAMENTE sobre a
  *  aresta de ida e as duas viram uma "seta dupla" indistinguível (o laço some da tela). */
-function edgeGeometry(na: Box, nb: Box): { a: Pt; aDir: Pt; b: Pt; bDir: Pt; backward: boolean } {
+function edgeGeometry(na: Box, nb: Box, obstaculos: Box[] = []): { a: Pt; aDir: Pt; b: Pt; bDir: Pt; backward: boolean; arcoPorBaixo: boolean } {
   const dx = (nb.x + nb.w / 2) - (na.x + na.w / 2)
   const dy = (nb.y + nb.h / 2) - (na.y + na.h / 2)
   if (dx < 0 && Math.abs(dx) >= Math.abs(dy)) {
-    return { a: sidePoint(na, 'bottom'), aDir: SIDE_NORMAL.bottom, b: sidePoint(nb, 'bottom'), bDir: SIDE_NORMAL.bottom, backward: true }
+    return { a: sidePoint(na, 'bottom'), aDir: SIDE_NORMAL.bottom, b: sidePoint(nb, 'bottom'), bDir: SIDE_NORMAL.bottom, backward: true, arcoPorBaixo: true }
   }
   let aSide: Side, bSide: Side
   if (Math.abs(dx) >= Math.abs(dy)) { aSide = dx >= 0 ? 'right' : 'left'; bSide = dx >= 0 ? 'left' : 'right' }
   else { aSide = dy >= 0 ? 'bottom' : 'top'; bSide = dy >= 0 ? 'top' : 'bottom' }
-  return { a: sidePoint(na, aSide), aDir: SIDE_NORMAL[aSide], b: sidePoint(nb, bSide), bDir: SIDE_NORMAL[bSide], backward: false }
+  const a = sidePoint(na, aSide), b = sidePoint(nb, bSide)
+  /* Seta que passa POR TRÁS de outro quadro mente sobre o desenho: quem olha lê a seta
+     saindo do quadro do meio. Ficou visível agora que a atividade pode ser um beco sem
+     saída — o caminho até o Fim salta por cima dela. Nesse caso a seta arqueia por
+     BAIXO, contornando: sai e entra pela base, como o laço de retorno já faz. */
+  if (cruzaAlguemNoCaminho(a, b, obstaculos)) {
+    return { a: sidePoint(na, 'bottom'), aDir: SIDE_NORMAL.bottom, b: sidePoint(nb, 'bottom'), bDir: SIDE_NORMAL.bottom, backward: false, arcoPorBaixo: true }
+  }
+  return { a, aDir: SIDE_NORMAL[aSide], b, bDir: SIDE_NORMAL[bSide], backward: false, arcoPorBaixo: false }
 }
+/** A reta a→b atravessa alguma caixa que não é a de origem nem a de destino?
+ *  Amostragem simples ao longo do segmento — barata e suficiente para a escala do
+ *  desenho (dezenas de nós), sem trazer uma biblioteca de geometria. */
+function cruzaAlguemNoCaminho(a: Pt, b: Pt, obstaculos: Box[]): boolean {
+  const dentro = (p: Pt, o: Box) => p.x > o.x + 2 && p.x < o.x + o.w - 2 && p.y > o.y + 2 && p.y < o.y + o.h - 2
+  for (let t = 0.08; t <= 0.92; t += 0.04) {
+    const p = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }
+    if (obstaculos.some((o) => dentro(p, o))) return true
+  }
+  return false
+}
+
 /** Comprimento do "puxão" da curva — mesmo k usado no bezier (para posicionar o rótulo). */
 const edgeK = (a: Pt, b: Pt) => Math.max(28, Math.hypot(b.x - a.x, b.y - a.y) * 0.4)
 /** Curva cúbica que SAI perpendicular ao lado de origem e ENTRA perpendicular ao de destino. */
@@ -545,8 +565,10 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     if (!kind) { setAviso({ msg: 'Escolha o tipo do workflow (contrato, aditivo ou parceiro) antes de ativar.' }); return }
     if (activityCount === 0) { setAviso({ msg: 'Adicione ao menos uma atividade antes de ativar.' }); return }
     // Pendências conhecidas ANTES do servidor: abre a lista clicável em vez de um
-    // diálogo — o guard da API continua valendo como rede de segurança.
-    if (pendencias.length) { setPendAberto(true); return }
+    // diálogo — o guard da API continua valendo como rede de segurança. AVISO não
+    // impede: atividade fora do caminho do fim é desenho legítimo. Ela aparece no
+    // painel do mesmo jeito, para o desenhista saber o que ela significa rodando.
+    if (bloqueantes(pendencias).length) { setPendAberto(true); return }
     setActivating(true)
     try {
       const id = await persist(confirmarReducao)
@@ -584,11 +606,11 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       const variant: ExportEdge['variant'] = from?.type === 'exclusiveGateway' ? 'exclusive' : from?.type === 'parallelGateway' ? 'parallel' : 'normal'
       // MESMA geometria da tela (âncoras cientes do lado + laço de retorno), senão o
       // arquivo exportado sai diferente do que o usuário desenhou.
-      const g = edgeGeometry(a, b)
+      const g = edgeGeometry(a, b, Object.entries(layout.nodes).filter(([id]) => id !== e.from && id !== e.to).map(([, p]) => p))
       return {
         ax: g.a.x, ay: g.a.y, bx: g.b.x, by: g.b.y,
         adx: g.aDir.x, ady: g.aDir.y, bdx: g.bDir.x, bdy: g.bDir.y,
-        backward: g.backward, variant, label: e.label,
+        backward: g.arcoPorBaixo, variant, label: e.label,
       }
     })
     return { width: layout.width, height: layout.height, nodes: enodes, edges: eedges, lanes: layout.lanes }
@@ -943,6 +965,18 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
   const dragRef = useRef<{ id: string; sx: number; sy: number; ox: number; oy: number; w: number; h: number; moved: boolean } | null>(null)
 
   const nodeById = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n])), [nodes])
+  /** Caixas que a seta from→to precisa contornar: todo nó posicionado, menos as pontas. */
+  const obstaculosPara = useCallback((from: string, to: string): Box[] =>
+    Object.entries(layout.nodes).filter(([id]) => id !== from && id !== to).map(([, p]) => p),
+  [layout])
+
+  /* AVISO no próprio quadro: a lista embaixo diz o que é, mas quem olha o desenho
+     precisa ver ONDE — senão a atividade que não leva ao fim parece igual às outras. */
+  const avisoPorNo = useMemo(() => {
+    const m: Record<string, string> = {}
+    for (const p of avisosDe(pendencias ?? [])) if (p.nodeId) m[p.nodeId] = p.mensagem
+    return m
+  }, [pendencias])
   const edgeColor = (e: EEdge) => {
     const f = nodeById[e.from]
     if (f?.type === 'exclusiveGateway') return '#7c3aed'
@@ -1063,37 +1097,61 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
       onFit={() => { setAutoFit(true); setScale(fitScale()) }} />
     {/* Pendências de ativação: pílula âmbar; o painel lista cada problema e clicar
         centraliza o nó culpado (e o pai abre o modal onde o conserto mora). A lista
-        recalcula ao vivo — consertou, o item some; zerou, a pílula desaparece. */}
-    {(pendencias?.length ?? 0) > 0 && (
+        recalcula ao vivo — consertou, o item some; zerou, a pílula desaparece.
+        DUAS classes, e a diferença é dita na tela: o que IMPEDE a ativação (âmbar) e
+        o AVISO (azul), que é desenho válido — atividade que executa sem terminar o
+        processo. Misturar os dois faria o desenhista caçar conserto para o que não
+        está quebrado. */}
+    {(pendencias?.length ?? 0) > 0 && (() => {
+      const erros = bloqueantes(pendencias!)
+      const infos = avisosDe(pendencias!)
+      const item = (p: ProblemaAtivacao, i: number, cor: string) => (
+        <li key={`${p.tipo}-${p.nodeId ?? i}`}>
+          <button type="button"
+            onClick={() => { if (p.nodeId) centrarNo(p.nodeId); onFocar?.(p) }}
+            className="w-full text-left rounded-lg px-2.5 py-1.5 text-[11px] leading-snug text-muted-foreground hover:bg-muted hover:text-foreground transition-colors flex gap-2">
+            <span className={cn('mt-1 h-1.5 w-1.5 rounded-full shrink-0', cor)} />
+            <span>{p.mensagem}</span>
+          </button>
+        </li>
+      )
+      return (
       <div className="absolute bottom-3 z-20" style={{ left: laneHeaderW + 12 }}>
         {pendAberto && (
           <div className="mb-2 w-[400px] max-h-[60vh] overflow-y-auto rounded-xl border bg-card shadow-lg">
             <div className="sticky top-0 px-3 py-2 border-b bg-card/95 backdrop-blur-sm">
-              <p className="text-xs font-semibold flex items-center gap-1.5"><AlertTriangle className="h-3.5 w-3.5 text-amber-500" />Ainda não dá para ativar</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">Clique numa pendência para ir até ela no desenho.</p>
+              <p className="text-xs font-semibold flex items-center gap-1.5">
+                {erros.length
+                  ? <><AlertTriangle className="h-3.5 w-3.5 text-amber-500" />Ainda não dá para ativar</>
+                  : <><Info className="h-3.5 w-3.5 text-sky-500" />Dá para ativar — com avisos</>}
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Clique num item para ir até ele no desenho.</p>
             </div>
-            <ul className="p-1.5">
-              {pendencias!.map((p, i) => (
-                <li key={`${p.tipo}-${p.nodeId ?? i}`}>
-                  <button type="button"
-                    onClick={() => { if (p.nodeId) centrarNo(p.nodeId); onFocar?.(p) }}
-                    className="w-full text-left rounded-lg px-2.5 py-1.5 text-[11px] leading-snug text-muted-foreground hover:bg-muted hover:text-foreground transition-colors flex gap-2">
-                    <span className="mt-1 h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
-                    <span>{p.mensagem}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+            {erros.length > 0 && <ul className="p-1.5">{erros.map((p, i) => item(p, i, 'bg-amber-500'))}</ul>}
+            {infos.length > 0 && (
+              <>
+                <p className="px-3 pt-1.5 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground border-t">
+                  Avisos · não impedem a ativação
+                </p>
+                <ul className="p-1.5 pt-0">{infos.map((p, i) => item(p, i, 'bg-sky-500'))}</ul>
+              </>
+            )}
           </div>
         )}
         <button type="button" onClick={() => onTogglePend?.()}
-          title={pendAberto ? 'Recolher pendências' : 'Ver o que falta para ativar'}
-          className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-600 dark:text-amber-400 shadow-sm backdrop-blur-sm hover:bg-amber-500/20 transition-colors">
-          <AlertTriangle className="h-3.5 w-3.5" />
-          {pendencias!.length} {pendencias!.length === 1 ? 'pendência' : 'pendências'} para ativar
+          title={pendAberto ? 'Recolher' : erros.length ? 'Ver o que falta para ativar' : 'Ver os avisos do desenho'}
+          className={cn('inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm backdrop-blur-sm transition-colors',
+            erros.length
+              ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20'
+              : 'border-sky-500/40 bg-sky-500/10 text-sky-600 dark:text-sky-400 hover:bg-sky-500/20')}>
+          {erros.length ? <AlertTriangle className="h-3.5 w-3.5" /> : <Info className="h-3.5 w-3.5" />}
+          {erros.length
+            ? `${erros.length} ${erros.length === 1 ? 'pendência' : 'pendências'} para ativar`
+            : `${infos.length} ${infos.length === 1 ? 'aviso' : 'avisos'} no desenho`}
         </button>
       </div>
-    )}
+      )
+    })()}
     <LaneHeader bandas={layout.lanes} largura={laneHeaderW} scale={scale} scrollTop={scrollTop}
       arrastando={laneDrag?.key ?? null} onStartDrag={startLaneDrag} onReorder={onReorderLanes} />
     <div ref={scrollRef} className="absolute inset-y-0 right-0 overflow-auto bg-muted/20 [background-image:radial-gradient(circle_at_1px_1px,hsl(var(--border))_1px,transparent_0)] [background-size:24px_24px]"
@@ -1143,7 +1201,7 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
           {edges.map((e) => {
             const na = layout.nodes[e.from], nb = layout.nodes[e.to]
             if (!na || !nb) return null
-            const { a, aDir, b, bDir } = edgeGeometry(na, nb)
+            const { a, aDir, b, bDir } = edgeGeometry(na, nb, obstaculosPara(e.from, e.to))
             const d = edgeBezier(a, aDir, b, bDir)
             const col = edgeColor(e)
             const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2
@@ -1174,10 +1232,10 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
         {edges.map((e) => {
           const na = layout.nodes[e.from], nb = layout.nodes[e.to]
           if (!na || !nb || !e.label) return null
-          const { a, b, backward } = edgeGeometry(na, nb)
+          const { a, b, arcoPorBaixo } = edgeGeometry(na, nb, obstaculosPara(e.from, e.to))
           const mx = (a.x + b.x) / 2
           // no retorno o rótulo acompanha o ponto mais baixo do arco (y ≈ Y + 0.75k)
-          const my = backward ? (a.y + b.y) / 2 + 0.75 * edgeK(a, b) : (a.y + b.y) / 2 - 16
+          const my = arcoPorBaixo ? (a.y + b.y) / 2 + 0.75 * edgeK(a, b) : (a.y + b.y) / 2 - 16
           return <div key={`lb-${e.id}`} className="absolute -translate-x-1/2 -translate-y-1/2 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-card border shadow-sm pointer-events-none" style={{ left: mx, top: my, color: e.isDefault ? 'hsl(var(--muted-foreground))' : undefined }}>{e.label}</div>
         })}
 
@@ -1189,7 +1247,7 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
             <div key={n.id} data-node-id={n.id} onPointerDown={(e) => startNodeDrag(n.id, e)}
               className={cn('absolute group select-none', dragId === n.id ? 'z-40 cursor-grabbing' : 'cursor-grab')}
               style={{ left: p.x, top: p.y, width: p.w, height: p.h }}>
-              <FlowNodeView node={n} selected={n.id === selectedId} onClick={() => onSelect(n.id)} resolvePapel={resolvePapel} resolveEntidade={resolveEntidade} />
+              <FlowNodeView node={n} selected={n.id === selectedId} onClick={() => onSelect(n.id)} resolvePapel={resolvePapel} resolveEntidade={resolveEntidade} aviso={avisoPorNo[n.id]} />
               {n.type !== 'start' && n.type !== 'end' && (
                 <button data-trash onClick={(e) => { e.stopPropagation(); onDeleteNode(n.id) }} title="Excluir"
                   className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-card border border-border text-muted-foreground hover:text-destructive hover:border-destructive shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-20">
@@ -1330,10 +1388,12 @@ function GatewayGlyph({ kind, className }: { kind: 'exclusive' | 'parallel'; cla
 const XorGlyph = (p: { className?: string }) => <GatewayGlyph kind="exclusive" {...p} />
 const AndGlyph = (p: { className?: string }) => <GatewayGlyph kind="parallel" {...p} />
 
-function FlowNodeView({ node, selected, onClick, resolvePapel, resolveEntidade }: {
+function FlowNodeView({ node, selected, onClick, resolvePapel, resolveEntidade, aviso }: {
   node: ENode; selected: boolean; onClick: () => void
   resolvePapel: (id: string) => string | undefined
   resolveEntidade: (kind: string | undefined, id: string | undefined) => string | undefined
+  /** Aviso de ativação deste nó (ex.: executa, mas não leva ao fim). Não é erro. */
+  aviso?: string
 }) {
   if (node.type === 'start' || node.type === 'end') {
     // BPMN: início = anel FINO, fim = anel GROSSO. O raio compensa a espessura para os
@@ -1384,6 +1444,13 @@ function FlowNodeView({ node, selected, onClick, resolvePapel, resolveEntidade }
         <div className="flex items-center gap-1.5">
           <span className={cn('flex h-6 w-6 items-center justify-center rounded-lg shrink-0', tone)}><Icon className="h-3.5 w-3.5" /></span>
           <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{type === 'serviceTask' ? 'Ação automática' : 'Tarefa'}</span>
+          {/* Não leva ao fim: marca discreta, com a frase inteira no title. O quadro
+              continua legítimo — por isso azul de informação, não vermelho de erro. */}
+          {aviso && (
+            <span title={aviso} className="ml-auto shrink-0 text-sky-500" aria-label={aviso}>
+              <Info className="h-3.5 w-3.5" />
+            </span>
+          )}
         </div>
         <p className="text-[13px] font-semibold leading-tight mt-1.5 shrink-0" style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: titleLineCount(step?.stepName), overflow: 'hidden' }}>{step?.stepName || <span className="text-muted-foreground italic font-normal">Sem nome</span>}</p>
         <div className="mt-auto space-y-0.5 pt-1.5 min-h-0 overflow-hidden">

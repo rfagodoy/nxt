@@ -51,6 +51,21 @@ import { NOTIF_PARAMS_KEY, tarefasParams } from '../notifications/notification-p
 /** Ids de token únicos para o motor (viram WorkflowTask.tokenId). */
 const runtime: WfRuntime = { genId: () => randomUUID() }
 
+/** Resultado do motor (o que `settle` devolve) reduzido ao que decide a situação. */
+type ResultadoDoMotor = { errored?: string; completed: boolean; endedIncomplete?: 'sem-fim' | 'juncao-travada' }
+
+/** Situação da instância no banco a partir do que o motor apurou.
+ *  ENDED_INCOMPLETE = acabaram as atividades sem que nenhum caminho passasse pelo
+ *  evento de fim (ou junção paralela travada): não é conclusão nem cancelamento, e
+ *  não pode ficar como RUNNING — não sobrou nada para ninguém fazer. */
+export const situacaoDaInstancia = (s: ResultadoDoMotor): string =>
+  s.errored ? 'ERROR' : s.completed ? 'COMPLETED' : s.endedIncomplete ? 'ENDED_INCOMPLETE' : 'RUNNING'
+
+/** A instância ENCERROU agora (concluída ou sem conclusão)? Carimba `completedAt`
+ *  nos dois casos — é a data em que ela parou de correr, e é dela que a duração e
+ *  os relatórios vivem. */
+export const encerrouAgora = (s: ResultadoDoMotor): boolean => !s.errored && (s.completed || !!s.endedIncomplete)
+
 /** O que uma ação automática PRODUZIU no domínio. Guardado sempre (não só quando
  *  compensável): é o vínculo entre o processo e o contrato/parceiro que ele criou ou
  *  alterou, e a base do que o cancelamento precisa desfazer. */
@@ -183,7 +198,7 @@ export class InstancesService {
       organizationId,
       actor,
     }, baseState)
-    const status = settled.errored ? 'ERROR' : settled.completed ? 'COMPLETED' : 'RUNNING'
+    const status = situacaoDaInstancia(settled)
 
     // Instância + tarefas criadas ATOMICAMENTE (se a criação de tarefas falhar, a
     // instância não fica órfã sem tarefa pendente). Numa instância em ERRO não se
@@ -211,7 +226,7 @@ export class InstancesService {
           state: settled.state as never,
           startedBy: actor?.name ?? null,
           startedById: actor?.sub ?? null,
-          completedAt: settled.completed && !settled.errored ? new Date() : null,
+          completedAt: encerrouAgora(settled) ? new Date() : null,
         },
       })
       if (!settled.errored) createdTasks = await this.persistTasks(tx, created.id, settled.tasksToCreate, organizationId, settled.state.variables)
@@ -225,6 +240,7 @@ export class InstancesService {
       instance,
       tasks: await this.pendingTasks(instance.id),
       completed: settled.completed,
+      endedIncomplete: settled.endedIncomplete ?? null,
       errored: settled.errored ?? null,
     }
   }
@@ -289,7 +305,7 @@ export class InstancesService {
       { organizationId, actor },
       { ...prevState, variables: { ...prevState.variables, ...dadosComContrato } },
     )
-    const status = settled.errored ? 'ERROR' : settled.completed ? 'COMPLETED' : 'RUNNING'
+    const status = situacaoDaInstancia(settled)
 
     // ── Anti-corrida (2/2): avança o estado da instância com LOCK OTIMÍSTICO. ──
     // Em ramos paralelos, duas conclusões simultâneas partiriam do mesmo estado e uma
@@ -306,7 +322,7 @@ export class InstancesService {
             state: settled.state as never,
             status,
             revision: { increment: 1 },
-            completedAt: settled.completed && !settled.errored ? new Date() : null,
+            completedAt: encerrouAgora(settled) ? new Date() : null,
           },
         })
         if (upd.count === 0) {
@@ -329,12 +345,14 @@ export class InstancesService {
 
     // O aviso desta tarefa não pede mais ação; o das próximas nasce agora.
     await this.notifier.clearForTasks([task.id])
-    if (settled.completed && !settled.errored) await this.notifier.clearForInstance(task.instanceId)
+    // Encerrou (com ou sem conclusão): não há mais o que avisar nesta instância.
+    if (encerrouAgora(settled)) await this.notifier.clearForInstance(task.instanceId)
     await this.notifier.taskAssigned(organizationId, createdTasks, this.processNotice(task.instance))
 
     return {
       instanceId: task.instanceId,
       completed: settled.completed,
+      endedIncomplete: settled.endedIncomplete ?? null,
       errored: settled.errored ?? null,
       tasks: await this.pendingTasks(task.instanceId),
     }
@@ -1444,7 +1462,7 @@ export class InstancesService {
       { organizationId, actor },
       state,
     )
-    const status = settled.errored ? 'ERROR' : settled.completed ? 'COMPLETED' : 'RUNNING'
+    const status = situacaoDaInstancia(settled)
 
     await this.prisma.$transaction(async (tx) => {
       const upd = await tx.processInstance.updateMany({
@@ -1453,7 +1471,7 @@ export class InstancesService {
           state: settled.state as never,
           status,
           revision: { increment: 1 },
-          completedAt: settled.completed && !settled.errored ? new Date() : null,
+          completedAt: encerrouAgora(settled) ? new Date() : null,
         },
       })
       if (upd.count === 0) {
@@ -1466,6 +1484,7 @@ export class InstancesService {
     return {
       instanceId,
       completed: settled.completed,
+      endedIncomplete: settled.endedIncomplete ?? null,
       errored: settled.errored ?? null,
       tasks: await this.pendingTasks(instanceId),
     }
@@ -1484,6 +1503,10 @@ export class InstancesService {
     tasksToCreate: Array<{ token: { id: string; nodeId: string }; node: WfNode }>
     compensations: Array<{ nodeId: string; connector: string; undoData: Record<string, unknown>; entityType?: string; entityId?: string; kind?: string; compensable?: boolean }>
     completed: boolean
+    /** Parou sem concluir: acabaram os tokens sem que nenhum caminho passasse pelo
+     *  fim (ou junção paralela travada). Vira ENDED_INCOMPLETE — nem viva, nem
+     *  concluída. `undefined` quando não é o caso. */
+    endedIncomplete?: 'sem-fim' | 'juncao-travada'
     errored?: string
   }> {
     let state: WfState = fallbackState
@@ -1491,12 +1514,14 @@ export class InstancesService {
     const compensations: Array<{ nodeId: string; connector: string; undoData: Record<string, unknown>; entityType?: string; entityId?: string; kind?: string; compensable?: boolean }> = []
     const serviceQueue: Array<{ token: { id: string; nodeId: string }; node: WfNode }> = []
     let completed = false
+    let endedIncomplete: 'sem-fim' | 'juncao-travada' | undefined
 
     const absorb = (effects: WfEffect[]) => {
       for (const e of effects) {
         if (e.kind === 'createTask') tasksToCreate.push({ token: e.token, node: e.node })
         else if (e.kind === 'runService') serviceQueue.push({ token: e.token, node: e.node })
         else if (e.kind === 'completed') completed = true
+        else if (e.kind === 'endedIncomplete') endedIncomplete = e.reason
       }
     }
     const msgOf = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -1558,7 +1583,7 @@ export class InstancesService {
       }
     }
 
-    return { state, tasksToCreate, compensations, completed }
+    return { state, tasksToCreate, compensations, completed, endedIncomplete }
   }
 
   /** Executa o conector de domínio de um serviceTask (nó `connector`). O resultado

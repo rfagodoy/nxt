@@ -222,6 +222,10 @@ export class DashboardService {
         concluidas: instanciasDerivadas.filter((i) => i.status === 'COMPLETED').length,
         canceladas: instanciasDerivadas.filter((i) => i.status === 'CANCELLED').length,
         comErro: instanciasDerivadas.filter((i) => i.status === 'ERROR').length,
+        /* Encerradas SEM passar pelo evento de fim. Entram na composição para o
+           gráfico continuar somando o total — sem esta fatia elas sumiriam do
+           desenho e o total não bateria com as partes. */
+        semConclusao: instanciasDerivadas.filter((i) => i.status === 'ENDED_INCOMPLETE').length,
       },
       activity,
       attentionCount,
