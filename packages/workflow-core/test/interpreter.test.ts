@@ -352,3 +352,44 @@ describe('conclusão só pelo evento de fim', () => {
     expect(kinds(r.effects)).toEqual(['completed'])
   })
 })
+
+describe('gateway exclusivo — "caso contrário" pela AUSÊNCIA de filtros', () => {
+  // start → G → [valor > 100 → A] [sem filtros → B] → end. Nenhuma seta tem isDefault:
+  // é o desenho que o editor grava num losango que ninguém abriu para configurar.
+  const graph: WfGraph = {
+    startId: 'start',
+    nodes: {
+      start: { id: 'start', type: 'start' },
+      G: { id: 'G', type: 'exclusiveGateway', name: 'Precisa de parecer?' },
+      A: { id: 'A', type: 'userTask', name: 'Emitir parecer' },
+      B: { id: 'B', type: 'userTask', name: 'Seguir sem parecer' },
+      end: { id: 'end', type: 'end' },
+    },
+    edges: [
+      { id: 'e1', from: 'start', to: 'G' },
+      { id: 'e2', from: 'G', to: 'A', condition: 'valor > 100' },
+      { id: 'e3', from: 'G', to: 'B' },
+      { id: 'e4', from: 'A', to: 'end' },
+      { id: 'e5', from: 'B', to: 'end' },
+    ],
+  }
+  it('filtro casou: segue pelo caminho com filtro', () => {
+    const r = startProcess(graph, { valor: 500 }, makeCounterRuntime())
+    expect(r.state.tokens[0].nodeId).toBe('A')
+  })
+  it('nenhum filtro casou: segue pela saída sem filtros, em vez de dar erro', () => {
+    const r = startProcess(graph, { valor: 10 }, makeCounterRuntime())
+    expect(r.state.tokens[0].nodeId).toBe('B')
+  })
+  it('variável ausente também cai no caso contrário (não trava o processo)', () => {
+    const r = startProcess(graph, {}, makeCounterRuntime())
+    expect(r.state.tokens[0].nodeId).toBe('B')
+  })
+  it('sem nenhuma saída livre e sem filtro casado, o erro diz o que falta', () => {
+    const g2: WfGraph = {
+      ...graph,
+      edges: graph.edges.map((e) => (e.id === 'e3' ? { ...e, condition: 'valor < 0' } : e)),
+    }
+    expect(() => startProcess(g2, { valor: 10 }, makeCounterRuntime())).toThrow(/caso contrário/)
+  })
+})

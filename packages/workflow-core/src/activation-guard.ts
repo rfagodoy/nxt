@@ -12,7 +12,7 @@ export interface ProblemaAtivacao {
     | 'inicio-desligado' | 'fim-inalcancavel'
     | 'sem-saida' | 'nao-alcanca-fim' | 'gateway-sem-saida' | 'solto' | 'sem-chegada'
     | 'inalcancavel-do-inicio' | 'juncao-travada'
-    | 'decisao-sem-padrao' | 'decisao-multipadrao' | 'decisao-filtro-faltando'
+    | 'decisao-sem-padrao' | 'decisao-multipadrao'
     | 'atividade-incompleta'
   /** `erro` impede a ativação; `aviso` é informação — o desenho é legítimo, mas o
    *  desenhista precisa saber o que ele significa em execução. Ausente = erro
@@ -173,18 +173,17 @@ export function validarDecisoes(nodes: NodeLike[], edges: EdgeLike[]): ProblemaA
     const saidas = edges.filter((e) => e.from === n.id)
     if (saidas.length < 2) continue
     const nome = n.name?.trim() ? `"${n.name.trim()}"` : 'sem nome'
-    const padroes = saidas.filter((s) => s.isDefault)
-    if (padroes.length === 0) {
+    // O "caso contrário" é DERIVADO: é a saída SEM FILTROS. Não se olha a marca
+    // `isDefault` — ela é consequência, não causa. Olhar a marca fazia a ativação
+    // recusar desenho certo (losango que o usuário nunca abriu no modal nasce sem
+    // marca) com uma frase que mandava fazer o que já estava feito.
+    const semFiltro = saidas.filter((s) => !s.condition?.trim())
+    if (semFiltro.length === 0) {
       problemas.push({ tipo: 'decisao-sem-padrao', nodeId: n.id, rotulo: nomeCurto(n), mensagem: `A decisão ${nome} não tem o caminho "caso contrário": deixe exatamente uma saída sem filtros — é por ela que o processo segue quando nenhum filtro casa.` })
       continue
     }
-    if (padroes.length > 1) {
-      problemas.push({ tipo: 'decisao-multipadrao', nodeId: n.id, rotulo: nomeCurto(n), mensagem: `A decisão ${nome} tem ${padroes.length} caminhos "caso contrário". Deixe apenas um sem filtros.` })
-      continue
-    }
-    const semCondicao = saidas.filter((s) => !s.isDefault && !s.condition?.trim())
-    if (semCondicao.length) {
-      problemas.push({ tipo: 'decisao-filtro-faltando', nodeId: n.id, rotulo: nomeCurto(n), mensagem: `A decisão ${nome} tem caminho sem filtros que não é o "caso contrário". Monte os filtros dele — ou esvazie só o caminho que deve ser o caso contrário.` })
+    if (semFiltro.length > 1) {
+      problemas.push({ tipo: 'decisao-multipadrao', nodeId: n.id, rotulo: nomeCurto(n), mensagem: `A decisão ${nome} tem ${semFiltro.length} caminhos sem filtros — o processo não saberia por qual seguir. Monte os filtros de todos menos um: o que ficar sem filtros é o "caso contrário".` })
     }
   }
   return problemas
@@ -229,8 +228,7 @@ const AGREGADO: Record<ProblemaAtivacao['tipo'], { plural: string; instrucao: st
   'solto': { plural: 'atividades estão soltas no desenho', instrucao: 'Ligue-as ao fluxo ou exclua-as.' },
   'sem-chegada': { plural: 'atividades estão desconectadas do fluxo (nenhuma seta chega até elas)', instrucao: 'Ligue uma etapa anterior a cada uma ou exclua-as.' },
   'decisao-sem-padrao': { plural: 'decisões estão sem o caminho "caso contrário"', instrucao: 'Em cada uma, deixe exatamente uma saída sem filtros — é por ela que o processo segue quando nenhum filtro casa.' },
-  'decisao-multipadrao': { plural: 'decisões têm mais de um caminho "caso contrário"', instrucao: 'Deixe apenas um sem filtros em cada uma.' },
-  'decisao-filtro-faltando': { plural: 'decisões têm caminho sem filtros que não é o "caso contrário"', instrucao: 'Monte os filtros que faltam.' },
+  'decisao-multipadrao': { plural: 'decisões têm mais de um caminho sem filtros', instrucao: 'Em cada uma, monte os filtros de todos menos um — o que ficar sem filtros é o "caso contrário".' },
   'atividade-incompleta': { plural: 'atividades com configuração incompleta', instrucao: 'Clique em cada uma e complete.' },
   'nao-alcanca-fim': { plural: 'atividades serão executadas sem terminar o processo', instrucao: 'Nenhum caminho a partir delas chega ao evento de fim — ligue-as ao fim se elas devem encerrar o processo.' },
   'inalcancavel-do-inicio': { plural: 'atividades nunca serão executadas (o início não chega até elas)', instrucao: 'Ligue-as ao fluxo que sai do início ou exclua-as.' },

@@ -134,13 +134,20 @@ export function compileBpmn(xml: string): WfGraph {
   }
 
   // ── fluxo default dos gateways ──────────────────────────────────────────────
-  // O atributo `default="Flow_x"` no gateway marca a seta default.
+  // O atributo `default="Flow_x"` no gateway marca a seta default. Sem ele, o "caso
+  // contrário" é DERIVADO: a única saída SEM condição. É a mesma regra do designer e
+  // da ativação — o desenho manda, e não uma marca que pode faltar no XML.
   for (const local of ['exclusiveGateway', 'parallelGateway']) {
     for (const el of findByLocal(process, local)) {
       const def = el.attrs.default
-      if (!def) continue
-      const edge = edges.find((e) => e.id === def)
-      if (edge) edge.isDefault = true
+      if (def) {
+        const edge = edges.find((e) => e.id === def)
+        if (edge) edge.isDefault = true
+        continue
+      }
+      const outs = edges.filter((e) => e.from === el.attrs.id)
+      const semFiltro = outs.filter((e) => !e.condition?.trim())
+      if (outs.length > 1 && semFiltro.length === 1) semFiltro[0].isDefault = true
     }
   }
 

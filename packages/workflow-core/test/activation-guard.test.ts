@@ -27,11 +27,13 @@ describe('validarDecisoes', () => {
       { from: 'g1', isDefault: true },
     ])[0].mensagem).toMatch(/2 caminhos/)
   })
-  it('recusa saída sem condição que não é a padrão', () => {
+  /* Regra derivada: a marca `isDefault` não cria nem tira o caso contrário — quem
+     manda é a AUSÊNCIA de filtros. Duas saídas sem filtros seguem ambíguas. */
+  it('recusa duas saídas sem filtros, mesmo com uma marcada como padrão', () => {
     expect(g([
       { from: 'g1', condition: '' },
       { from: 'g1', isDefault: true },
-    ])[0].mensagem).toMatch(/sem filtros que não é/)
+    ])[0].mensagem).toMatch(/2 caminhos sem filtros/)
   })
   it('losango com UMA saída não exige nada (passagem)', () => {
     expect(g([{ from: 'g1' }])).toEqual([])
@@ -249,5 +251,39 @@ describe('formatarProblemas — aviso não vira recusa', () => {
       { tipo: 'fim-inalcancavel', mensagem: 'Nenhum caminho chega ao fim.' },
     ])
     expect(msg).toBe('Nenhum caminho chega ao fim.')
+  })
+})
+
+/* O "caso contrário" é DERIVADO da saída SEM FILTROS (decisão do PO em 2026-08-23).
+   A ativação olhava a marca `isDefault`, que só é gravada quando o desenhista ABRE o
+   modal do losango — losango legado, ou nunca aberto, era recusado com uma frase que
+   mandava fazer o que já estava feito. */
+describe('validarDecisoes — caso contrário derivado, sem depender da marca', () => {
+  const losango = [{ id: 'g1', type: 'exclusiveGateway', name: 'Aprovação do RH?' }]
+  it('saída sem filtros vale como "caso contrário" mesmo SEM isDefault', () => {
+    expect(validarDecisoes(losango, [
+      { from: 'g1', condition: 'contrato.maoDeObra == true' },
+      { from: 'g1' },
+    ])).toEqual([])
+  })
+  it('todas as saídas com filtro: continua faltando o caso contrário', () => {
+    const [p] = validarDecisoes(losango, [
+      { from: 'g1', condition: 'contrato.maoDeObra == true' },
+      { from: 'g1', condition: 'contrato.maoDeObra == false' },
+    ])
+    expect(p.tipo).toBe('decisao-sem-padrao')
+  })
+  it('duas saídas sem filtro: diz que sobra caminho, e o que fazer', () => {
+    const [p] = validarDecisoes(losango, [{ from: 'g1' }, { from: 'g1' }])
+    expect(p.tipo).toBe('decisao-multipadrao')
+    expect(p.mensagem).toContain('2 caminhos sem filtros')
+    expect(p.mensagem).toContain('todos menos um')
+  })
+  it('a marca isDefault sozinha (sem filtros nas outras) não inventa aprovação', () => {
+    const [p] = validarDecisoes(losango, [
+      { from: 'g1', isDefault: true },
+      { from: 'g1' },
+    ])
+    expect(p.tipo).toBe('decisao-multipadrao')
   })
 })
