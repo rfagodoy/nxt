@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { CheckCircle2, Loader2, ListChecks, XCircle, AlertTriangle, RefreshCw, Info, ArrowRight } from 'lucide-react'
+import { CheckCircle2, Loader2, ListChecks, XCircle, AlertTriangle, RefreshCw, Info, ArrowRight, CircleSlash } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DynamicForm } from '@/components/modules/dynamic-form'
 import { WorkflowScreenTask } from '@/components/processes/workflow-screen-task'
@@ -32,6 +32,9 @@ export function InstanceRunner({ processDefinitionId, processName, formSchema, o
   const [tasks, setTasks] = useState<Task[]>([])
   const [variables, setVariables] = useState<Record<string, unknown>>({})
   const [completed, setCompleted] = useState(false)
+  // Encerrou SEM passar pelo evento de fim: as atividades acabaram, mas o processo
+  // não concluiu. Nem sucesso, nem erro — e sem isto a tela ficaria em branco.
+  const [semConclusao, setSemConclusao] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Erro de conector de domínio (serviceTask): a instância parou em ERRO.
@@ -61,8 +64,9 @@ export function InstanceRunner({ processDefinitionId, processName, formSchema, o
     setTasks(data.tasks ?? [])
     setVariables(data.instance?.state?.variables ?? {})
     setCompleted(!!data.completed)
+    setSemConclusao(!!data.endedIncomplete)
     if (data.errored) setErrored(data.errored)
-    if (data.completed) onFinished?.()
+    if (data.completed || data.endedIncomplete) onFinished?.()
   }, [processDefinitionId, onFinished])
 
   // Recarrega as variáveis da instância (para atividades-tela em modo EDIT que dependem
@@ -96,7 +100,8 @@ export function InstanceRunner({ processDefinitionId, processName, formSchema, o
       setErrored(result.errored ?? null)
       setTasks(result.tasks ?? [])
       setCompleted(!!result.completed)
-      if (result.completed) onFinished?.()
+      setSemConclusao(!!result.endedIncomplete)
+      if (result.completed || result.endedIncomplete) onFinished?.()
     } finally {
       setRetrying(false)
     }
@@ -120,8 +125,9 @@ export function InstanceRunner({ processDefinitionId, processName, formSchema, o
       const result = await res.json()
       setTasks(result.tasks ?? [])
       setCompleted(!!result.completed)
+      setSemConclusao(!!result.endedIncomplete)
       if (result.errored) setErrored(result.errored)
-      if (result.completed || result.errored) onFinished?.()
+      if (result.completed || result.errored || result.endedIncomplete) onFinished?.()
       else if (instanceId) await refreshVariables(instanceId) // variáveis frescas p/ a próxima etapa
     } finally {
       setSubmitting(false)
@@ -174,6 +180,24 @@ export function InstanceRunner({ processDefinitionId, processName, formSchema, o
             </button>
           )}
         </div>
+      </div>
+    )
+  }
+
+  if (semConclusao) {
+    return (
+      <div className="rounded-xl border bg-card p-8 text-center">
+        <CircleSlash className="h-10 w-10 text-amber-500 mx-auto mb-3" />
+        <h3 className="text-sm font-semibold">Encerrado sem conclusão</h3>
+        <p className="text-xs text-muted-foreground mt-1">
+          As atividades de “{processName}” terminaram, mas nenhum caminho passou pelo fim do
+          processo — por isso ele não consta como concluído.
+        </p>
+        {onClose && (
+          <button onClick={onClose} className="mt-4 inline-flex items-center rounded-md border px-3 py-1.5 text-xs hover:bg-muted">
+            Fechar
+          </button>
+        )}
       </div>
     )
   }

@@ -10,7 +10,10 @@
    - `startProcess` coloca um token no start e propaga até os pontos de espera.
    - `completeToken` retoma um token que descansava, mescla os dados coletados nas
      variáveis, e propaga a partir dali.
-   - A instância CONCLUI quando não sobra nenhum token descansando. */
+   - A instância CONCLUI quando não sobra nenhum token descansando E algum caminho
+     passou pelo evento de fim. Sem passar pelo fim ela não conclui: ENCERRA SEM
+     CONCLUSÃO (status `incomplete`). É o que permite desenhar atividade fora do
+     caminho do fim — ela executa, mas não é ela que termina o processo. */
 
 import type {
   WfEdge,
@@ -32,16 +35,22 @@ const MAX_STEPS = 10_000
 const outgoing = (g: WfGraph, nodeId: string): WfEdge[] => g.edges.filter((e) => e.from === nodeId)
 const incoming = (g: WfGraph, nodeId: string): WfEdge[] => g.edges.filter((e) => e.to === nodeId)
 
+/** Uma saída é o "caso contrário" quando NÃO TEM FILTROS. A marca `isDefault` é
+ *  consequência disso (o designer a grava, o BPMN a carrega) — nunca a causa. Ler as
+ *  duas coisas mantém motor, ativação e desenho dizendo a mesma frase, inclusive num
+ *  losango que ninguém abriu para configurar. */
+const ehCasoContrario = (e: WfEdge): boolean => !!e.isDefault || !e.condition?.trim()
+
 /** Escolhe a única saída de um gateway exclusivo: primeira condição verdadeira,
- *  na ordem; se nenhuma casar, o fluxo `default`. Erro se nada casar. */
+ *  na ordem; se nenhuma casar, o "caso contrário". Erro se nada casar. */
 function pickExclusive(outs: WfEdge[], vars: Record<string, unknown>): WfEdge {
   for (const e of outs) {
-    if (e.isDefault) continue
+    if (ehCasoContrario(e)) continue
     if (evalCondition(e.condition, vars)) return e
   }
-  const def = outs.find((e) => e.isDefault)
+  const def = outs.find(ehCasoContrario)
   if (def) return def
-  throw new WfError('Gateway exclusivo: nenhuma condição casou e não há fluxo default')
+  throw new WfError('Gateway exclusivo: nenhuma condição casou e não há caminho "caso contrário"')
 }
 
 /** Propaga tokens a partir de uma lista de nós "recém-alcançados". Muta `state`
@@ -72,7 +81,10 @@ function propagate(
       }
 
       case 'end': {
-        // token consumido; a checagem de conclusão acontece ao esvaziar a fila
+        // Token consumido — e MARCA que o processo passou pelo fim. É esta marca
+        // que separa "acabou" de "parou": a checagem de conclusão acontece ao
+        // esvaziar a fila, e sem ela o processo não conclui.
+        state.reachedEnd = true
         break
       }
 
@@ -115,11 +127,35 @@ function propagate(
     }
   }
 
-  // Conclusão: rodando e sem tokens descansando → acabou.
+  // ── Fim da execução: não sobrou token descansando ───────────────────────────
+  // Sem token, nada mais pode acontecer por conta própria. O que aconteceu, então,
+  // depende de DUAS coisas:
+  //  - junção paralela pendente (contou 1 de 2 e o outro ramo nunca virá): o fluxo
+  //    ficou TRAVADO ali. Antes desta regra isso era dado como CONCLUÍDO — conclusão
+  //    falsa, porque o token do ramo que faltava tinha sido engolido pelo join.
+  //  - passou pelo fim? Sim → concluiu. Não → parou sem concluir (uma atividade fora
+  //    do caminho do fim foi executada e o ramo morreu ali).
   if (state.status === 'running' && state.tokens.length === 0) {
-    state.status = 'completed'
-    effects.push({ kind: 'completed' })
+    const travada = juncaoPendente(graph, state)
+    if (!travada && state.reachedEnd) {
+      state.status = 'completed'
+      effects.push({ kind: 'completed' })
+    } else {
+      state.status = 'incomplete'
+      effects.push({ kind: 'endedIncomplete', reason: travada ? 'juncao-travada' : 'sem-fim' })
+    }
   }
+}
+
+/** Existe junção paralela com chegada PARCIAL (contou menos ramos do que espera)?
+ *  Com token vivo isso é espera normal; sem nenhum token, é fluxo travado. */
+function juncaoPendente(graph: WfGraph, state: WfState): boolean {
+  for (const [nodeId, have] of Object.entries(state.joinCounts)) {
+    if (!have) continue
+    if (graph.nodes[nodeId]?.type !== 'parallelGateway') continue
+    if (have < incoming(graph, nodeId).length) return true
+  }
+  return false
 }
 
 /** Inicia uma instância: token no start, propaga até os pontos de espera. */
@@ -135,6 +171,7 @@ export function startProcess(
     tokens: [],
     variables: { ...initialVars },
     joinCounts: {},
+    reachedEnd: false,
   }
   const effects: WfEffect[] = []
   propagate(graph, state, [graph.startId], rt, effects)

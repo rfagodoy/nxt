@@ -10,6 +10,7 @@ const STATUS_CLS: Record<string, { label: string; cls: string }> = {
   COMPLETED: { label: 'Concluído',    cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
   CANCELLED: { label: 'Cancelado',    cls: 'bg-red-500/10 text-red-600 dark:text-red-400'           },
   ERROR:     { label: 'Erro',         cls: 'bg-red-500/10 text-red-600 dark:text-red-400'           },
+  ENDED_INCOMPLETE: { label: 'Encerrado sem conclusão', cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
 }
 
 function formatValue(value: unknown, type: string): string {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { validarDesenho, validarDecisoes, validarAtividades, formatarProblemas } from '../src/activation-guard'
+import { validarDesenho, validarDecisoes, validarAtividades, formatarProblemas, bloqueantes, avisos } from '../src/activation-guard'
 import type { ProblemaAtivacao } from '../src/activation-guard'
 
 const g = (edges: Array<{ from: string; condition?: string; isDefault?: boolean }>) =>
@@ -27,11 +27,13 @@ describe('validarDecisoes', () => {
       { from: 'g1', isDefault: true },
     ])[0].mensagem).toMatch(/2 caminhos/)
   })
-  it('recusa saída sem condição que não é a padrão', () => {
+  /* Regra derivada: a marca `isDefault` não cria nem tira o caso contrário — quem
+     manda é a AUSÊNCIA de filtros. Duas saídas sem filtros seguem ambíguas. */
+  it('recusa duas saídas sem filtros, mesmo com uma marcada como padrão', () => {
     expect(g([
       { from: 'g1', condition: '' },
       { from: 'g1', isDefault: true },
-    ])[0].mensagem).toMatch(/sem filtros que não é/)
+    ])[0].mensagem).toMatch(/2 caminhos sem filtros/)
   })
   it('losango com UMA saída não exige nada (passagem)', () => {
     expect(g([{ from: 'g1' }])).toEqual([])
@@ -69,13 +71,21 @@ describe('validarDesenho — mensagens com nome, sem id interno', () => {
       { from: 'Node_4rfpntj', to: 'End_1' },
     ])).toEqual([])
   })
-  it('atividade sem saída: nomeia, diz como resolver e aponta o nó (o caso do print do PO)', () => {
-    const [p] = validarDesenho(nos, [{ from: 'Start_1', to: 'Node_4rfpntj' }])
+  /* Beco sem saída deixou de ser erro (decisão do PO, 2026-08-27): a atividade é
+     executada e o ramo morre ali; quem termina o processo é o evento de fim. Vira
+     AVISO — nomeando a atividade, sem id interno, e sem barrar a ativação. */
+  it('atividade sem saída vira AVISO que não impede ativar — nomeando a atividade', () => {
+    const problemas = validarDesenho(nos, [{ from: 'Start_1', to: 'Node_4rfpntj' }])
+    const p = problemas.find((x) => x.tipo === 'sem-saida')!
+    expect(p.severidade).toBe('aviso')
     expect(p.mensagem).toContain('"Realizar validação do RH"')
-    expect(p.mensagem).toContain('Ligue a saída dela')
+    expect(p.mensagem).toContain('o processo não termina por ela')
     expect(p.mensagem).not.toContain('Node_4rfpntj')
     expect(p.mensagem).not.toContain('userTask')
     expect(p.nodeId).toBe('Node_4rfpntj')
+    // o fim ficou inalcançável NESTE desenho — isso sim barra; o beco, não
+    expect(bloqueantes(problemas).map((x) => x.tipo)).toEqual(['fim-inalcancavel'])
+    expect(avisos(problemas)).toHaveLength(1)
   })
   it('atividade solta (sem chegada nem saída) gera UMA mensagem, de exclusão/conexão', () => {
     const problemas = validarDesenho(nos, [{ from: 'Start_1', to: 'End_1' }])
@@ -142,7 +152,7 @@ describe('formatarProblemas — agregação por tipo', () => {
       prob('decisao-sem-padrao', '"Aprovado?"'),
     ])
     expect(msg).toContain('Ajuste os pontos abaixo')
-    expect(msg).toContain('• 2 atividades não levam a lugar nenhum: "A" e "B". Ligue a saída de cada uma')
+    expect(msg).toContain('• 2 atividades serão executadas sem terminar o processo: "A" e "B".')
     // grupo de 1 preserva a frase própria (não vira "1 decisões...")
     expect(msg).toContain('• msg de "Aprovado?"')
   })
@@ -159,5 +169,121 @@ describe('formatarProblemas — agregação por tipo', () => {
       prob('sem-saida', '"A"'), prob('sem-saida', '"B"'),
     ])
     expect(msg).toContain('• Nenhum caminho chega ao evento de fim')
+  })
+})
+
+describe('validarDesenho — caminho até o fim (regra do PO, 2026-08-27)', () => {
+  const start = { id: 'Start_1', type: 'start', name: 'Início' }
+  const fim = { id: 'End_1', type: 'end', name: 'Fim' }
+
+  it('basta UM caminho até o fim: o ramo que não chega vira aviso e a ativação passa', () => {
+    const problemas = validarDesenho(
+      [start, { id: 'a', type: 'userTask', name: 'Analisar' }, { id: 'b', type: 'userTask', name: 'Arquivar' }, fim],
+      [{ from: 'Start_1', to: 'a' }, { from: 'a', to: 'End_1' }, { from: 'a', to: 'b' }],
+    )
+    expect(bloqueantes(problemas)).toEqual([])
+    const [aviso] = avisos(problemas)
+    expect(aviso.nodeId).toBe('b')
+    expect(aviso.tipo).toBe('sem-saida')
+  })
+
+  it('atividade que tem saída mas cujo caminho NUNCA chega ao fim também é aviso', () => {
+    const problemas = validarDesenho(
+      [start, { id: 'a', type: 'userTask', name: 'Analisar' }, { id: 'b', type: 'userTask', name: 'Revisar' }, { id: 'c', type: 'userTask', name: 'Reprocessar' }, fim],
+      [{ from: 'Start_1', to: 'a' }, { from: 'a', to: 'End_1' }, { from: 'a', to: 'b' }, { from: 'b', to: 'c' }, { from: 'c', to: 'b' }],
+    )
+    expect(bloqueantes(problemas)).toEqual([])
+    expect(avisos(problemas).map((p) => p.tipo).sort()).toEqual(['nao-alcanca-fim', 'nao-alcanca-fim'])
+  })
+
+  it('NENHUM caminho chegando ao fim continua barrando a ativação', () => {
+    const problemas = validarDesenho(
+      [start, { id: 'a', type: 'userTask', name: 'Analisar' }, fim],
+      [{ from: 'Start_1', to: 'a' }],
+    )
+    expect(bloqueantes(problemas).map((p) => p.tipo)).toEqual(['fim-inalcancavel'])
+    expect(bloqueantes(problemas)[0].mensagem).toContain('nunca terminaria')
+  })
+
+  /* Grau de entrada/saída não bastava: um bloco ligado entre si, longe do início,
+     passava na checagem antiga e nunca executaria. */
+  it('bloco ligado entre si mas longe do início é ERRO (nunca executa)', () => {
+    const problemas = validarDesenho(
+      [start, { id: 'a', type: 'userTask', name: 'Analisar' }, { id: 'x', type: 'userTask', name: 'Órfã 1' }, { id: 'y', type: 'userTask', name: 'Órfã 2' }, fim],
+      [{ from: 'Start_1', to: 'a' }, { from: 'a', to: 'End_1' }, { from: 'x', to: 'y' }, { from: 'y', to: 'x' }],
+    )
+    const tipos = bloqueantes(problemas).map((p) => p.tipo)
+    expect(tipos).toContain('inalcancavel-do-inicio')
+    expect(bloqueantes(problemas).find((p) => p.nodeId === 'y')!.mensagem).toContain('nunca será executada')
+  })
+
+  it('junção paralela que espera um ramo inalcançável trava o processo: ERRO', () => {
+    const problemas = validarDesenho(
+      [start,
+        { id: 'a', type: 'userTask', name: 'Analisar' },
+        { id: 'z', type: 'userTask', name: 'Ramo morto' },
+        { id: 'j', type: 'parallelGateway', name: 'Reencontro' },
+        fim],
+      [{ from: 'Start_1', to: 'a' }, { from: 'a', to: 'j' }, { from: 'z', to: 'j' }, { from: 'j', to: 'End_1' }],
+    )
+    const p = bloqueantes(problemas).find((x) => x.tipo === 'juncao-travada')!
+    expect(p.nodeId).toBe('j')
+    expect(p.mensagem).toContain('travaria')
+  })
+
+  it('desenho conectado de ponta a ponta não gera aviso nenhum', () => {
+    expect(validarDesenho(
+      [start, { id: 'a', type: 'userTask', name: 'Analisar' }, fim],
+      [{ from: 'Start_1', to: 'a' }, { from: 'a', to: 'End_1' }],
+    )).toEqual([])
+  })
+})
+
+describe('formatarProblemas — aviso não vira recusa', () => {
+  it('só avisos: mensagem vazia (a ativação segue)', () => {
+    expect(formatarProblemas([
+      { tipo: 'sem-saida', severidade: 'aviso', rotulo: '"A"', mensagem: 'A executa sem terminar.' },
+    ])).toBe('')
+  })
+  it('erro + aviso: só o erro entra na recusa', () => {
+    const msg = formatarProblemas([
+      { tipo: 'sem-saida', severidade: 'aviso', rotulo: '"A"', mensagem: 'A executa sem terminar.' },
+      { tipo: 'fim-inalcancavel', mensagem: 'Nenhum caminho chega ao fim.' },
+    ])
+    expect(msg).toBe('Nenhum caminho chega ao fim.')
+  })
+})
+
+/* O "caso contrário" é DERIVADO da saída SEM FILTROS (decisão do PO em 2026-08-23).
+   A ativação olhava a marca `isDefault`, que só é gravada quando o desenhista ABRE o
+   modal do losango — losango legado, ou nunca aberto, era recusado com uma frase que
+   mandava fazer o que já estava feito. */
+describe('validarDecisoes — caso contrário derivado, sem depender da marca', () => {
+  const losango = [{ id: 'g1', type: 'exclusiveGateway', name: 'Aprovação do RH?' }]
+  it('saída sem filtros vale como "caso contrário" mesmo SEM isDefault', () => {
+    expect(validarDecisoes(losango, [
+      { from: 'g1', condition: 'contrato.maoDeObra == true' },
+      { from: 'g1' },
+    ])).toEqual([])
+  })
+  it('todas as saídas com filtro: continua faltando o caso contrário', () => {
+    const [p] = validarDecisoes(losango, [
+      { from: 'g1', condition: 'contrato.maoDeObra == true' },
+      { from: 'g1', condition: 'contrato.maoDeObra == false' },
+    ])
+    expect(p.tipo).toBe('decisao-sem-padrao')
+  })
+  it('duas saídas sem filtro: diz que sobra caminho, e o que fazer', () => {
+    const [p] = validarDecisoes(losango, [{ from: 'g1' }, { from: 'g1' }])
+    expect(p.tipo).toBe('decisao-multipadrao')
+    expect(p.mensagem).toContain('2 caminhos sem filtros')
+    expect(p.mensagem).toContain('todos menos um')
+  })
+  it('a marca isDefault sozinha (sem filtros nas outras) não inventa aprovação', () => {
+    const [p] = validarDecisoes(losango, [
+      { from: 'g1', isDefault: true },
+      { from: 'g1' },
+    ])
+    expect(p.tipo).toBe('decisao-multipadrao')
   })
 })

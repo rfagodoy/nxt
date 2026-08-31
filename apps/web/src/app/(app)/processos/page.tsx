@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from 'react'
-import { Loader2, RefreshCw, CheckCircle2, AlertTriangle, Clock, Settings2, ChevronsUpDown, ArrowUp, ArrowDown, Undo2, Ban } from 'lucide-react'
+import { Loader2, RefreshCw, CheckCircle2, AlertTriangle, Clock, Settings2, ChevronsUpDown, ArrowUp, ArrowDown, Undo2, Ban, CircleSlash } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StartProcessButton } from '@/components/processes/start-process-button'
 import { CancelInstanceButton } from '@/components/processes/cancel-instance-button'
@@ -44,7 +44,7 @@ const COLS: Col[] = [
   },
   {
     key: 'etapa', label: 'Etapa atual / conclusão',
-    text: (i) => i.status === 'RUNNING' ? (i.currentStep || '—') : i.status === 'ERROR' ? (i.error || i.stepName || 'erro') : i.status === 'COMPLETED' ? `concluído em ${fmt(i.completedAt)}` : i.cancelReason ? `cancelado · motivo: ${i.cancelReason}` : '—',
+    text: (i) => i.status === 'RUNNING' ? (i.currentStep || '—') : i.status === 'ERROR' ? (i.error || i.stepName || 'erro') : i.status === 'COMPLETED' ? `concluído em ${fmt(i.completedAt)}` : i.status === 'ENDED_INCOMPLETE' ? `encerrado sem conclusão em ${fmt(i.completedAt)}` : i.cancelReason ? `cancelado · motivo: ${i.cancelReason}` : '—',
     node: (i) => i.status === 'RUNNING' ? (
       <div className="flex items-center gap-2">
         <span>{i.currentStep || '—'}</span>
@@ -54,6 +54,10 @@ const COLS: Col[] = [
       <span className="inline-flex items-start gap-1 text-red-700 dark:text-red-300"><AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" /><span className="max-w-xs truncate">{i.error || i.stepName || 'erro'}</span></span>
     ) : i.status === 'COMPLETED' ? (
       <span className="text-muted-foreground">em {fmt(i.completedAt)} · durou {humanDuration(i.durationMs)}</span>
+    ) : i.status === 'ENDED_INCOMPLETE' ? (
+      /* Terminou o que havia para fazer sem passar pelo evento de fim: não é conclusão
+         e não pode parecer uma. */
+      <span className="text-amber-600 dark:text-amber-400">encerrado sem conclusão em {fmt(i.completedAt)}</span>
     ) : i.cancelReason ? (
       // um processo que termina em silêncio é um processo que ninguém sabe explicar
       <span className="text-muted-foreground">cancelado por {i.cancelledBy || '—'} <span className="block text-[11px] italic max-w-xs truncate">motivo: {i.cancelReason}</span></span>
@@ -64,6 +68,7 @@ const COLS: Col[] = [
     node: (i) => (
       <span className="inline-flex items-center gap-1.5">
         {i.status === 'CANCELLED' ? <span className="inline-flex items-center gap-1 text-muted-foreground"><Ban className="h-3 w-3" />cancelado</span>
+          : i.status === 'ENDED_INCOMPLETE' ? <span className="inline-flex items-center gap-1 text-muted-foreground"><CircleSlash className="h-3 w-3" />sem conclusão</span>
           : i.processOnTime == null ? <span className="text-muted-foreground">sem prazo</span>
           : i.processOnTime ? <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="h-3 w-3" />no prazo</span>
           : <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400"><AlertTriangle className="h-3 w-3" />atrasado</span>}
@@ -150,6 +155,9 @@ export default function ProcessosPage() {
        havia contagem — e sem contagem ninguém repara: o processo trava e a primeira
        notícia é alguém perguntando "cadê meu contrato?". */
     errored: all.filter((i) => i.status === 'ERROR').length,
+    /* Encerrados SEM passar pelo fim: sem card, some no meio do total e ninguém
+       descobre que o desenho do processo tem um ramo que não termina. */
+    semConclusao: all.filter((i) => i.status === 'ENDED_INCOMPLETE').length,
   }), [all])
 
   const filtered = useMemo(() => {
@@ -229,13 +237,14 @@ export default function ProcessosPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
         {[
           { label: 'Total', value: stats.total, cls: 'text-foreground', filtro: null },
           { label: 'Em andamento', value: stats.running, cls: 'text-sky-600 dark:text-sky-400', filtro: 'RUNNING' },
           { label: 'Concluídos', value: stats.completed, cls: 'text-emerald-600 dark:text-emerald-400', filtro: 'COMPLETED' },
           { label: 'Atrasados', value: stats.overdue, cls: 'text-amber-600 dark:text-amber-400', filtro: null },
           { label: 'Com erro', value: stats.errored, cls: 'text-red-600 dark:text-red-400', filtro: 'ERROR' },
+          { label: 'Sem conclusão', value: stats.semConclusao, cls: 'text-amber-600 dark:text-amber-400', filtro: 'ENDED_INCOMPLETE' },
         ].map(({ label, value, cls, filtro }) => (
           /* Clicar filtra: o card responde "quantos?" e a próxima pergunta é sempre
              "quais?". Sem isso, o número vira um beco. */

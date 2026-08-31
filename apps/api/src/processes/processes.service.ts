@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma.service'
 import { CreateProcessDto } from './dto/create-process.dto'
 import { UpdateProcessDto } from './dto/update-process.dto'
 import { ProcessFormSchema, isCompensable } from '@nxt/types'
-import { compileBpmn, CompileError, type WfGraph, validarDesenho, validarDecisoes, validarAtividades, formatarProblemas, type ProblemaAtivacao } from '@nxt/workflow-core'
+import { compileBpmn, CompileError, type WfGraph, validarDesenho, validarDecisoes, validarAtividades, formatarProblemas, bloqueantes, type ProblemaAtivacao } from '@nxt/workflow-core'
 
 /** Autor da ação, vindo do JWT (nunca do corpo da requisição). */
 export interface Autor { name: string; sub?: string }
@@ -190,7 +190,10 @@ export class ProcessesService {
       )
       problemas.push(...validarAtividades(stepsDeUsuario))
     }
-    if (problemas.length) throw new BadRequestException(formatarProblemas(problemas))
+    // Só o que IMPEDE barra a ativação. AVISO (ex.: atividade que executa mas não
+    // leva ao fim) é desenho legítimo desde a regra do fim: informa no editor, não
+    // recusa aqui.
+    if (bloqueantes(problemas).length) throw new BadRequestException(formatarProblemas(problemas))
 
     // Compila o BPMN → grafo executável. Rede de segurança: se ainda assim o desenho
     // for inválido para o motor, a ativação falha — com os ids trocados pelos nomes
@@ -217,7 +220,7 @@ export class ProcessesService {
         ...validarDecisoes(Object.values(graph.nodes), graph.edges),
         ...validarAtividades((formSchema.steps ?? []).filter((s) => graph.nodes[s.stepId]?.type === 'userTask')),
       ]
-      if (problemasLegado.length) throw new BadRequestException(formatarProblemas(problemasLegado))
+      if (bloqueantes(problemasLegado).length) throw new BadRequestException(formatarProblemas(problemasLegado))
     }
 
     // Mescla o que foi configurado no painel "Atividade" do designer (guardado no

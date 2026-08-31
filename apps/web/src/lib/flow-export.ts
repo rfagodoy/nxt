@@ -18,7 +18,8 @@ export interface ExportNode {
   name: string; typeLabel?: string; meta?: string[]; isFork?: boolean
 }
 /** Âncoras + NORMAIS de saída/entrada (mesma geometria da tela: `edgeGeometry`), para o
- *  export desenhar a MESMA curva. `backward` = laço de retorno (arco por baixo). */
+ *  export desenhar a MESMA curva. `backward` = a curva ARQUEIA POR BAIXO — laço de
+ *  retorno ou desvio de uma seta que passaria por trás de outro quadro. */
 export interface ExportEdge {
   ax: number; ay: number; bx: number; by: number
   adx: number; ady: number; bdx: number; bdy: number

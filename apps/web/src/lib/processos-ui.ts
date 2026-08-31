@@ -1,11 +1,13 @@
 /* Tipos e helpers de apresentação do Acompanhamento de processos — compartilhados
    pela lista (/processos) e pela aba de consulta de uma instância (process-instance-doc). */
 
-import { Activity, CheckCircle2, AlertTriangle, PlayCircle, Ban, type LucideIcon } from 'lucide-react'
+import { Activity, CheckCircle2, AlertTriangle, PlayCircle, Ban, CircleSlash, type LucideIcon } from 'lucide-react'
 
 export interface Inst {
   id: string; numero: number | null; processName: string; version: number
-  status: 'RUNNING' | 'COMPLETED' | 'ERROR' | 'CANCELLED'
+  /** ENDED_INCOMPLETE = encerrado sem conclusão: as atividades acabaram sem que
+   *  nenhum caminho passasse pelo evento de fim. */
+  status: 'RUNNING' | 'COMPLETED' | 'ERROR' | 'CANCELLED' | 'ENDED_INCOMPLETE'
   error: string | null; stepName: string | null; startedBy: string | null
   startedAt: string; completedAt: string | null; updatedAt: string
   currentStep: string | null; currentDueAt: string | null; currentOverdue: boolean
@@ -62,6 +64,7 @@ export const STATUS: Record<string, { label: string; icon: LucideIcon; cls: stri
   COMPLETED: { label: 'Concluído',    icon: CheckCircle2, cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
   ERROR:     { label: 'Com erro',     icon: AlertTriangle, cls: 'bg-red-500/10 text-red-600 dark:text-red-400' },
   CANCELLED: { label: 'Cancelado',    icon: Ban,          cls: 'bg-muted text-muted-foreground' },
+  ENDED_INCOMPLETE: { label: 'Encerrado sem conclusão', icon: CircleSlash, cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
 }
 export const STATUS_FALLBACK_ICON = Activity
 export const TASK_STATUS: Record<string, string> = { PENDING: 'Pendente', DONE: 'Concluída', CANCELED: 'Cancelada', RETURNED: 'Retrocedida' }
@@ -86,6 +89,9 @@ export function humanDuration(ms: number | null): string {
  *  Cancelado tem rótulo próprio: não houve entrega para julgar pontualidade. */
 export function pontualidadeLabel(i: Inst): string {
   if (i.status === 'CANCELLED') return 'cancelado'
+  // Encerrado sem conclusão: o processo parou sem passar pelo fim — não houve entrega
+  // para julgar, do mesmo jeito que no cancelado.
+  if (i.status === 'ENDED_INCOMPLETE') return 'sem conclusão'
   return i.processOnTime == null ? 'sem prazo' : i.processOnTime ? 'no prazo' : 'atrasado'
 }
 

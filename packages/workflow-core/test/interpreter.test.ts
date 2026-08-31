@@ -240,3 +240,156 @@ describe('interpretador — cancelamento e guardas', () => {
     expect(() => startProcess(loop, {}, makeCounterRuntime())).toThrow(WfError)
   })
 })
+
+/* ─── Fim do processo tem SIGNIFICADO (regra do PO, 2026-08-27) ───────────────
+   Antes, a instância concluía quando acabavam os tokens — o evento de fim não
+   participava. Agora conclui quando acabam os tokens E algum caminho passou pelo
+   fim. Sem isso, uma atividade fora do caminho do fim "concluiria" o processo ao
+   ser executada, que é exatamente o oposto do desenho. */
+describe('conclusão só pelo evento de fim', () => {
+  // start → A → end;  A também abre um ramo B que MORRE nele (beco sem saída)
+  const graph: WfGraph = {
+    startId: 'start',
+    nodes: {
+      start: { id: 'start', type: 'start' },
+      A: { id: 'A', type: 'userTask', name: 'Analisar' },
+      B: { id: 'B', type: 'userTask', name: 'Arquivar' },
+      end: { id: 'end', type: 'end' },
+    },
+    edges: [
+      { id: 'e1', from: 'start', to: 'A' },
+      { id: 'e2', from: 'A', to: 'end' },
+      { id: 'e3', from: 'A', to: 'B' },
+    ],
+  }
+
+  it('o ramo que não leva ao fim executa, e o processo espera por ele para concluir', () => {
+    const rt = makeCounterRuntime()
+    const r0 = startProcess(graph, {}, rt)
+    // concluir A: passa pelo fim E abre a atividade solta
+    const r1 = completeToken(graph, r0.state, firstToken(r0.effects), {}, rt)
+    expect(r1.state.reachedEnd).toBe(true)
+    expect(r1.state.status).toBe('running')          // ainda há "Arquivar" na mesa
+    expect(r1.state.tokens.map((t) => t.nodeId)).toEqual(['B'])
+    expect(kinds(r1.effects)).toEqual(['createTask'])
+
+    // concluída a solta, aí sim conclui — porque o fim já foi alcançado
+    const r2 = completeToken(graph, r1.state, r1.state.tokens[0].id, {}, rt)
+    expect(r2.state.status).toBe('completed')
+    expect(kinds(r2.effects)).toEqual(['completed'])
+  })
+
+  it('acabar SEM passar pelo fim encerra sem conclusão (não conclui, não fica viva)', () => {
+    // start → A → B(beco sem saída). Nenhum caminho chega ao fim.
+    const g2: WfGraph = {
+      startId: 'start',
+      nodes: {
+        start: { id: 'start', type: 'start' },
+        A: { id: 'A', type: 'userTask', name: 'Analisar' },
+        B: { id: 'B', type: 'userTask', name: 'Arquivar' },
+        end: { id: 'end', type: 'end' },
+      },
+      edges: [
+        { id: 'e1', from: 'start', to: 'A' },
+        { id: 'e2', from: 'A', to: 'B' },
+      ],
+    }
+    const rt = makeCounterRuntime()
+    const r0 = startProcess(g2, {}, rt)
+    const r1 = completeToken(g2, r0.state, firstToken(r0.effects), {}, rt)
+    const r2 = completeToken(g2, r1.state, firstToken(r1.effects), {}, rt)
+    expect(r2.state.status).toBe('incomplete')
+    expect(r2.state.reachedEnd).toBeFalsy()
+    expect(r2.effects).toEqual([{ kind: 'endedIncomplete', reason: 'sem-fim' }])
+  })
+
+  /* Conclusão FALSA que existia antes: a junção engole o token do 1º ramo enquanto
+     espera o 2º. Se nenhum token sobra, "sem tokens" parecia conclusão — mesmo com a
+     junção parada esperando um ramo que nunca vem. */
+  it('junção esperando ramo que não vem: encerra TRAVADA, nunca concluída', () => {
+    const g3: WfGraph = {
+      startId: 'start',
+      nodes: {
+        start: { id: 'start', type: 'start' },
+        X: { id: 'X', type: 'exclusiveGateway', name: 'Escolhe' },
+        A: { id: 'A', type: 'userTask', name: 'Ramo A' },
+        B: { id: 'B', type: 'userTask', name: 'Ramo B' },
+        J: { id: 'J', type: 'parallelGateway', name: 'Reencontro' },
+        end: { id: 'end', type: 'end' },
+      },
+      edges: [
+        { id: 'e1', from: 'start', to: 'X' },
+        { id: 'e2', from: 'X', to: 'A', isDefault: true },
+        { id: 'e3', from: 'X', to: 'B', condition: "escolha == 'B'" },
+        { id: 'e4', from: 'A', to: 'J' },
+        { id: 'e5', from: 'B', to: 'J' },
+        { id: 'e6', from: 'J', to: 'end' },
+      ],
+    }
+    const rt = makeCounterRuntime()
+    const r0 = startProcess(g3, {}, rt)           // decisão manda para A (default)
+    const r1 = completeToken(g3, r0.state, firstToken(r0.effects), {}, rt)
+    expect(r1.state.joinCounts.J).toBe(1)          // a junção espera o ramo B, que nunca virá
+    expect(r1.state.tokens).toHaveLength(0)
+    expect(r1.state.status).toBe('incomplete')     // ANTES: 'completed' — conclusão falsa
+    expect(r1.effects).toEqual([{ kind: 'endedIncomplete', reason: 'juncao-travada' }])
+  })
+
+  it('estado gravado ANTES da regra (sem a marca do fim) continua concluindo', () => {
+    // instância legada: token descansando em A, sem `reachedEnd` no estado
+    const legado = { status: 'running' as const, tokens: [{ id: 't1', nodeId: 'A' }], variables: {}, joinCounts: {} }
+    const g4: WfGraph = {
+      startId: 'start',
+      nodes: {
+        start: { id: 'start', type: 'start' },
+        A: { id: 'A', type: 'userTask', name: 'Analisar' },
+        end: { id: 'end', type: 'end' },
+      },
+      edges: [{ id: 'e1', from: 'start', to: 'A' }, { id: 'e2', from: 'A', to: 'end' }],
+    }
+    const r = completeToken(g4, legado, 't1', {}, makeCounterRuntime())
+    expect(r.state.status).toBe('completed')
+    expect(kinds(r.effects)).toEqual(['completed'])
+  })
+})
+
+describe('gateway exclusivo — "caso contrário" pela AUSÊNCIA de filtros', () => {
+  // start → G → [valor > 100 → A] [sem filtros → B] → end. Nenhuma seta tem isDefault:
+  // é o desenho que o editor grava num losango que ninguém abriu para configurar.
+  const graph: WfGraph = {
+    startId: 'start',
+    nodes: {
+      start: { id: 'start', type: 'start' },
+      G: { id: 'G', type: 'exclusiveGateway', name: 'Precisa de parecer?' },
+      A: { id: 'A', type: 'userTask', name: 'Emitir parecer' },
+      B: { id: 'B', type: 'userTask', name: 'Seguir sem parecer' },
+      end: { id: 'end', type: 'end' },
+    },
+    edges: [
+      { id: 'e1', from: 'start', to: 'G' },
+      { id: 'e2', from: 'G', to: 'A', condition: 'valor > 100' },
+      { id: 'e3', from: 'G', to: 'B' },
+      { id: 'e4', from: 'A', to: 'end' },
+      { id: 'e5', from: 'B', to: 'end' },
+    ],
+  }
+  it('filtro casou: segue pelo caminho com filtro', () => {
+    const r = startProcess(graph, { valor: 500 }, makeCounterRuntime())
+    expect(r.state.tokens[0].nodeId).toBe('A')
+  })
+  it('nenhum filtro casou: segue pela saída sem filtros, em vez de dar erro', () => {
+    const r = startProcess(graph, { valor: 10 }, makeCounterRuntime())
+    expect(r.state.tokens[0].nodeId).toBe('B')
+  })
+  it('variável ausente também cai no caso contrário (não trava o processo)', () => {
+    const r = startProcess(graph, {}, makeCounterRuntime())
+    expect(r.state.tokens[0].nodeId).toBe('B')
+  })
+  it('sem nenhuma saída livre e sem filtro casado, o erro diz o que falta', () => {
+    const g2: WfGraph = {
+      ...graph,
+      edges: graph.edges.map((e) => (e.id === 'e3' ? { ...e, condition: 'valor < 0' } : e)),
+    }
+    expect(() => startProcess(g2, { valor: 10 }, makeCounterRuntime())).toThrow(/caso contrário/)
+  })
+})

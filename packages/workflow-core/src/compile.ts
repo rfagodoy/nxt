@@ -134,13 +134,20 @@ export function compileBpmn(xml: string): WfGraph {
   }
 
   // ── fluxo default dos gateways ──────────────────────────────────────────────
-  // O atributo `default="Flow_x"` no gateway marca a seta default.
+  // O atributo `default="Flow_x"` no gateway marca a seta default. Sem ele, o "caso
+  // contrário" é DERIVADO: a única saída SEM condição. É a mesma regra do designer e
+  // da ativação — o desenho manda, e não uma marca que pode faltar no XML.
   for (const local of ['exclusiveGateway', 'parallelGateway']) {
     for (const el of findByLocal(process, local)) {
       const def = el.attrs.default
-      if (!def) continue
-      const edge = edges.find((e) => e.id === def)
-      if (edge) edge.isDefault = true
+      if (def) {
+        const edge = edges.find((e) => e.id === def)
+        if (edge) edge.isDefault = true
+        continue
+      }
+      const outs = edges.filter((e) => e.from === el.attrs.id)
+      const semFiltro = outs.filter((e) => !e.condition?.trim())
+      if (outs.length > 1 && semFiltro.length === 1) semFiltro[0].isDefault = true
     }
   }
 
@@ -150,15 +157,16 @@ export function compileBpmn(xml: string): WfGraph {
     const outs = edges.filter((e) => e.from === id)
     if (node.type === 'end') {
       if (outs.length > 0) throw new CompileError(`Evento de fim "${id}" não pode ter saída`)
-    } else if (node.type === 'exclusiveGateway') {
-      // precisa de uma saída; recomenda-se default para garantir caminho
+    } else if (node.type === 'exclusiveGateway' || node.type === 'parallelGateway') {
+      // Gateway sem saída continua sendo erro: ele existe para abrir caminhos, e sem
+      // nenhum o token morre dentro da própria decisão/divisão.
       if (outs.length === 0) throw new CompileError(`Gateway "${id}" sem saída`)
-    } else {
-      // start / userTask / serviceTask / parallelGateway — todos precisam de saída
-      if (outs.length === 0) {
-        throw new CompileError(`Nó "${id}" (${node.type}) não tem saída — o fluxo fica preso`)
-      }
+    } else if (node.type === 'start') {
+      if (outs.length === 0) throw new CompileError(`Evento de início "${id}" não tem saída — o processo não começaria`)
     }
+    // userTask / serviceTask PODEM não ter saída (beco sem saída): a atividade é
+    // executada e o ramo termina ali. O processo não conclui por ela — quem conclui
+    // é o evento de fim (ver interpreter.ts). A ativação avisa; aqui não é erro.
   }
 
   return { nodes, edges, startId: starts[0] }
