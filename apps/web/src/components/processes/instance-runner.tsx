@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button'
 import { DynamicForm } from '@/components/modules/dynamic-form'
 import { WorkflowScreenTask } from '@/components/processes/workflow-screen-task'
 import { apiFetch, apiJson } from '@/lib/http'
+import { screenIdVar, screenEntityFromVars, screenBloqueio } from '@/lib/screen-task'
+import { cn } from '@/lib/utils'
 import type { StepFormSchema, ProcessFormSchema } from '@nxt/types'
 
 interface Task {
@@ -14,6 +16,10 @@ interface Task {
   name?: string | null
   role?: string | null
 }
+
+/** id do <form> da etapa: deixa o "Concluir tarefa" do RODAPÉ submeter o formulário de
+ *  campos, para que toda atividade termine no mesmo botão, no mesmo lugar. */
+const FORM_ID = 'runner-advance-form'
 
 interface Props {
   processDefinitionId: string
@@ -40,6 +46,9 @@ export function InstanceRunner({ processDefinitionId, processName, formSchema, o
   // Erro de conector de domínio (serviceTask): a instância parou em ERRO.
   const [errored, setErrored] = useState<string | null>(null)
   const [retrying, setRetrying] = useState(false)
+  // id da entidade salva pela atividade dirigida por Tela — habilita o "Concluir tarefa".
+  // Salvar reporta o id aqui; NÃO avança o processo (quem avança é o botão).
+  const [entityId, setEntityId] = useState<string | null>(null)
   const startedRef = useRef(false)
 
   const stepFor = useCallback(
@@ -82,6 +91,18 @@ export function InstanceRunner({ processDefinitionId, processName, formSchema, o
     startedRef.current = true
     start()
   }, [start])
+
+  /* Recupera da variável do processo a entidade-alvo da tarefa ATUAL: em EDIT/VIEW ela
+     vem de uma etapa anterior, e em CREATE reaberto por devolução é a que este mesmo
+     processo já criou. Sem isso o botão nasceria bloqueado num formulário já preenchido.
+     Trocou de tarefa sem entidade → volta a null (o botão de uma não libera o da outra). */
+  const ativaId = tasks[0]?.id
+  const ativaNodeId = tasks[0]?.nodeId
+  useEffect(() => {
+    if (!ativaNodeId) { setEntityId(null); return }
+    const step = stepFor(ativaNodeId)
+    setEntityId(step.screenRef ? screenEntityFromVars(step, variables) : null)
+  }, [ativaId, ativaNodeId, stepFor, variables])
 
   // Reprocessa a etapa automática que falhou (instância em ERRO). Reaproveita a
   // resposta padrão do motor (tasks/completed/errored) para retomar a execução.
@@ -218,6 +239,14 @@ export function InstanceRunner({ processDefinitionId, processName, formSchema, o
   }
 
   const active = tasks[0]
+  const stepAtivo = active ? stepFor(active.nodeId) : null
+  const isScreen = !!stepAtivo?.screenRef
+  const bloqueio = screenBloqueio(stepAtivo, entityId)
+  /* Concluir leva o id da entidade como variável do processo — é por ela que as etapas
+     seguintes (e as condições dos losangos) enxergam o contrato/parceiro desta execução. */
+  const advanceScreen = () => {
+    if (stepAtivo && entityId) void complete({ [screenIdVar(stepAtivo)]: entityId })
+  }
 
   return (
     <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
@@ -245,37 +274,27 @@ export function InstanceRunner({ processDefinitionId, processName, formSchema, o
                   <p className="text-xs text-foreground/80 leading-snug whitespace-pre-line">{step.instructions.trim()}</p>
                 </div>
               )}
+              {isScreen && !entityId && (
+                <div className="mb-3 flex gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-900 dark:bg-amber-950/40">
+                  <Info className="h-4 w-4 shrink-0 mt-0.5 text-amber-700 dark:text-amber-400" />
+                  <p className="text-xs leading-snug text-amber-900 dark:text-amber-200">{bloqueio}</p>
+                </div>
+              )}
               {step.screenRef ? (
-                // Runner do "Novo processo": salvar a entidade CONCLUI a tarefa na hora
-                // (comportamento de assistente). O `onEntity` reporta o id → complete.
-                (() => {
-                  const idVar = step.screenSubject === 'CONTRATO' ? 'contratoId' : 'partnerId'
-                  const isView = step.entityMode === 'VIEW'
-                  /* EDIT/VIEW usam a variável do desenho; CREATE usa a que ele mesmo grava —
-                     reaberta por devolução, a etapa EDITA a entidade que este processo já
-                     criou em vez de criar uma segunda (mesma regra do TaskDocView). */
-                  const varName = (step.entityMode ?? 'CREATE') === 'CREATE' ? idVar : step.entityVar
-                  const alvo = varName && variables[varName] ? String(variables[varName]) : null
-                  return (
-                    <>
-                      <WorkflowScreenTask key={active.id} step={step}
-                        entityId={alvo}
-                        onEntity={(id) => void complete({ [idVar]: id })}
-                        onCancel={onClose} />
-                      {/* Consulta não salva nada, então não existe o "salvou → concluiu" que
-                          move este assistente. Sem um botão próprio, a etapa não teria como
-                          terminar. */}
-                      {isView && alvo && (
-                        <div className="mt-3 flex justify-end">
-                          <Button size="sm" disabled={submitting} onClick={() => void complete({ [idVar]: alvo })}>
-                            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}Concluir consulta
-                          </Button>
-                        </div>
-                      )}
-                    </>
-                  )
-                })()
+                /* Salvar a entidade só REPORTA o id (a etapa segue aberta): a pessoa pode
+                   revisar, corrigir e salvar quantas vezes quiser antes de entregar. Quem
+                   avança o processo é o "Concluir tarefa" do rodapé — mesma regra da caixa
+                   de tarefas. Antes, salvar concluía no ato: um rascunho salvo por engano
+                   empurrava o processo para o próximo da fila. */
+                <WorkflowScreenTask key={active.id} step={step}
+                  entityId={entityId}
+                  onEntity={setEntityId}
+                  onEntityGone={() => setEntityId(null)}
+                  onCancel={onClose} />
               ) : (
+                /* Campos próprios da etapa: o formulário não traz botão nenhum — quem
+                   conclui é o rodapé, igual à atividade com Tela. Preencher não é
+                   entregar; a pessoa revisa e decide quando avançar o processo. */
                 <DynamicForm
                   key={active.id}
                   step={step}
@@ -283,13 +302,39 @@ export function InstanceRunner({ processDefinitionId, processName, formSchema, o
                   totalSteps={1}
                   submitting={submitting}
                   onSubmit={complete}
-                  onCancel={onClose}
+                  formId={FORM_ID}
+                  hideActions
                 />
               )}
             </>
           )
         })()}
       </div>
+
+      {/* AÇÃO no rodapé, onde o trabalho termina — a MESMA para toda atividade, com Tela
+          ou com campos próprios. Os botões que a Tela tem (Salvar rascunho / Ativar)
+          guardam a entidade; nenhum deles entrega a etapa. */}
+      {active && (
+        <div className="border-t bg-muted/40 px-4 py-2.5 flex items-center gap-2 flex-wrap">
+          <p className={cn('flex-1 min-w-[150px] text-[11.5px]', bloqueio ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground')}>
+            {bloqueio ?? 'Ao concluir, o processo avança.'}
+          </p>
+          {onClose && (
+            <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground transition-colors px-1">
+              Fechar
+            </button>
+          )}
+          <Button
+            size="sm"
+            onClick={isScreen ? advanceScreen : undefined}
+            {...(!isScreen ? { type: 'submit' as const, form: FORM_ID } : {})}
+            disabled={submitting || (isScreen && !entityId)}
+            title={bloqueio ?? 'Concluir a tarefa e avançar o processo'}
+          >
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}Concluir tarefa
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

@@ -13,6 +13,7 @@ import { ProcessTrail } from '@/components/processes/process-trail'
 import { ReturnTaskButton, type ReturnTarget } from '@/components/processes/return-task-button'
 import { DelegateTaskButton } from '@/components/processes/delegate-task-button'
 import { apiFetch, apiJson } from '@/lib/http'
+import { screenIdVar, screenEntityFromVars, screenBloqueio } from '@/lib/screen-task'
 import { cn } from '@/lib/utils'
 import { kindMeta, dueInfo, DUE_CHIP, type Task, type TimelineTask, type InstanceContext } from '@/lib/tasks-ui'
 import type { StepFormSchema } from '@nxt/types'
@@ -38,7 +39,7 @@ export function TaskDocView({ task, onDone, onNotice }: {
   const [entityId, setEntityId] = useState<string | null>(null)
 
   const isScreen = !!step?.screenRef
-  const idVar = step?.screenSubject === 'CONTRATO' ? 'contratoId' : 'partnerId'
+  const idVar = screenIdVar(step ?? {})
 
   useEffect(() => {
     let cancel = false
@@ -52,17 +53,11 @@ export function TaskDocView({ task, onDone, onNotice }: {
         const vars = ctx?.state?.variables ?? {}
         setTimeline(ctx?.instance?.tasks ?? [])
         setStep(found ?? { stepId: task.nodeId, stepName: task.name || task.nodeId, fields: [] })
-        /* Recupera o id da entidade-alvo da variável do processo → "Avançar" liberado.
-           EDIT/VIEW leem a variável escolhida no desenho. CREATE relê a variável que ELE
-           MESMO escreve ao concluir: se já tem valor, este processo JÁ criou a entidade
-           numa passagem anterior (devolução) e a etapa tem de EDITAR aquela, não criar
-           outra — um processo de contrato trabalha sobre um contrato só, do início ao fim. */
+        /* Recupera o id da entidade-alvo da variável do processo → "Avançar" liberado
+           (regra em screen-task.ts, compartilhada com o runner do "Novo processo"). */
         if (found?.screenRef) {
-          const varName = (found.entityMode ?? 'CREATE') === 'CREATE'
-            ? (found.screenSubject === 'CONTRATO' ? 'contratoId' : 'partnerId')
-            : found.entityVar
-          const eid = varName ? vars[varName] : undefined
-          if (eid) setEntityId(String(eid))
+          const eid = screenEntityFromVars(found, vars)
+          if (eid) setEntityId(eid)
         }
       } finally {
         if (!cancel) setLoading(false)
@@ -116,14 +111,8 @@ export function TaskDocView({ task, onDone, onNotice }: {
   const advanceDisabled = submitting || (isScreen && !entityId)
 
   /* Bloqueio EXPLICADO, não só um botão apagado: antes o motivo vivia num `title`,
-     invisível no toque e para quem não passa o mouse.
-     Na CONSULTA a pessoa não tem o que salvar — se falta o id, o desenho do processo é
-     que está errado, e mandá-la "salvar" seria uma instrução impossível de cumprir. */
-  const bloqueio = isScreen && !entityId
-    ? step?.entityMode === 'VIEW'
-      ? `Esta etapa consulta um ${idVar === 'contratoId' ? 'contrato' : 'parceiro'} que o processo ainda não tem. Avise quem desenhou o workflow: a variável de origem não foi preenchida.`
-      : `Salve o ${idVar === 'contratoId' ? 'contrato' : 'parceiro'} antes de concluir — o processo precisa da referência para seguir.`
-    : null
+     invisível no toque e para quem não passa o mouse. (Texto em screen-task.ts.) */
+  const bloqueio = screenBloqueio(step, entityId)
 
   const prazo = task.dueAt ? (() => {
     const info = dueInfo(task.dueAt)
