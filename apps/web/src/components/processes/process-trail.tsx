@@ -21,9 +21,11 @@ const PONTO: Record<SituacaoPasso, string> = {
   pending: 'bg-muted-foreground/30',
 }
 
-export function ProcessTrail({ timeline, currentTaskId }: {
+export function ProcessTrail({ timeline, currentTaskId, className }: {
   timeline: TimelineTask[]
   currentTaskId: string
+  /** Respiro horizontal de quem hospeda a trilha (o cartão da atividade usa px-4). */
+  className?: string
 }) {
   const [aberto, setAberto] = useState(false)
   const passos = agruparPassos(timeline, currentTaskId)
@@ -33,7 +35,7 @@ export function ProcessTrail({ timeline, currentTaskId }: {
   const indice = passos.findIndex((p) => p.situacao === 'current')
 
   return (
-    <div className="px-1 py-2 border-b">
+    <div className={cn('px-1 py-2 border-b', className)}>
       <button
         type="button"
         onClick={() => setAberto((v) => !v)}

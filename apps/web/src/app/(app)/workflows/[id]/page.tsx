@@ -1,14 +1,14 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { useParams, useSearchParams, useRouter } from 'next/navigation'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Zap, Play, Pencil, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { apiFetch, apiJson } from '@/lib/http'
-import { InstanceRunner } from '@/components/processes/instance-runner'
 import { NoticeDialog } from '@/components/ui/confirm-dialog'
+import { useIniciarProcesso } from '@/lib/iniciar-processo'
 import type { ProcessFormSchema } from '@nxt/types'
 
 interface Process {
@@ -17,21 +17,27 @@ interface Process {
   description?: string | null
   status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED'
   version: number
+  /** Tipo do workflow — rotula o ícone da aba da atividade que o "Iniciar" abre. */
+  kind?: string | null
   formSchema: ProcessFormSchema
 }
 
 /** Superfície de EXECUÇÃO do processo. O desenho/configuração vivem no editor
- *  (storyboard) — o clique no nome vai pra lá. Aqui só se INICIA/executa uma
- *  instância (também alvo dos botões "Novo processo" via ?iniciar=1). */
+ *  (storyboard) — o clique no nome vai pra lá. Aqui só se INICIA uma instância: o
+ *  "Iniciar" cria o processo e ABRE a primeira atividade como aba, igual ao botão
+ *  "Novo processo" e igual a abrir uma tarefa pela caixa de Tarefas.
+ *
+ *  ⚠️ O `?iniciar=1` que iniciava sozinho ao CARREGAR a página foi retirado: ele
+ *  criava um processo a cada recarga, volta de histórico ou restauração de aba —
+ *  em silêncio. Iniciar é efeito de CLIQUE. */
 export default function ProcessRunPage() {
   const params = useParams<{ id: string }>()
-  const search = useSearchParams()
-  const router = useRouter()
   const id = params.id
 
   const [proc, setProc] = useState<Process | null | undefined>(undefined)
   const [busy, setBusy] = useState(false)
-  const [running, setRunning] = useState(false)
+  const [iniciandoAgora, setIniciandoAgora] = useState(false)
+  const iniciarProcesso = useIniciarProcesso()
 
   const load = useCallback(async () => {
     setProc(await apiJson<Process>(`/api/processes/${id}`))
@@ -41,13 +47,19 @@ export default function ProcessRunPage() {
     load()
   }, [load])
 
-  // auto-iniciar quando vier de "Iniciar"/"Novo processo" com ?iniciar=1
-  useEffect(() => {
-    if (proc?.status === 'ACTIVE' && search.get('iniciar') === '1') setRunning(true)
-  }, [proc?.status, search])
-
   /* Dialog do DS no lugar do alert() nativo (auditoria 2026-08-21). */
   const [aviso, setAviso] = useState<string | null>(null)
+
+  /* MESMO caminho do botão "Novo processo": cria a instância e abre a primeira
+     atividade como aba. Quando não há atividade para você (o processo terminou
+     sozinho, ou travou), o desfecho vira aviso — nunca silêncio. */
+  const iniciar = async () => {
+    if (!proc) return
+    setIniciandoAgora(true)
+    const desfecho = await iniciarProcesso({ id: proc.id, name: proc.name, kind: proc.kind })
+    setIniciandoAgora(false)
+    if (desfecho) setAviso(desfecho.msg)
+  }
   const activate = async () => {
     setBusy(true)
     try {
@@ -105,7 +117,7 @@ export default function ProcessRunPage() {
               Ativar
             </Button>
           )}
-          {!running && (
+          {(
             <Link
               href={`/workflows/${id}/edit`}
               className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs hover:bg-muted transition-colors"
@@ -113,26 +125,16 @@ export default function ProcessRunPage() {
               <Pencil className="h-3.5 w-3.5" /> Editar
             </Link>
           )}
-          {proc.status === 'ACTIVE' && !running && (
-            <Button size="sm" onClick={() => setRunning(true)}>
-              <Play className="h-4 w-4" /> Iniciar
+          {proc.status === 'ACTIVE' && (
+            <Button size="sm" onClick={iniciar} disabled={iniciandoAgora}>
+              {iniciandoAgora ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+              Iniciar
             </Button>
           )}
         </div>
       </div>
 
-      {running ? (
-        <InstanceRunner
-          processDefinitionId={proc.id}
-          processName={proc.name}
-          formSchema={proc.formSchema}
-          onClose={() => {
-            setRunning(false)
-            router.replace(`/workflows/${id}`)
-          }}
-        />
-      ) : (
-        <div className="rounded-xl border bg-card shadow-sm px-6 py-10 text-center">
+      <div className="rounded-xl border bg-card shadow-sm px-6 py-10 text-center">
           {proc.status === 'ACTIVE' ? (
             <>
               <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-primary/10">
@@ -150,8 +152,7 @@ export default function ProcessRunPage() {
               <p className="text-xs text-muted-foreground mt-1">Ative o workflow para poder executá-lo, ou abra o editor para ajustá-lo.</p>
             </>
           )}
-        </div>
-      )}
+      </div>
 
       <NoticeDialog open={!!aviso} message={aviso} onClose={() => setAviso(null)} />
     </div>

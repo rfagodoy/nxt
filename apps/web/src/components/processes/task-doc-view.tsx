@@ -5,11 +5,12 @@
    renderiza) porque Next.js proíbe exportar componentes de um page.tsx de rota. */
 
 import { useEffect, useState } from 'react'
-import { Loader2, Info, ArrowRight, Clock } from 'lucide-react'
+import { Loader2, ArrowRight, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DynamicForm } from '@/components/modules/dynamic-form'
 import { WorkflowScreenTask } from '@/components/processes/workflow-screen-task'
 import { ProcessTrail } from '@/components/processes/process-trail'
+import { ActivityHeader } from '@/components/processes/activity-header'
 import { ReturnTaskButton, type ReturnTarget } from '@/components/processes/return-task-button'
 import { DelegateTaskButton } from '@/components/processes/delegate-task-button'
 import { apiFetch, apiJson } from '@/lib/http'
@@ -128,47 +129,45 @@ export function TaskDocView({ task, onDone, onNotice }: {
   })()
 
   return (
-    <div className="mx-auto flex h-full max-w-3xl flex-col">
-      {/* cabeçalho de identidade + AÇÕES no topo (Retroceder / Avançar) */}
-      <div className="flex items-start gap-3 px-1 py-3 border-b shrink-0">
-        <span className={cn('flex h-11 w-11 items-center justify-center rounded-xl shrink-0', km.cls)}><km.Icon className="h-5 w-5" /></span>
-        <div className="flex-1 min-w-0">
-          <h2 className="text-base font-semibold tracking-tight leading-snug">{task.name || task.nodeId}</h2>
-          <p className="text-[11.5px] text-muted-foreground mt-0.5">
-            {task.instance?.numero != null && <span className="font-mono text-foreground/70">#{task.instance.numero} · </span>}
-            {km.label} · {task.instance?.processDefinition?.name}{task.role ? ` · ${task.role}` : ''}
-          </p>
-        </div>
-        {/* O PRAZO fica onde a decisão acontece. Ele estava na lista e sumia justamente
-            na tela em que a pessoa decide se faz agora ou depois. */}
-        {prazo && (
+    /* A atividade vive dentro de um cartão com borda e fundo próprios, não solta sobre
+       a Mesa de Vidro. Vir da caixa de Tarefas ou de "Novo processo" dá exatamente a
+       mesma tela — este componente é o único executor de atividade do sistema.
+       A coluna de altura cheia continua: é ela que mantém o rodapé de ações sempre
+       visível enquanto o formulário rola por dentro. */
+    <div className="mx-auto flex h-full max-w-3xl flex-col overflow-hidden rounded-xl border bg-card shadow-sm">
+      {/* Identidade da atividade (ActivityHeader).
+          As instruções entram AQUI (texto corrido sob o título), não numa caixa
+          colorida no corpo: ver o comentário em ActivityHeader. O tipo do workflow
+          continua legível pelo ÍCONE à esquerda, que já é colorido por tipo. */}
+      <ActivityHeader
+        className="px-4 bg-muted/40"
+        icone={<span className={cn('flex h-11 w-11 items-center justify-center rounded-xl shrink-0', km.cls)}><km.Icon className="h-5 w-5" /></span>}
+        processo={task.instance?.processDefinition?.name}
+        numero={task.instance?.numero ?? null}
+        papel={task.role}
+        titulo={task.name || task.nodeId}
+        instrucoes={step?.instructions}
+        /* O PRAZO fica onde a decisão acontece. Ele estava na lista e sumia justamente
+           na tela em que a pessoa decide se faz agora ou depois. */
+        direita={prazo ? (
           <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-semibold whitespace-nowrap', prazo.cls)}>
             <Clock className="h-3.5 w-3.5" />{prazo.label}
           </span>
-        )}
-      </div>
+        ) : undefined}
+      />
 
       {/* contexto: onde você está no processo — uma linha, expansível (ProcessTrail) */}
-      <ProcessTrail timeline={timeline} currentTaskId={task.id} />
+      <ProcessTrail timeline={timeline} currentTaskId={task.id} className="px-4" />
 
-      <div className="flex-1 overflow-y-auto py-4">
+      <div className="flex-1 overflow-y-auto p-4">
         {error && <p className="text-[12px] text-destructive mb-2">{error}</p>}
         {loading || !step ? (
           <div className="flex items-center justify-center py-10 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin mr-2" /> Carregando formulário…</div>
         ) : (
           <>
-            {step.instructions?.trim() && (
-              <div className="mb-3 flex gap-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2">
-                <Info className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                <p className="text-xs text-foreground/80 leading-snug whitespace-pre-line">{step.instructions.trim()}</p>
-              </div>
-            )}
-            {isScreen && !entityId && (
-              <div className="mb-3 flex gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-900 dark:bg-amber-950/40">
-                <Info className="h-4 w-4 shrink-0 mt-0.5 text-amber-700 dark:text-amber-400" />
-                <p className="text-xs leading-snug text-amber-900 dark:text-amber-200">{bloqueio}</p>
-              </div>
-            )}
+            {/* O bloqueio era dito DUAS vezes — nesta caixa e, palavra por palavra, no
+                rodapé. Ficou uma só, ao lado do botão que ele desliga: é ali que a
+                pessoa descobre que não dá para concluir, e ali que precisa do motivo. */}
             {isScreen ? (
               <WorkflowScreenTask key={task.id} step={step} entityId={entityId} onEntity={setEntityId} onEntityGone={() => setEntityId(null)} onCancel={onDone} />
             ) : (
@@ -182,7 +181,7 @@ export function TaskDocView({ task, onDone, onNotice }: {
       {/* AÇÃO onde o trabalho termina. Estava no topo: a pessoa preenchia descendo e
           precisava voltar ao começo para concluir. As secundárias continuam à mão,
           com menos peso — a ação que 90% vêm fazer não pode competir com elas. */}
-      <div className="shrink-0 border-t bg-muted/40 px-1 py-2.5 flex items-center gap-2 flex-wrap">
+      <div className="shrink-0 border-t bg-muted/40 px-4 py-2.5 flex items-center gap-2 flex-wrap">
         <div className="flex-1 min-w-[150px]">
           {bloqueio ? (
             <p className="text-[11.5px] text-amber-700 dark:text-amber-400">{bloqueio}</p>

@@ -29,7 +29,7 @@ interface SortState { col: string; dir: 'asc' | 'desc' }
 
 /* Workflow de PARCEIRO foi descontinuado (decisão do PO). Um registro legado com
    esse tipo cai no fallback "—" da coluna, sem quebrar a tela. */
-const KIND_LABEL: Record<string, string> = { CONTRATO: 'Contrato', ADITIVO: 'Aditivo' }
+const KIND_LABEL: Record<string, string> = { CONTRATO: 'Contrato', ADITIVO: 'Aditivo', DISTRATO: 'Encerramento' }
 const STATUS: Record<string, { label: string; cls: string }> = {
   ACTIVE:   { label: 'Ativo',     cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
   DRAFT:    { label: 'Rascunho',  cls: 'bg-muted text-muted-foreground' },

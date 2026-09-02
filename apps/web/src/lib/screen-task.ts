@@ -1,9 +1,11 @@
-/* Regras da atividade dirigida por TELA (Contrato/Parceiro), compartilhadas pelos dois
-   lugares que executam uma tarefa: o documento da caixa de tarefas (TaskDocView) e o
-   runner do "Novo processo" (InstanceRunner).
-   Existem aqui porque os dois divergiram: o runner concluía a atividade no ato de SALVAR
-   a entidade, enquanto a caixa de tarefas exigia o "Concluir tarefa". Salvar é guardar o
-   trabalho; concluir é entregá-lo — quem decide entregar é a pessoa, num clique só dela. */
+/* Regras da atividade dirigida por TELA (Contrato/Parceiro), usadas pelo `TaskDocView`,
+   que hoje é o ÚNICO executor de atividade — venha ela da caixa de Tarefas ou de "Novo
+   processo", que agora também abre a atividade como aba.
+   Nasceram aqui porque existiam DOIS executores e eles divergiram: o runner concluía a
+   atividade no ato de SALVAR a entidade, enquanto a caixa de tarefas exigia o "Concluir
+   tarefa". Salvar é guardar o trabalho; concluir é entregá-lo — quem decide entregar é a
+   pessoa, num clique só dela. O runner foi aposentado em 01/09/2026; estas regras ficam
+   porque a distinção que elas guardam continua valendo. */
 import type { StepFormSchema } from '@nxt/types'
 
 /** Variável do processo que carrega o id da entidade criada pela etapa. */

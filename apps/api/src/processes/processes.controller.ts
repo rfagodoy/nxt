@@ -34,6 +34,12 @@ export class ProcessesController {
     return this.processesService.create(dto, organizationId, { name: actor.name, sub: actor.sub })
   }
 
+  @Get(':id/inicio')
+  @ApiOperation({ summary: 'Prévia de início: onde a pessoa entra, quem recebe e o tamanho do fluxo' })
+  resumoInicio(@Param('id') id: string, @CurrentOrg() organizationId: string) {
+    return this.processesService.resumoInicio(id, organizationId)
+  }
+
   @Get(':id/versions')
   @ApiOperation({ summary: 'Versões guardadas da definição (para restaurar)' })
   versions(@Param('id') id: string, @CurrentOrg() organizationId: string) {

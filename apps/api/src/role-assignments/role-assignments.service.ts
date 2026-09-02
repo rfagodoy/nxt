@@ -110,12 +110,17 @@ export class RoleAssignmentsService {
     }
   }
 
-  /** Mapa papelId → rótulo, lido do catálogo de papéis (AppSetting da organização). */
-  private async papelLabels(organizationId: string): Promise<Map<string, string>> {
+  /** Mapa papelId → rótulo, lido do catálogo de papéis (AppSetting da organização).
+   *  Público porque a prévia de "Novo processo" também precisa nomear o papel do
+   *  executor — o rótulo tem de sair do MESMO catálogo, senão as duas telas divergem. */
+  async papelLabels(organizationId: string): Promise<Map<string, string>> {
     const row = await this.prisma.appSetting.findUnique({
       where: { organizationId_userId_key: { organizationId, userId: '', key: PAPEIS_KEY } },
     })
-    const entries = (row?.value as unknown as Array<{ id: string; label: string }> | null) ?? []
+    // Dentro da API o PrismaService já desserializa AppSetting.value (está na lista
+    // de colunas JSON), então normalmente chega array. Fora dela — script, teste,
+    // outro cliente — chega o texto cru, e o cast direto fazia `.map` estourar.
+    const entries = parsePapeis(row?.value)
     return new Map(entries.map((e) => [e.id, e.label]))
   }
 
@@ -149,5 +154,19 @@ export class RoleAssignmentsService {
       userName: map.get(r.userId)?.name ?? '(usuário removido)',
       userEmail: map.get(r.userId)?.email ?? '',
     }))
+  }
+}
+
+/** Lê o catálogo de papéis guardado como texto JSON. Tolera o formato já em objeto
+ *  (caso a coluna vire Json um dia) e o valor corrompido — catálogo ilegível não
+ *  pode derrubar a requisição que só queria nomear um papel. */
+export function parsePapeis(value: unknown): Array<{ id: string; label: string }> {
+  if (Array.isArray(value)) return value as Array<{ id: string; label: string }>
+  if (typeof value !== 'string' || value.trim() === '') return []
+  try {
+    const lido = JSON.parse(value)
+    return Array.isArray(lido) ? (lido as Array<{ id: string; label: string }>) : []
+  } catch {
+    return []
   }
 }

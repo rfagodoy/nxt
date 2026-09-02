@@ -372,7 +372,7 @@ export default function ContratosPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <StartProcessButton kinds={['CONTRATO', 'ADITIVO']} />
+          <StartProcessButton kinds={['CONTRATO', 'ADITIVO', 'DISTRATO']} />
           <button type="button" onClick={openNewContract}
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
             <Plus className="h-3.5 w-3.5" />Novo contrato

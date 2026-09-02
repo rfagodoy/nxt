@@ -28,6 +28,7 @@ import { layoutGraph, titleLineCount, LABEL_W, LANE_SEM_RESPONSAVEL, type FlowNo
 import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, type ExportEdge } from '@/lib/flow-export'
 import { apiFetch } from '@/lib/http'
 import { ProcessHistoryDrawer } from './process-history-drawer'
+import { WorkflowIdentity } from './workflow-identity'
 import { NoticeDialog } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
 
@@ -37,6 +38,10 @@ const PANEL_KEY = 'nxt:workflow:panel-collapsed'
 export const WORKFLOW_KINDS = [
   { value: 'CONTRATO', label: 'Contrato' },
   { value: 'ADITIVO', label: 'Aditivo' },
+  /* DISTRATO e nao "RESCISAO": e o nome que o motor ja usa no conector
+     `contracts.distrato`. O rotulo na tela e "Encerramento" porque cobre tanto o
+     fim previsto quanto a rescisao. */
+  { value: 'DISTRATO', label: 'Encerramento' },
 ] as const
 
 type NType = FlowNodeType
@@ -650,8 +655,12 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b bg-card shrink-0">
         <Button variant="ghost" size="icon" onClick={() => router.push('/workflows')} className="h-8 w-8"><ArrowLeft className="h-4 w-4" /></Button>
-        <div className="flex-1 min-w-0">
-          <Input className="h-8 text-sm font-semibold border-0 shadow-none px-0 focus-visible:ring-0 bg-transparent" placeholder="Nome do workflow..." value={name} onChange={(e) => setName(e.target.value)} />
+        {/* O NOME saiu daqui: virou o título do documento, no alto do desenho
+            (WorkflowIdentity). Aqui fica só a migalha de contexto — sem campo
+            disfarçado de título, que era exatamente o problema. */}
+        <div className="flex-1 min-w-0 text-[12.5px] text-muted-foreground truncate">
+          Workflows <span className="mx-1 opacity-50">/</span>
+          <span className="text-foreground font-semibold">{name.trim() || 'sem nome'}</span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {exportError && <span className="text-[11px] text-destructive font-medium">{exportError}</span>}
@@ -672,7 +681,11 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
           {/* ⚠️ `() =>` obrigatório: passar a função direto entregaria o MouseEvent como
               `confirmarReducao` — truthy — e a guarda seria burlada em TODO salvamento. */}
           <Button variant="outline" size="sm" onClick={() => handleSaveDraft()} disabled={saving || activating}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Salvar rascunho</Button>
-          <Button size="sm" onClick={() => handleActivate()} disabled={saving || activating}>{activating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}Ativar workflow</Button>
+          {/* Sem nome não dá para ativar (a API recusa). Dizer isso ANTES, no botão,
+              evita a pessoa desenhar o fluxo inteiro para levar um diálogo no fim. */}
+          <Button size="sm" onClick={() => handleActivate()} disabled={saving || activating || !name.trim()}
+            title={!name.trim() ? 'Dê um nome ao workflow para poder ativá-lo' : 'Ativar workflow'}>
+            {activating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}Ativar workflow</Button>
         </div>
       </div>
 
@@ -697,7 +710,19 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
       {/* Canvas + Inspetor */}
       <div className="flex flex-1 overflow-hidden">
+        {/* Coluna do DESENHO: a identidade do workflow no alto (como o cabeçalho de
+            um documento) e o canvas embaixo. O painel da direita fica fora desta
+            coluna — ele é do quadro selecionado, não do workflow. */}
+        <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
+        <WorkflowIdentity
+          name={name} onName={setName}
+          description={description} onDescription={setDescription}
+          kind={kind} onKind={setKind}
+          kinds={WORKFLOW_KINDS}
+          autoFocus={!editing}
+        />
         <FlowCanvas canvasRef={canvasRef} nodes={nodes} edges={edges} layout={layout} selectedId={selectedId} onSelect={selectNode} onConnect={onConnect} onCreateConnected={onCreateConnected} onDeleteEdge={onDeleteEdge} onDeleteNode={removeNode} onSetPosition={setPosition} resolvePapel={resolvePapel} resolveEntidade={resolveEntidade} onReorderLanes={reordenarRaias} simulacao={simulacao} pendencias={pendencias} pendAberto={pendAberto} onTogglePend={() => setPendAberto((v) => !v)} onFocar={focarPendencia} />
+        </div>
         {/* trilho do toggle: fica SEMPRE visível (é a alça para trazer o painel de volta) */}
         <div className="w-8 border-l bg-card flex flex-col items-center pt-2.5 shrink-0">
           <button type="button" onClick={togglePanel}
@@ -716,24 +741,14 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
                 onConfigure={() => setDecisaoId(selected.id)} onRemove={() => removeNode(selected.id)} />
             )
           ) : (
-            /* Nada selecionado → propriedades do workflow (padrão de editor visual: painel = documento) */
+            /* Nada selecionado → AJUDA. A identidade do workflow (nome/descrição/tipo)
+               não mora mais aqui: ela subiu para o topo do desenho, onde não some ao
+               clicar num quadro. Este painel é do que está SELECIONADO. */
             <div className="flex flex-col h-full">
               <div className="px-4 py-3 border-b shrink-0 flex items-center">
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary"><LayoutTemplate className="h-3 w-3" />Propriedades do workflow</span>
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary"><LayoutTemplate className="h-3 w-3" />Como desenhar</span>
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                <Field label="Descrição" hint="O objetivo deste workflow, para quem for gerenciá-lo.">
-                  <Textarea className="text-sm min-h-[72px]" placeholder="Descreva o objetivo deste workflow…" value={description} onChange={(e) => setDescription(e.target.value)} />
-                </Field>
-                <Field label="Tipo" hint="Determina onde ele aparece em “Novo processo”.">
-                  <Select value={kind || 'none'} onValueChange={(v) => setKind(v === 'none' ? '' : v)}>
-                    <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">— não especificado</SelectItem>
-                      {WORKFLOW_KINDS.map((k) => <SelectItem key={k.value} value={k.value}>{k.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </Field>
                 <div className="rounded-md border border-dashed bg-muted/20 p-3">
                   <p className="text-xs font-semibold flex items-center gap-1.5"><LayoutTemplate className="h-3.5 w-3.5 text-primary" />Monte o fluxo</p>
                   <p className="text-[11px] text-muted-foreground mt-1 leading-snug">Passe o mouse num quadro e <span className="font-medium">arraste uma das bolinhas</span> (nos 4 lados) até outro quadro para conectar — solte em qualquer parte dele. Ou solte no vazio para criar já ligado. Clique num quadro para configurá-lo.</p>
