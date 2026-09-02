@@ -35,3 +35,9 @@ Thumbs.db
 
 # Prisma
 packages/database/generated
+
+# Rascunhos e dados de trabalho (scripts de diagnóstico, dumps, logs de build).
+# ⚠️ Fica FORA do versionamento porque acaba guardando DADO REAL: os backups de
+# limpeza de base levam a tabela de usuários inteira — hash de senha incluso — e a
+# senha SMTP cifrada. Um `git add -A` distraído publicaria isso.
+scratchpad
