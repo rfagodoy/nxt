@@ -24,7 +24,7 @@ export class StructuredLogger extends ConsoleLogger {
     const evento: EventoLog = {
       nivel,
       contexto: contexto ?? this.context,
-      mensagem: typeof mensagem === 'string' ? mensagem : JSON.stringify(mensagem),
+      mensagem: textoDaMensagem(mensagem),
       requestId: requestIdAtual(),
       timestamp: new Date().toISOString(),
     }
@@ -47,4 +47,27 @@ export class StructuredLogger extends ConsoleLogger {
   }
 
   setLogLevels(levels: LogLevel[]) { super.setLogLevels(levels) }
+}
+
+/** Texto de uma mensagem de log.
+ *
+ *  Erro NÃO sobrevive a JSON.stringify: `name`, `message` e `stack` não são
+ *  enumeráveis, então um Error vira `{}` — foi exatamente o que aconteceu ao
+ *  diagnosticar um 500 (01/09/2026): a linha do erro existia e não dizia nada.
+ *  Aqui o erro sai como "Tipo: mensagem", que é o mínimo para saber o que caiu. */
+export function textoDaMensagem(mensagem: unknown): string {
+  if (typeof mensagem === 'string') return mensagem
+  if (mensagem instanceof Error) return `${mensagem.name}: ${mensagem.message}`
+  // Objeto com forma de erro (vindo de outra realm/biblioteca) também precisa falar.
+  if (mensagem && typeof mensagem === 'object') {
+    const m = mensagem as { name?: unknown; message?: unknown }
+    if (typeof m.message === 'string') {
+      return typeof m.name === 'string' ? `${m.name}: ${m.message}` : m.message
+    }
+  }
+  try {
+    return JSON.stringify(mensagem) ?? String(mensagem)
+  } catch {
+    return String(mensagem)
+  }
 }

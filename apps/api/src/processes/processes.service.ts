@@ -3,7 +3,8 @@ import { PrismaService } from '../prisma.service'
 import { CreateProcessDto } from './dto/create-process.dto'
 import { UpdateProcessDto } from './dto/update-process.dto'
 import { ProcessFormSchema, isCompensable } from '@nxt/types'
-import { compileBpmn, CompileError, type WfGraph, validarDesenho, validarDecisoes, validarAtividades, formatarProblemas, bloqueantes, type ProblemaAtivacao } from '@nxt/workflow-core'
+import { compileBpmn, CompileError, type WfGraph, validarDesenho, validarDecisoes, validarAtividades, formatarProblemas, bloqueantes, type ProblemaAtivacao, resumoDeInicio, type EtapaPrevia } from '@nxt/workflow-core'
+import { RoleAssignmentsService } from '../role-assignments/role-assignments.service'
 
 /** Autor da ação, vindo do JWT (nunca do corpo da requisição). */
 export interface Autor { name: string; sub?: string }
@@ -37,7 +38,10 @@ export function checarReducao(antes: number, depois: number): { removidas: numbe
 
 @Injectable()
 export class ProcessesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly roleAssignments: RoleAssignmentsService,
+  ) {}
 
   /* ─── Camada 1: histórico ────────────────────────────────────────────────────
      Retrato da definição, para poder voltar atrás. Gravado ANTES de cada sobrescrita
@@ -137,6 +141,117 @@ export class ProcessesService {
     })
     if (!process) throw new NotFoundException('Processo não encontrado')
     return process
+  }
+
+  /* ─── Prévia de início ──────────────────────────────────────────────────────
+     Alimenta a conferência do "Novo processo": antes de iniciar, a pessoa vê onde
+     ELA entra, quem recebe, o prazo e o tamanho do que vem. O grafo é lido pelo
+     núcleo puro (resumoDeInicio); aqui só se HIDRATA o que mora no banco — rótulo
+     do papel, nome da entidade, nomes das pessoas e nome da tela.
+
+     Só faz sentido em workflow ATIVO: a prévia lê o `compiledGraph`, que nasce na
+     ativação. Em rascunho não existe grafo compilado — e prometer uma prévia a
+     partir do XML cru seria mostrar um caminho que o motor ainda não executa. */
+  async resumoInicio(id: string, organizationId: string) {
+    const proc = await this.findOne(id, organizationId)
+    if (proc.status !== 'ACTIVE') {
+      throw new BadRequestException('Este workflow não está ativo — só workflows ativos podem ser iniciados.')
+    }
+    if (!proc.compiledGraph) {
+      throw new BadRequestException('Este workflow não tem desenho compilado. Ative-o novamente para gerar o fluxo.')
+    }
+
+    // O PrismaService desserializa as colunas JSON declaradas (ProcessDefinition.
+    // compiledGraph está entre elas), então aqui o campo JÁ chega como objeto. Fora
+    // da extensão — script, teste, outro cliente — chega como texto. Aceitar os dois
+    // evita o "[object Object] is not valid JSON" que só aparece em runtime.
+    const bruto: unknown = proc.compiledGraph
+    const graph = (typeof bruto === 'string' ? JSON.parse(bruto) : bruto) as WfGraph
+    const resumo = resumoDeInicio(graph)
+
+    const papeis = await this.roleAssignments.papelLabels(organizationId)
+    const primeira = resumo.primeira
+      ? {
+          nome: resumo.primeira.nome,
+          prazoDiasUteis: resumo.primeira.prazoDiasUteis ?? null,
+          tela: await this.nomeDaTela(resumo.primeira.formRef, organizationId),
+          responsavel: await this.responsavelDe(resumo.primeira, papeis, organizationId),
+        }
+      : null
+
+    return {
+      processo: { id: proc.id, nome: proc.name, descricao: proc.description, kind: proc.kind },
+      primeira,
+      frentes: resumo.frentes.map((e) => ({ nome: e.nome, decisao: e.decisao ?? null })),
+      proximas: resumo.proximas.map((e) => ({ nome: e.nome, decisao: e.decisao ?? null })),
+      podeTerminarCedo: resumo.podeTerminarCedo,
+      caminhoVaria: resumo.caminhoVaria,
+      totais: resumo.totais,
+    }
+  }
+
+  /** Quem recebe a primeira atividade. Devolve o que É verdade agora, sem inventar:
+   *  se o papel não tem ninguém atribuído naquela entidade, a tarefa nasce ABERTA —
+   *  e é melhor a pessoa saber disso ANTES de iniciar do que descobrir depois. */
+  private async responsavelDe(
+    etapa: EtapaPrevia,
+    papeis: Map<string, string>,
+    organizationId: string,
+  ): Promise<{ papel: string | null; entidade: string | null; pessoas: string[]; aberta: boolean; dependeDoProcesso: boolean }> {
+    const ex = etapa.executor
+    if (!ex?.papelId) {
+      return { papel: null, entidade: null, pessoas: [], aberta: true, dependeDoProcesso: false }
+    }
+    const papel = papeis.get(ex.papelId) ?? null
+
+    // Entidade por VARIÁVEL só é conhecida durante a execução (ex.: a unidade vem do
+    // contrato que ainda será preenchido). Dizer "sem responsável" aqui seria falso.
+    if (ex.entityType !== 'ORG' && ex.mode === 'VARIAVEL') {
+      return { papel, entidade: null, pessoas: [], aberta: false, dependeDoProcesso: true }
+    }
+
+    const entityId = ex.entityType === 'ORG' ? undefined : ex.entityId || undefined
+    if (ex.entityType !== 'ORG' && !entityId) {
+      return { papel, entidade: null, pessoas: [], aberta: true, dependeDoProcesso: false }
+    }
+
+    const [entidade, ids] = await Promise.all([
+      this.nomeDaEntidade(ex.entityType, entityId, organizationId),
+      this.roleAssignments.resolveUsers(organizationId, ex.papelId, ex.entityType, entityId),
+    ])
+    const pessoas = ids.length
+      ? (await this.prisma.user.findMany({ where: { organizationId, id: { in: ids } }, select: { name: true } })).map((u) => u.name)
+      : []
+    return { papel, entidade, pessoas, aberta: pessoas.length === 0, dependeDoProcesso: false }
+  }
+
+  /** Nome legível da entidade-anfitriã do papel (a "unidade" do executor). */
+  private async nomeDaEntidade(tipo: string, id: string | undefined, organizationId: string): Promise<string | null> {
+    if (!id) return null
+    if (tipo === 'UNIDADE') {
+      const u = await this.prisma.orgUnit.findFirst({ where: { id, organizationId }, select: { nome: true } })
+      return u?.nome ?? null
+    }
+    if (tipo === 'EMPRESA') {
+      const c = await this.prisma.groupCompany.findFirst({ where: { id, organizationId }, select: { razaoSocial: true, nomeFantasia: true } })
+      return c ? c.nomeFantasia || c.razaoSocial : null
+    }
+    if (tipo === 'PARCEIRO') {
+      const pa = await this.prisma.partner.findFirst({ where: { id, organizationId }, select: { razaoSocial: true, nomeFantasia: true } })
+      return pa ? pa.nomeFantasia || pa.razaoSocial : null
+    }
+    if (tipo === 'CONTRATO') {
+      const ct = await this.prisma.contract.findFirst({ where: { id, organizationId }, select: { numero: true } })
+      return ct?.numero ?? null
+    }
+    return null
+  }
+
+  /** Nome da tela que a pessoa preenche na atividade (o id sozinho não diz nada). */
+  private async nomeDaTela(formRef: string | undefined, organizationId: string): Promise<string | null> {
+    if (!formRef) return null
+    const t = await this.prisma.screen.findFirst({ where: { id: formRef, organizationId }, select: { name: true } })
+    return t?.name ?? null
   }
 
   async create(dto: CreateProcessDto, organizationId: string, autor?: Autor) {

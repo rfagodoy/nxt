@@ -264,8 +264,15 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
               className="inline-flex items-center h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
               {saving === 'draft' ? 'Salvando...' : 'Salvar rascunho'}
             </button>
+            {/* Dentro de uma ATIVIDADE esta ação deixa de ser primária: quem entrega a
+                etapa é o "Concluir tarefa" do rodapé da atividade. Dois botões verdes
+                empilhados faziam a pessoa não saber qual encerrava o passo. Fora do
+                workflow (cadastro avulso) ela continua sendo a ação principal. */}
             <button type="button" onClick={() => void submit('VIGENTE')} disabled={saving !== null}
-              className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+              className={cn('inline-flex items-center h-7 rounded-md px-3 text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors',
+                embedded
+                  ? 'border hover:bg-muted'
+                  : 'bg-primary text-primary-foreground hover:bg-primary/90')}>
               {saving === 'active' ? 'Salvando...' : 'Ativar'}
             </button>
           </div>

@@ -204,3 +204,25 @@
     backdrop-filter: none;
   }
 }
+
+/* ─── Entrada encadeada de lista ──────────────────────────────────────────────
+   A lista se MONTA em vez de aparecer pronta: cada item sobe alguns pixels, com
+   um atraso pequeno entre eles (definido inline por índice, para o teto de 8 não
+   virar oito classes). Dura pouco de propósito — quem abre a mesma tela dez vezes
+   por dia não pode pagar pedágio de animação.
+
+   `fill-mode: both` importa: sem ele o item pisca no estado final antes do atraso
+   começar, que é pior do que não animar.
+
+   Não usamos `tailwindcss-animate` porque o projeto não tem esse plugin; declarar
+   aqui evita uma dependência nova só para dois keyframes. */
+@keyframes nxt-surge {
+  from { opacity: 0; transform: translateY(7px); }
+  to   { opacity: 1; transform: none; }
+}
+.surge {
+  animation: nxt-surge 0.3s cubic-bezier(0.22, 0.68, 0, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .surge { animation: none; }
+}
