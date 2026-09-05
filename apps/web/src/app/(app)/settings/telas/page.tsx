@@ -2,9 +2,10 @@
 
 import { useState, useMemo, useEffect, useRef } from 'react'
 import Link from 'next/link'
-import { Plus, LayoutTemplate, Search, Pencil, Trash2, Check, X, Star, Lock } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Plus, LayoutTemplate, Search, Pencil, Trash2, Check, X, Star, Lock, Copy } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useScreens, deleteScreen, saveScreen } from '@/hooks/use-screens'
+import { useScreens, deleteScreen, duplicateScreen, saveScreen } from '@/hooks/use-screens'
 import { buildNativeSeed } from '@/lib/screen-native-structure'
 import { SUBJECT_LABELS, STATUS_LABELS, type Screen, type ScreenSubject, type ScreenStatus } from '@/lib/screen-types'
 
@@ -31,6 +32,8 @@ export default function TelasPage() {
   const [subj,   setSubj]       = useState<'ALL' | ScreenSubject>('ALL')
   const [status, setStatus]     = useState<'ALL' | ScreenStatus>('ALL')
   const [confirming, setConfirming] = useState<string | null>(null)
+  const [duplicando, setDuplicando] = useState<string | null>(null)
+  const router = useRouter()
 
   /* Garante as telas padrão do SISTEMA (Fornecedor + Contrato), pré-carregadas com toda a
      estrutura nativa. Criadas uma única vez se ainda não existirem. */
@@ -56,6 +59,14 @@ export default function TelasPage() {
   }, [loading, screens, reload])
 
   const remove = async (id: string) => { await deleteScreen(id); setConfirming(null); void reload() }
+  /* Duplicar leva direto para a cópia: quem duplica quer mexer nela agora. */
+  const duplicar = async (id: string) => {
+    if (duplicando) return
+    setDuplicando(id)
+    const nova = await duplicateScreen(id)
+    setDuplicando(null)
+    if (nova) router.push(`/settings/telas/${nova.id}`); else void reload()
+  }
   const custom = (s: Screen) => (s.fields ?? []).filter(f => f.source === 'CUSTOM').length
 
   const shown = useMemo(() => {
@@ -132,6 +143,7 @@ export default function TelasPage() {
                     <span className="flex items-center gap-1.5">
                       <Link href={`/settings/telas/${s.id}`} className="font-medium hover:text-primary transition-colors">{s.name}</Link>
                       {s.isSystem && <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-slate-500/10 text-slate-600 dark:text-slate-300"><Lock className="h-2.5 w-2.5" />Sistema</span>}
+                      {s.readOnly && <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-amber-500/10 text-amber-600 dark:text-amber-400" title="Nenhum campo é editável e nada é gravado por esta tela"><Lock className="h-2.5 w-2.5" />Somente consulta</span>}
                     </span>
                     {s.description && <p className="text-[11px] text-muted-foreground truncate max-w-md">{s.description}</p>}
                   </td>
@@ -141,7 +153,9 @@ export default function TelasPage() {
                   <td className="px-3 py-1.5 text-center text-muted-foreground tabular-nums">{custom(s)} pers.</td>
                   <td className="px-3 py-1.5">
                     <div className="flex items-center justify-end gap-1">
-                      <Link href={`/settings/telas/${s.id}`} className="h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted opacity-0 group-hover/row:opacity-100 transition-all"><Pencil className="h-3.5 w-3.5" /></Link>
+                      <Link href={`/settings/telas/${s.id}`} title="Editar" className="h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted opacity-0 group-hover/row:opacity-100 transition-all"><Pencil className="h-3.5 w-3.5" /></Link>
+                      <button onClick={() => void duplicar(s.id)} disabled={!!duplicando} title="Duplicar — cria um rascunho com as mesmas marcações"
+                        className="h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted opacity-0 group-hover/row:opacity-100 transition-all disabled:opacity-40"><Copy className="h-3.5 w-3.5" /></button>
                       {s.isSystem ? (
                         <span title="Tela do sistema — não pode ser excluída" className="h-6 w-6 inline-flex items-center justify-center text-muted-foreground/40"><Lock className="h-3 w-3" /></span>
                       ) : confirming === s.id ? (

@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma.service'
 import { CreateProcessDto } from './dto/create-process.dto'
 import { UpdateProcessDto } from './dto/update-process.dto'
 import { ProcessFormSchema, isCompensable } from '@nxt/types'
-import { compileBpmn, CompileError, type WfGraph, validarDesenho, validarDecisoes, validarAtividades, formatarProblemas, bloqueantes, type ProblemaAtivacao, resumoDeInicio, type EtapaPrevia } from '@nxt/workflow-core'
+import { compileBpmn, CompileError, type WfGraph, validarDesenho, validarDecisoes, validarAtividades, validarTelasDasAtividades, formatarProblemas, bloqueantes, type ProblemaAtivacao, resumoDeInicio, type EtapaPrevia } from '@nxt/workflow-core'
 import { RoleAssignmentsService } from '../role-assignments/role-assignments.service'
 
 /** Autor da ação, vindo do JWT (nunca do corpo da requisição). */
@@ -304,6 +304,16 @@ export class ProcessesService {
         (s) => editorGraph.nodes.find((n) => n.id === s.stepId)?.type === 'userTask',
       )
       problemas.push(...validarAtividades(stepsDeUsuario))
+      // A tela precisa servir ao que a atividade faz: criar/editar numa tela em
+      // SOMENTE CONSULTA é beco sem saída (a mesma regra roda no editor).
+      const telasUsadas = [...new Set(stepsDeUsuario.map((s) => s.screenRef).filter(Boolean) as string[])]
+      if (telasUsadas.length) {
+        const telas = await this.prisma.screen.findMany({
+          where: { organizationId, id: { in: telasUsadas } },
+          select: { id: true, name: true, readOnly: true },
+        })
+        problemas.push(...validarTelasDasAtividades(stepsDeUsuario, telas))
+      }
     }
     // Só o que IMPEDE barra a ativação. AVISO (ex.: atividade que executa mas não
     // leva ao fim) é desenho legítimo desde a regra do fim: informa no editor, não

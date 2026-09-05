@@ -575,6 +575,7 @@ model Screen {
   status         String   @default("DRAFT")      // DRAFT | ACTIVE | ARCHIVED
   isDefault      Boolean  @default(false)         // tela padrão do cadastro daquele subject (uma por subject)
   isSystem       Boolean  @default(false)         // tela padrão DO SISTEMA (cadastro base; não deletável)
+  readOnly       Boolean  @default(false)         // tela SOMENTE CONSULTA: nenhum campo é editável e nada é gravado
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -592,7 +593,12 @@ model ScreenSection {
   name        String   // slug técnico
   source      String   @default("CUSTOM") // NATIVE (seção nativa da entidade) | CUSTOM
   nativeKey   String?  // quando source=NATIVE: chave da seção nativa (ex.: 'identificacao')
+  // IDENTIDADE DA SEÇÃO DENTRO DA TELA. O cliente manda um id DETERMINÍSTICO por tipo
+  // (`nsec_<subject>_<chave>`), igual em todas as telas — gravar por ele fazia a tela B
+  // sobrescrever a linha da tela A. A linha é de cada tela; a chave é que se repete.
+  sectionKey  String?
   visible     Boolean  @default(true)
+  locked      Boolean  @default(false)   // seção SOMENTE CONSULTA: piso dos campos dela
   order       Int      @default(0)
   defaultOpen Boolean  @default(true)
   createdAt   DateTime @default(now())
@@ -600,6 +606,7 @@ model ScreenSection {
 
   screen Screen @relation(fields: [screenId], references: [id], onDelete: Cascade)
 
+  @@unique([screenId, sectionKey])
   @@index([screenId])
   @@map("screen_sections")
 }
@@ -613,8 +620,15 @@ model ScreenField {
   type        String   // text|textarea|number|currency|date|time|datetime|select|multiselect|checkbox|file|email|phone
   source      String   @default("CUSTOM") // NATIVE (campo nativo da entidade) | CUSTOM (captura)
   nativeKey   String?  // quando source=NATIVE: chave do campo nativo (ex.: 'razao_social')
-  mode        String   @default("EDIT")   // VIEW | EDIT
-  visible     Boolean  @default(true)      // nativo: liga/desliga no cadastro (único atributo editável)
+  // IDENTIDADE DO CAMPO NO TIPO (Contrato/Fornecedor), compartilhada por TODAS as telas
+  // daquele subject. `id` é a identidade da LINHA (esta tela); `fieldKey` é a do CAMPO.
+  // Valor, condição de workflow, trava por atividade e auditoria referenciam a fieldKey.
+  // Nos campos que já existiam, fieldKey = o próprio id — por isso nada gravado quebrou.
+  fieldKey    String?
+  mode        String   @default("EDIT")   // [LEGADO] VIEW | EDIT — nos nativos sempre veio "VIEW" (a tela só EXIBE o dado
+                                          // nativo); NÃO é trava de edição. A trava é `locked`.
+  locked      Boolean  @default(false)     // campo TRAVADO: aparece, mostra o valor, não aceita alteração
+  visible     Boolean  @default(true)      // nativo: liga/desliga no cadastro
   required    Boolean  @default(false)
   placeholder String?
   options          String? @db.NVarChar(Max) // [JSON] [{ value, label }] (select/multiselect)
@@ -627,7 +641,10 @@ model ScreenField {
 
   screen Screen @relation(fields: [screenId], references: [id], onDelete: Cascade)
 
+  // uma linha por tela para cada campo — é isto que dá flags próprias a cada tela
+  @@unique([screenId, fieldKey])
   @@index([screenId])
+  @@index([fieldKey])
   @@map("screen_fields")
 }
 

@@ -20,14 +20,26 @@ export interface ScreenFieldOption { value: string; label: string }
 export interface ScreenFieldValidation { maxLength?: number; min?: number; max?: number; pattern?: string }
 
 export interface ScreenField {
+  /** Identidade da LINHA: este campo NESTA tela. É por ela que a tela é salva. */
   id: string
+  /**
+   * Identidade do CAMPO no tipo (Contrato/Fornecedor) — a mesma em todas as telas do
+   * subject. É por ela que o VALOR é gravado, que a condição do workflow referencia
+   * (`contrato.<chave>`), que a atividade trava e que o histórico registra.
+   * Ausente = campo recém-criado no navegador; o servidor adota o próprio id.
+   * ⚠️ Nunca use `id` para casar valor — use `fieldValueKey(f)`.
+   */
+  fieldKey?: string
   sectionId?: string
   name: string
   label: string
   type: ScreenFieldType
   source: FieldSource
   nativeKey?: string
+  /** [LEGADO] nos nativos sempre veio 'VIEW' ("a tela só exibe o dado"). NÃO é trava — ver `locked`. */
   mode: FieldMode
+  /** Campo TRAVADO: aparece e mostra o valor, mas não aceita alteração. */
+  locked?: boolean
   visible?: boolean        // nativo: liga/desliga no cadastro (custom sempre visível)
   required: boolean
   placeholder?: string
@@ -39,6 +51,13 @@ export interface ScreenField {
   requiredCategories?: PartnerCategory[]
   order: number
 }
+
+/**
+ * Chave sob a qual o VALOR de um campo personalizado é guardado e lido.
+ * É o campo no tipo, não a linha na tela: o mesmo contrato mostra o mesmo valor em
+ * qualquer tela. Campo criado agora ainda não tem chave — vale o id até o primeiro save.
+ */
+export const fieldValueKey = (f: Pick<ScreenField, 'id' | 'fieldKey'>): string => f.fieldKey ?? f.id
 
 /** Tipos de parceiro (categorias) — dimensão que ajusta os campos do cadastro de Fornecedor. */
 export type PartnerCategory = 'PJ_BR' | 'PJ_EST' | 'PF_BR' | 'PF_EST'
@@ -57,6 +76,8 @@ export interface ScreenSection {
   source?: FieldSource     // NATIVE (seção nativa da entidade) | CUSTOM
   nativeKey?: string       // seção nativa: ex. 'identificacao'
   visible?: boolean
+  /** Seção SOMENTE CONSULTA: piso dos campos dela — nenhum campo seu é editável. */
+  locked?: boolean
   order: number
   defaultOpen: boolean
 }
@@ -69,6 +90,8 @@ export interface Screen {
   status: ScreenStatus
   isDefault?: boolean
   isSystem?: boolean
+  /** Tela SOMENTE CONSULTA: nenhum campo é editável e nada é gravado por ela. */
+  readOnly?: boolean
   sections: ScreenSection[]
   fields: ScreenField[]
 }

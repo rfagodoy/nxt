@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { validarDesenho, validarDecisoes, validarAtividades, formatarProblemas, bloqueantes, avisos } from '../src/activation-guard'
+import { validarDesenho, validarDecisoes, validarAtividades, validarTelasDasAtividades, formatarProblemas, bloqueantes, avisos } from '../src/activation-guard'
 import type { ProblemaAtivacao } from '../src/activation-guard'
 
 const g = (edges: Array<{ from: string; condition?: string; isDefault?: boolean }>) =>
@@ -285,5 +285,47 @@ describe('validarDecisoes — caso contrário derivado, sem depender da marca', 
       { from: 'g1' },
     ])
     expect(p.tipo).toBe('decisao-multipadrao')
+  })
+})
+
+describe('validarTelasDasAtividades — a tela tem que servir ao que a atividade faz', () => {
+  const telas = [
+    { id: 't1', name: 'Contrato — padrão' },
+    { id: 't2', name: 'Contrato — conferência', readOnly: true },
+  ]
+
+  it('CRIAR numa tela somente consulta é beco sem saída', () => {
+    const [p] = validarTelasDasAtividades(
+      [{ stepId: 'a1', stepName: 'Solicitar', screenRef: 't2', entityMode: 'CREATE' }], telas)
+    expect(p.tipo).toBe('tela-so-consulta')
+    expect(p.nodeId).toBe('a1')
+    expect(p.mensagem).toContain('precisa criar')
+    expect(p.mensagem).toContain('Contrato — conferência')
+  })
+  it('EDITAR numa tela somente consulta também', () => {
+    const [p] = validarTelasDasAtividades(
+      [{ stepId: 'a2', stepName: 'Ajustar', screenRef: 't2', entityMode: 'EDIT' }], telas)
+    expect(p.mensagem).toContain('precisa editar')
+  })
+  it('CONSULTAR numa tela somente consulta é o par CERTO — não acusa', () => {
+    expect(validarTelasDasAtividades(
+      [{ stepId: 'a3', stepName: 'Conferir', screenRef: 't2', entityMode: 'VIEW' }], telas)).toHaveLength(0)
+  })
+  it('tela que permite alteração não acusa em nenhum modo', () => {
+    expect(validarTelasDasAtividades([
+      { stepId: 'a1', screenRef: 't1', entityMode: 'CREATE' },
+      { stepId: 'a2', screenRef: 't1', entityMode: 'EDIT' },
+    ], telas)).toHaveLength(0)
+  })
+  it('atividade sem tela, e tela desconhecida, não acusam', () => {
+    expect(validarTelasDasAtividades([{ stepId: 'a1', entityMode: 'CREATE' }], telas)).toHaveLength(0)
+    expect(validarTelasDasAtividades([{ stepId: 'a1', screenRef: 'sumida', entityMode: 'CREATE' }], telas)).toHaveLength(0)
+  })
+  it('sem entityMode vale CREATE (padrão histórico) e acusa', () => {
+    expect(validarTelasDasAtividades([{ stepId: 'a1', screenRef: 't2' }], telas)).toHaveLength(1)
+  })
+  it('é BLOQUEANTE (não é aviso)', () => {
+    const ps = validarTelasDasAtividades([{ stepId: 'a1', stepName: 'X', screenRef: 't2', entityMode: 'CREATE' }], telas)
+    expect(bloqueantes(ps)).toHaveLength(1)
   })
 })

@@ -44,6 +44,14 @@ export class ScreensController {
     return this.service.update(org, id, dto)
   }
 
+  @Post('screens/:id/duplicate')
+  @ApiOperation({ summary: 'Duplica a Tela (rascunho; campos do tipo são referenciados, não recriados)' })
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  duplicate(@CurrentOrg() org: string, @Param('id') id: string, @Body() body?: { name?: string }) {
+    return this.service.duplicate(org, id, body?.name)
+  }
+
   @Delete('screens/:id')
   @ApiOperation({ summary: 'Remove a Tela (valores preenchidos permanecem)' })
   @UseGuards(RolesGuard)
