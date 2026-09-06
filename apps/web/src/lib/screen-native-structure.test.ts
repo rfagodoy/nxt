@@ -2,49 +2,76 @@ import { describe, it, expect } from 'vitest'
 import { buildNativeSeed, reconcileNative } from './screen-native-structure'
 import type { Screen, ScreenField } from './screen-types'
 
-/** Tela de Contrato salva ANTES da reordenação do catálogo: ordem legada em Dados Gerais. */
-function telaLegada(): Screen {
-  const seed = buildNativeSeed('CONTRATO')
-  const ordemLegada = ['numero', 'natureza', 'tipo', 'situacao', 'titulo', 'descricao', 'objeto', 'data_assinatura', 'mao_de_obra']
-  const fields = seed.fields.map(f => {
-    const i = ordemLegada.indexOf(f.nativeKey ?? '')
-    return i >= 0 ? { ...f, order: i } : f
+const campo = (screen: { fields: ScreenField[] }, nativeKey: string) =>
+  screen.fields.find(f => f.nativeKey === nativeKey)
+
+describe('buildNativeSeed — o tipo do campo nativo é o widget real do formulário', () => {
+  it('Contrato: data, valor, lista e texto longo não são todos "texto"', () => {
+    const seed = buildNativeSeed('CONTRATO')
+    expect(campo(seed, 'data_assinatura')?.type).toBe('date')
+    expect(campo(seed, 'valor_total')?.type).toBe('currency')
+    expect(campo(seed, 'qtd_parcelas')?.type).toBe('number')
+    expect(campo(seed, 'tipo')?.type).toBe('select')
+    expect(campo(seed, 'descricao')?.type).toBe('textarea')
+    expect(campo(seed, 'prazo_indeterminado')?.type).toBe('checkbox')
+    expect(campo(seed, 'objeto')?.type).toBe('multiselect')
   })
-  return {
-    id: 'scr_leg', name: 'Contrato legado', subjectType: 'CONTRATO',
-    status: 'ACTIVE', isDefault: true, isSystem: true,
-    sections: seed.sections, fields,
+
+  it('Contrato: campo sem tipo declarado continua texto', () => {
+    expect(campo(buildNativeSeed('CONTRATO'), 'numero')?.type).toBe('text')
+    expect(campo(buildNativeSeed('CONTRATO'), 'titulo')?.type).toBe('text')
+  })
+
+  it('Fornecedor: e-mail, telefone, data e lista têm o próprio tipo', () => {
+    const seed = buildNativeSeed('FORNECEDOR')
+    expect(campo(seed, 'con_email')?.type).toBe('email')
+    expect(campo(seed, 'con_telefone')?.type).toBe('phone')
+    expect(campo(seed, 'data_abertura')?.type).toBe('date')
+    expect(campo(seed, 'natureza_juridica')?.type).toBe('select')
+    expect(campo(seed, 'soc_participacao')?.type).toBe('number')
+    expect(campo(seed, 'razao_social')?.type).toBe('text')
+  })
+})
+
+describe('reconcileNative — o sistema é dono da forma do campo nativo', () => {
+  /** Tela gravada ANTES de os tipos nativos existirem: tudo veio como 'text'. */
+  const telaAntiga = (): Screen => {
+    const seed = buildNativeSeed('CONTRATO')
+    return {
+      id: 's1', name: 'Antiga', subjectType: 'CONTRATO', status: 'ACTIVE', isDefault: false,
+      sections: seed.sections,
+      fields: seed.fields.map(f => ({ ...f, type: 'text' as const })),
+    }
   }
-}
 
-const ordemDe = (screen: Screen, secKey: string) =>
-  screen.fields
-    .filter(f => f.sectionId === `nsec_contrato_${secKey}`)
-    .sort((a, b) => a.order - b.order)
-    .map(f => f.nativeKey ?? f.name)
+  it('corrige o tipo de quem foi gravado como texto', () => {
+    const antes = telaAntiga()
+    expect(campo(antes, 'valor_total')?.type).toBe('text')
 
-describe('reconcileNative — normalização de ordem', () => {
-  it('tela legada passa a espelhar a ordem do seed (formulário real) em Dados Gerais', () => {
-    const rec = reconcileNative(telaLegada())
-    expect(ordemDe(rec, 'dados_gerais')).toEqual([
-      'natureza', 'numero', 'situacao', 'titulo', 'descricao', 'objeto', 'tipo', 'data_assinatura', 'mao_de_obra',
-    ])
+    const depois = reconcileNative(antes)
+    expect(campo(depois, 'valor_total')?.type).toBe('currency')
+    expect(campo(depois, 'data_assinatura')?.type).toBe('date')
   })
 
-  it('customs preservam a ordem relativa, depois dos nativos da seção', () => {
-    const base = telaLegada()
-    const custom = (id: string, order: number): ScreenField => ({
-      id, sectionId: 'nsec_contrato_dados_gerais', name: id, label: id,
-      type: 'text', source: 'CUSTOM', mode: 'EDIT', visible: true, required: false, order,
-    } as ScreenField)
-    base.fields = [...base.fields, custom('fld_b', 5), custom('fld_a', 2)]
-    const ordem = ordemDe(reconcileNative(base), 'dados_gerais')
-    expect(ordem.slice(-2)).toEqual(['fld_a', 'fld_b']) // fld_a (order 2) antes de fld_b (order 5)
-    expect(ordem[0]).toBe('natureza')
+  it('não inventa tipo para campo personalizado — esse é do usuário', () => {
+    const base = telaAntiga()
+    const meu: ScreenField = {
+      id: 'sf_1', sectionId: base.sections[0].id, name: 'meu', label: 'Meu campo',
+      type: 'select', source: 'CUSTOM', mode: 'EDIT', visible: true, required: false, order: 99,
+    }
+    const depois = reconcileNative({ ...base, fields: [...base.fields, meu] })
+    expect(depois.fields.find(f => f.id === 'sf_1')?.type).toBe('select')
   })
 
-  it('idempotente: tela já na ordem do seed volta como o MESMO objeto', () => {
-    const rec = reconcileNative(telaLegada())
-    expect(reconcileNative(rec)).toBe(rec)
+  it('mantém as marcações da tela (aparece / travado) ao corrigir o tipo', () => {
+    const base = telaAntiga()
+    const comMarcas = {
+      ...base,
+      fields: base.fields.map(f => f.nativeKey === 'valor_total' ? { ...f, visible: false, locked: true } : f),
+    }
+    const alvo = campo(reconcileNative(comMarcas), 'valor_total')
+    expect(alvo?.type).toBe('currency')
+    expect(alvo?.visible).toBe(false)
+    expect(alvo?.locked).toBe(true)
   })
 })

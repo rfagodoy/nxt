@@ -532,8 +532,10 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
                               </div>
                             )}
                           </td>
+                          {/* Na linha da seção a coluna só fala quando tem o que dizer: bloco não
+                              tem campo a campo. "Nativa"/"Personalizada" seria origem outra vez. */}
                           <td className="px-2 py-1.5 text-[10.5px] text-muted-foreground">
-                            {isBlockSec ? 'Seção inteira' : isNativeSec ? 'Nativa' : 'Personalizada'}
+                            {isBlockSec ? 'Seção inteira' : ''}
                           </td>
                           <td className="px-2 py-1.5 text-center">
                             <Marca on={!secHidden} onClick={() => toggleSectionVisible(s.id)}
@@ -573,8 +575,12 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
                                   )}
                                 </span>
                               </td>
+                              {/* A coluna diz sempre a MESMA coisa: a forma do dado. Quem é dono do
+                                  campo já está dito pela bolinha e pela legenda — misturar origem
+                                  ("Do sistema") com tipo ("Lista de opções") era duas línguas na
+                                  mesma coluna. O tipo do nativo vem do seed (screen-native-structure). */}
                               <td className="px-2 py-1 text-[10.5px] text-muted-foreground truncate">
-                                {native ? 'Do sistema' : FIELD_TYPE_LABELS[f.type]}
+                                {FIELD_TYPE_LABELS[f.type]}
                               </td>
                               <td className="px-2 py-1 text-center">
                                 <Marca on={vis} onClick={() => toggleField(f)}
