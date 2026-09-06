@@ -405,8 +405,8 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
             {/* Contagem, não legenda: as bolinhas coloridas daqui explicavam um código de
                 cores que não existe mais na matriz — legenda de código morto engana. */}
             {[
-              { n: nNative, l: 'campos do sistema' },
-              { n: nCustom, l: 'campos seus' },
+              { n: nNative, l: 'nativos' },
+              { n: nCustom, l: 'personalizados' },
               { n: nHidden, l: isPartner ? `ocultos em ${PARTNER_CATEGORIES.find(c => c.value === cat)?.short}` : 'ocultos no cadastro' },
               { n: screen.readOnly ? nNative + nCustom : nLocked, l: screen.readOnly ? 'travados (tela em consulta)' : 'travados (só consulta)' },
             ].map(({ n, l }) => (
@@ -567,11 +567,13 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
                               <td className="px-3 py-1">
                                 <span className="flex items-center gap-1.5 pl-[26px]">
                                   <span className="truncate">{f.label}</span>
-                                  {/* Marca o que é SEU, não o que é do sistema: o padrão é o sistema, e
-                                      quem precisa achar rápido é quem criou o campo. Era uma bolinha
-                                      azul contra uma verde — informação que só existia para quem
-                                      distingue as duas cores, num alvo de 6px. */}
-                                  {!native && <span className="shrink-0 rounded bg-primary/10 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-primary">seu campo</span>}
+                                  {/* Etiqueta ESCRITA nos dois, decisão do PO. Antes era uma bolinha azul
+                                      contra uma verde, de 6px: informação que só existia para quem
+                                      distingue as duas cores. O texto é que informa; o tom só reforça. */}
+                                  <span className={cn('shrink-0 rounded px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide',
+                                    native ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary')}>
+                                    {native ? 'Nativo' : 'Personalizado'}
+                                  </span>
                                   {!native && (
                                     <span className="ml-auto flex items-center gap-0.5 shrink-0 opacity-0 group-hover/f:opacity-100 focus-within:opacity-100 transition-opacity">
                                       <button onClick={() => setEditingField(f)} title="Editar campo" className={iconBtn}><Pencil className="h-3 w-3" /></button>

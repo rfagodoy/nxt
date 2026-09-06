@@ -277,46 +277,6 @@ export default function DashboardPage() {
 
 interface Fatia { nome: string; valor: number; cor: string }
 
-/* A rosca distinguia fatia de fatia SÓ por cor, e a legenda também — casar uma com a
-   outra exigia enxergar a diferença entre verde, âmbar e vermelho, que é justamente o
-   grupo que colapsa em deuteranopia e protanopia ("Vigentes" e "Rescindidos" viram a
-   mesma cor). O número já estava na legenda, então o dado era legível; o gráfico é que
-   não era. Agora cada fatia tem também uma TEXTURA, repetida no marcador da legenda:
-   a ligação passa a ser por desenho, e a cor vira reforço. */
-const TEXTURAS = ['solida', 'diagonal', 'pontos', 'grade', 'horizontal'] as const
-
-function TexturasDasFatias({ fatias, prefixo }: { fatias: Fatia[]; prefixo: string }) {
-  const risco = 'rgba(255,255,255,0.62)'
-  return (
-    <svg width="0" height="0" aria-hidden className="absolute">
-      <defs>
-        {fatias.map((f, i) => {
-          const t = TEXTURAS[i % TEXTURAS.length]
-          return (
-            <pattern key={i} id={`${prefixo}-${i}`} patternUnits="userSpaceOnUse" width="6" height="6"
-              patternTransform={t === 'diagonal' ? 'rotate(45)' : undefined}>
-              <rect width="6" height="6" fill={f.cor} />
-              {t === 'diagonal'   && <rect width="2.2" height="6" fill={risco} />}
-              {t === 'pontos'     && <circle cx="3" cy="3" r="1.5" fill={risco} />}
-              {t === 'grade'      && <><rect width="6" height="1.6" fill={risco} /><rect width="1.6" height="6" fill={risco} /></>}
-              {t === 'horizontal' && <rect width="6" height="2.2" fill={risco} />}
-            </pattern>
-          )
-        })}
-      </defs>
-    </svg>
-  )
-}
-
-/** Marcador da legenda: o mesmo desenho da fatia, não só a mesma cor. */
-function MarcaDaFatia({ prefixo, i }: { prefixo: string; i: number }) {
-  return (
-    <svg width="12" height="10" className="shrink-0" aria-hidden>
-      <rect width="12" height="10" rx="2.5" fill={`url(#${prefixo}-${i})`} />
-    </svg>
-  )
-}
-
 /** Card de composição: o total em número grande e a repartição em rosca.
  *
  *  Rosca (e não barra ou pizza cheia) por dois motivos: o buraco do meio abriga o
@@ -339,8 +299,6 @@ function Composicao({ icon, label, hint, total, fatias, onClick, tipo = 'rosca',
   ctaVazio?: { rotulo: string; acao: () => void }
 }) {
   const visiveis = fatias.filter((f) => f.valor > 0)
-  /* id por card: as texturas vivem no documento inteiro, dois cards não podem colidir. */
-  const prefixo = `tex-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
   const soma = visiveis.reduce((acc, f) => acc + f.valor, 0)
   const maior = Math.max(1, ...visiveis.map((f) => f.valor))
 
@@ -372,7 +330,6 @@ function Composicao({ icon, label, hint, total, fatias, onClick, tipo = 'rosca',
         </div>
       ) : tipo === 'rosca' ? (
         <div className="flex flex-1 flex-col gap-2 lg:min-h-0">
-          <TexturasDasFatias fatias={visiveis} prefixo={prefixo} />
           {/* Raios em % para o gráfico ESCALAR com a altura do card. */}
           <div className="relative min-h-[104px] flex-1">
             <ResponsiveContainer width="100%" height="100%">
@@ -382,7 +339,7 @@ function Composicao({ icon, label, hint, total, fatias, onClick, tipo = 'rosca',
                   innerRadius="58%" outerRadius="88%" paddingAngle={visiveis.length > 1 ? 2 : 0}
                   stroke="none" isAnimationActive
                 >
-                  {visiveis.map((f, i) => <Cell key={f.nome} fill={`url(#${prefixo}-${i})`} />)}
+                  {visiveis.map((f) => <Cell key={f.nome} fill={f.cor} />)}
                 </Pie>
               </PieChart>
             </ResponsiveContainer>
@@ -392,9 +349,9 @@ function Composicao({ icon, label, hint, total, fatias, onClick, tipo = 'rosca',
             </div>
           </div>
           <ul className="grid shrink-0 grid-cols-2 gap-x-3 gap-y-0.5">
-            {visiveis.map((f, i) => (
+            {visiveis.map((f) => (
               <li key={f.nome} className="flex items-center gap-1.5 text-[11px]">
-                <MarcaDaFatia prefixo={prefixo} i={i} />
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: f.cor }} />
                 <span className="min-w-0 flex-1 truncate text-muted-foreground">{f.nome}</span>
                 <span className="shrink-0 font-semibold tabular-nums">{f.valor}</span>
               </li>
