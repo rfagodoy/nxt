@@ -231,11 +231,11 @@ export default function DashboardPage() {
             onClick={() => router.push('/modules/contratos')}
             ctaVazio={{ rotulo: 'Cadastrar contrato', acao: () => ws.open({ id: 'contract:new', kind: 'contract', mode: 'new', label: 'Novo contrato' }) }}
             fatias={[
-              { nome: 'Vigentes',    valor: c?.byStatus.VIGENTE ?? 0,     cor: 'hsl(154 70% 40%)' },
-              { nome: 'Vencidos',    valor: c?.byStatus.VENCIDO ?? 0,     cor: 'hsl(38 92% 50%)'  },
-              { nome: 'Em cadastro', valor: c?.byStatus.EM_CADASTRO ?? 0, cor: 'hsl(210 90% 55%)' },
-              { nome: 'Encerrados',  valor: c?.byStatus.ENCERRADO ?? 0,   cor: 'hsl(215 15% 55%)' },
-              { nome: 'Rescindidos', valor: c?.byStatus.RESCINDIDO ?? 0,  cor: 'hsl(0 72% 55%)'   },
+              { nome: 'Vigentes',    valor: c?.byStatus.VIGENTE ?? 0,     cor: COR_FATIA.emDia      },
+              { nome: 'Vencidos',    valor: c?.byStatus.VENCIDO ?? 0,     cor: COR_FATIA.vencido    },
+              { nome: 'Em cadastro', valor: c?.byStatus.EM_CADASTRO ?? 0, cor: COR_FATIA.emCadastro },
+              { nome: 'Encerrados',  valor: c?.byStatus.ENCERRADO ?? 0,   cor: COR_FATIA.encerrado  },
+              { nome: 'Rescindidos', valor: c?.byStatus.RESCINDIDO ?? 0,  cor: COR_FATIA.rompido    },
               /* Sem "Cancelados": o cancelado nunca chegou a valer e por decisão do PO
                  (28/07) não entra na carteira — nem no Total, nem na composição. Ele
                  continua na listagem de Contratos, que é onde se procura um registro. */
@@ -248,9 +248,9 @@ export default function DashboardPage() {
             onClick={() => router.push('/modules/parceiros')}
             ctaVazio={{ rotulo: 'Cadastrar parceiro', acao: () => ws.open({ id: 'partner:new', kind: 'partner', mode: 'new', label: 'Novo parceiro' }) }}
             fatias={[
-              { nome: 'Ativos',        valor: p?.byStatus.ATIVO ?? 0,             cor: 'hsl(154 70% 40%)' },
-              { nome: 'Em cadastro',   valor: p?.byStatus.EM_CADASTRAMENTO ?? 0,  cor: 'hsl(210 90% 55%)' },
-              { nome: 'Inativos',      valor: p?.byStatus.INATIVO ?? 0,           cor: 'hsl(215 15% 55%)' },
+              { nome: 'Ativos',        valor: p?.byStatus.ATIVO ?? 0,             cor: COR_FATIA.emDia      },
+              { nome: 'Em cadastro',   valor: p?.byStatus.EM_CADASTRAMENTO ?? 0,  cor: COR_FATIA.emCadastro },
+              { nome: 'Inativos',      valor: p?.byStatus.INATIVO ?? 0,           cor: COR_FATIA.encerrado  },
             ]}
           />
           <MedidorSaude
@@ -274,6 +274,21 @@ export default function DashboardPage() {
 
 
 /* ─────────────────────────── sub-componentes ─────────────────────────────── */
+
+/* Paleta das fatias. A MATIZ diz o que é (verde = em dia, vermelho = rompido); a
+   CLARIDADE é que separa uma fatia da outra, em degraus de ~12 pontos de L*.
+   Antes as cinco variavam quase só em matiz — "Encerrados" e "Em cadastro" tinham 1,0
+   de diferença em L* —, então para quem não distingue as matizes a rosca virava um
+   disco de uma cor só e não dava para casar fatia com legenda.
+   Em escala de cinza elas agora viram 34%, 46%, 58%, 70% e 82%: uma escada.
+   ⚠️ Fatia nova entra ENCAIXANDO num degrau livre, não escolhendo uma cor bonita. */
+const COR_FATIA = {
+  rompido:    'hsl(0 68% 36%)',   // L* 34 — Rescindidos
+  encerrado:  'hsl(215 14% 44%)', // L* 46 — Encerrados, Inativos
+  emDia:      'hsl(154 62% 38%)', // L* 58 — Vigentes, Ativos
+  emCadastro: 'hsl(210 88% 69%)', // L* 70 — Em cadastro
+  vencido:    'hsl(38 95% 68%)',  // L* 82 — Vencidos
+} as const
 
 interface Fatia { nome: string; valor: number; cor: string }
 
