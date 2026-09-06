@@ -285,10 +285,11 @@ export default function DashboardPage() {
    O PESO segue a urgência, não o acaso: "Vencidos" ocupa o degrau mais ESCURO — é o que
    exige ação — e "Rescindidos" o mais claro, porque já é assunto encerrado. A primeira
    versão tinha o oposto e deixava o vencido num âmbar pálido, suave demais para o que ele
-   quer dizer.
+   quer dizer. A matiz do vencido também saiu do âmbar (38) para o laranja queimado (25):
+   âmbar escuro vira marrom e lê como sujeira, não como urgência.
    ⚠️ Fatia nova entra ENCAIXANDO num degrau livre, não escolhendo uma cor bonita. */
 const COR_FATIA = {
-  vencido:    'hsl(38 90% 23%)',  // L* 34 — Vencidos (âmbar profundo)
+  vencido:    'hsl(25 90% 27%)',  // L* 34 — Vencidos (laranja queimado)
   encerrado:  'hsl(215 14% 44%)', // L* 46 — Encerrados, Inativos
   emDia:      'hsl(154 62% 38%)', // L* 58 — Vigentes, Ativos
   emCadastro: 'hsl(210 88% 69%)', // L* 70 — Em cadastro
