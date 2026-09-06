@@ -253,7 +253,7 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
   const handleSave = async () => {
     if (!screen.name.trim()) { setErr('Dê um nome à tela'); return }
     setSaving(true); setErr('')
-    const sortedSections = sections.map((s, i) => ({ id: s.id, label: s.label, name: s.name, source: s.source ?? 'CUSTOM', nativeKey: s.nativeKey, visible: s.visible !== false, locked: s.locked ?? false, order: i, defaultOpen: s.defaultOpen }))
+    const sortedSections = sections.map((s, i) => ({ id: s.id, sectionKey: s.sectionKey, label: s.label, name: s.name, source: s.source ?? 'CUSTOM', nativeKey: s.nativeKey, visible: s.visible !== false, locked: s.locked ?? false, order: i, defaultOpen: s.defaultOpen }))
     const normFields = sortedSections.flatMap(s => fieldsOf(s.id).map((f, i) => ({ id: f.id, fieldKey: f.fieldKey, sectionId: s.id, name: f.name, label: f.label, type: f.type, source: f.source, nativeKey: f.nativeKey, mode: f.mode, locked: f.locked ?? false, visible: f.visible !== false, required: f.required, placeholder: f.placeholder, options: f.options, validation: f.validation, hiddenCategories: f.hiddenCategories ?? [], requiredCategories: f.requiredCategories ?? undefined, order: i })))
     const saved = await saveScreen(screen.id || null, { name: screen.name.trim(), description: screen.description ?? '', subjectType: screen.subjectType, status: screen.status, isDefault: screen.isDefault ?? false, isSystem: screen.isSystem ?? false, readOnly: screen.readOnly ?? false, sections: sortedSections, fields: normFields, removedFieldKeys: removidos })
     setSaving(false)

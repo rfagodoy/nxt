@@ -62,8 +62,21 @@ describe('chaveDaSecao', () => {
     expect(chaveDaSecao(naTelaA)).toBe(chaveDaSecao(naTelaB))
   })
 
-  it('seção personalizada responde pelo próprio id', () => {
+  it('seção personalizada responde pelo próprio id quando ainda não tem chave', () => {
     expect(chaveDaSecao({ id: 'ss_1788', nativeKey: null })).toBe('ss_1788')
     expect(chaveDaSecao({ id: 'ss_1788' })).toBe('ss_1788')
+  })
+
+  it('seção ESPELHADA responde pela chave gravada, não pelo id da linha', () => {
+    // A espelhada nasce com id novo e a chave da origem. Derivar do id fazia a chave
+    // trocar a cada save e a propagação criar uma SEGUNDA seção de mesmo nome.
+    const origem  = { id: 'ss_1788', sectionKey: 'ss_1788' }
+    const espelho = { id: 'cm_linha_nova', sectionKey: 'ss_1788' }
+    expect(chaveDaSecao(espelho)).toBe('ss_1788')
+    expect(chaveDaSecao(espelho)).toBe(chaveDaSecao(origem))
+  })
+
+  it('nativa responde pela nativeKey mesmo tendo sectionKey gravada', () => {
+    expect(chaveDaSecao({ id: 'x', sectionKey: 'outra', nativeKey: 'vigencia' })).toBe('vigencia')
   })
 })

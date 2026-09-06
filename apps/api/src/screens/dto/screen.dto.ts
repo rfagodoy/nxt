@@ -46,6 +46,11 @@ export class ScreenFieldDto {
 
 export class ScreenSectionDto {
   @IsString() id!: string
+  /** Identidade da SEÇÃO na tela. Ausente = seção nova: o servidor adota o próprio id.
+   *  Sem ela de volta, o servidor recalculava a chave a partir do `id` e a seção
+   *  espelhada (id novo, chave da origem) derivava — a linha era apagada e recriada com
+   *  a chave errada, e a propagação seguinte criava uma SEGUNDA seção de mesmo nome. */
+  @IsOptional() @IsString() sectionKey?: string
   @IsString() label!: string
   @IsString() name!: string
   @IsOptional() @IsString() source?: string      // NATIVE | CUSTOM

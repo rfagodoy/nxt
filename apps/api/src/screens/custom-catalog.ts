@@ -56,4 +56,5 @@ export function catalogoCanonico<T extends LinhaCatalogo>(linhas: readonly T[]):
  * todas as telas do tipo); personalizada, pelo próprio id, que o construtor gera por tela.
  * Ver o porquê em saveChildren: o id que chega é determinístico e não serve de identidade.
  */
-export const chaveDaSecao = (s: { id: string; nativeKey?: string | null }): string => s.nativeKey ?? s.id
+export const chaveDaSecao = (s: { id: string; sectionKey?: string | null; nativeKey?: string | null }): string =>
+  s.nativeKey ?? s.sectionKey ?? s.id

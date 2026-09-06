@@ -19,7 +19,13 @@ export function screenBaseFlags(opts: {
  * Duplicar uma cópia não empilha prefixo ("Cópia de Cópia de X") nem número.
  */
 export function nomeDaCopia(base: string, existentes: readonly string[]): string {
-  const limpo = base.replace(/^Cópia de /, '').replace(/ \((\d+)\)$/, '').trim() || base
+  /* O sufixo " (n)" só é NOSSO quando o prefixo também era: "Contrato (2)" é um nome
+     legítimo do usuário, e cortá-lo virava "Cópia de Contrato" — que não diz mais de qual
+     original a cópia veio. */
+  const PREFIXO = 'Cópia de '
+  const limpo = base.startsWith(PREFIXO)
+    ? (base.slice(PREFIXO.length).replace(/ \(\d+\)$/, '').trim() || base)
+    : base
   const usados = new Set(existentes)
   const primeiro = `Cópia de ${limpo}`
   if (!usados.has(primeiro)) return primeiro

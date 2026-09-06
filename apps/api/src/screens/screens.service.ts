@@ -341,7 +341,12 @@ export class ScreensService {
         }
         const existente = jaTem.get(chave)
         if (existente) {
-          if (existente.id !== def.id) await this.prisma.screenField.update({ where: { id: existente.id }, data: defs })
+          /* Só escreve se a definição REALMENTE mudou. Antes bastava a linha não ser a
+             canônica para levar UPDATE, então todo save regravava todos os espelhos —
+             inclusive um save que só trocou o nome da tela. */
+          if (existente.id !== def.id && difereNaDefinicao(existente, defs)) {
+            await this.prisma.screenField.update({ where: { id: existente.id }, data: defs })
+          }
           continue
         }
         await this.prisma.screenField.create({
@@ -361,6 +366,31 @@ export class ScreensService {
         })
       }
     }
+
+    await this.limparSecoesEspelhadasVazias(organizationId, subjectType)
+  }
+
+  /**
+   * Seção que o espelho criou e que ficou sem campo nenhum — tipicamente depois de o
+   * último campo dela ser excluído do tipo. Sem isto ela sobrava na matriz de todas as
+   * telas, vazia, para o admin apagar na mão uma seção que ele nunca criou.
+   *
+   * Espelho se reconhece pela chave: a seção que o admin criou NESTA tela nasceu com
+   * `sectionKey === id`; a espelhada carrega a chave da origem, então difere. Assim uma
+   * seção que o próprio admin esvaziou aqui não é apagada nas costas dele.
+   */
+  private async limparSecoesEspelhadasVazias(organizationId: string, subjectType: string) {
+    const custom = await this.prisma.screenSection.findMany({
+      where:  { source: 'CUSTOM', screen: { organizationId, subjectType } },
+      select: { id: true, sectionKey: true },
+    })
+    const espelhadas = custom.filter(s => s.sectionKey && s.sectionKey !== s.id).map(s => s.id)
+    if (!espelhadas.length) return
+    const comCampo = new Set((await this.prisma.screenField.findMany({
+      where: { sectionId: { in: espelhadas } }, select: { sectionId: true },
+    })).map(r => r.sectionId))
+    const vazias = espelhadas.filter(id => !comCampo.has(id))
+    if (vazias.length) await this.prisma.screenSection.deleteMany({ where: { id: { in: vazias } } })
   }
 
   /**
@@ -393,7 +423,10 @@ export class ScreensService {
        telas que tinham o bug da linha compartilhada. O campo espelhado ficava apontando
        para seção alheia, sumia da matriz e virava órfão. Criar a linha resolve a classe:
        `reconcileNative` preserva seção nativa existente pelo nativeKey, seja qual for o id,
-       então não há duplicata na tela. */
+       então não há duplicata na tela.
+       ⚠️ Não há cascade que a remova depois: `ScreenField.sectionId` não tem FK (de
+       propósito, ver schema). Quem limpa a seção espelhada que ficou sem campo é
+       `limparSecoesEspelhadasVazias`, no fim da propagação. */
     const nova = await this.prisma.screenSection.create({
       data: {
         screenId:    tela.id,
@@ -549,4 +582,18 @@ export class ScreensService {
       this.logger.error(`falha ao auditar campos personalizados de ${subjectType}/${subjectId}: ${String(e)}`)
     }
   }
+}
+
+/** A definição do campo mudou? Compara só o que a linha canônica dita — as três chaves da
+ *  tela (aparece / pode editar / obrigatório), a seção e a ordem são de CADA tela. */
+function difereNaDefinicao(
+  atual: { name: string; label: string; type: string; placeholder: string | null; options: unknown; validation: unknown },
+  novo:  { name: string; label: string; type: string; placeholder: string | null; options: unknown; validation: unknown },
+): boolean {
+  return atual.name !== novo.name
+    || atual.label !== novo.label
+    || atual.type !== novo.type
+    || (atual.placeholder ?? null) !== (novo.placeholder ?? null)
+    || JSON.stringify(atual.options ?? null) !== JSON.stringify(novo.options ?? null)
+    || JSON.stringify(atual.validation ?? null) !== JSON.stringify(novo.validation ?? null)
 }

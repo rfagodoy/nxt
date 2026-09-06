@@ -70,7 +70,11 @@ export const PARTNER_CATEGORIES: { value: PartnerCategory; label: string; short:
 ]
 
 export interface ScreenSection {
+  /** Identidade da LINHA: esta seção NESTA tela. */
   id: string
+  /** Identidade da SEÇÃO, compartilhada pelas telas do tipo (nativa responde pela
+   *  `nativeKey`). Tem de fazer a viagem de volta no save — ver ScreenSectionDto. */
+  sectionKey?: string
   label: string
   name: string
   source?: FieldSource     // NATIVE (seção nativa da entidade) | CUSTOM

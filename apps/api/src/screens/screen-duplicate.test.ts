@@ -19,4 +19,17 @@ describe('nomeDaCopia', () => {
   it('não devolve string vazia quando o nome é só o prefixo', () => {
     expect(nomeDaCopia('Cópia de ', [])).toBe('Cópia de Cópia de ')
   })
+
+  it('NÃO come o sufixo de um nome que o usuário escolheu', () => {
+    // "Contrato (2)" é nome legítimo: cortar virava "Cópia de Contrato", que já não diz
+    // de qual original a cópia veio.
+    expect(nomeDaCopia('Contrato (2)', [])).toBe('Cópia de Contrato (2)')
+    expect(nomeDaCopia('Aditivo (12)', [])).toBe('Cópia de Aditivo (12)')
+  })
+
+  it('distingue duas telas cujo nome só difere pelo sufixo', () => {
+    const usados = ['Cópia de Contrato (1)']
+    expect(nomeDaCopia('Contrato (1)', usados)).toBe('Cópia de Contrato (1) (2)')
+    expect(nomeDaCopia('Contrato (2)', usados)).toBe('Cópia de Contrato (2)')
+  })
 })
