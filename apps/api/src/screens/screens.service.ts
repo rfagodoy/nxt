@@ -1,9 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
 import { SaveScreenDto, ScreenValueDto } from './dto/screen.dto'
 import { screenBaseFlags, nomeDaCopia } from './screen-policy'
 import { diffCustom, type CampoCustom, type OpcaoCampo } from './custom-audit'
-import { chaveDoCampo, chaveDaSecao, catalogoCanonico, chavesRemovidas } from './custom-catalog'
+import { chaveDoCampo, chaveDaSecao, catalogoCanonico } from './custom-catalog'
 
 /**
  * Personalização de telas (Screens). Definições (Screen/Section/Field) e valores
@@ -135,7 +135,9 @@ export class ScreensService {
       where:   { id, organizationId },
       include: { sections: { orderBy: { order: 'asc' } }, fields: { orderBy: { order: 'asc' } } },
     })
-    if (!origem) return null
+    /* 404 de verdade: devolver null virava 201 com corpo vazio, e o cliente quebrava no
+       `res.json()` sem nunca soltar o botão. */
+    if (!origem) throw new NotFoundException('Tela não encontrada')
 
     const usados = (await this.prisma.screen.findMany({
       where: { organizationId, subjectType: origem.subjectType }, select: { name: true },
@@ -241,17 +243,13 @@ export class ScreensService {
     }
 
     /* ─── campos ─── */
-    /* Quais campos personalizados ESTAVAM nesta tela. Um campo que some do payload sai
-       do TIPO inteiro, não só desta tela: com a coluna "Aparece" fazendo o papel de
-       "não quero aqui", o lixo só pode significar excluir o campo do Contrato. */
-    const customAntes = await this.prisma.screenField.findMany({
-      where:  { screenId, source: 'CUSTOM' },
-      select: { id: true, fieldKey: true },
-    })
-
-    const fldKeys = dto.fields.map(chaveDoCampo)
+    /* A poda por OMISSÃO vale só para os NATIVOS: eles vêm inteiros do seed a cada save,
+       então o que não veio realmente saiu da estrutura do sistema.
+       Campo PERSONALIZADO nunca é removido por ausência — some do payload significa "esta
+       tela não mandou", não "excluir". Quem exclui é `removedFieldKeys`, logo abaixo. */
+    const natKeys = dto.fields.filter(f => f.source === 'NATIVE').map(chaveDoCampo)
     await this.prisma.screenField.deleteMany({
-      where: { screenId, fieldKey: { notIn: fldKeys.length ? fldKeys : ['__none__'] } },
+      where: { screenId, source: 'NATIVE', fieldKey: { notIn: natKeys.length ? natKeys : ['__none__'] } },
     })
     const fldOcupados = new Set((await this.prisma.screenField.findMany({
       where:  { id: { in: dto.fields.length ? dto.fields.map(x => x.id) : ['__none__'] }, screenId: { not: screenId } },
@@ -285,14 +283,16 @@ export class ScreensService {
       })
     }
 
-    const removidas = chavesRemovidas(customAntes, dto.fields)
+    /* Exclusão pedida na tela: o campo sai do TIPO inteiro — é o que o ConfirmDialog do
+       construtor avisa. Nenhuma outra coisa apaga campo personalizado. */
+    const removidas = [...new Set(dto.removedFieldKeys ?? [])].filter(Boolean)
     if (removidas.length) {
       await this.prisma.screenField.deleteMany({
         where: { fieldKey: { in: removidas }, screen: { organizationId, subjectType } },
       })
     }
 
-    await this.propagarCamposDoTipo(organizationId, subjectType)
+    await this.propagarCamposDoTipo(organizationId, subjectType, screenId)
   }
 
   /**
@@ -307,7 +307,7 @@ export class ScreensService {
    * As três chaves da tela (aparece / pode editar / obrigatório), a seção e a ordem são de
    * CADA tela e nunca são sobrescritas aqui.
    */
-  private async propagarCamposDoTipo(organizationId: string, subjectType: string) {
+  private async propagarCamposDoTipo(organizationId: string, subjectType: string, telaQueSalvou?: string) {
     const telas = await this.prisma.screen.findMany({
       where:   { organizationId, subjectType },
       include: { sections: true, fields: true },
@@ -316,7 +316,16 @@ export class ScreensService {
 
     const secoesPorId = new Map(telas.flatMap(t => t.sections).map(sec => [sec.id, sec]))
 
+    /* Quem acabou de salvar dita a definição. Sem isto, editar o rótulo de um campo por uma
+       tela onde ele é ESPELHO não fazia nada: a propagação reaplicava a definição da linha
+       "nascida aqui" logo em seguida, e a alteração sumia em silêncio. */
     const canonico = catalogoCanonico(telas.flatMap(t => t.fields))
+    if (telaQueSalvou) {
+      const tela = telas.find(t => t.id === telaQueSalvou)
+      for (const f of tela?.fields ?? []) {
+        if (f.source === 'CUSTOM') canonico.set(chaveDoCampo(f), f)
+      }
+    }
     if (canonico.size === 0) return
 
     for (const tela of telas) {
@@ -367,28 +376,39 @@ export class ScreensService {
    * campo não teria onde morar, e é reversível (some com o campo, pelo cascade).
    */
   private async secaoEspelho(
-    tela: { id: string; sections: { id: string; nativeKey: string | null; name: string; order: number }[] },
+    tela: { id: string; sections: { id: string; sectionKey: string | null; nativeKey: string | null; name: string; order: number }[] },
     sectionIdOrigem: string | null,
-    origem: { label: string; name: string; nativeKey: string | null; defaultOpen: boolean } | null,
+    origem: { id: string; label: string; name: string; nativeKey: string | null; defaultOpen: boolean; order: number } | null,
   ): Promise<string | null> {
     if (!sectionIdOrigem) return null
-    const alvo = tela.sections.find(x => origem?.nativeKey ? x.nativeKey === origem.nativeKey : x.name === origem?.name)
+    const chave = origem ? chaveDaSecao(origem) : sectionIdOrigem
+    const alvo = tela.sections.find(x => (x.sectionKey ?? x.id) === chave)
     if (alvo) return alvo.id
-    if (!origem || origem.nativeKey || sectionIdOrigem.startsWith('nsec_')) return sectionIdOrigem
+    /* Seção que nem existe no catálogo desta organização: preserva o que veio, não inventa. */
+    if (!origem) return sectionIdOrigem
+    /* A linha é criada NESTA tela, nativa ou personalizada.
+       Antes, seção nativa caía num fallback que devolvia o id da linha da tela de ORIGEM,
+       apoiado em "id nativo é determinístico" — invariante que a migração
+       `desfazer_secoes_compartilhadas` derrubou ao criar linhas com NEWID() justamente nas
+       telas que tinham o bug da linha compartilhada. O campo espelhado ficava apontando
+       para seção alheia, sumia da matriz e virava órfão. Criar a linha resolve a classe:
+       `reconcileNative` preserva seção nativa existente pelo nativeKey, seja qual for o id,
+       então não há duplicata na tela. */
     const nova = await this.prisma.screenSection.create({
       data: {
         screenId:    tela.id,
+        sectionKey:  chave,
         label:       origem.label,
         name:        origem.name,
-        source:      'CUSTOM',
-        nativeKey:   null,
+        source:      origem.nativeKey ? 'NATIVE' : 'CUSTOM',
+        nativeKey:   origem.nativeKey,
         visible:     true,   // a seção não some sozinha: quem esconde é o campo apagado
         locked:      false,
         defaultOpen: origem.defaultOpen,
-        order:       tela.sections.reduce((m, x) => Math.max(m, x.order), -1) + 1,
+        order:       origem.nativeKey ? origem.order : tela.sections.reduce((m, x) => Math.max(m, x.order), -1) + 1,
       },
     })
-    tela.sections.push({ id: nova.id, nativeKey: null, name: nova.name, order: nova.order })
+    tela.sections.push({ id: nova.id, sectionKey: chave, nativeKey: nova.nativeKey, name: nova.name, order: nova.order })
     return nova.id
   }
 

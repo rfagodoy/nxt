@@ -63,9 +63,15 @@ export default function TelasPage() {
   const duplicar = async (id: string) => {
     if (duplicando) return
     setDuplicando(id)
-    const nova = await duplicateScreen(id)
-    setDuplicando(null)
-    if (nova) router.push(`/settings/telas/${nova.id}`); else void reload()
+    /* `finally`: sem ele, uma falha deixava `duplicando` preso e o botão desabilitado
+       até recarregar a página. */
+    try {
+      const nova = await duplicateScreen(id)
+      if (nova) { router.push(`/settings/telas/${nova.id}`); return }
+      void reload()
+    } finally {
+      setDuplicando(null)
+    }
   }
   const custom = (s: Screen) => (s.fields ?? []).filter(f => f.source === 'CUSTOM').length
 

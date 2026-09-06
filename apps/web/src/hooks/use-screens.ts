@@ -15,6 +15,9 @@ export interface SaveScreenPayload {
   readOnly?: boolean
   sections: Screen['sections']
   fields: Screen['fields']
+  /** Chaves de campos personalizados que o usuário mandou excluir do TIPO (via diálogo).
+   *  Só isto exclui: sumir do `fields` significa "esta tela não mandou", não "apague". */
+  removedFieldKeys?: string[]
 }
 
 /** Lista de Telas do catálogo (opcionalmente por subject). */

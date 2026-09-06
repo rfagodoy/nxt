@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { chaveDoCampo, chaveDaSecao, catalogoCanonico, chavesRemovidas } from './custom-catalog'
+import { chaveDoCampo, chaveDaSecao, catalogoCanonico } from './custom-catalog'
 
 const d = (iso: string) => new Date(iso)
 const linha = (o: Partial<{ id: string; fieldKey: string | null; source: string; updatedAt: Date }> = {}) => ({
@@ -51,36 +51,6 @@ describe('catalogoCanonico', () => {
       linha({ id: 'fld_2', fieldKey: 'fld_2' }),
     ]
     expect([...catalogoCanonico(linhas).keys()].sort()).toEqual(['fld_1', 'fld_2'])
-  })
-})
-
-describe('chavesRemovidas', () => {
-  it('acusa o campo que saiu do payload', () => {
-    const antes  = [{ id: 'fld_1', fieldKey: 'fld_1' }, { id: 'l2', fieldKey: 'fld_2' }]
-    const depois = [{ id: 'fld_1', fieldKey: 'fld_1', source: 'CUSTOM' }]
-    expect(chavesRemovidas(antes, depois)).toEqual(['fld_2'])
-  })
-
-  it('trocar de linha (mesmo campo, outro id) NÃO é remoção', () => {
-    const antes  = [{ id: 'l7', fieldKey: 'fld_1' }]
-    const depois = [{ id: 'l8', fieldKey: 'fld_1', source: 'CUSTOM' }]
-    expect(chavesRemovidas(antes, depois)).toEqual([])
-  })
-
-  it('ocultar não é remover: o campo continua no payload', () => {
-    const antes  = [{ id: 'fld_1', fieldKey: 'fld_1' }]
-    const depois = [{ id: 'fld_1', fieldKey: 'fld_1', source: 'CUSTOM' }]
-    expect(chavesRemovidas(antes, depois)).toEqual([])
-  })
-
-  it('não conta campo nativo do payload como sobrevivente de um custom homônimo', () => {
-    const antes  = [{ id: 'fld_1', fieldKey: 'fld_1' }]
-    const depois = [{ id: 'fld_1', fieldKey: 'fld_1', source: 'NATIVE' }]
-    expect(chavesRemovidas(antes, depois)).toEqual(['fld_1'])
-  })
-
-  it('nada a remover quando a tela não tinha campo personalizado', () => {
-    expect(chavesRemovidas([], [{ id: 'fld_1', fieldKey: 'fld_1', source: 'CUSTOM' }])).toEqual([])
   })
 })
 

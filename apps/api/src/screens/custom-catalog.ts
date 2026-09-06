@@ -44,20 +44,12 @@ export function catalogoCanonico<T extends LinhaCatalogo>(linhas: readonly T[]):
   return out
 }
 
-/**
- * Chaves que saíram do TIPO ao salvar uma tela.
- *
- * Com "Aparece" fazendo o papel de "não quero este campo aqui", tirar o campo da tela só
- * pode significar excluí-lo do tipo — senão a propagação o traria de volta no save
- * seguinte e o lixo nunca funcionaria.
- */
-export function chavesRemovidas(
-  antes: readonly { id: string; fieldKey?: string | null }[],
-  depois: readonly { id: string; fieldKey?: string | null; source: string }[],
-): string[] {
-  const ficaram = new Set(depois.filter(f => f.source === 'CUSTOM').map(chaveDoCampo))
-  return [...new Set(antes.map(chaveDoCampo).filter(k => !ficaram.has(k)))]
-}
+/* Aqui existia `chavesRemovidas`, que DEDUZIA a exclusão a partir de "a chave não veio no
+   payload". A dedução era errada: três caminhos omitiam campo sem querer — a gaveta de
+   edição remontava o objeto sem a chave, excluir uma seção levava os campos junto, e uma
+   aba aberta antes de um colega criar um campo em outra tela salvava sem ele. Qualquer um
+   apagava o campo de TODAS as telas e órfanava os valores. Agora a exclusão é DITA:
+   `SaveScreenDto.removedFieldKeys`, alimentada pelo diálogo de confirmação do construtor. */
 
 /**
  * A identidade da SEÇÃO dentro da tela. Nativa responde pela `nativeKey` (a mesma chave em

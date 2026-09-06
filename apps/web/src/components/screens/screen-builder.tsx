@@ -10,7 +10,8 @@ import { cn } from '@/lib/utils'
 import { saveScreen } from '@/hooks/use-screens'
 import {
   SUBJECT_LABELS, STATUS_LABELS, FIELD_TYPE_LABELS, PARTNER_CATEGORIES, slug,
-  type Screen, type ScreenField, type ScreenSubject, type ScreenStatus, type PartnerCategory,
+  fieldValueKey,
+  type Screen, type ScreenField, type ScreenSection, type ScreenSubject, type ScreenStatus, type PartnerCategory,
 } from '@/lib/screen-types'
 import { buildNativeSeed, reconcileNative } from '@/lib/screen-native-structure'
 import { fieldAppliesTo, fieldVisibleFor, requiredFor } from '@/lib/screen-partner-categories'
@@ -106,6 +107,12 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
   const [menuOpen, setMenuOpen] = useState<string | null>(null)
   /* campo personalizado é do TIPO: excluir tira de TODAS as telas, então pergunta antes */
   const [excluindoCampo, setExcluindoCampo] = useState<ScreenField | null>(null)
+  const [excluindoSecao, setExcluindoSecao] = useState<ScreenSection | null>(null)
+  /* CHAVES que o usuário mandou excluir do tipo. O servidor só apaga o que está aqui:
+     campo que some do payload por qualquer outro motivo fica onde está. */
+  const [removidos, setRemovidos] = useState<string[]>([])
+  const marcarRemovido = (fs: ScreenField[]) =>
+    setRemovidos(prev => [...new Set([...prev, ...fs.filter(f => f.source === 'CUSTOM').map(fieldValueKey)])])
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
@@ -152,7 +159,13 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
     patch({ sections: [...screen.sections, { id: `ss_${Date.now()}`, label, name: slug(label), source: 'CUSTOM', visible: true, order: sections.length, defaultOpen: true }] })
     setNewSectionLabel(''); setAddingSection(false)
   }
-  const removeSection = (sid: string) => patch({ sections: screen.sections.filter(s => s.id !== sid), fields: screen.fields.filter(f => f.sectionId !== sid) })
+  /* Excluir seção leva os campos personalizados dela junto — e eles são do TIPO, então
+     saem de todas as telas. Por isso passa pelo mesmo diálogo do campo avulso: antes isto
+     apagava campo de todo mundo em silêncio, sem nem perguntar. */
+  const removeSection = (sid: string) => {
+    marcarRemovido(screen.fields.filter(f => f.sectionId === sid))
+    patch({ sections: screen.sections.filter(s => s.id !== sid), fields: screen.fields.filter(f => f.sectionId !== sid) })
+  }
   const renameSection = (sid: string) => {
     const label = renameLabel.trim(); if (!label) return
     patch({ sections: screen.sections.map(s => s.id === sid ? { ...s, label, name: slug(label) } : s) }); setRenamingSection(null)
@@ -242,7 +255,7 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
     setSaving(true); setErr('')
     const sortedSections = sections.map((s, i) => ({ id: s.id, label: s.label, name: s.name, source: s.source ?? 'CUSTOM', nativeKey: s.nativeKey, visible: s.visible !== false, locked: s.locked ?? false, order: i, defaultOpen: s.defaultOpen }))
     const normFields = sortedSections.flatMap(s => fieldsOf(s.id).map((f, i) => ({ id: f.id, fieldKey: f.fieldKey, sectionId: s.id, name: f.name, label: f.label, type: f.type, source: f.source, nativeKey: f.nativeKey, mode: f.mode, locked: f.locked ?? false, visible: f.visible !== false, required: f.required, placeholder: f.placeholder, options: f.options, validation: f.validation, hiddenCategories: f.hiddenCategories ?? [], requiredCategories: f.requiredCategories ?? undefined, order: i })))
-    const saved = await saveScreen(screen.id || null, { name: screen.name.trim(), description: screen.description ?? '', subjectType: screen.subjectType, status: screen.status, isDefault: screen.isDefault ?? false, isSystem: screen.isSystem ?? false, readOnly: screen.readOnly ?? false, sections: sortedSections, fields: normFields })
+    const saved = await saveScreen(screen.id || null, { name: screen.name.trim(), description: screen.description ?? '', subjectType: screen.subjectType, status: screen.status, isDefault: screen.isDefault ?? false, isSystem: screen.isSystem ?? false, readOnly: screen.readOnly ?? false, sections: sortedSections, fields: normFields, removedFieldKeys: removidos })
     setSaving(false)
     if (!saved) { setErr('Falha ao salvar. Tente novamente.'); return }
     router.push('/settings/telas')
@@ -524,7 +537,7 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
                                             {s.defaultOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                                             {s.defaultOpen ? 'Abre recolhida no cadastro' : 'Abre aberta no cadastro'}
                                           </button>
-                                          {!isNativeSec && <button onClick={() => { removeSection(s.id); setMenuOpen(null) }} className="w-full text-left px-3 py-1.5 hover:bg-destructive/10 text-destructive flex items-center gap-2"><Trash2 className="h-3.5 w-3.5" />Excluir seção</button>}
+                                          {!isNativeSec && <button onClick={() => { setExcluindoSecao(s); setMenuOpen(null) }} className="w-full text-left px-3 py-1.5 hover:bg-destructive/10 text-destructive flex items-center gap-2"><Trash2 className="h-3.5 w-3.5" />Excluir seção</button>}
                                         </div>
                                       </>
                                     )}
@@ -659,8 +672,16 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
 
       <ConfirmDialog open={!!excluindoCampo} tone="danger" title="Excluir campo" confirmLabel="Excluir"
         description={<>Excluir <b>“{excluindoCampo?.label}”</b>? O campo é do {SUBJECT_LABELS[screen.subjectType]}, não desta tela — ele sai de <b>todas</b> as telas, e o que já foi preenchido deixa de ser exibido. Para tirá-lo só daqui, desmarque <b>Aparece</b>.</>}
-        onConfirm={() => { if (excluindoCampo) removeField(excluindoCampo.id); setExcluindoCampo(null) }}
+        onConfirm={() => { if (excluindoCampo) { marcarRemovido([excluindoCampo]); removeField(excluindoCampo.id) } setExcluindoCampo(null) }}
         onClose={() => setExcluindoCampo(null)} />
+
+      <ConfirmDialog open={!!excluindoSecao} tone="danger" title="Excluir seção" confirmLabel="Excluir"
+        description={(() => {
+          const n = excluindoSecao ? screen.fields.filter(f => f.sectionId === excluindoSecao.id && f.source === 'CUSTOM').length : 0
+          return <>Excluir a seção <b>“{excluindoSecao?.label}”</b>?{n > 0 && <> Os <b>{n === 1 ? '1 campo' : `${n} campos`}</b> dentro dela {n === 1 ? 'é do' : 'são do'} {SUBJECT_LABELS[screen.subjectType]}, não desta tela — {n === 1 ? 'ele sai' : 'eles saem'} de <b>todas</b> as telas, e o que já foi preenchido deixa de ser exibido.</>}</>
+        })()}
+        onConfirm={() => { if (excluindoSecao) removeSection(excluindoSecao.id); setExcluindoSecao(null) }}
+        onClose={() => setExcluindoSecao(null)} />
 
       {(editingField || addingToSection) && (
         <ScreenFieldEditor sections={sections} subjectType={screen.subjectType} initial={editingField ?? undefined} defaultSectionId={addingToSection ?? undefined}

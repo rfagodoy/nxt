@@ -70,6 +70,17 @@ export class SaveScreenDto {
   sections!: ScreenSectionDto[]
   @IsArray() @ValidateNested({ each: true }) @Type(() => ScreenFieldDto)
   fields!: ScreenFieldDto[]
+  /**
+   * CHAVES de campos personalizados que o usuário mandou excluir do TIPO.
+   *
+   * Exclusão é DITA, nunca deduzida. Antes o servidor inferia "excluir do tipo" a partir
+   * de "não veio no payload", e três caminhos omitiam campo sem querer — editar um campo
+   * (a gaveta remontava o objeto sem a chave), excluir uma seção, ou salvar de uma aba
+   * aberta antes de um colega criar o campo em outra tela. Qualquer um deles apagava o
+   * campo de todas as telas e órfanava os valores já preenchidos.
+   */
+  @IsOptional() @IsArray() @IsString({ each: true })
+  removedFieldKeys?: string[]
 }
 
 /* ─── Valores preenchidos (ScreenFieldValue) ─────────────────────────────── */
