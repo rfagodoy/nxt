@@ -140,10 +140,13 @@ export default function TelasPage() {
               ) : shown.map(s => (
                 <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors group/row">
                   <td className="px-4 py-1.5">
-                    <span className="flex items-center gap-1.5">
+                    {/* Fluxo de texto, não flex: a etiqueta é parte da frase e tem de seguir a
+                        ÚLTIMA palavra do nome. Em flex com `items-center`, um nome que quebra em
+                        duas linhas deixava a etiqueta boiando no meio da altura da linha. */}
+                    <span className="block">
                       <Link href={`/settings/telas/${s.id}`} className="font-medium hover:text-primary transition-colors">{s.name}</Link>
-                      {s.isSystem && <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-slate-500/10 text-slate-600 dark:text-slate-300"><Lock className="h-2.5 w-2.5" />Sistema</span>}
-                      {s.readOnly && <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-amber-500/10 text-amber-600 dark:text-amber-400" title="Nenhum campo é editável e nada é gravado por esta tela"><Lock className="h-2.5 w-2.5" />Somente consulta</span>}
+                      {s.isSystem && <span className="ml-1.5 inline-flex items-center gap-0.5 align-middle whitespace-nowrap rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-slate-500/10 text-slate-600 dark:text-slate-300"><Lock className="h-2.5 w-2.5" />Sistema</span>}
+                      {s.readOnly && <span className="ml-1.5 inline-flex items-center gap-0.5 align-middle whitespace-nowrap rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-amber-500/10 text-amber-600 dark:text-amber-400" title="Nenhum campo é editável e nada é gravado por esta tela"><Lock className="h-2.5 w-2.5" />Somente consulta</span>}
                     </span>
                     {s.description && <p className="text-[11px] text-muted-foreground truncate max-w-md">{s.description}</p>}
                   </td>
