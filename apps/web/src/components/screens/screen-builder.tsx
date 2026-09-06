@@ -402,14 +402,15 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
 
           {/* estatísticas */}
           <div className="rounded-xl border bg-card shadow-sm p-3 space-y-2">
+            {/* Contagem, não legenda: as bolinhas coloridas daqui explicavam um código de
+                cores que não existe mais na matriz — legenda de código morto engana. */}
             {[
-              { n: nNative, l: 'campos nativos', c: 'bg-blue-500' },
-              { n: nCustom, l: 'personalizados', c: 'bg-primary' },
-              { n: nHidden, l: isPartner ? `ocultos em ${PARTNER_CATEGORIES.find(c => c.value === cat)?.short}` : 'ocultos no cadastro', c: 'bg-amber-500' },
-              { n: screen.readOnly ? nNative + nCustom : nLocked, l: screen.readOnly ? 'travados (tela em consulta)' : 'travados (só consulta)', c: 'bg-slate-500' },
-            ].map(({ n, l, c }) => (
-              <div key={l} className="flex items-center gap-2 text-[12px] text-muted-foreground">
-                <span className={cn('h-1.5 w-1.5 rounded-full', c)} />
+              { n: nNative, l: 'campos do sistema' },
+              { n: nCustom, l: 'campos seus' },
+              { n: nHidden, l: isPartner ? `ocultos em ${PARTNER_CATEGORIES.find(c => c.value === cat)?.short}` : 'ocultos no cadastro' },
+              { n: screen.readOnly ? nNative + nCustom : nLocked, l: screen.readOnly ? 'travados (tela em consulta)' : 'travados (só consulta)' },
+            ].map(({ n, l }) => (
+              <div key={l} className="flex items-baseline gap-2 text-[12px] text-muted-foreground">
                 <b className="text-foreground font-mono tabular-nums">{n}</b> {l}
               </div>
             ))}
@@ -565,8 +566,12 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
                             <tr key={f.id} className={cn('group/f border-b last:border-0 hover:bg-muted/30 transition-colors', !vis && 'opacity-55')}>
                               <td className="px-3 py-1">
                                 <span className="flex items-center gap-1.5 pl-[26px]">
-                                  <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', native ? 'bg-blue-500' : 'bg-primary')} />
                                   <span className="truncate">{f.label}</span>
+                                  {/* Marca o que é SEU, não o que é do sistema: o padrão é o sistema, e
+                                      quem precisa achar rápido é quem criou o campo. Era uma bolinha
+                                      azul contra uma verde — informação que só existia para quem
+                                      distingue as duas cores, num alvo de 6px. */}
+                                  {!native && <span className="shrink-0 rounded bg-primary/10 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-primary">seu campo</span>}
                                   {!native && (
                                     <span className="ml-auto flex items-center gap-0.5 shrink-0 opacity-0 group-hover/f:opacity-100 focus-within:opacity-100 transition-opacity">
                                       <button onClick={() => setEditingField(f)} title="Editar campo" className={iconBtn}><Pencil className="h-3 w-3" /></button>
