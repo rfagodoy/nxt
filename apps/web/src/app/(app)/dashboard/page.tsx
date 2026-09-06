@@ -281,13 +281,18 @@ export default function DashboardPage() {
    de diferença em L* —, então para quem não distingue as matizes a rosca virava um
    disco de uma cor só e não dava para casar fatia com legenda.
    Em escala de cinza elas agora viram 34%, 46%, 58%, 70% e 82%: uma escada.
+
+   O PESO segue a urgência, não o acaso: "Vencidos" ocupa o degrau mais ESCURO — é o que
+   exige ação — e "Rescindidos" o mais claro, porque já é assunto encerrado. A primeira
+   versão tinha o oposto e deixava o vencido num âmbar pálido, suave demais para o que ele
+   quer dizer.
    ⚠️ Fatia nova entra ENCAIXANDO num degrau livre, não escolhendo uma cor bonita. */
 const COR_FATIA = {
-  rompido:    'hsl(0 68% 36%)',   // L* 34 — Rescindidos
+  vencido:    'hsl(38 90% 23%)',  // L* 34 — Vencidos (âmbar profundo)
   encerrado:  'hsl(215 14% 44%)', // L* 46 — Encerrados, Inativos
   emDia:      'hsl(154 62% 38%)', // L* 58 — Vigentes, Ativos
   emCadastro: 'hsl(210 88% 69%)', // L* 70 — Em cadastro
-  vencido:    'hsl(38 95% 68%)',  // L* 82 — Vencidos
+  rompido:    'hsl(0 48% 84%)',   // L* 82 — Rescindidos (rosa acinzentado)
 } as const
 
 interface Fatia { nome: string; valor: number; cor: string }
