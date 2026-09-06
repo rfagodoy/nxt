@@ -9,6 +9,7 @@ import { Building2, Briefcase, Phone, MapPin, CreditCard, Users, Clock, Layers, 
 import type { Screen, ScreenField, PartnerCategory } from './screen-types'
 import { reconcileNative } from './screen-native-structure'
 import { fieldVisibleFor, nativeAppliesTo, requiredFor } from './screen-partner-categories'
+import { nativeLockFn, fieldLocked, lockCtx, sectionIsLocked, type LockContext } from './screen-locks'
 
 export type PartnerVisFn = (key: string) => boolean
 
@@ -37,6 +38,9 @@ export interface ResolvedPartnerSection {
   defaultOpen:  boolean
   order:        number
   screenVis:    PartnerVisFn  // campos nativos visíveis segundo a tela
+  screenLock:   PartnerVisFn  // campos nativos TRAVADOS (tela + seção + etapa do workflow)
+  /** Seção INTEIRA em consulta (tela em consulta, ou a própria seção travada). */
+  locked:       boolean
   customFields: ScreenField[] // campos personalizados desta seção (persistidos)
 }
 
@@ -57,9 +61,13 @@ export function resolvePartnerSections(
   screen: Screen,
   category: PartnerCategory,
   mode: 'new' | 'detail' = 'detail',
+  lock: LockContext = {},
 ): ResolvedPartnerSection[] {
   const isPJ   = category === 'PJ_BR' || category === 'PJ_EST'
   const isPJBR = category === 'PJ_BR'
+  // Camadas montadas uma vez: tela (piso) → seções travadas → etapa do workflow (aperta).
+  const ctx: LockContext = lockCtx(screen, lock)
+  const nativeLock = nativeLockFn(screen, ctx)
 
   const customBySection = new Map<string, ScreenField[]>()
   screen.fields
@@ -68,8 +76,9 @@ export function resolvePartnerSections(
     .forEach(f => {
       const k = f.sectionId ?? '__loose__'
       const arr = customBySection.get(k) ?? []
-      // bakeia a obrigatoriedade EFETIVA para o tipo → downstream (marcador * e enforcement) lê `required`
-      arr.push({ ...f, required: requiredFor(f, category) })
+      // bakeia a obrigatoriedade EFETIVA para o tipo e a TRAVA efetiva (tela + etapa) →
+      // downstream lê `required`/`locked` sem precisar conhecer as camadas
+      arr.push({ ...f, required: requiredFor(f, category), locked: fieldLocked(f, ctx) })
       customBySection.set(k, arr)
     })
 
@@ -108,6 +117,8 @@ export function resolvePartnerSections(
         const f = nativeByKey.get(key)
         return f ? fieldVisibleFor(f, category) : nativeAppliesTo(key, category)
       },
+      screenLock:  nativeLock,
+      locked:      sectionIsLocked(s, ctx),
       customFields: custom,
     })
   }

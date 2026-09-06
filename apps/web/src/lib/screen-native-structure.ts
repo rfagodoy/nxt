@@ -5,10 +5,14 @@
  * e a tela só controla a VISIBILIDADE (nome/tipo/tamanho são do sistema, não editáveis).
  */
 import { NATIVE_FIELDS } from '@/hooks/use-partner-fields'
-import type { Screen, ScreenSection, ScreenField, ScreenSubject } from './screen-types'
+import type { Screen, ScreenSection, ScreenField, ScreenSubject, ScreenFieldType } from './screen-types'
 
 export interface NativeSectionDef { key: string; label: string; defaultOpen?: boolean }
-export interface NativeStructure { sections: NativeSectionDef[]; fieldsBySection: Record<string, { key: string; label: string }[]> }
+/** `type` é a FORMA do dado no cadastro (o widget real). Ausente = texto.
+ *  É o que a coluna "Tipo" do construtor mostra — nativo e personalizado falam a mesma
+ *  língua ali. ⚠️ Espelha o formulário: mudou o widget, mude aqui junto. */
+export interface NativeFieldDef { key: string; label: string; type?: ScreenFieldType }
+export interface NativeStructure { sections: NativeSectionDef[]; fieldsBySection: Record<string, NativeFieldDef[]> }
 
 /* ── Fornecedor: derivado de NATIVE_FIELDS (partner) ── */
 const FORN_SECTIONS: NativeSectionDef[] = [
@@ -21,7 +25,7 @@ const FORN_SECTIONS: NativeSectionDef[] = [
   { key: 'historico',     label: 'Histórico' }, // seção-bloco (auditoria): só liga/desliga, só no detalhe
 ]
 const FORN_FIELDS: NativeStructure['fieldsBySection'] = FORN_SECTIONS.reduce((acc, s) => {
-  acc[s.key] = NATIVE_FIELDS.filter(f => f.section === s.key).map(f => ({ key: f.key, label: f.label }))
+  acc[s.key] = NATIVE_FIELDS.filter(f => f.section === s.key).map(f => ({ key: f.key, label: f.label, type: f.type }))
   return acc
 }, {} as NativeStructure['fieldsBySection'])
 
@@ -47,21 +51,21 @@ const CONTR_FIELDS: NativeStructure['fieldsBySection'] = {
      — o construtor de Telas lista os campos nesta ordem, e reconcileNative a estampa
      nas telas existentes. Mudou o formulário? Mude aqui junto. */
   dados_gerais: [
-    { key: 'natureza', label: 'Natureza do contrato' }, { key: 'numero', label: 'Número' },
-    { key: 'situacao', label: 'Situação' }, { key: 'titulo', label: 'Título' },
-    { key: 'descricao', label: 'Descrição' }, { key: 'objeto', label: 'Objeto do contrato' },
-    { key: 'tipo', label: 'Tipo de contrato' }, { key: 'data_assinatura', label: 'Data de assinatura' },
-    { key: 'mao_de_obra', label: 'Mão de obra alocada' },
+    { key: 'natureza', label: 'Natureza do contrato', type: 'select' }, { key: 'numero', label: 'Número' },
+    { key: 'situacao', label: 'Situação', type: 'select' }, { key: 'titulo', label: 'Título' },
+    { key: 'descricao', label: 'Descrição', type: 'textarea' }, { key: 'objeto', label: 'Objeto do contrato', type: 'multiselect' },
+    { key: 'tipo', label: 'Tipo de contrato', type: 'select' }, { key: 'data_assinatura', label: 'Data de assinatura', type: 'date' },
+    { key: 'mao_de_obra', label: 'Mão de obra alocada', type: 'select' },
   ],
   vigencia: [
-    { key: 'inicio', label: 'Início da vigência' }, { key: 'prazo_indeterminado', label: 'Prazo indeterminado' },
-    { key: 'termino', label: 'Término da vigência' }, { key: 'acao_termino', label: 'Ao término da vigência' },
+    { key: 'inicio', label: 'Início da vigência', type: 'date' }, { key: 'prazo_indeterminado', label: 'Prazo indeterminado', type: 'checkbox' },
+    { key: 'termino', label: 'Término da vigência', type: 'date' }, { key: 'acao_termino', label: 'Ao término da vigência', type: 'select' },
   ],
   valor: [
-    { key: 'moeda', label: 'Moeda' }, { key: 'condicao_pagamento', label: 'Condição de pagamento' },
-    { key: 'valor_total', label: 'Valor total do contrato' }, { key: 'valor_parcela', label: 'Valor da parcela' },
-    { key: 'forma_pagamento', label: 'Forma de pagamento' }, { key: 'qtd_parcelas', label: 'Quantidade de parcelas' },
-    { key: 'complemento', label: 'Complemento do valor' },
+    { key: 'moeda', label: 'Moeda', type: 'select' }, { key: 'condicao_pagamento', label: 'Condição de pagamento', type: 'select' },
+    { key: 'valor_total', label: 'Valor total do contrato', type: 'currency' }, { key: 'valor_parcela', label: 'Valor da parcela', type: 'currency' },
+    { key: 'forma_pagamento', label: 'Forma de pagamento', type: 'select' }, { key: 'qtd_parcelas', label: 'Quantidade de parcelas', type: 'number' },
+    { key: 'complemento', label: 'Complemento do valor', type: 'textarea' },
   ],
   /* seções-bloco: sem campos nativos (o componente é atômico) */
   partes: [], pagamentos: [], recebimentos: [], reajuste: [], aditivos: [], documentos: [], historico: [],
@@ -86,7 +90,7 @@ export function buildNativeSeed(subject: ScreenSubject): { sections: ScreenSecti
   const fields: ScreenField[] = struct.sections.flatMap(s =>
     (struct.fieldsBySection[s.key] ?? []).map((f, i) => ({
       id: `nfld_${p}_${f.key}`, sectionId: `nsec_${p}_${s.key}`, name: f.key, label: f.label,
-      type: 'text', source: 'NATIVE', nativeKey: f.key, mode: 'VIEW', visible: true, required: false, order: i,
+      type: f.type ?? 'text', source: 'NATIVE', nativeKey: f.key, mode: 'VIEW', visible: true, required: false, order: i,
     } as ScreenField)),
   )
   return { sections, fields }
@@ -120,12 +124,21 @@ export function reconcileNative(screen: Screen): Screen {
   const secIdByKey = new Map(
     [...prunedSections, ...addSections].filter(s => s.source === 'NATIVE').map(s => [s.nativeKey ?? '', s.id]),
   )
-  /* Re-parenta todo campo nativo para a seção com o nativeKey certo (o sistema é dono do lugar). */
+  /* O sistema é dono do LUGAR e da FORMA do campo nativo: seção, rótulo e tipo vêm sempre
+     do seed, nunca do que está gravado. Telas salvas antes de os tipos nativos existirem
+     guardaram tudo como 'text' — sem reaplicar aqui, a coluna "Tipo" continuaria dizendo
+     "Texto" para uma data ou um valor nelas. */
+  const seedByNative = new Map(seed.fields.map(f => [f.nativeKey ?? '', f]))
   const reparent = (f: ScreenField): ScreenField => {
     if (f.source !== 'NATIVE') return f
-    const secKey   = seedFieldSecKey.get(f.nativeKey ?? '')
-    const targetId = secKey ? secIdByKey.get(secKey) : undefined
-    return targetId && targetId !== f.sectionId ? { ...f, sectionId: targetId } : f
+    const seedF     = seedByNative.get(f.nativeKey ?? '')
+    const secKey    = seedFieldSecKey.get(f.nativeKey ?? '')
+    const targetId  = secKey ? secIdByKey.get(secKey) : undefined
+    const sectionId = targetId ?? f.sectionId
+    const type      = seedF?.type ?? f.type
+    const label     = seedF?.label ?? f.label
+    if (sectionId === f.sectionId && type === f.type && label === f.label) return f
+    return { ...f, sectionId, type, label }
   }
   const fldByNative = new Map(prunedFields.filter(f => f.source === 'NATIVE').map(f => [f.nativeKey, f]))
   const fields   = prunedFields.map(reparent)

@@ -15,6 +15,7 @@ import {
 import type { Screen, ScreenField } from './screen-types'
 import { reconcileNative } from './screen-native-structure'
 import { temPagamentos, temRecebimentos } from './contract-options'
+import { nativeLockFn, fieldLocked, lockCtx, sectionIsLocked, type LockContext } from './screen-locks'
 
 export type ContractVisFn = (key: string) => boolean
 
@@ -45,6 +46,11 @@ export interface ResolvedContractSection {
   defaultOpen:  boolean
   order:        number
   screenVis:    ContractVisFn // campos nativos visíveis segundo a tela
+  screenLock:   ContractVisFn // campos nativos TRAVADOS (tela + seção + etapa do workflow)
+  /** Seção INTEIRA em consulta (tela em consulta, ou a própria seção travada).
+   *  As seções-BLOCO (partes, pagamentos, documentos…) não têm campo a campo: é por aqui
+   *  que a trava chega nelas. */
+  locked:       boolean
   customFields: ScreenField[] // campos personalizados desta seção (persistidos)
 }
 
@@ -65,7 +71,11 @@ export function resolveContractSections(
   screen: Screen,
   natureza: string,
   mode: 'new' | 'detail',
+  lock: LockContext = {},
 ): ResolvedContractSection[] {
+  // Camadas montadas uma vez: tela (piso) → seções travadas → etapa do workflow (aperta).
+  const ctx: LockContext = lockCtx(screen, lock)
+  const nativeLock = nativeLockFn(screen, ctx)
   const customBySection = new Map<string, ScreenField[]>()
   screen.fields
     .filter(f => f.source === 'CUSTOM' && f.visible !== false)
@@ -73,7 +83,8 @@ export function resolveContractSections(
     .forEach(f => {
       const k = f.sectionId ?? '__loose__'
       const arr = customBySection.get(k) ?? []
-      arr.push(f)
+      // bakeia a TRAVA efetiva (tela + etapa) → downstream lê `locked` sem conhecer as camadas
+      arr.push({ ...f, locked: fieldLocked(f, ctx) })
       customBySection.set(k, arr)
     })
 
@@ -115,6 +126,8 @@ export function resolveContractSections(
         const f = nativeByKey.get(key)
         return f ? f.visible !== false : true
       },
+      screenLock:  nativeLock,
+      locked:      sectionIsLocked(s, ctx),
       customFields: custom,
     })
   }

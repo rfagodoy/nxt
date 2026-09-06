@@ -460,13 +460,14 @@ export class PartnersService {
     return idCondition(ids, negate)
   }
 
-  /** Campos personalizados do Parceiro (source=CUSTOM da tela do FORNECEDOR): id → tipo/opções. */
+  /** Campos personalizados do Parceiro (source=CUSTOM da tela do FORNECEDOR): CHAVE → tipo/opções.
+   *  Por `fieldKey` e não pelo id da linha — ver loadContractCustomFields. */
   private async loadPartnerCustomFields(organizationId: string): Promise<Map<string, CustomFieldMeta>> {
     const fields = await this.prisma.screenField.findMany({
       where:  { source: 'CUSTOM', screen: { organizationId, subjectType: 'FORNECEDOR' } },
-      select: { id: true, type: true, options: true },
+      select: { id: true, fieldKey: true, type: true, options: true },
     })
-    return new Map(fields.map((f) => [f.id, {
+    return new Map(fields.map((f) => [f.fieldKey ?? f.id, {
       type:    f.type,
       options: (f.options as unknown as { value: string; label: string }[] | null) ?? [],
     }]))

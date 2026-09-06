@@ -87,7 +87,7 @@ interface ScreenLike {
   id: string
   name?: string
   subjectType?: string
-  fields?: Array<{ id: string; label: string; type: string; source?: string; options?: Array<{ label: string; value: string }> | null }>
+  fields?: Array<{ id: string; fieldKey?: string | null; label: string; type: string; source?: string; options?: Array<{ label: string; value: string }> | null }>
 }
 
 /** Nós que alcançam `alvo` seguindo as setas (mesma regra do predecessorasDe do editor). */
@@ -143,7 +143,11 @@ export function camposDisponiveis(
         if (f.source !== 'CUSTOM') continue
         const tipo = tipoDoCampo(f.type)
         if (!tipo) continue
-        add({ key: `contrato.${f.id}`, label: f.label, tipo, options: f.options ?? undefined, origem: s.name || 'Tela do contrato' })
+        /* CHAVE do campo, não id da linha: o mesmo campo tem uma linha por tela, e o valor
+           responde pela chave. Com o id, uma condição criada a partir da tela em que o campo
+           é espelho nunca casaria com o valor gravado. Chave nasceu igual ao id antigo, então
+           condição já gravada continua válida. */
+        add({ key: `contrato.${f.fieldKey ?? f.id}`, label: f.label, tipo, options: f.options ?? undefined, origem: s.name || 'Tela do contrato' })
       }
     }
   }

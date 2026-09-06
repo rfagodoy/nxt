@@ -60,7 +60,15 @@ export function ScreenFieldEditor({ sections, subjectType, initial, defaultSecti
     if (!nm) { setErr('Nome obrigatório'); return }
     onSave({
       id: initial?.id ?? `sf_${Date.now()}`,
-      sectionId, name: nm, label: label.trim(), type, source: 'CUSTOM', mode: 'EDIT', visible: true,
+      /* A gaveta edita SÓ o que ela mostra. Tudo o mais vem de `initial` intacto:
+         `fieldKey` é a identidade do campo no tipo (perdê-la re-chaveava o campo e o
+         apagava das outras telas), e trava/visibilidade são da matriz — remontar o objeto
+         sem elas destravava e desocultava o campo em silêncio. */
+      fieldKey: initial?.fieldKey,
+      locked: initial?.locked,
+      hiddenCategories: initial?.hiddenCategories,
+      sectionId, name: nm, label: label.trim(), type, source: 'CUSTOM', mode: 'EDIT',
+      visible: initial?.visible ?? true,
       // Fornecedor: obrigatório por tipo (reqCats). Demais: booleano global. `required` fica coerente com o efetivo.
       required: perType ? reqCats.length > 0 : required,
       requiredCategories: perType ? reqCats : undefined,

@@ -111,8 +111,8 @@ export function WorkflowScreenTask({ step, entityId, onEntity, onEntityGone, onC
           </div>
         )}
         {isContract
-          ? <ContractDetailView row={entity as ContractRow} screen={screen} readOnly={isView} onClose={onCancel ?? (() => {})} onSaved={() => onEntity(entityId)} />
-          : <PartnerDetailView partner={entity as PartnerRow} screen={screen} readOnly={isView} onClose={onCancel ?? (() => {})} onSaved={() => onEntity(entityId)} />}
+          ? <ContractDetailView row={entity as ContractRow} screen={screen} readOnly={isView} lockedFields={step.lockedFields} onClose={onCancel ?? (() => {})} onSaved={() => onEntity(entityId)} />
+          : <PartnerDetailView partner={entity as PartnerRow} screen={screen} readOnly={isView} lockedFields={step.lockedFields} onClose={onCancel ?? (() => {})} onSaved={() => onEntity(entityId)} />}
       </>
     )
   }
@@ -135,6 +135,6 @@ export function WorkflowScreenTask({ step, entityId, onEntity, onEntityGone, onC
   // CREATE: cria a entidade e reporta o id (sem avançar o workflow).
   const onCreated = (r?: { id?: string }) => { if (r?.id) onEntity(r.id) }
   return isContract
-    ? <ContractNewForm embedded screen={screen} onSaved={onCreated} onCancel={onCancel} />
-    : <PartnerNewForm embedded screen={screen} onSaved={onCreated} onCancel={onCancel} />
+    ? <ContractNewForm embedded screen={screen} lockedFields={step.lockedFields} onSaved={onCreated} onCancel={onCancel} />
+    : <PartnerNewForm embedded screen={screen} lockedFields={step.lockedFields} onSaved={onCreated} onCancel={onCancel} />
 }

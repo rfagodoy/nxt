@@ -12,8 +12,12 @@ export interface SaveScreenPayload {
   status?: string
   isDefault?: boolean
   isSystem?: boolean
+  readOnly?: boolean
   sections: Screen['sections']
   fields: Screen['fields']
+  /** Chaves de campos personalizados que o usuário mandou excluir do TIPO (via diálogo).
+   *  Só isto exclui: sumir do `fields` significa "esta tela não mandou", não "apague". */
+  removedFieldKeys?: string[]
 }
 
 /** Lista de Telas do catálogo (opcionalmente por subject). */
@@ -43,6 +47,14 @@ export async function saveScreen(id: string | null, payload: SaveScreenPayload):
     method: id ? 'PUT' : 'POST',
     body: JSON.stringify(payload),
   })
+  if (!res.ok) return null
+  return res.json() as Promise<Screen>
+}
+
+/** Duplica a tela. A cópia nasce RASCUNHO e referencia os mesmos campos do tipo — o
+ *  dado já preenchido aparece nela; nada é recriado nem copiado. */
+export async function duplicateScreen(id: string): Promise<Screen | null> {
+  const res = await apiFetch(`/api/screens/${id}/duplicate`, { method: 'POST', body: JSON.stringify({}) })
   if (!res.ok) return null
   return res.json() as Promise<Screen>
 }

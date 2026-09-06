@@ -13,7 +13,7 @@ export interface ProblemaAtivacao {
     | 'sem-saida' | 'nao-alcanca-fim' | 'gateway-sem-saida' | 'solto' | 'sem-chegada'
     | 'inalcancavel-do-inicio' | 'juncao-travada'
     | 'decisao-sem-padrao' | 'decisao-multipadrao'
-    | 'atividade-incompleta'
+    | 'atividade-incompleta' | 'tela-so-consulta'
   /** `erro` impede a ativação; `aviso` é informação — o desenho é legítimo, mas o
    *  desenhista precisa saber o que ele significa em execução. Ausente = erro
    *  (compatibilidade com quem consome o tipo sem tratar severidade). */
@@ -190,6 +190,40 @@ export function validarDecisoes(nodes: NodeLike[], edges: EdgeLike[]): ProblemaA
 }
 
 /**
+ * A tela da atividade tem que servir ao que a atividade FAZ. Uma etapa que cria ou
+ * edita apontando para uma tela em SOMENTE CONSULTA é um beco: o executor abre o
+ * formulário, não consegue mexer em nada e a etapa nunca sai do lugar. Consultar
+ * (entityMode VIEW) numa tela dessas é legítimo — é exatamente o par certo.
+ *
+ * A trava campo a campo NÃO entra aqui de propósito: travar alguns campos numa etapa
+ * é o uso normal do recurso. Só o "tudo travado" impede o trabalho.
+ */
+export function validarTelasDasAtividades(
+  steps: Array<{ stepId?: string; stepName?: string; screenRef?: string; entityMode?: string }>,
+  telas: Array<{ id: string; name?: string; readOnly?: boolean }>,
+): ProblemaAtivacao[] {
+  const porId = new Map(telas.map((t) => [t.id, t]))
+  const problemas: ProblemaAtivacao[] = []
+  for (const s of steps) {
+    if (!s.screenRef) continue
+    const modo = s.entityMode ?? 'CREATE'
+    if (modo === 'VIEW') continue
+    const tela = porId.get(s.screenRef)
+    if (!tela?.readOnly) continue
+    const quem = s.stepName?.trim() ? `A atividade "${s.stepName.trim()}"` : 'Uma atividade'
+    const verbo = modo === 'CREATE' ? 'criar' : 'editar'
+    const nomeTela = tela.name?.trim() ? `"${tela.name.trim()}"` : 'escolhida'
+    problemas.push({
+      tipo: 'tela-so-consulta',
+      nodeId: s.stepId,
+      rotulo: s.stepName?.trim() ? `"${s.stepName.trim()}"` : '(sem nome)',
+      mensagem: `${quem} precisa ${verbo} o registro, mas a tela ${nomeTela} é somente consulta — ninguém conseguiria preencher. Escolha outra tela na atividade, ou tire o "somente consulta" dela em Personalização de Telas.`,
+    })
+  }
+  return problemas
+}
+
+/**
  * Atividades completas (política do produto): toda tarefa do usuário precisa de
  * nome, executor (papel) e prazo. Um problema POR atividade, dizendo o que falta.
  */
@@ -230,6 +264,7 @@ const AGREGADO: Record<ProblemaAtivacao['tipo'], { plural: string; instrucao: st
   'decisao-sem-padrao': { plural: 'decisões estão sem o caminho "caso contrário"', instrucao: 'Em cada uma, deixe exatamente uma saída sem filtros — é por ela que o processo segue quando nenhum filtro casa.' },
   'decisao-multipadrao': { plural: 'decisões têm mais de um caminho sem filtros', instrucao: 'Em cada uma, monte os filtros de todos menos um — o que ficar sem filtros é o "caso contrário".' },
   'atividade-incompleta': { plural: 'atividades com configuração incompleta', instrucao: 'Clique em cada uma e complete.' },
+  'tela-so-consulta': { plural: 'atividades preenchem uma tela que é somente consulta', instrucao: 'Em cada uma, escolha outra tela — ou tire o "somente consulta" da tela, em Personalização de Telas.' },
   'nao-alcanca-fim': { plural: 'atividades serão executadas sem terminar o processo', instrucao: 'Nenhum caminho a partir delas chega ao evento de fim — ligue-as ao fim se elas devem encerrar o processo.' },
   'inalcancavel-do-inicio': { plural: 'atividades nunca serão executadas (o início não chega até elas)', instrucao: 'Ligue-as ao fluxo que sai do início ou exclua-as.' },
   'juncao-travada': { plural: 'junções esperam por caminhos que o início nunca alcança', instrucao: 'O processo travaria nelas: ligue esses trechos ao fluxo ou remova as setas que entram na junção.' },
