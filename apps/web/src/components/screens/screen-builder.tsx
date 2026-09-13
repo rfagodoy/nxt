@@ -1,6 +1,7 @@
 'use client'
 
-import { Fragment, useState } from 'react'
+import { Fragment, useRef, useState } from 'react'
+import { FloatingMenu } from '@/components/ui/floating-menu'
 import { useRouter } from 'next/navigation'
 import {
   ChevronLeft, Plus, Pencil, Trash2, ChevronUp, ChevronDown, Check, X,
@@ -105,6 +106,8 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
   const [renamingSection, setRenamingSection] = useState<string | null>(null)
   const [renameLabel, setRenameLabel] = useState('')
   const [menuOpen, setMenuOpen] = useState<string | null>(null)
+  /** Botão "Mais" da seção com o menu aberto — é nele que o menu flutuante se ancora. */
+  const maisAncora = useRef<HTMLButtonElement | null>(null)
   /* campo personalizado é do TIPO: excluir tira de TODAS as telas, então pergunta antes */
   const [excluindoCampo, setExcluindoCampo] = useState<ScreenField | null>(null)
   const [excluindoSecao, setExcluindoSecao] = useState<ScreenSection | null>(null)
@@ -519,11 +522,11 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
                                 <span className="ml-auto flex items-center gap-0.5 shrink-0 opacity-0 group-hover/sec:opacity-100 focus-within:opacity-100 transition-opacity">
                                   <button onClick={() => { setRenamingSection(s.id); setRenameLabel(s.label) }} title="Renomear seção" className={iconBtn}><Pencil className="h-3.5 w-3.5" /></button>
                                   <div className="relative">
-                                    <button onClick={() => setMenuOpen(menuOpen === s.id ? null : s.id)} title="Mais" className={iconBtn}><MoreHorizontal className="h-3.5 w-3.5" /></button>
+                                    <button ref={(el) => { if (menuOpen === s.id) maisAncora.current = el }}
+                                      onClick={() => setMenuOpen(menuOpen === s.id ? null : s.id)} title="Mais" className={iconBtn}><MoreHorizontal className="h-3.5 w-3.5" /></button>
+                                    {/* No <body>: na última seção o menu abria para fora da tela. */}
                                     {menuOpen === s.id && (
-                                      <>
-                                        <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(null)} />
-                                        <div className="glass absolute right-0 top-full mt-1 z-50 w-56 rounded-xl py-1 text-xs">
+                                      <FloatingMenu anchor={maisAncora} onClose={() => setMenuOpen(null)} align="end" className="glass w-56 rounded-xl py-1 text-xs">
                                           {applicable.length > 0 && (
                                             <>
                                               <button onClick={() => { setSectionVis(s.id, true); setMenuOpen(null) }} className="w-full text-left px-3 py-1.5 hover:bg-muted flex items-center gap-2"><Eye className="h-3.5 w-3.5" />Mostrar todos os campos</button>
@@ -538,8 +541,7 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
                                             {s.defaultOpen ? 'Abre recolhida no cadastro' : 'Abre aberta no cadastro'}
                                           </button>
                                           {!isNativeSec && <button onClick={() => { setExcluindoSecao(s); setMenuOpen(null) }} className="w-full text-left px-3 py-1.5 hover:bg-destructive/10 text-destructive flex items-center gap-2"><Trash2 className="h-3.5 w-3.5" />Excluir seção</button>}
-                                        </div>
-                                      </>
+                                      </FloatingMenu>
                                     )}
                                   </div>
                                 </span>

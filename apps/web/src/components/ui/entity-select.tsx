@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronsUpDown, Check, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiJson } from '@/lib/http'
+import { FloatingMenu } from '@/components/ui/floating-menu'
 
 /** Tipo de entidade-anfitriã de um papel de pessoa. */
 export type EntityKind = 'EMPRESA' | 'PARCEIRO' | 'UNIDADE' | 'CONTRATO'
@@ -85,7 +86,6 @@ export function EntitySelect({ entityType, value, onChange, placeholder = 'Selec
   const [loading, setLoading] = useState(!cache[entityType])
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
-  const [up, setUp] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
 
   /* Pinta o cache na hora (se houver) e SEMPRE revalida contra o servidor — é o que
@@ -109,8 +109,6 @@ export function EntitySelect({ entityType, value, onChange, placeholder = 'Selec
     setOpen(true); setQ('')
     // abrir a lista é o momento em que ela precisa estar certa
     void fetchEntities(entityType, true).then((l) => setItems(l))
-    const r = wrapRef.current?.getBoundingClientRect()
-    if (r) setUp(window.innerHeight - r.bottom < 280)
   }
 
   return (
@@ -124,10 +122,9 @@ export function EntitySelect({ entityType, value, onChange, placeholder = 'Selec
         <ChevronsUpDown className="h-3 w-3 text-muted-foreground shrink-0" />
       </button>
 
+      {/* A lista flutua no <body>: dentro de modal ou gaveta rolável ela saía cortada. */}
       {open && (
-        <>
-          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div className={cn('glass absolute z-30 w-full min-w-[16rem] rounded-xl text-popover-foreground', up ? 'bottom-full mb-1' : 'mt-1')}>
+        <FloatingMenu anchor={wrapRef} onClose={() => setOpen(false)} matchWidth className="glass min-w-[16rem] rounded-xl text-popover-foreground">
             <div className="flex items-center gap-1.5 border-b px-2.5 py-1.5">
               <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
               <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar…"
@@ -144,8 +141,7 @@ export function EntitySelect({ entityType, value, onChange, placeholder = 'Selec
                 </button>
               ))}
             </div>
-          </div>
-        </>
+        </FloatingMenu>
       )}
     </div>
   )

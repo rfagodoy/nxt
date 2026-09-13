@@ -7,6 +7,7 @@ import { Loader2, ArrowLeft } from 'lucide-react'
 import { apiJson } from '@/lib/http'
 import { ProcessFlow, type FlowInitial } from '@/components/processes/process-flow'
 import type { ProcessFormSchema } from '@nxt/types'
+import type { FluxoBlocos } from '@nxt/workflow-core'
 
 interface Proc {
   id: string
@@ -26,7 +27,7 @@ export default function EditProcessPage() {
     void (async () => {
       const p = await apiJson<Proc>(`/api/processes/${id}`)
       if (!p) { setInitial(null); return }
-      setInitial({ id: p.id, name: p.name, description: p.description, kind: p.kind, bpmnXml: p.bpmnXml, steps: p.formSchema?.steps ?? [], positions: p.formSchema?.positions, positionsRaia: p.formSchema?.positionsRaia, laneOrder: p.formSchema?.laneOrder, graph: p.formSchema?.graph })
+      setInitial({ id: p.id, name: p.name, description: p.description, kind: p.kind, bpmnXml: p.bpmnXml, steps: p.formSchema?.steps ?? [], laneOrder: p.formSchema?.laneOrder, graph: p.formSchema?.graph, blocos: p.formSchema?.blocos as FluxoBlocos | undefined })
     })()
   }, [id])
 

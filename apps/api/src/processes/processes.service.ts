@@ -3,7 +3,17 @@ import { PrismaService } from '../prisma.service'
 import { CreateProcessDto } from './dto/create-process.dto'
 import { UpdateProcessDto } from './dto/update-process.dto'
 import { ProcessFormSchema, isCompensable } from '@nxt/types'
-import { compileBpmn, CompileError, type WfGraph, validarDesenho, validarDecisoes, validarAtividades, validarTelasDasAtividades, formatarProblemas, bloqueantes, type ProblemaAtivacao, resumoDeInicio, type EtapaPrevia } from '@nxt/workflow-core'
+import {
+  compileBpmn, CompileError, type WfGraph, validarDesenho, validarDecisoes, validarAtividades, validarTelasDasAtividades, formatarProblemas, bloqueantes,
+  type ProblemaAtivacao, resumoDeInicio, type EtapaPrevia,
+  lerFluxoBlocos, blocosParaGrafo, grafoParaBlocos, grafoParaMotor, generateBpmn, pendenciasDosBlocos, SUFIXO_REENCONTRO,
+} from '@nxt/workflow-core'
+
+/** Desenho livre do editor antigo que não cabe em blocos: pode conter as formas que
+ *  travam o motor (junção esperando caminho de decisão, volta entrando num paralelo…). */
+const DESENHO_LIVRE_NAO_ATIVA =
+  'Este workflow foi desenhado no editor antigo, com ligações livres que o motor pode não conseguir executar. ' +
+  'Monte o fluxo em blocos (Escolher um caminho / Fazer ao mesmo tempo) no editor antes de ativar.'
 import { RoleAssignmentsService } from '../role-assignments/role-assignments.service'
 
 /** Autor da ação, vindo do JWT (nunca do corpo da requisição). */
@@ -289,9 +299,29 @@ export class ProcessesService {
     // uma vez, na língua do usuário. O compilador (abaixo) segue validando, mas como
     // rede de segurança: com os guardas na frente, o usuário não deve ver id interno.
     const problemas: ProblemaAtivacao[] = []
-    const editorGraph = formSchema.graph
+    let editorGraph = formSchema.graph
     const nomeDoStep = new Map((formSchema.steps ?? []).map((s) => [s.stepId, s.stepName?.trim() || '']))
-    if (editorGraph) {
+    /* FLUXO EM BLOCOS (editor desde 09/2026): o grafo executável é GERADO aqui, a partir
+       dos blocos — o grafo e o BPMN enviados pelo cliente não são aceitos prontos. É o que
+       garante, no servidor, que só formas executáveis sejam ativadas. */
+    let bpmnFonte = process.bpmnXml
+    if (formSchema.blocos !== undefined) {
+      const blocos = lerFluxoBlocos(formSchema.blocos)
+      if (!blocos) {
+        throw new BadRequestException('O desenho gravado deste workflow está corrompido. Abra-o no editor, confira e salve de novo antes de ativar.')
+      }
+      const gerado = blocosParaGrafo(blocos)
+      const nodes = gerado.nodes.map((n) => ({ ...n, name: nomeDoStep.get(n.id) || n.name }))
+      editorGraph = { nodes, edges: gerado.edges } as ProcessFormSchema['graph']
+      bpmnFonte = generateBpmn(grafoParaMotor({
+        nodes: nodes.map((n) => (n.type === 'userTask' || n.type === 'serviceTask') && !n.name ? { ...n, name: 'Etapa' } : n),
+        edges: gerado.edges,
+      }))
+      problemas.push(...pendenciasDosBlocos(blocos))
+      // pontos de reencontro são gerados: nunca culpados de algo que a pessoa conserte
+      problemas.push(...validarDesenho(nodes, gerado.edges).filter((p) => !p.nodeId?.endsWith(SUFIXO_REENCONTRO)))
+    } else if (editorGraph) {
+      if (!grafoParaBlocos(editorGraph.nodes, editorGraph.edges)) throw new BadRequestException(DESENHO_LIVRE_NAO_ATIVA)
       const vnodes = editorGraph.nodes.map((n) => ({ ...n, name: nomeDoStep.get(n.id) || n.name }))
       problemas.push(...validarDesenho(vnodes, editorGraph.edges))
       problemas.push(...validarDecisoes(vnodes, editorGraph.edges))
@@ -300,13 +330,16 @@ export class ProcessesService {
     // executor (papel) e prazo. O tipo vem do grafo do editor; processo legado sem
     // grafo valida depois da compilação (o tipo compilado distingue serviceTask).
     if (editorGraph) {
+      const nosDoEditor = editorGraph.nodes
       const stepsDeUsuario = (formSchema.steps ?? []).filter(
-        (s) => editorGraph.nodes.find((n) => n.id === s.stepId)?.type === 'userTask',
+        (s) => nosDoEditor.find((n) => n.id === s.stepId)?.type === 'userTask',
       )
       problemas.push(...validarAtividades(stepsDeUsuario))
       // A tela precisa servir ao que a atividade faz: criar/editar numa tela em
       // SOMENTE CONSULTA é beco sem saída (a mesma regra roda no editor).
-      const telasUsadas = [...new Set(stepsDeUsuario.map((s) => s.screenRef).filter(Boolean) as string[])]
+      const telasUsadas = [...new Set(stepsDeUsuario
+        .flatMap((s) => [s.screenRef, ...(s.extraScreens ?? []).map((e) => e.screenRef)])
+        .filter(Boolean) as string[])]
       if (telasUsadas.length) {
         const telas = await this.prisma.screen.findMany({
           where: { organizationId, id: { in: telasUsadas } },
@@ -325,7 +358,7 @@ export class ProcessesService {
     // das atividades, para a mensagem não vazar identificador interno.
     let graph: WfGraph
     try {
-      graph = compileBpmn(process.bpmnXml)
+      graph = compileBpmn(bpmnFonte)
     } catch (e) {
       if (e instanceof CompileError) {
         let msg = e.message
@@ -341,6 +374,7 @@ export class ProcessesService {
     // Processo legado sem grafo do editor: valida decisões e atividades sobre o
     // grafo COMPILADO (única fonte de tipos disponível).
     if (!editorGraph) {
+      if (!grafoParaBlocos(Object.values(graph.nodes), graph.edges)) throw new BadRequestException(DESENHO_LIVRE_NAO_ATIVA)
       const problemasLegado = [
         ...validarDecisoes(Object.values(graph.nodes), graph.edges),
         ...validarAtividades((formSchema.steps ?? []).filter((s) => graph.nodes[s.stepId]?.type === 'userTask')),
@@ -415,6 +449,8 @@ export class ProcessesService {
         status: 'ACTIVE',
         compiledGraph: graph as never,
         version: { increment: 1 },
+        // o BPMN guardado passa a ser o gerado dos blocos — o mesmo que foi compilado
+        ...(bpmnFonte !== process.bpmnXml ? { bpmnXml: bpmnFonte } : {}),
       },
     })
 

@@ -18,9 +18,13 @@ describe('screenTargetVar', () => {
     expect(screenTargetVar(step())).toBe('contratoId')
     expect(screenTargetVar(step({ entityMode: 'CREATE' }))).toBe('contratoId')
   })
-  it('EDIT/VIEW leem a variável escolhida no desenho', () => {
-    expect(screenTargetVar(step({ entityMode: 'EDIT', entityVar: 'contratoDoAditivo' }))).toBe('contratoDoAditivo')
-    expect(screenTargetVar(step({ entityMode: 'VIEW', entityVar: 'contratoDoAditivo' }))).toBe('contratoDoAditivo')
+  it('EDIT/VIEW leem o registro do PROCESSO — sem perguntar "qual"', () => {
+    expect(screenTargetVar(step({ entityMode: 'EDIT' }))).toBe('contratoId')
+    expect(screenTargetVar(step({ entityMode: 'VIEW', screenSubject: 'FORNECEDOR' }))).toBe('partnerId')
+  })
+  it('entityVar gravado em desenho antigo é ignorado (inclusive o que ficou em branco)', () => {
+    expect(screenTargetVar(step({ entityMode: 'EDIT', entityVar: 'contratoDoAditivo' }))).toBe('contratoId')
+    expect(screenEntityFromVars(step({ entityMode: 'VIEW' }), { contratoId: 'c9' })).toBe('c9')
   })
 })
 

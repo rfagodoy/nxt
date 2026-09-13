@@ -7,13 +7,16 @@
  * regra só, sem deriva entre cliente e servidor. O compileBpmn continua validando
  * depois, como rede de segurança técnica. */
 
+import type { ProblemaBloco } from './blocos'
+
 export interface ProblemaAtivacao {
   tipo:
     | 'inicio-desligado' | 'fim-inalcancavel'
     | 'sem-saida' | 'nao-alcanca-fim' | 'gateway-sem-saida' | 'solto' | 'sem-chegada'
     | 'inalcancavel-do-inicio' | 'juncao-travada'
     | 'decisao-sem-padrao' | 'decisao-multipadrao'
-    | 'atividade-incompleta' | 'tela-so-consulta'
+    | 'atividade-incompleta' | 'tela-so-consulta' | 'registro-sem-origem'
+    | ProblemaBloco['tipo']
   /** `erro` impede a ativação; `aviso` é informação — o desenho é legítimo, mas o
    *  desenhista precisa saber o que ele significa em execução. Ausente = erro
    *  (compatibilidade com quem consome o tipo sem tratar severidade). */
@@ -199,7 +202,7 @@ export function validarDecisoes(nodes: NodeLike[], edges: EdgeLike[]): ProblemaA
  * é o uso normal do recurso. Só o "tudo travado" impede o trabalho.
  */
 export function validarTelasDasAtividades(
-  steps: Array<{ stepId?: string; stepName?: string; screenRef?: string; entityMode?: string }>,
+  steps: Array<{ stepId?: string; stepName?: string; screenRef?: string; entityMode?: string; extraScreens?: Array<{ screenRef: string; mode?: string }> }>,
   telas: Array<{ id: string; name?: string; readOnly?: boolean }>,
 ): ProblemaAtivacao[] {
   const porId = new Map(telas.map((t) => [t.id, t]))
@@ -208,16 +211,92 @@ export function validarTelasDasAtividades(
     if (!s.screenRef) continue
     const modo = s.entityMode ?? 'CREATE'
     if (modo === 'VIEW') continue
-    const tela = porId.get(s.screenRef)
-    if (!tela?.readOnly) continue
     const quem = s.stepName?.trim() ? `A atividade "${s.stepName.trim()}"` : 'Uma atividade'
-    const verbo = modo === 'CREATE' ? 'criar' : 'editar'
-    const nomeTela = tela.name?.trim() ? `"${tela.name.trim()}"` : 'escolhida'
+    const rotulo = s.stepName?.trim() ? `"${s.stepName.trim()}"` : '(sem nome)'
+    const tela = porId.get(s.screenRef)
+    if (tela?.readOnly) {
+      const verbo = modo === 'CREATE' ? 'criar' : 'editar'
+      const nomeTela = tela.name?.trim() ? `"${tela.name.trim()}"` : 'escolhida'
+      problemas.push({
+        tipo: 'tela-so-consulta',
+        nodeId: s.stepId,
+        rotulo,
+        mensagem: `${quem} precisa ${verbo} o registro, mas a tela ${nomeTela} é somente consulta — ninguém conseguiria preencher. Escolha outra tela na atividade, ou tire o "somente consulta" dela em Personalização de Telas.`,
+      })
+    }
+    /* Aba ADICIONAL marcada para editar numa tela somente consulta: a mesma armadilha,
+       só que dentro de uma aba — a pessoa abriria a aba para alterar e nada mexeria. */
+    for (const extra of s.extraScreens ?? []) {
+      if ((extra.mode ?? 'EDIT') !== 'EDIT') continue
+      const t = porId.get(extra.screenRef)
+      if (!t?.readOnly) continue
+      const nome = t.name?.trim() ? `"${t.name.trim()}"` : 'adicional'
+      problemas.push({
+        tipo: 'tela-so-consulta',
+        nodeId: s.stepId,
+        rotulo,
+        mensagem: `${quem} tem a aba ${nome} marcada para editar, mas essa tela é somente consulta — nada nela poderia ser alterado. Marque a aba como "Consultar", ou tire o "somente consulta" da tela em Personalização de Telas.`,
+      })
+    }
+  }
+  return problemas
+}
+
+/**
+ * A etapa que EDITA ou CONSULTA trabalha sobre o registro do PROCESSO — o contrato (ou o
+ * parceiro) que uma etapa anterior criou. O editor não pergunta mais "qual" (pedido do PO,
+ * 13/09/2026), então precisa existir ANTES dela no fluxo quem produza esse registro: uma
+ * atividade que o cria por tela, ou uma ação automática cujo conector devolve o id.
+ * Sem isso, em execução a etapa abre sem nada para mostrar.
+ *
+ * AVISO, não erro: o registro pode chegar por um caminho que o desenho não mostra (uma
+ * variável preenchida na partida, por exemplo). O desenhista fica sabendo; a ativação segue.
+ */
+export function validarOrigemDoRegistro(
+  edges: EdgeLike[],
+  steps: Array<{ stepId?: string; stepName?: string; screenRef?: string; screenSubject?: string; entityMode?: string; produz?: string[] }>,
+): ProblemaAtivacao[] {
+  const varDoAssunto = (assunto?: string) => (assunto === 'CONTRATO' ? 'contratoId' : 'partnerId')
+  const entrada = new Map<string, string[]>()
+  for (const e of edges) {
+    if (!e.to) continue
+    entrada.set(e.to, [...(entrada.get(e.to) ?? []), e.from])
+  }
+  const antesDe = (id: string): Set<string> => {
+    const vistos = new Set<string>()
+    const fila = [...(entrada.get(id) ?? [])]
+    while (fila.length) {
+      const n = fila.pop() as string
+      if (vistos.has(n)) continue
+      vistos.add(n)
+      fila.push(...(entrada.get(n) ?? []))
+    }
+    vistos.delete(id) // num laço a etapa alcança a si mesma — ela não é a própria origem
+    return vistos
+  }
+  const porId = new Map(steps.filter((s) => s.stepId).map((s) => [s.stepId as string, s]))
+  const produz = (s: (typeof steps)[number]): Set<string> => {
+    const out = new Set(s.produz ?? [])
+    if (s.screenRef && (s.entityMode ?? 'CREATE') === 'CREATE') out.add(varDoAssunto(s.screenSubject))
+    return out
+  }
+
+  const problemas: ProblemaAtivacao[] = []
+  for (const s of steps) {
+    if (!s.stepId || !s.screenRef) continue
+    const modo = s.entityMode ?? 'CREATE'
+    if (modo === 'CREATE') continue
+    const alvo = varDoAssunto(s.screenSubject)
+    const temOrigem = [...antesDe(s.stepId)].some((id) => { const p = porId.get(id); return !!p && produz(p).has(alvo) })
+    if (temOrigem) continue
+    const ent = s.screenSubject === 'CONTRATO' ? 'contrato' : 'parceiro'
+    const quem = s.stepName?.trim() ? `A atividade "${s.stepName.trim()}"` : 'Uma atividade'
     problemas.push({
-      tipo: 'tela-so-consulta',
+      tipo: 'registro-sem-origem',
+      severidade: 'aviso',
       nodeId: s.stepId,
       rotulo: s.stepName?.trim() ? `"${s.stepName.trim()}"` : '(sem nome)',
-      mensagem: `${quem} precisa ${verbo} o registro, mas a tela ${nomeTela} é somente consulta — ninguém conseguiria preencher. Escolha outra tela na atividade, ou tire o "somente consulta" dela em Personalização de Telas.`,
+      mensagem: `${quem} ${modo === 'VIEW' ? 'consulta' : 'edita'} o ${ent} do processo, mas nenhuma atividade antes dela cria um ${ent} — em execução ela abriria sem ${ent}. Coloque antes uma atividade que crie o ${ent}.`,
     })
   }
   return problemas
@@ -268,6 +347,15 @@ const AGREGADO: Record<ProblemaAtivacao['tipo'], { plural: string; instrucao: st
   'nao-alcanca-fim': { plural: 'atividades serão executadas sem terminar o processo', instrucao: 'Nenhum caminho a partir delas chega ao evento de fim — ligue-as ao fim se elas devem encerrar o processo.' },
   'inalcancavel-do-inicio': { plural: 'atividades nunca serão executadas (o início não chega até elas)', instrucao: 'Ligue-as ao fluxo que sai do início ou exclua-as.' },
   'juncao-travada': { plural: 'junções esperam por caminhos que o início nunca alcança', instrucao: 'O processo travaria nelas: ligue esses trechos ao fluxo ou remova as setas que entram na junção.' },
+  // blocos: cada frase já nomeia o bloco e o caminho — agrupar apagaria o "qual"
+  'escolha-sem-caminho': null,
+  'caminho-sem-condicao': null,
+  'paralelo-com-um-caminho': null,
+  'saida-dentro-de-paralelo': null,
+  'volta-invalida': null,
+  'trecho-inalcancavel': null,
+  // aviso: nunca entra na mensagem de recusa
+  'registro-sem-origem': null,
 }
 
 /** `"A", "B" (3) e "C"` — repetições ganham contagem em vez de repetir a linha. */
