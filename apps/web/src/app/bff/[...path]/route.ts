@@ -88,6 +88,12 @@ async function handle(req: Request, ctx: { params: Promise<{ path: string[] }> }
     const v = apiRes.headers.get(h)
     if (v) respHeaders.set(h, v)
   }
+  /* Fluxo de tempo real (SSE): o Nginx da implantação bufferiza resposta por padrão, e o
+     aviso só chegaria ao navegador quando o buffer enchesse — ou nunca. Este cabeçalho
+     desliga o buffer SÓ nesta resposta, sem depender de mexer no .conf do cliente. */
+  if (apiRes.headers.get('content-type')?.startsWith('text/event-stream')) {
+    respHeaders.set('x-accel-buffering', 'no')
+  }
   // Faz stream do corpo da resposta (downloads binários não são bufferizados).
   return new Response(apiRes.body, { status: apiRes.status, headers: respHeaders })
 }

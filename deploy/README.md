@@ -208,6 +208,34 @@ Nos dois sistemas o serviço volta sozinho após queda, com espera crescente e *
 pendente, segredo ausente — reiniciar para sempre não conserta e ainda esconde o
 problema. Serviço parado aparece no monitoramento; serviço em laço, não.
 
+## Mais de uma instância da API
+
+A API pode rodar em **mais de uma instância sobre o mesmo banco** — atrás de um
+balanceador, ou durante uma troca de versão com as duas no ar. Instalações separadas
+(homologação e produção, ou um servidor por cliente) não são "várias instâncias": cada
+uma tem o próprio banco e nada disto se aplica a elas.
+
+O que torna isso seguro, e mora no banco (a única coisa que todas as instâncias veem):
+
+- **Avisos de tempo real** (`realtime_events`): toda gravação vira um aviso; cada
+  instância lê os avisos a cada segundo e entrega aos navegadores conectados nela. Quem
+  está numa instância vê em ~2 s o que foi gravado em qualquer outra.
+- **Rotinas automáticas** (`scheduler_locks`): motor de datas, varredura de prazos,
+  expurgo do histórico e resumo de e-mails pegam uma trava antes de rodar — rodam **uma
+  vez**, não uma por instância. A trava expira sozinha se a instância cair no meio. A
+  execução manual do motor (Configurações › Notificações) respeita a mesma trava e
+  responde "já está rodando" em vez de rodar por cima.
+
+Três cuidados de infraestrutura:
+
+1. **Relógio sincronizado (NTP)** em todos os servidores da API. Travas e leitura dos
+   avisos comparam horários: diferença de segundos é absorvida; de minutos, não.
+2. **Conexão de tempo real sem buffer e sem corte por ociosidade.** O navegador mantém
+   aberta `/bff/api/realtime/eventos` (Server-Sent Events). A aplicação já manda
+   `X-Accel-Buffering: no` (o Nginx respeita) e um sinal de vida a cada 25 s — outro
+   balanceador precisa não bufferizar essa rota e ter tempo ocioso acima de 30 s.
+3. **Sessão fixa (sticky) não é necessária**: o token é validado em qualquer instância.
+
 ## Verificação depois de instalar
 
 ```powershell
