@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from 'react'
 import { ChevronsUpDown, Check, Search, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSelectableUsers } from '@/hooks/use-users'
+import { FloatingMenu } from '@/components/ui/floating-menu'
 
 interface UserSelectProps {
   value?: string
@@ -25,7 +26,6 @@ export function UserSelect({
   const { users, loading } = useSelectableUsers()
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
-  const [up, setUp] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
 
   const selected = users.find((u) => u.id === value)
@@ -39,8 +39,6 @@ export function UserSelect({
   const reveal = () => {
     if (disabled) return
     setOpen(true); setQ('')
-    const rect = wrapRef.current?.getBoundingClientRect()
-    if (rect) setUp(window.innerHeight - rect.bottom < 280)
   }
 
   return (
@@ -66,11 +64,9 @@ export function UserSelect({
         </span>
       </button>
 
+      {/* A lista flutua no <body>: dentro de gaveta ou modal rolável ela saía cortada. */}
       {open && (
-        <>
-          {/* clique fora fecha */}
-          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div className={cn('glass absolute z-30 w-full min-w-[14rem] rounded-xl text-popover-foreground', up ? 'bottom-full mb-1' : 'mt-1')}>
+        <FloatingMenu anchor={wrapRef} onClose={() => setOpen(false)} matchWidth className="glass min-w-[14rem] rounded-xl text-popover-foreground">
             <div className="flex items-center gap-1.5 border-b px-2.5 py-1.5">
               <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
               <input
@@ -96,8 +92,7 @@ export function UserSelect({
                 </button>
               ))}
             </div>
-          </div>
-        </>
+        </FloatingMenu>
       )}
     </div>
   )

@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { Plus, Trash2, Loader2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiJson, apiFetch } from '@/lib/http'
+import { FloatingMenu } from '@/components/ui/floating-menu'
 import { isValidCPF, isValidCNPJ } from '@/lib/doc-validation'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { useNaturezaJuridica, useCatalogInactive, CNAE_INATIVOS_KEY, type CatalogEntry } from '@/hooks/use-catalogs'
@@ -726,17 +727,12 @@ function CnaeCombo({ onPick, exclude, placeholder }: { onPick: (code: string) =>
   const [results, setResults] = useState<CatalogEntry[]>([])
   const [open, setOpen]       = useState(false)
   const [loading, setLoading] = useState(false)
-  const [up, setUp]           = useState(false) // abre para cima quando não cabe embaixo
   const inputRef = useRef<HTMLInputElement>(null)
   const { inactive } = useCatalogInactive(CNAE_INATIVOS_KEY) // CNAEs desativados não são ofertados
 
-  // Decide a direção do dropdown pela posição do campo (a seção CNAE é a última do
-  // formulário; sem isto, o dropdown fica escondido atrás do rodapé fixo).
-  const reveal = () => {
-    setOpen(true)
-    const rect = inputRef.current?.getBoundingClientRect()
-    if (rect) setUp(window.innerHeight - rect.bottom < 260)
-  }
+  // A lista flutua no <body> e decide sozinha abrir para cima (a seção CNAE é a última
+  // do formulário; dentro da área rolável ela ficava cortada ou atrás do rodapé fixo).
+  const reveal = () => setOpen(true)
 
   // Ao abrir, já traz uma lista (primeiros CNAEs); ao digitar, busca no servidor.
   // Assim o campo funciona como um combobox navegável, não só "digite para buscar".
@@ -767,7 +763,7 @@ function CnaeCombo({ onPick, exclude, placeholder }: { onPick: (code: string) =>
         className={inputCls}
       />
       {open && (
-        <div className={cn('glass absolute z-30 max-h-60 w-full overflow-auto rounded-xl text-popover-foreground', up ? 'bottom-full mb-1' : 'mt-1')}>
+        <FloatingMenu anchor={inputRef} onClose={() => setOpen(false)} matchWidth className="glass max-h-60 overflow-auto rounded-xl text-popover-foreground">
           {loading && <div className="px-3 py-2 text-xs text-muted-foreground">Carregando…</div>}
           {!loading && results.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground">Nenhum CNAE encontrado.</div>}
           {results.map(e => (
@@ -784,7 +780,7 @@ function CnaeCombo({ onPick, exclude, placeholder }: { onPick: (code: string) =>
           {!loading && !q.trim() && results.length >= 50 && (
             <div className="px-3 py-1.5 text-[11px] text-muted-foreground border-t bg-muted/30">Digite para buscar em todo o catálogo…</div>
           )}
-        </div>
+        </FloatingMenu>
       )}
     </div>
   )

@@ -111,9 +111,13 @@ function alcancar(graph: WfGraph, deId: string): Alcance {
 /** Lê o grafo compilado e devolve o que mostrar antes de iniciar o processo. */
 export function resumoDeInicio(graph: WfGraph): ResumoDeInicio {
   const nos = Object.values(graph?.nodes ?? {})
+  /* Decisão é o losango que ESCOLHE entre saídas. O de uma saída só é ponto de
+     reencontro (o editor em blocos gera um na saída de cada escolha) — contá-lo
+     dobraria o número de decisões mostrado antes de iniciar. */
+  const saidas = (id: string) => (graph?.edges ?? []).filter((e) => e.from === id).length
   const totais = {
     atividades: nos.filter((n) => n.type === 'userTask' || n.type === 'serviceTask').length,
-    decisoes: nos.filter((n) => n.type === 'exclusiveGateway').length,
+    decisoes: nos.filter((n) => n.type === 'exclusiveGateway' && saidas(n.id) > 1).length,
   }
   const caminhoVaria = totais.decisoes > 0
 

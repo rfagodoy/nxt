@@ -80,6 +80,7 @@ interface NodeLike {
     fields?: Array<{ name: string; label: string; type: string; options?: Array<{ label: string; value: string }> }>
     screenRef?: string
     screenSubject?: string
+    extraScreens?: Array<{ screenRef: string }>
   }
 }
 interface EdgeLike { from: string; to: string }
@@ -132,6 +133,8 @@ export function camposDisponiveis(
     if (n.step.screenRef && n.step.screenSubject === 'CONTRATO') {
       temTelaContrato = true
       telasReferenciadas.add(n.step.screenRef)
+      // as abas adicionais mostram o MESMO contrato: os campos delas também valem
+      for (const e of n.step.extraScreens ?? []) if (e.screenRef) telasReferenciadas.add(e.screenRef)
     }
   }
 

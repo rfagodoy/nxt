@@ -1,23 +1,26 @@
 'use client'
 
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
+import { Fragment, useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Save, Zap, Trash2, User, Clock, LayoutTemplate,
   CircleDot, Loader2, UserSquare, AlertTriangle, Building2,
-  Minus, Plus, Maximize2, GripVertical, ChevronUp, Redo2,
+  GripVertical, ChevronUp, Redo2, Blocks, Rows3, Plus,
   Download, FileImage, FileText, ChevronDown, PanelRightClose, PanelRightOpen,
-  X, SlidersHorizontal, Undo2, Check, Play, Info, Lock,
+  X, SlidersHorizontal, Undo2, Check, Info, Lock,
 } from 'lucide-react'
 import { createPortal } from 'react-dom'
-import { generateBpmn, compileBpmn, validarDesenho, validarDecisoes, validarAtividades, validarTelasDasAtividades, bloqueantes, avisos as avisosDe, type ProblemaAtivacao, type WfGraph, type WfNode, type WfEdge } from '@nxt/workflow-core'
-import type { StepFormSchema, ProcessFormSchema, EdgeConditionSpec, EdgeConditionRule } from '@nxt/types'
+import {
+  generateBpmn, compileBpmn, validarDesenho, validarDecisoes, validarAtividades, validarTelasDasAtividades,
+  bloqueantes, avisos as avisosDe, blocosParaGrafo, grafoParaBlocos, novoFluxo, pendenciasDosBlocos, validarOrigemDoRegistro,
+  acharItem, inserirItem, removerItem, atualizarItem, SUFIXO_REENCONTRO,
+  type ProblemaAtivacao, type WfGraph, type WfNode, type WfEdge, type FluxoBlocos,
+} from '@nxt/workflow-core'
+import type { StepFormSchema, ProcessFormSchema, EdgeConditionSpec } from '@nxt/types'
 import { CONNECTORS, findConnector, isRetiredConnector, isCompensable } from '@nxt/types'
-import { camposDisponiveis, gerarExpressao, rotuloDaCondicao, montarVarsSimulacao, decidirSaida, saidaTemFiltro, derivarCasoContrario, OPS_POR_TIPO, type CampoDisponivel } from '@/lib/flow-conditions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { EntitySelect, useEntityLabels, type EntityKind } from '@/components/ui/entity-select'
 import { useScreens } from '@/hooks/use-screens'
@@ -30,6 +33,8 @@ import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, t
 import { apiFetch } from '@/lib/http'
 import { ProcessHistoryDrawer } from './process-history-drawer'
 import { WorkflowIdentity } from './workflow-identity'
+import { PendenciasPill, ZoomBar, ZOOM_MAX, ZOOM_MIN } from './flow-shared'
+import { BlocosTrilho, BlocoInspector, EscolhaConfigModal, comNomes, novoItem, type NovoItem, type Simulacao, type MetaAtividade } from './workflow-blocos'
 import { NoticeDialog } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
 
@@ -46,9 +51,9 @@ export const WORKFLOW_KINDS = [
 ] as const
 
 type NType = FlowNodeType
-type AddType = 'userTask' | 'serviceTask' | 'exclusiveGateway' | 'parallelGateway'
 
-/** Nó do editor. Atividades carregam a config (StepFormSchema); gateways/eventos só nome. */
+/** Nó do grafo DERIVADO — dos blocos, ou do desenho antigo aberto só para leitura.
+ *  Atividades carregam a config (StepFormSchema); gateways/eventos só nome. */
 interface ENode { id: string; type: NType; name: string; step?: StepFormSchema }
 interface EEdge { id: string; from: string; to: string; condition?: string; isDefault?: boolean; label?: string; conditionSpec?: EdgeConditionSpec }
 
@@ -59,10 +64,10 @@ export interface FlowInitial {
   kind?: string | null
   bpmnXml: string
   steps: StepFormSchema[]
-  positions?: Record<string, { x: number; y: number }>
-  positionsRaia?: Record<string, { x: number; y: number }>
   laneOrder?: string[]
   graph?: ProcessFormSchema['graph']
+  /** Fonte da autoria desde o editor em blocos. Ausente = workflow anterior a ele. */
+  blocos?: FluxoBlocos
 }
 
 const SUBJECT_ENTITY: Record<string, string> = { CONTRATO: 'contrato', FORNECEDOR: 'parceiro' }
@@ -77,14 +82,11 @@ class ReducaoDestrutiva extends Error {}
 
 /** Retrato do DESENHO para desfazer/refazer. */
 interface Retrato {
-  nodes: ENode[]
-  edges: EEdge[]
-  positionsRaia: Record<string, { x: number; y: number }>
+  fluxo: FluxoBlocos | null
+  steps: Record<string, StepFormSchema>
   laneOrder: string[]
 }
 const MAX_HISTORIA = 60
-const rnd = () => Math.random().toString(36).slice(2, 9)
-const nid = (p: string) => `${p}_${rnd()}`
 
 /* ─── Conexões: âncoras cientes do lado (portas nos 4 lados) ─────────────────── */
 type Side = 'top' | 'right' | 'bottom' | 'left'
@@ -140,60 +142,75 @@ function edgeBezier(a: Pt, aDir: Pt, b: Pt, bDir: Pt): string {
   const k = Math.max(28, Math.hypot(b.x - a.x, b.y - a.y) * 0.4)
   return `M ${a.x} ${a.y} C ${a.x + aDir.x * k} ${a.y + aDir.y * k}, ${b.x + bDir.x * k} ${b.y + bDir.y * k}, ${b.x} ${b.y}`
 }
-/** Posição de cada porta (dot 12px) centrada na borda do nó. */
-const PORT_POS: Record<Side, string> = {
-  top: 'left-1/2 -translate-x-1/2 -top-1.5',
-  bottom: 'left-1/2 -translate-x-1/2 -bottom-1.5',
-  left: 'top-1/2 -translate-y-1/2 -left-1.5',
-  right: 'top-1/2 -translate-y-1/2 -right-1.5',
-}
 
 /* ─── modelo inicial / conversões ──────────────────────────────────────────── */
 
-function seedGraph(): { nodes: ENode[]; edges: EEdge[] } {
-  return {
-    nodes: [
-      { id: 'Start_1', type: 'start', name: 'Início' },
-      { id: 'End_1', type: 'end', name: 'Fim' },
-    ],
-    edges: [{ id: nid('Flow'), from: 'Start_1', to: 'End_1' }],
-  }
-}
+const INICIO_ID = 'Start_1'
+const FIM_ID = 'End_1'
 
-/** Reconstrói o editor. PREFERE o grafo salvo (formSchema.graph) — que não valida e
- *  preserva rótulos. Só cai no compileBpmn (tolerante a erro) para workflows antigos
- *  sem o grafo salvo; se nem isso compilar, devolve um seed em vez de quebrar a tela. */
-function fromInitial(initial: FlowInitial): { nodes: ENode[]; edges: EEdge[]; startId: string } {
+const passoVazio = (id: string, tipo: 'userTask' | 'serviceTask'): StepFormSchema => ({ stepId: id, stepName: '', fields: [], stepType: tipo })
+
+/** Grafo gravado de um workflow ANTERIOR aos blocos. Prefere `formSchema.graph` (preserva
+ *  rótulos e aceita rascunho incompleto); cai no compileBpmn só para os mais antigos. */
+function grafoGravado(initial: FlowInitial): { nodes: ENode[]; edges: EEdge[] } | null {
   const stepById = new Map(initial.steps.map((s) => [s.stepId, s]))
   let gnodes: Array<{ id: string; type: string; name?: string }>
-  let gedges: EEdge[]
-  let startId: string
-  if (initial.graph && initial.graph.nodes?.length) {
+  let edges: EEdge[]
+  if (initial.graph?.nodes?.length) {
     gnodes = initial.graph.nodes
-    gedges = initial.graph.edges.map((e) => ({ id: e.id, from: e.from, to: e.to, condition: e.condition, isDefault: e.isDefault, label: e.label, conditionSpec: e.conditionSpec }))
-    startId = gnodes.find((n) => n.type === 'start')?.id ?? 'Start_1'
+    edges = initial.graph.edges.map((e) => ({ id: e.id, from: e.from, to: e.to, condition: e.condition, isDefault: e.isDefault, label: e.label, conditionSpec: e.conditionSpec }))
   } else {
     try {
       const g: WfGraph = compileBpmn(initial.bpmnXml)
       gnodes = Object.values(g.nodes).map((n) => ({ id: n.id, type: n.type, name: n.name }))
-      gedges = g.edges.map((e) => ({ id: e.id, from: e.from, to: e.to, condition: e.condition, isDefault: e.isDefault }))
-      startId = g.startId
+      edges = g.edges.map((e) => ({ id: e.id, from: e.from, to: e.to, condition: e.condition, isDefault: e.isDefault }))
     } catch {
-      const s = seedGraph()
-      return { ...s, startId: 'Start_1' }
+      return null
     }
   }
   const nodes: ENode[] = gnodes.map((n) => {
     const t = n.type as NType
-    const step = stepById.get(n.id)
     return {
       id: n.id,
       type: t,
       name: n.name ?? (t === 'start' ? 'Início' : t === 'end' ? 'Fim' : ''),
-      step: isActivity(t) ? (step ?? { stepId: n.id, stepName: n.name ?? '', fields: [], stepType: t as 'userTask' | 'serviceTask' }) : undefined,
+      step: isActivity(t) ? (stepById.get(n.id) ?? passoVazio(n.id, t as 'userTask' | 'serviceTask')) : undefined,
     }
   })
-  return { nodes, edges: gedges, startId }
+  return { nodes, edges }
+}
+
+interface EstadoInicial {
+  fluxo: FluxoBlocos | null
+  steps: Record<string, StepFormSchema>
+  /** Desenho antigo que não cabe em blocos: abre só para leitura, na vista por raia. */
+  legado: { nodes: ENode[]; edges: EEdge[] } | null
+}
+
+/** Blocos gravados vencem. Desenho antigo LINEAR vira blocos sem perda; qualquer outra
+ *  forma fica só para leitura — estruturar um desenho livre seria adivinhar a intenção
+ *  de quem desenhou, e errar calado é pior do que dizer que não dá. */
+function estadoInicial(initial?: FlowInitial): EstadoInicial {
+  const steps = Object.fromEntries((initial?.steps ?? []).map((s) => [s.stepId, s]))
+  if (!initial) return { fluxo: novoFluxo(INICIO_ID, FIM_ID), steps, legado: null }
+  if (initial.blocos?.itens) return { fluxo: initial.blocos, steps, legado: null }
+  const g = grafoGravado(initial)
+  if (!g) return { fluxo: novoFluxo(INICIO_ID, FIM_ID), steps, legado: null }
+  const f = grafoParaBlocos(g.nodes, g.edges)
+  return f ? { fluxo: f, steps, legado: null } : { fluxo: null, steps, legado: g }
+}
+
+/** O grafo que o motor executa, GERADO dos blocos — com os nomes que moram nos passos. */
+function grafoDosBlocos(f: FluxoBlocos, steps: Record<string, StepFormSchema>): { nodes: ENode[]; edges: EEdge[] } {
+  const g = blocosParaGrafo(f)
+  const nodes: ENode[] = g.nodes.map((n) => {
+    if (n.type === 'userTask' || n.type === 'serviceTask') {
+      const step: StepFormSchema = { ...(steps[n.id] ?? passoVazio(n.id, n.type)), stepId: n.id, stepType: n.type }
+      return { id: n.id, type: n.type, name: step.stepName, step }
+    }
+    return { id: n.id, type: n.type as NType, name: n.type === 'start' ? 'Início' : n.type === 'end' ? 'Fim' : (n.name ?? '') }
+  })
+  return { nodes, edges: g.edges as EEdge[] }
 }
 
 const toLNode = (n: ENode): LNode => ({ id: n.id, type: n.type, name: isActivity(n.type) ? (n.step?.stepName || '') : n.name })
@@ -214,7 +231,7 @@ function buildWfGraph(nodes: ENode[], edges: EEdge[]): WfGraph {
   for (const n of nodes) wn[n.id] = { id: n.id, type: n.type, name: isActivity(n.type) ? (n.step?.stepName || 'Etapa') : (n.name || undefined) }
   const we: WfEdge[] = edges.map((e) => ({ id: e.id, from: e.from, to: e.to, condition: e.condition || undefined, isDefault: e.isDefault }))
   const start = nodes.find((n) => n.type === 'start')
-  return { nodes: wn, edges: we, startId: start?.id ?? 'Start_1' }
+  return { nodes: wn, edges: we, startId: start?.id ?? INICIO_ID }
 }
 
 /* ─── componente ───────────────────────────────────────────────────────────── */
@@ -223,28 +240,27 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const router = useRouter()
   const editing = !!initial?.id
 
-  const seed = useMemo(() => (initial ? fromInitial(initial) : seedGraph()), [initial])
+  const inicio = useMemo(() => estadoInicial(initial), [initial])
+  const somenteLeitura = inicio.legado !== null
   const [name, setName] = useState(initial?.name ?? '')
   const [description, setDescription] = useState(initial?.description ?? '')
   const [kind, setKind] = useState(initial?.kind ?? '')
-  const [nodes, setNodes] = useState<ENode[]>(seed.nodes)
-  const [edges, setEdges] = useState<EEdge[]>(seed.edges)
-  /* Posições MANUAIS separadas por modo. Um desenho arrumado no canvas livre tem outro
-     eixo vertical (não há bandas) e outro zero horizontal (não há coluna de rótulo) do
-     que o mesmo desenho arrumado por raia — misturar os dois faria o fluxo "pular" a
-     cada vez que o modo fosse alternado. */
-  const [positionsRaia, setPositionsRaia] = useState<Record<string, { x: number; y: number }>>(initial?.positionsRaia ?? {})
+  /* A AUTORIA é o fluxo em blocos + a configuração de cada atividade. Nós e setas não
+     são editados: são gerados disso — é o que impede as formas que travavam o motor. */
+  const [fluxo, setFluxo] = useState<FluxoBlocos | null>(inicio.fluxo)
+  const [steps, setSteps] = useState<Record<string, StepFormSchema>>(inicio.steps)
   const [laneOrder, setLaneOrder] = useState<string[]>(initial?.laneOrder ?? [])
+  /* Duas vistas do MESMO fluxo: montar em blocos (onde a estrutura se edita) e ver por
+     raia (quem faz o quê). Desenho antigo que não cabe em blocos só tem a raia. */
+  const [vista, setVista] = useState<'blocos' | 'raia'>(somenteLeitura ? 'raia' : 'blocos')
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  /* "Testar decisão" (simulador do losango): a saída vencedora acende no canvas.
-     O GatewayInspector é o dono do estado; aqui só o reflexo para o desenho. */
-  const [simulacao, setSimulacao] = useState<{ gatewayId: string; vencedora: string | null } | null>(null)
+  /* "Testar decisão": o caminho vencedor acende no trilho, atrás do modal. */
+  const [simulacao, setSimulacao] = useState<Simulacao | null>(null)
   /* Atividade em CONFIGURAÇÃO (modal). Separado da seleção: fechar o modal não
-     deseleciona o nó, e o painel lateral segue mostrando o resumo dele. */
+     deseleciona, e o painel lateral segue mostrando o resumo. */
   const [configId, setConfigId] = useState<string | null>(null)
-  /* Decisão configura em MODAL, igual atividade (pedido do PO 2026-08-23) — a lateral vira resumo. */
-  const [decisaoId, setDecisaoId] = useState<string | null>(null)
-  /* Painel de pendências de ativação (aberto pela pílula no canvas ou pelo "Ativar"). */
+  const [escolhaId, setEscolhaId] = useState<string | null>(null)
+  /* Painel de pendências de ativação (aberto pela pílula ou pelo "Ativar"). */
   const [pendAberto, setPendAberto] = useState(false)
   const [saving, setSaving] = useState(false)
   const [activating, setActivating] = useState(false)
@@ -253,23 +269,23 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const canvasRef = useRef<HTMLDivElement>(null)
 
   /* ─── Desfazer / refazer ──────────────────────────────────────────────────────
-     Guarda RETRATOS do desenho (nós, ligações, posições e ordem das raias). Nome,
-     descrição e tipo ficam de fora de propósito: são campos de texto, e o navegador
-     já desfaz digitação neles — capturá-los faria um Ctrl+Z "engolir" uma letra.
-
-     O retrato é tirado por OBSERVAÇÃO do estado, não em cada ponto de mutação: o
-     editor altera o desenho em uma dúzia de lugares, e exigir que cada um lembrasse
-     de registrar seria uma regra que se perde na primeira alteração futura. */
-  const [historia, setHistoria] = useState<Retrato[]>(() => [{
-    nodes: seed.nodes, edges: seed.edges,
-    positionsRaia: initial?.positionsRaia ?? {}, laneOrder: initial?.laneOrder ?? [],
-  }])
+     Guarda RETRATOS da autoria (fluxo, passos e ordem das raias). Nome, descrição e
+     tipo ficam de fora de propósito: são campos de texto, e o navegador já desfaz
+     digitação neles — capturá-los faria um Ctrl+Z "engolir" uma letra.
+     O retrato é tirado por OBSERVAÇÃO do estado, não em cada ponto de mutação. */
+  const [historia, setHistoria] = useState<Retrato[]>(() => [{ fluxo: inicio.fluxo, steps: inicio.steps, laneOrder: initial?.laneOrder ?? [] }])
   const [hIndice, setHIndice] = useState(0)
   const aplicandoHistorico = useRef(false)
 
   const papeis = useLookupTable(PAPEIS_KEY, INIT_PAPEIS)
   const { screens } = useScreens()
   const resolvePapel = useCallback((id: string) => papeis.entries.find((p) => p.id === id)?.label, [papeis.entries])
+
+  const { nodes, edges } = useMemo(
+    () => (fluxo ? grafoDosBlocos(fluxo, steps) : inicio.legado ?? { nodes: [] as ENode[], edges: [] as EEdge[] }),
+    [fluxo, steps, inicio.legado],
+  )
+
   /* Nomes das entidades que hospedam os papéis (unidade, empresa, parceiro…) — o cartão
      mostra QUAL unidade executa, não só o papel. Só carrega os tipos que o fluxo usa. */
   const tiposEntidade = useMemo(() => {
@@ -280,52 +296,68 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const resolveEntidade = useEntityLabels(tiposEntidade)
 
   const nodeById = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n])), [nodes])
-  const selected = selectedId ? nodeById[selectedId] : null
+  const selected = selectedId ? nodeById[selectedId] ?? null : null
+  const selectedBloco = useMemo(() => {
+    const it = fluxo && selectedId ? acharItem(fluxo, selectedId) : undefined
+    return it && it.kind !== 'atividade' ? it : null
+  }, [fluxo, selectedId])
   const configNode = configId ? nodeById[configId] : null
+  const nomeDe = useCallback((id: string) => nodeById[id]?.step?.stepName?.trim() || 'Atividade sem nome', [nodeById])
+  const metaDe = useCallback((id: string): MetaAtividade[] => {
+    const n = nodeById[id]
+    return n ? metaDaAtividade(n, resolvePapel, resolveEntidade) : []
+  }, [nodeById, resolvePapel, resolveEntidade])
 
   /* Pendências de ativação AO VIVO — as MESMAS regras que a API aplica ao ativar
-     (@nxt/workflow-core/activation-guard), recalculadas a cada mudança do desenho:
-     consertou, o item some da lista. Uma regra só, sem deriva cliente/servidor. */
+     (@nxt/workflow-core), recalculadas a cada mudança: consertou, o item some. */
   const pendencias = useMemo<ProblemaAtivacao[]>(() => {
     const vnodes = nodes.map((n) => ({ id: n.id, type: n.type, name: isActivity(n.type) ? (n.step?.stepName || '') : n.name }))
     const vedges = edges.map((e) => ({ from: e.from, to: e.to, condition: e.condition, isDefault: e.isDefault }))
-    return [
-      ...validarDesenho(vnodes, vedges),
-      ...validarDecisoes(vnodes, vedges),
-      ...validarAtividades(nodes.filter((n) => n.type === 'userTask').map((n) => ({
+    const tarefas = nodes.filter((n) => n.type === 'userTask')
+    const dasAtividades = [
+      ...validarAtividades(tarefas.map((n) => ({
         stepId: n.id, stepName: n.step?.stepName, executor: n.step?.executor,
         slaBusinessDays: n.step?.slaBusinessDays, slaBusinessHours: n.step?.slaBusinessHours, slaBusinessMinutes: n.step?.slaBusinessMinutes,
       }))),
       ...validarTelasDasAtividades(
-        nodes.filter((n) => n.type === 'userTask').map((n) => ({ stepId: n.id, stepName: n.step?.stepName, screenRef: n.step?.screenRef, entityMode: n.step?.entityMode })),
+        tarefas.map((n) => ({ stepId: n.id, stepName: n.step?.stepName, screenRef: n.step?.screenRef, entityMode: n.step?.entityMode, extraScreens: n.step?.extraScreens })),
         screens,
       ),
+      // editar/consultar usa o registro do processo: avisa quando ninguém antes o cria
+      ...validarOrigemDoRegistro(vedges, nodes.filter((n) => isActivity(n.type)).map((n) => ({
+        stepId: n.id, stepName: n.step?.stepName, screenRef: n.step?.screenRef, screenSubject: n.step?.screenSubject,
+        entityMode: n.step?.entityMode, produz: n.type === 'serviceTask' ? findConnector(n.step?.connector)?.outputs : undefined,
+      }))),
     ]
-  }, [nodes, edges, screens])
+    if (!fluxo) return [...validarDesenho(vnodes, vedges), ...validarDecisoes(vnodes, vedges), ...dasAtividades]
+    /* Em blocos a forma já nasce ligada e com "caso contrário": do desenho sobra o que só
+       o bloco sabe dizer (condição que falta, volta sem destino). Os pontos de reencontro
+       são gerados — nunca culpados de algo que a pessoa possa consertar. */
+    return [
+      ...pendenciasDosBlocos(fluxo),
+      ...validarDesenho(vnodes, vedges).filter((p) => !p.nodeId?.endsWith(SUFIXO_REENCONTRO)),
+      ...dasAtividades,
+    ]
+  }, [fluxo, nodes, edges, screens])
 
-  /* Clique numa pendência: seleciona o nó culpado e abre a superfície onde o conserto
-     mora (modal da atividade/decisão). Problemas de conexão só selecionam — o conserto
-     é arrastar seta no canvas. O centrar fica no FlowCanvas (dono do scroll). */
+  /* Clicar é o gesto de "quero configurar isto": atividade e escolha abrem o modal onde a
+     configuração mora; o "ao mesmo tempo" só tem nome, editado no painel. Pontos de
+     reencontro (gerados) não têm o que configurar. No desenho antigo, só seleciona. */
+  const abrir = useCallback((id: string | null) => {
+    const alvo = id && !id.endsWith(SUFIXO_REENCONTRO) ? id : null
+    const it = alvo && fluxo ? acharItem(fluxo, alvo) : undefined
+    setSelectedId(alvo)
+    setConfigId(it?.kind === 'atividade' ? alvo : null)
+    setEscolhaId(it?.kind === 'escolha' ? alvo : null)
+  }, [fluxo])
+
   const focarPendencia = useCallback((p: ProblemaAtivacao) => {
     if (!p.nodeId || p.tipo === 'inicio-desligado' || p.tipo === 'fim-inalcancavel') return
-    setSelectedId(p.nodeId)
-    if (p.tipo === 'atividade-incompleta') setConfigId(p.nodeId)
-    else if (p.tipo.startsWith('decisao-')) setDecisaoId(p.nodeId)
-  }, [])
+    abrir(p.nodeId)
+  }, [abrir])
 
-  /* Clicar num quadro é o gesto de "quero configurar isto": seleciona e, sendo
-     atividade, já abre o modal — era o que a coluna lateral fazia ao aparecer. */
-  const selectNode = useCallback((id: string | null) => {
-    setSelectedId(id)
-    setConfigId(id && isActivity(nodeById[id]?.type) ? id : null)
-  }, [nodeById])
-
-  /* RAIA é o único modo do editor (decisão do PO em 02/08): workflow é sobre passagem de
-     bastão, e manter dois canvas custava dois caminhos de layout, dois mapas de posição e
-     duas superfícies de defeito — dois bugs desta semana só existiam num dos modos.
-     ⚠️ `positions` (do antigo canvas livre) fica ignorado: aquelas coordenadas foram
-     feitas noutro eixo e colocariam a atividade na banda do papel errado. */
-  const hasManual = Object.keys(positionsRaia).length > 0
+  /* VER POR RAIA: layout automático sempre. Posição manual deixou de existir com os
+     blocos — a ordem vem do fluxo, e a raia, de quem executa. */
   const layout = useMemo(() => layoutGraph(
     {
       nodes: nodes.map((n) => ({
@@ -335,58 +367,32 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         metaLines: isActivity(n.type) ? metaDaAtividade(n, resolvePapel, resolveEntidade).length : undefined,
       })),
       edges,
-      startId: nodes.find((n) => n.type === 'start')?.id ?? 'Start_1',
+      startId: nodes.find((n) => n.type === 'start')?.id ?? INICIO_ID,
     },
-    hasManual ? positionsRaia : undefined,
+    undefined,
     { swimlanes: true, laneOrder },
-  ), [nodes, edges, positionsRaia, hasManual, laneOrder, resolvePapel, resolveEntidade])
+  ), [nodes, edges, laneOrder, resolvePapel, resolveEntidade])
 
-  /* Reordenar RAIAS: a banda inteira sobe/desce e as atividades vão junto (o y delas
-     deriva do topo da banda). As posições manuais são deslocadas pelo MESMO delta, para
-     o arranjo que a pessoa fez dentro da banda não se perder na mudança de ordem.
-     A altura de cada banda não depende da ordem, então dá para calcular os topos novos
-     a partir das alturas atuais — sem esperar o layout recalcular. */
+  /* Reordenar RAIAS: a banda inteira sobe/desce e as atividades vão junto. */
   const reordenarRaias = useCallback((chave: string, destino: number) => {
-    const atuais = layout.lanes
-    if (!atuais?.length) return
-    const ordem = atuais.map((b) => b.key)
+    const ordem = layout.lanes?.map((b) => b.key) ?? []
     const de = ordem.indexOf(chave)
     if (de < 0) return
     const alvo = Math.max(0, Math.min(ordem.length - 1, destino > de ? destino - 1 : destino))
     if (alvo === de) return
-
     const nova = [...ordem]
     nova.splice(alvo, 0, ...nova.splice(de, 1))
-
-    const altura = Object.fromEntries(atuais.map((b) => [b.key, b.h]))
-    const topoAntes = Object.fromEntries(atuais.map((b) => [b.key, b.y]))
-    const topoDepois: Record<string, number> = {}
-    let t = atuais[0].y
-    for (const k of nova) { topoDepois[k] = t; t += altura[k] }
-
-    setPositionsRaia((prev) => {
-      const out = { ...prev }
-      for (const [id, p] of Object.entries(prev)) {
-        const b = layout.nodes[id]?.band
-        if (!b || topoDepois[b] === undefined) continue
-        out[id] = { x: p.x, y: p.y + (topoDepois[b] - topoAntes[b]) }
-      }
-      return out
-    })
     setLaneOrder(nova)
   }, [layout])
 
-  /* Painel lateral RETRÁTIL — o canvas é a superfície principal; recolher devolve os
-     320px (e o enquadramento reaproveita o espaço, subindo a escala do desenho).
-     O estado efetivo é DERIVADO: recolhido só quando o usuário pediu E não há nó
-     selecionado — selecionar um nó É o gesto de "quero configurar isto", então o painel
-     reaparece sozinho e volta a recolher ao deselecionar. Sem lógica imperativa. */
+  /* Painel lateral RETRÁTIL. O estado efetivo é DERIVADO: recolhido só quando o usuário
+     pediu E não há item selecionado — selecionar É o gesto de "quero configurar isto". */
   const [mounted, setMounted] = useState(false)
   const [panelPref, setPanelPref] = useState(false) // true = recolhido
   useEffect(() => { setMounted(true); setPanelPref(localStorage.getItem(PANEL_KEY) === '1') }, [])
   useEffect(() => { if (mounted) localStorage.setItem(PANEL_KEY, panelPref ? '1' : '0') }, [panelPref, mounted])
   const panelCollapsed = mounted && panelPref && !selectedId
-  // recolher = "me devolve o canvas": também deseleciona, senão o derivado o manteria aberto
+  // recolher = "me devolve o desenho": também deseleciona, senão o derivado o manteria aberto
   const togglePanel = useCallback(() => {
     setPanelPref((prev) => {
       if (!prev) { setSelectedId(null); return true }
@@ -394,101 +400,63 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     })
   }, [])
 
-  const setPosition = useCallback((id: string, pos: { x: number; y: number }) => {
-    setPositionsRaia((prev) => ({ ...prev, [id]: pos }))
-  }, [])
-  // (o botão "Organizar" — que zerava as posições manuais para realinhar tudo — foi
-  // removido do cabeçalho a pedido; o auto-layout segue valendo enquanto ninguém
-  // arrastar um nó, que é quando `positions` deixa de ficar vazio.)
-
   const activityCount = nodes.filter((n) => isActivity(n.type)).length
 
-  const patchNode = useCallback((id: string, patch: Partial<ENode>) => {
-    setNodes((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch } : n)))
+  const mudarFluxo = useCallback((fn: (f: FluxoBlocos) => FluxoBlocos) => {
+    setFluxo((f) => (f ? fn(f) : f))
   }, [])
   const patchStep = useCallback((id: string, patch: Partial<StepFormSchema>) => {
-    setNodes((prev) => prev.map((n) => (n.id === id && n.step ? { ...n, step: { ...n.step, ...patch } } : n)))
+    setSteps((prev) => ({ ...prev, [id]: { ...(prev[id] ?? passoVazio(id, 'userTask')), ...patch } }))
   }, [])
-  // Troca o TIPO da atividade (Tarefa ↔ Ação automática). Precisa mexer em node.type
-  // (o inspetor e o motor leem daí) além do stepType — por isso não dá para fazer só
-  // via patchStep (era o bug do toggle que "não fazia nada").
+  // Troca o TIPO da atividade (Tarefa ↔ Ação automática): o tipo mora no BLOCO (é ele que
+  // gera o nó) e no passo (stepType) — os dois mudam juntos.
   const changeNodeType = useCallback((id: string, t: 'userTask' | 'serviceTask') => {
-    setNodes((prev) => prev.map((n) => (n.id === id
-      ? { ...n, type: t, step: { ...(n.step ?? { stepId: id, stepName: '', fields: [] }), stepType: t } }
-      : n)))
+    setFluxo((f) => (f ? atualizarItem(f, id, { tipo: t }) : f))
+    setSteps((prev) => ({ ...prev, [id]: { ...(prev[id] ?? passoVazio(id, t)), stepType: t } }))
   }, [])
 
-  // ── gestos de conexão (portas): conectar, criar-no-vazio, apagar aresta ──
-  const onConnect = useCallback((from: string, to: string) => {
-    if (from === to) return
-    setEdges((prev) => (prev.some((e) => e.from === from && e.to === to) ? prev : [...prev, { id: nid('Flow'), from, to }]))
-  }, [])
-  const onCreateConnected = useCallback((from: string, type: AddType) => {
-    if (type === 'userTask' || type === 'serviceTask') {
-      const id = nid('Node')
-      setNodes((ns) => [...ns, { id, type, name: '', step: { stepId: id, stepName: '', fields: [], stepType: type } }])
-      setEdges((es) => [...es, { id: nid('Flow'), from, to: id }])
-      setSelectedId(id)
-    } else {
-      const id = nid('Gw')
-      setNodes((ns) => [...ns, { id, type, name: type === 'exclusiveGateway' ? 'Decisão' : 'Em paralelo' }])
-      setEdges((es) => [...es, { id: nid('Flow'), from, to: id }])
-      setSelectedId(id)
-    }
-  }, [])
-  const onDeleteEdge = useCallback((edgeId: string) => {
-    setEdges((prev) => prev.filter((e) => e.id !== edgeId))
+  /* Inserir já abre o que precisa ser preenchido: a atividade nasce sem nome e a escolha
+     sem condição — deixar a pessoa procurar onde configurar era o problema de antes. */
+  const inserir = useCallback((ref: string, indice: number, tipo: NovoItem) => {
+    const item = novoItem(tipo)
+    if (item.kind === 'atividade') setSteps((prev) => ({ ...prev, [item.id]: passoVazio(item.id, item.tipo) }))
+    setFluxo((f) => (f ? inserirItem(f, ref, indice, item) : f))
+    setSelectedId(item.id)
+    setConfigId(item.kind === 'atividade' ? item.id : null)
+    setEscolhaId(item.kind === 'escolha' ? item.id : null)
   }, [])
 
-  // Remove um nó (atividade) fazendo ponte entre a entrada e a saída.
-  const removeNode = useCallback((id: string) => {
-    setEdges((prevEdges) => {
-      const ins = prevEdges.filter((e) => e.to === id)
-      const outs = prevEdges.filter((e) => e.from === id)
-      const rest = prevEdges.filter((e) => e.from !== id && e.to !== id)
-      // ponte simples: liga cada entrada a cada saída (para atividade linear, 1×1)
-      const bridges: EEdge[] = []
-      for (const i of ins) for (const o of outs) bridges.push({ id: nid('Flow'), from: i.from, to: o.to, condition: i.condition, isDefault: i.isDefault, label: i.label })
-      return [...rest, ...bridges]
-    })
-    setNodes((ns) => ns.filter((n) => n.id !== id))
-    const esquecer = (prev: Record<string, { x: number; y: number }>) => {
-      if (!prev[id]) return prev
-      const n = { ...prev }; delete n[id]; return n
-    }
-    setPositionsRaia(esquecer)
+  /* Remover um bloco leva junto o que mora dentro dele. Os passos das atividades ficam no
+     mapa (o desfazer os traz de volta inteiros); a gravação só leva os que existem. */
+  const remover = useCallback((id: string) => {
+    setFluxo((f) => (f ? removerItem(f, id) : f))
     setSelectedId((cur) => (cur === id ? null : cur))
+    setConfigId((cur) => (cur === id ? null : cur))
+    setEscolhaId((cur) => (cur === id ? null : cur))
   }, [])
 
-  const setEdge = useCallback((edgeId: string, patch: Partial<EEdge>) => {
-    setEdges((prev) => prev.map((e) => (e.id === edgeId ? { ...e, ...patch } : e)))
-  }, [])
-
-  /* Registra um retrato quando o desenho para de mudar. A espera COALESCE o que é uma
-     ação só aos olhos de quem edita: arrastar um cartão dispara dezenas de atualizações
-     de posição, e sem isso um Ctrl+Z desfaria um pixel do arrasto em vez do arrasto. */
+  /* Registra um retrato quando a autoria para de mudar. A espera COALESCE o que é uma
+     ação só aos olhos de quem edita (digitar um nome, por exemplo). */
   useEffect(() => {
     if (aplicandoHistorico.current) { aplicandoHistorico.current = false; return }
     const t = setTimeout(() => {
       const atual = historia[hIndice]
-      if (atual && atual.nodes === nodes && atual.edges === edges
-        && atual.positionsRaia === positionsRaia && atual.laneOrder === laneOrder) return
-      const proximo = [...historia.slice(0, hIndice + 1), { nodes, edges, positionsRaia, laneOrder }] // um passo novo descarta o "refazer"
+      if (atual && atual.fluxo === fluxo && atual.steps === steps && atual.laneOrder === laneOrder) return
+      const proximo = [...historia.slice(0, hIndice + 1), { fluxo, steps, laneOrder }] // um passo novo descarta o "refazer"
       const excedente = Math.max(0, proximo.length - MAX_HISTORIA)
       setHistoria(excedente ? proximo.slice(excedente) : proximo)
       setHIndice(proximo.length - 1 - excedente)
     }, 350)
     return () => clearTimeout(t)
-  }, [nodes, edges, positionsRaia, laneOrder, historia, hIndice])
+  }, [fluxo, steps, laneOrder, historia, hIndice])
 
   const irPara = useCallback((i: number) => {
     const r = historia[i]
     if (!r) return
     aplicandoHistorico.current = true
-    setNodes(r.nodes); setEdges(r.edges); setPositionsRaia(r.positionsRaia); setLaneOrder(r.laneOrder)
+    setFluxo(r.fluxo); setSteps(r.steps); setLaneOrder(r.laneOrder)
     setHIndice(i)
-    setSelectedId((cur) => (cur && r.nodes.some((n) => n.id === cur) ? cur : null))
-    setConfigId(null)
+    setConfigId(null); setEscolhaId(null)
   }, [historia])
 
   const podeDesfazer = hIndice > 0
@@ -496,9 +464,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const desfazer = useCallback(() => { if (hIndice > 0) irPara(hIndice - 1) }, [hIndice, irPara])
   const refazer = useCallback(() => { if (hIndice < historia.length - 1) irPara(hIndice + 1) }, [hIndice, historia.length, irPara])
 
-  /* Ctrl+Z / Ctrl+Y (e Ctrl+Shift+Z, que é o refazer de boa parte dos editores).
-     ⚠️ Fica fora quando o foco está num campo: lá o desfazer é o do NAVEGADOR, e roubá-lo
-     faria o atalho apagar o desenho enquanto a pessoa só queria corrigir uma palavra. */
+  /* Ctrl+Z / Ctrl+Y (e Ctrl+Shift+Z). ⚠️ Fica fora quando o foco está num campo: lá o
+     desfazer é o do NAVEGADOR, e roubá-lo apagaria o desenho no lugar de uma palavra. */
   useEffect(() => {
     const emCampo = (el: EventTarget | null) => {
       const t = el as HTMLElement | null
@@ -515,30 +482,24 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   }, [desfazer, refazer])
 
   /* Gravação que apagaria grande parte do desenho: a API recusa com 409 e diz quanto
-     seria removido. Guardamos a pergunta aqui e só reenviamos com `confirmarReducao`
-     depois que a pessoa disser que é intencional — sem diálogo nativo, que trava a
-     janela e destoa do resto do sistema. */
+     seria removido. Só reenviamos com `confirmarReducao` depois que a pessoa confirmar. */
   const [reducao, setReducao] = useState<{ msg: string; acao: 'rascunho' | 'ativar' } | null>(null)
-  /* Dialog do DS no lugar do alert() nativo (auditoria 2026-08-21). `aoFechar` cobre o
-     caso em que o alert bloqueante segurava um router.push — aqui a navegação só
-     acontece quando a pessoa fecha o aviso, senão o dialog morreria junto da tela. */
+  /* Dialog do DS no lugar do alert() nativo. `aoFechar` segura a navegação até a pessoa
+     fechar o aviso, senão o dialog morreria junto da tela. */
   const [aviso, setAviso] = useState<{ msg: string; titulo?: string; aoFechar?: () => void } | null>(null)
 
   const persist = useCallback(async (confirmarReducao?: boolean): Promise<string> => {
+    if (!fluxo) throw new Error('Workflow do editor antigo: aberto só para leitura.')
     const bpmnXml = generateBpmn(buildWfGraph(nodes, edges))
-    const steps = nodes.filter((n) => isActivity(n.type) && n.step).map((n) => ({ ...n.step!, stepId: n.id, stepName: n.step!.stepName, stepType: n.type as 'userTask' | 'serviceTask' }))
-    // mantém só posições de nós existentes (nos dois modos)
-    const vivos = (m: Record<string, { x: number; y: number }>) =>
-      Object.fromEntries(Object.entries(m).filter(([id]) => nodes.some((n) => n.id === id)))
-    const posRaia = vivos(positionsRaia)
-    // grafo do editor (fonte de verdade da autoria; sobrevive a rascunhos incompletos)
+    const stepsVivos = nodes.filter((n) => isActivity(n.type) && n.step).map((n) => ({ ...n.step!, stepId: n.id, stepName: n.step!.stepName, stepType: n.type as 'userTask' | 'serviceTask' }))
+    // grafo GERADO (a API valida e compila por ele; telas de leitura o desenham)
     const graph: ProcessFormSchema['graph'] = {
       nodes: nodes.map((n) => ({ id: n.id, type: n.type, name: isActivity(n.type) ? (n.step?.stepName || '') : n.name })),
       edges: edges.map((e) => ({ id: e.id, from: e.from, to: e.to, condition: e.condition || undefined, isDefault: e.isDefault, label: e.label, conditionSpec: e.conditionSpec })),
     }
     const formSchema: ProcessFormSchema = {
-      steps, graph,
-      positionsRaia: Object.keys(posRaia).length ? posRaia : undefined,
+      steps: stepsVivos, graph,
+      blocos: comNomes(fluxo, steps),
       laneOrder: laneOrder.length ? laneOrder : undefined,
     }
     const body = JSON.stringify({ name: name.trim(), description: description.trim() || undefined, bpmnXml, formSchema, kind: kind || undefined, ...(confirmarReducao ? { confirmarReducao: true } : {}) })
@@ -554,7 +515,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     const res = await apiFetch(`/api/processes`, { method: 'POST', body })
     if (!res.ok) throw new Error('Erro ao salvar')
     return (await res.json()).id as string
-  }, [editing, initial, name, description, kind, nodes, edges, positionsRaia, laneOrder])
+  }, [editing, initial, name, description, kind, fluxo, steps, nodes, edges, laneOrder])
 
   const handleSaveDraft = useCallback(async (confirmarReducao?: boolean) => {
     if (!name.trim()) { setAviso({ msg: 'Dê um nome ao workflow antes de salvar.' }); return }
@@ -569,15 +530,10 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
   const handleActivate = useCallback(async (confirmarReducao?: boolean) => {
     if (!name.trim()) { setAviso({ msg: 'Dê um nome ao workflow antes de ativar.' }); return }
-    // O tipo decide em que tela o workflow aparece no "Novo processo" — sem ele, o
-    // workflow ficaria ativo e invisível para quem trabalha em Contratos/Parceiros.
-    // (O backend também recusa; aqui o aviso chega antes de salvar.)
+    // O tipo decide em que tela o workflow aparece no "Novo processo" (o backend também recusa).
     if (!kind) { setAviso({ msg: 'Escolha o tipo do workflow (contrato, aditivo ou parceiro) antes de ativar.' }); return }
     if (activityCount === 0) { setAviso({ msg: 'Adicione ao menos uma atividade antes de ativar.' }); return }
-    // Pendências conhecidas ANTES do servidor: abre a lista clicável em vez de um
-    // diálogo — o guard da API continua valendo como rede de segurança. AVISO não
-    // impede: atividade fora do caminho do fim é desenho legítimo. Ela aparece no
-    // painel do mesmo jeito, para o desenhista saber o que ela significa rodando.
+    // Pendências conhecidas ANTES do servidor: abre a lista clicável. AVISO não impede.
     if (bloqueantes(pendencias).length) { setPendAberto(true); return }
     setActivating(true)
     try {
@@ -597,7 +553,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     finally { setActivating(false) }
   }, [name, kind, activityCount, pendencias, persist, router])
 
-  // Monta o modelo do grafo (posições + textos) para o exportador desenhar em 2D.
+  // Monta o modelo do grafo (posições da raia + textos) para o exportador desenhar em 2D.
   const buildExportModel = useCallback((): ExportModel => {
     const enodes: ExportNode[] = nodes.map((n) => {
       const p = layout.nodes[n.id]
@@ -614,8 +570,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       const a = layout.nodes[e.from], b = layout.nodes[e.to]
       const from = nodeById[e.from]
       const variant: ExportEdge['variant'] = from?.type === 'exclusiveGateway' ? 'exclusive' : from?.type === 'parallelGateway' ? 'parallel' : 'normal'
-      // MESMA geometria da tela (âncoras cientes do lado + laço de retorno), senão o
-      // arquivo exportado sai diferente do que o usuário desenhou.
+      // MESMA geometria da tela, senão o arquivo sai diferente do que se vê.
       const g = edgeGeometry(a, b, Object.entries(layout.nodes).filter(([id]) => id !== e.from && id !== e.to).map(([, p]) => p))
       return {
         ax: g.a.x, ay: g.a.y, bx: g.b.x, by: g.b.y,
@@ -641,36 +596,47 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     }
   }, [buildExportModel, name, kind])
 
-  // Tecla Delete/Backspace exclui o nó selecionado (exceto início/fim), fora de campos de texto.
+  // Delete/Backspace remove o item selecionado (fora de campos e com os modais fechados).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Delete' && e.key !== 'Backspace') return
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
-      if (!selectedId) return
-      const n = nodeById[selectedId]
-      if (n && n.type !== 'start' && n.type !== 'end') { e.preventDefault(); removeNode(selectedId) }
+      if (!selectedId || !fluxo || configId || escolhaId) return
+      if (acharItem(fluxo, selectedId)) { e.preventDefault(); remover(selectedId) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [selectedId, nodeById, removeNode])
+  }, [selectedId, fluxo, configId, escolhaId, remover])
 
   return (
-    /* Sem o -m-6 de antes: o <main> não tem mais o p-6 a compensar. O editor vira um
-       cartão que ocupa a área toda, com cantos da mesma família das ilhas. */
+    /* O editor é um cartão que ocupa a área toda, com cantos da mesma família das ilhas. */
     <div className="flex flex-col h-full overflow-hidden rounded-xl border bg-background">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b bg-card shrink-0">
         <Button variant="ghost" size="icon" onClick={() => router.push('/workflows')} className="h-8 w-8"><ArrowLeft className="h-4 w-4" /></Button>
-        {/* O NOME saiu daqui: virou o título do documento, no alto do desenho
-            (WorkflowIdentity). Aqui fica só a migalha de contexto — sem campo
-            disfarçado de título, que era exatamente o problema. */}
+        {/* O NOME é o título do documento, no alto do desenho (WorkflowIdentity). Aqui
+            fica só a migalha de contexto. */}
         <div className="flex-1 min-w-0 text-[12.5px] text-muted-foreground truncate">
           Workflows <span className="mx-1 opacity-50">/</span>
           <span className="text-foreground font-semibold">{name.trim() || 'sem nome'}</span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {exportError && <span className="text-[11px] text-destructive font-medium">{exportError}</span>}
+          {/* Vista: a escolhida fica em negrito além da cor (o PO é daltônico). */}
+          <div role="group" aria-label="Vista do desenho" className="flex items-center rounded-md border bg-card p-0.5 shadow-sm mr-1">
+            {([['blocos', 'Montar', Blocks], ['raia', 'Ver por raia', Rows3]] as const).map(([v, rotulo, Icone]) => (
+              <button key={v} type="button" onClick={() => setVista(v)} aria-pressed={vista === v}
+                disabled={v === 'blocos' && somenteLeitura}
+                title={v === 'blocos'
+                  ? (somenteLeitura ? 'Este workflow não cabe em blocos — veja o aviso acima do desenho' : 'Montar o fluxo em blocos')
+                  : 'Ver o fluxo organizado por quem executa'}
+                className={cn('h-7 px-2.5 rounded inline-flex items-center gap-1.5 text-[12px] transition-colors disabled:opacity-40 disabled:hover:bg-transparent',
+                  vista === v ? 'bg-primary/10 text-primary font-semibold' : 'text-muted-foreground font-medium hover:text-foreground hover:bg-muted')}>
+                <Icone className="h-3.5 w-3.5" />{rotulo}
+              </button>
+            ))}
+          </div>
           <div className="flex items-center rounded-md border bg-card shadow-sm mr-1">
             <button type="button" onClick={desfazer} disabled={!podeDesfazer} title="Desfazer (Ctrl+Z)"
               className="h-8 w-8 flex items-center justify-center rounded-l-md text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent transition-colors">
@@ -687,14 +653,22 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
           <ExportMenu exporting={exporting} disabled={saving || activating} onExport={handleExport} />
           {/* ⚠️ `() =>` obrigatório: passar a função direto entregaria o MouseEvent como
               `confirmarReducao` — truthy — e a guarda seria burlada em TODO salvamento. */}
-          <Button variant="outline" size="sm" onClick={() => handleSaveDraft()} disabled={saving || activating}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Salvar rascunho</Button>
-          {/* Sem nome não dá para ativar (a API recusa). Dizer isso ANTES, no botão,
-              evita a pessoa desenhar o fluxo inteiro para levar um diálogo no fim. */}
-          <Button size="sm" onClick={() => handleActivate()} disabled={saving || activating || !name.trim()}
-            title={!name.trim() ? 'Dê um nome ao workflow para poder ativá-lo' : 'Ativar workflow'}>
+          <Button variant="outline" size="sm" onClick={() => handleSaveDraft()} disabled={saving || activating || somenteLeitura}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Salvar rascunho</Button>
+          <Button size="sm" onClick={() => handleActivate()} disabled={saving || activating || !name.trim() || somenteLeitura}
+            title={somenteLeitura ? 'Workflow do editor antigo: aberto só para leitura' : !name.trim() ? 'Dê um nome ao workflow para poder ativá-lo' : 'Ativar workflow'}>
             {activating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}Ativar workflow</Button>
         </div>
       </div>
+
+      {somenteLeitura && (
+        <div className="flex items-start gap-3 px-4 py-2.5 border-b bg-muted/40 shrink-0">
+          <Info className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+          <p className="text-[12.5px] leading-snug">
+            Este workflow foi desenhado no editor antigo, com ligações livres que não cabem em blocos. Ele abre
+            <span className="font-semibold"> só para leitura</span>. Para alterá-lo, crie um workflow novo e monte-o em blocos.
+          </p>
+        </div>
+      )}
 
       {/* Guarda de gravação destrutiva: a API recusou porque a gravação apagaria grande
           parte do desenho. A pessoa decide, sabendo o que perde. */}
@@ -715,20 +689,25 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       <NoticeDialog open={!!aviso} title={aviso?.titulo} message={aviso?.msg}
         onClose={() => { const depois = aviso?.aoFechar; setAviso(null); depois?.() }} />
 
-      {/* Canvas + Inspetor */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Coluna do DESENHO: a identidade do workflow no alto (como o cabeçalho de
-            um documento) e o canvas embaixo. O painel da direita fica fora desta
-            coluna — ele é do quadro selecionado, não do workflow. */}
+        {/* Coluna do DESENHO: a identidade do workflow no alto e o desenho embaixo. */}
         <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
-        <WorkflowIdentity
-          name={name} onName={setName}
-          description={description} onDescription={setDescription}
-          kind={kind} onKind={setKind}
-          kinds={WORKFLOW_KINDS}
-          autoFocus={!editing}
-        />
-        <FlowCanvas canvasRef={canvasRef} nodes={nodes} edges={edges} layout={layout} selectedId={selectedId} onSelect={selectNode} onConnect={onConnect} onCreateConnected={onCreateConnected} onDeleteEdge={onDeleteEdge} onDeleteNode={removeNode} onSetPosition={setPosition} resolvePapel={resolvePapel} resolveEntidade={resolveEntidade} onReorderLanes={reordenarRaias} simulacao={simulacao} pendencias={pendencias} pendAberto={pendAberto} onTogglePend={() => setPendAberto((v) => !v)} onFocar={focarPendencia} />
+          <WorkflowIdentity
+            name={name} onName={setName}
+            description={description} onDescription={setDescription}
+            kind={kind} onKind={setKind}
+            kinds={WORKFLOW_KINDS}
+            autoFocus={!editing}
+          />
+          {vista === 'blocos' && fluxo ? (
+            <BlocosTrilho fluxo={fluxo} steps={steps} selectedId={selectedId} simulacao={simulacao} metaDe={metaDe}
+              onAbrir={abrir} onInserir={inserir} onRemover={remover} onFluxo={mudarFluxo}
+              pendencias={pendencias} pendAberto={pendAberto} onTogglePend={() => setPendAberto((v) => !v)} onFocar={focarPendencia} />
+          ) : (
+            <FlowCanvas canvasRef={canvasRef} nodes={nodes} edges={edges} layout={layout} selectedId={selectedId} onSelect={abrir}
+              resolvePapel={resolvePapel} resolveEntidade={resolveEntidade} onReorderLanes={reordenarRaias}
+              pendencias={pendencias} pendAberto={pendAberto} onTogglePend={() => setPendAberto((v) => !v)} onFocar={focarPendencia} />
+          )}
         </div>
         {/* trilho do toggle: fica SEMPRE visível (é a alça para trazer o painel de volta) */}
         <div className="w-8 border-l bg-card flex flex-col items-center pt-2.5 shrink-0">
@@ -739,28 +718,36 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
           </button>
         </div>
         <div className={cn('w-80 border-l bg-card flex-col overflow-hidden shrink-0', panelCollapsed ? 'hidden' : 'flex')}>
-          {selected ? (
-            isActivity(selected.type) ? (
-              <ActivitySummaryPanel node={selected} papeis={papeis}
-                onConfigure={() => setConfigId(selected.id)} onRemove={() => removeNode(selected.id)} />
-            ) : (
-              <GatewayInspector key={selected.id} node={selected} nodes={nodes} edges={edges} onPatchNode={(p) => patchNode(selected.id, p)}
-                onConfigure={() => setDecisaoId(selected.id)} onRemove={() => removeNode(selected.id)} />
-            )
+          {selected && isActivity(selected.type) ? (
+            <ActivitySummaryPanel node={selected} papeis={papeis}
+              onConfigure={fluxo ? () => setConfigId(selected.id) : undefined}
+              onRemove={fluxo ? () => remover(selected.id) : undefined} />
+          ) : selectedBloco ? (
+            <BlocoInspector key={selectedBloco.id} bloco={selectedBloco} nomeDe={nomeDe}
+              onConfigure={() => setEscolhaId(selectedBloco.id)}
+              onRenomear={(nome) => mudarFluxo((f) => atualizarItem(f, selectedBloco.id, { nome }))}
+              onRemove={() => remover(selectedBloco.id)} />
           ) : (
-            /* Nada selecionado → AJUDA. A identidade do workflow (nome/descrição/tipo)
-               não mora mais aqui: ela subiu para o topo do desenho, onde não some ao
-               clicar num quadro. Este painel é do que está SELECIONADO. */
+            /* Nada selecionado → AJUDA. Este painel é do que está SELECIONADO. */
             <div className="flex flex-col h-full">
               <div className="px-4 py-3 border-b shrink-0 flex items-center">
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary"><LayoutTemplate className="h-3 w-3" />Como desenhar</span>
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary"><LayoutTemplate className="h-3 w-3" />Como montar</span>
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 <div className="rounded-md border border-dashed bg-muted/20 p-3">
                   <p className="text-xs font-semibold flex items-center gap-1.5"><LayoutTemplate className="h-3.5 w-3.5 text-primary" />Monte o fluxo</p>
-                  <p className="text-[11px] text-muted-foreground mt-1 leading-snug">Passe o mouse num quadro e <span className="font-medium">arraste uma das bolinhas</span> (nos 4 lados) até outro quadro para conectar — solte em qualquer parte dele. Ou solte no vazio para criar já ligado. Clique num quadro para configurá-lo.</p>
+                  <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
+                    Clique no <span className="font-medium">+</span> entre dois quadros para inserir uma tarefa, uma ação automática,
+                    uma <span className="font-medium">escolha de caminho</span> ou atividades <span className="font-medium">ao mesmo tempo</span>.
+                    Clique num quadro para configurá-lo; arraste-o para mudar de lugar.
+                  </p>
                   <p className="text-[11px] text-muted-foreground mt-1.5 leading-snug border-t pt-1.5">
-                    As atividades ficam na <span className="font-medium">raia de quem executa</span>. Para reordenar uma raia, arraste-a pela faixa do nome, à esquerda — ou use as setas <span className="font-medium">↑ ↓</span> que aparecem nela. As atividades vão junto.
+                    Numa escolha, cada caminho pode <span className="font-medium">seguir</span>, <span className="font-medium">encerrar o processo</span> ou
+                    <span className="font-medium"> voltar</span> para uma atividade anterior.
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-1.5 leading-snug border-t pt-1.5">
+                    <span className="font-medium">Ver por raia</span> mostra o mesmo fluxo organizado por quem executa. Para reordenar
+                    uma raia, arraste-a pela faixa do nome, à esquerda.
                   </p>
                 </div>
               </div>
@@ -769,18 +756,18 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         </div>
       </div>
 
+      {escolhaId && fluxo && (
+        <EscolhaConfigModal key={escolhaId} fluxo={fluxo} blocoId={escolhaId} nodes={nodes} edges={edges} screens={screens}
+          onFluxo={mudarFluxo} onSimulacao={setSimulacao}
+          onRemove={() => remover(escolhaId)} onClose={() => setEscolhaId(null)} />
+      )}
       {/* Configuração da atividade: modal amplo (a coluna de 320px não comporta o
           formulário — ver o comentário em ActivityConfigModal). */}
-      {decisaoId && nodeById[decisaoId] && (
-        <DecisionConfigModal key={decisaoId} node={nodeById[decisaoId]} nodes={nodes} edges={edges} screens={screens}
-          onPatchNode={(p) => patchNode(decisaoId, p)} onSetEdge={setEdge} onSimulacao={setSimulacao}
-          onRemove={() => { removeNode(decisaoId); setDecisaoId(null) }} onClose={() => setDecisaoId(null)} />
-      )}
-      {configNode && configNode.step && (
+      {configNode && configNode.step && fluxo && (
         <ActivityConfigModal key={configNode.id} node={configNode} nodes={nodes} edges={edges} screens={screens} papeis={papeis}
           onPatchStep={(p) => patchStep(configNode.id, p)}
           onChangeType={(t) => changeNodeType(configNode.id, t)}
-          onRemove={() => { removeNode(configNode.id); setConfigId(null) }}
+          onRemove={() => remover(configNode.id)}
           onClose={() => setConfigId(null)} />
       )}
     </div>
@@ -794,12 +781,6 @@ const STEP_TONE: Record<string, string> = {
   serviceTask: 'text-amber-600 dark:text-amber-400 bg-amber-500/10',
 }
 
-/* Zoom do canvas. O teto acima de 100% existe para LER: com o desenho grande, é o que
-   permite conferir prazo e executor sem abrir a atividade. O piso é o mesmo do
-   enquadramento automático — abaixo disso o texto do cartão vira borrão. */
-const ZOOM_MIN = 0.25
-const ZOOM_MAX = 2
-const ZOOM_PASSOS = [0.25, 0.4, 0.5, 0.65, 0.8, 1, 1.25, 1.5, 2]
 
 /** Calha RESERVADA para grip e setas dentro da faixa de rótulos. Fixa de propósito: o
  *  controle nunca invade o nome, e o nome nunca muda de lugar quando o mouse chega. */
@@ -885,42 +866,29 @@ function LaneHeader({ bandas, largura, scale, scrollTop, arrastando, onStartDrag
   )
 }
 
-function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onConnect, onCreateConnected, onDeleteEdge, onDeleteNode, onSetPosition, resolvePapel, resolveEntidade, onReorderLanes, simulacao, pendencias, pendAberto, onTogglePend, onFocar }: {
+/** VER POR RAIA — o mesmo fluxo dos blocos, organizado por quem executa. A ESTRUTURA não
+ *  se edita aqui: ligar setas à mão era o que permitia desenhar formas que travam o
+ *  motor. Clicar num quadro ainda abre a configuração dele. */
+function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, resolvePapel, resolveEntidade, onReorderLanes, pendencias, pendAberto, onTogglePend, onFocar }: {
   canvasRef: React.RefObject<HTMLDivElement | null>
   nodes: ENode[]; edges: EEdge[]; layout: ReturnType<typeof layoutGraph>
   selectedId: string | null; onSelect: (id: string | null) => void
-  onConnect: (from: string, to: string) => void
-  onCreateConnected: (from: string, type: AddType) => void
-  onDeleteEdge: (edgeId: string) => void
-  onDeleteNode: (id: string) => void
-  onSetPosition: (id: string, pos: { x: number; y: number }) => void
   resolvePapel: (id: string) => string | undefined
   resolveEntidade: (kind: string | undefined, id: string | undefined) => string | undefined
-  /** "Testar decisão": acende a saída vencedora do losango e apaga as perdedoras. */
-  simulacao?: { gatewayId: string; vencedora: string | null } | null
   onReorderLanes: (key: string, destino: number) => void
-  /** Pendências de ativação (pílula + painel clicável sobre o canvas). */
-  pendencias?: ProblemaAtivacao[]
-  pendAberto?: boolean
-  onTogglePend?: () => void
-  onFocar?: (p: ProblemaAtivacao) => void
+  /** Pendências de ativação (pílula + painel clicável sobre o desenho). */
+  pendencias: ProblemaAtivacao[]
+  pendAberto: boolean
+  onTogglePend: () => void
+  onFocar: (p: ProblemaAtivacao) => void
 }) {
-  const [connecting, setConnecting] = useState<string | null>(null)
-  const [rubber, setRubber] = useState('')
-  const [menu, setMenu] = useState<{ x: number; y: number; from: string } | null>(null)
-  const [hoverEdge, setHoverEdge] = useState<string | null>(null)
-  const [dragId, setDragId] = useState<string | null>(null)
-  const [guides, setGuides] = useState<{ x?: number; y?: number }>({})
-  // ENQUADRAMENTO: encolhe o desenho para caber na área REAL do canvas (que já exclui o
-  // inspetor, pois são irmãos no flex). Sem isso o "Fim" — sempre na última coluna —
-  // nasce fora da tela e o usuário não vê (nem alcança) as ligações que chegam nele.
+  // ENQUADRAMENTO: encolhe o desenho para caber na área REAL do canvas. Sem isso o "Fim" —
+  // sempre na última coluna — nasce fora da tela.
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const [scale, setScale] = useState(1)
   // a faixa de rótulos vive FORA do canvas rolável, então precisa acompanhar a rolagem
   const [scrollTop, setScrollTop] = useState(0)
-  /* O enquadramento automático só vale ENQUANTO o usuário não pediu um zoom. Antes
-     disto ele reagia a cada atividade nova e desfazia qualquer ajuste manual — era o
-     que fazia o desenho "ir ficando pequeno" sem que houvesse como reagir. */
+  /* O enquadramento automático só vale ENQUANTO o usuário não pediu um zoom. */
   const [autoFit, setAutoFit] = useState(true)
 
   const fitScale = useCallback(() => {
@@ -941,8 +909,6 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
     return () => ro.disconnect()
   }, [fitScale, autoFit])
 
-  /** Muda o zoom mantendo FIXO o ponto sob o cursor (ou o centro da área visível).
-   *  Sem ancorar, ampliar joga o desenho para longe e a pessoa se perde. */
   /** Centraliza um nó na área visível — o "ir até ela" do painel de pendências. */
   const centrarNo = useCallback((id: string) => {
     const el = scrollRef.current
@@ -955,6 +921,7 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
     })
   }, [layout, scale])
 
+  /** Muda o zoom mantendo FIXO o ponto sob o cursor (ou o centro da área visível). */
   const zoomPara = useCallback((novo: number, ancoraClientX?: number, ancoraClientY?: number) => {
     const el = scrollRef.current
     if (!el) return
@@ -971,8 +938,8 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
     setAutoFit(false)
   }, [])
 
-  /* Ctrl/⌘ + roda = zoom, o gesto que todo mundo tenta primeiro. Precisa de listener
-     NÃO-PASSIVO: sem `preventDefault` o navegador aplica o zoom DELE na página. */
+  /* Ctrl/⌘ + roda = zoom. Listener NÃO-PASSIVO: sem `preventDefault` o navegador aplica o
+     zoom DELE na página. */
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -984,7 +951,6 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
   }, [scale, zoomPara])
-  const dragRef = useRef<{ id: string; sx: number; sy: number; ox: number; oy: number; w: number; h: number; moved: boolean } | null>(null)
 
   const nodeById = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n])), [nodes])
   /** Caixas que a seta from→to precisa contornar: todo nó posicionado, menos as pontas. */
@@ -992,53 +958,21 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
     Object.entries(layout.nodes).filter(([id]) => id !== from && id !== to).map(([, p]) => p),
   [layout])
 
-  /* AVISO no próprio quadro: a lista embaixo diz o que é, mas quem olha o desenho
-     precisa ver ONDE — senão a atividade que não leva ao fim parece igual às outras. */
+  /* AVISO no próprio quadro: a lista diz o que é, mas quem olha o desenho precisa ver ONDE. */
   const avisoPorNo = useMemo(() => {
     const m: Record<string, string> = {}
-    for (const p of avisosDe(pendencias ?? [])) if (p.nodeId) m[p.nodeId] = p.mensagem
+    for (const p of avisosDe(pendencias)) if (p.nodeId) m[p.nodeId] = p.mensagem
     return m
   }, [pendencias])
   const edgeColor = (e: EEdge) => {
     const f = nodeById[e.from]
     if (f?.type === 'exclusiveGateway') return '#7c3aed'
     if (f?.type === 'parallelGateway') return '#e11d68'
-    return 'hsl(var(--muted-foreground) / 0.5)' // visível sobre a "Mesa de Vidro" (--border some no fundo profundo)
-  }
-  // px de tela → coordenadas do GRAFO (o canvas está sob transform: scale)
-  const toCanvas = (cx: number, cy: number) => {
-    const r = canvasRef.current!.getBoundingClientRect()
-    return { x: (cx - r.left) / scale, y: (cy - r.top) / scale }
-  }
-
-  const startConnect = (from: string, side: Side, ev: React.PointerEvent) => {
-    ev.preventDefault(); ev.stopPropagation()
-    setConnecting(from)
-    const a = sidePoint(layout.nodes[from], side)
-    const aDir = SIDE_NORMAL[side]
-    const move = (e: PointerEvent) => {
-      const c = toCanvas(e.clientX, e.clientY)
-      setRubber(edgeBezier(a, aDir, c, { x: -aDir.x, y: -aDir.y }))
-    }
-    const up = (e: PointerEvent) => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-      setRubber(''); setConnecting(null)
-      // SOLTAR EM QUALQUER LUGAR DE UM NÓ conecta (antes exigia acertar a bolinha de
-      // entrada, 14px — por isso início→atividade e atividade→fim "não funcionavam").
-      const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
-      const to = (el?.closest('[data-node-id]') as HTMLElement | null)?.getAttribute('data-node-id')
-      if (to && to !== from && nodeById[to]?.type !== 'start') { onConnect(from, to); return }
-      setMenu({ ...toCanvas(e.clientX, e.clientY), from })
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
+    return 'hsl(var(--muted-foreground) / 0.5)'
   }
 
   /* Largura da faixa de rótulos: ADAPTATIVA ao papel de nome mais longo, entre um piso e
-     um teto. Fixa em 132px, "Executor contratual/administrativo/jurídico" era cortado; e
-     fixar no maior caso roubaria largura de quem só tem nomes curtos. Estimativa
-     determinística (~5,6px por caractere a 11px semibold), como o resto do layout faz. */
+     um teto. Estimativa determinística (~5,6px por caractere a 11px semibold). */
   const laneHeaderW = useMemo(() => {
     const rotulos = layout.lanes?.map((b) => b.label) ?? []
     if (!rotulos.length) return 0
@@ -1079,101 +1013,15 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
   }
 
-  // arrastar a CAIXA (corpo do nó) → posição manual, com snap na grade + guias de alinhamento
-  const GRID = 12, ALIGN = 6
-  const startNodeDrag = (id: string, ev: React.PointerEvent) => {
-    if ((ev.target as HTMLElement).closest('[data-port],[data-trash]')) return
-    const p = layout.nodes[id]; if (!p) return
-    dragRef.current = { id, sx: ev.clientX, sy: ev.clientY, ox: p.x, oy: p.y, w: p.w, h: p.h, moved: false }
-    const others = Object.entries(layout.nodes).filter(([oid]) => oid !== id).map(([, op]) => ({ cx: op.x + op.w / 2, cy: op.y + op.h / 2 }))
-    const move = (e: PointerEvent) => {
-      const d = dragRef.current; if (!d) return
-      if (!d.moved && Math.abs(e.clientX - d.sx) + Math.abs(e.clientY - d.sy) < 4) return
-      d.moved = true; setDragId(d.id)
-      // delta de TELA → delta do GRAFO (dividido pela escala do enquadramento)
-      let nx = Math.round((d.ox + (e.clientX - d.sx) / scale) / GRID) * GRID
-      let ny = Math.round((d.oy + (e.clientY - d.sy) / scale) / GRID) * GRID
-      let cx = nx + d.w / 2, cy = ny + d.h / 2
-      let gx: number | undefined, gy: number | undefined
-      for (const o of others) {
-        if (gx === undefined && Math.abs(cx - o.cx) <= ALIGN) { nx = o.cx - d.w / 2; cx = o.cx; gx = o.cx }
-        if (gy === undefined && Math.abs(cy - o.cy) <= ALIGN) { ny = o.cy - d.h / 2; cy = o.cy; gy = o.cy }
-      }
-      setGuides({ x: gx, y: gy })
-      onSetPosition(d.id, { x: Math.max(8, nx), y: Math.max(8, ny) })
-    }
-    const up = () => {
-      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
-      dragRef.current = null; setDragId(null); setGuides({})
-    }
-    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
-  }
-
-  // O deselect fica no CONTAINER de rolagem (não na div do grafo): com o enquadramento a
-  // div do grafo não cobre toda a área visível, e clicar no vazio abaixo dela não
-  // deselecionava — o painel ficava preso no inspetor do nó.
+  // O deselect fica no CONTAINER de rolagem: com o enquadramento a div do grafo não cobre
+  // toda a área visível.
   return (
     <div className="flex-1 min-w-0 min-h-0 relative">
     <ZoomBar scale={scale} autoFit={autoFit}
       onZoom={(s) => zoomPara(s)}
       onFit={() => { setAutoFit(true); setScale(fitScale()) }} />
-    {/* Pendências de ativação: pílula âmbar; o painel lista cada problema e clicar
-        centraliza o nó culpado (e o pai abre o modal onde o conserto mora). A lista
-        recalcula ao vivo — consertou, o item some; zerou, a pílula desaparece.
-        DUAS classes, e a diferença é dita na tela: o que IMPEDE a ativação (âmbar) e
-        o AVISO (azul), que é desenho válido — atividade que executa sem terminar o
-        processo. Misturar os dois faria o desenhista caçar conserto para o que não
-        está quebrado. */}
-    {(pendencias?.length ?? 0) > 0 && (() => {
-      const erros = bloqueantes(pendencias!)
-      const infos = avisosDe(pendencias!)
-      const item = (p: ProblemaAtivacao, i: number, cor: string) => (
-        <li key={`${p.tipo}-${p.nodeId ?? i}`}>
-          <button type="button"
-            onClick={() => { if (p.nodeId) centrarNo(p.nodeId); onFocar?.(p) }}
-            className="w-full text-left rounded-lg px-2.5 py-1.5 text-[11px] leading-snug text-muted-foreground hover:bg-muted hover:text-foreground transition-colors flex gap-2">
-            <span className={cn('mt-1 h-1.5 w-1.5 rounded-full shrink-0', cor)} />
-            <span>{p.mensagem}</span>
-          </button>
-        </li>
-      )
-      return (
-      <div className="absolute bottom-3 z-20" style={{ left: laneHeaderW + 12 }}>
-        {pendAberto && (
-          <div className="mb-2 w-[400px] max-h-[60vh] overflow-y-auto rounded-xl border bg-card shadow-lg">
-            <div className="sticky top-0 px-3 py-2 border-b bg-card/95 backdrop-blur-sm">
-              <p className="text-xs font-semibold flex items-center gap-1.5">
-                {erros.length
-                  ? <><AlertTriangle className="h-3.5 w-3.5 text-amber-500" />Ainda não dá para ativar</>
-                  : <><Info className="h-3.5 w-3.5 text-sky-500" />Dá para ativar — com avisos</>}
-              </p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">Clique num item para ir até ele no desenho.</p>
-            </div>
-            {erros.length > 0 && <ul className="p-1.5">{erros.map((p, i) => item(p, i, 'bg-amber-500'))}</ul>}
-            {infos.length > 0 && (
-              <>
-                <p className="px-3 pt-1.5 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground border-t">
-                  Avisos · não impedem a ativação
-                </p>
-                <ul className="p-1.5 pt-0">{infos.map((p, i) => item(p, i, 'bg-sky-500'))}</ul>
-              </>
-            )}
-          </div>
-        )}
-        <button type="button" onClick={() => onTogglePend?.()}
-          title={pendAberto ? 'Recolher' : erros.length ? 'Ver o que falta para ativar' : 'Ver os avisos do desenho'}
-          className={cn('inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm backdrop-blur-sm transition-colors',
-            erros.length
-              ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20'
-              : 'border-sky-500/40 bg-sky-500/10 text-sky-600 dark:text-sky-400 hover:bg-sky-500/20')}>
-          {erros.length ? <AlertTriangle className="h-3.5 w-3.5" /> : <Info className="h-3.5 w-3.5" />}
-          {erros.length
-            ? `${erros.length} ${erros.length === 1 ? 'pendência' : 'pendências'} para ativar`
-            : `${infos.length} ${infos.length === 1 ? 'aviso' : 'avisos'} no desenho`}
-        </button>
-      </div>
-      )
-    })()}
+    <PendenciasPill pendencias={pendencias} aberto={pendAberto} onToggle={onTogglePend} style={{ left: laneHeaderW + 12 }}
+      onItem={(p) => { if (p.nodeId) centrarNo(p.nodeId); onFocar(p) }} />
     <LaneHeader bandas={layout.lanes} largura={laneHeaderW} scale={scale} scrollTop={scrollTop}
       arrastando={laneDrag?.key ?? null} onStartDrag={startLaneDrag} onReorder={onReorderLanes} />
     <div ref={scrollRef} className="absolute inset-y-0 right-0 overflow-auto bg-muted/20 [background-image:radial-gradient(circle_at_1px_1px,hsl(var(--border))_1px,transparent_0)] [background-size:24px_24px]"
@@ -1183,13 +1031,8 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
       {/* espaçador com o tamanho JÁ ESCALADO: mantém as barras de rolagem corretas */}
       <div style={{ width: layout.width * scale, height: layout.height * scale, minWidth: '100%' }}>
       <div ref={canvasRef} className="relative" style={{ width: layout.width, height: layout.height, transform: `scale(${scale})`, transformOrigin: '0 0' }}>
-        {/* RAIAS — bandas atrás de tudo, com o papel na coluna da esquerda. Só leitura:
-            a banda vem do executor configurado, não se arrasta nada para dentro dela.
-
-            ⚠️ A moldura NÃO usa `--border`/`--muted`: no tema claro esses tokens têm a
-            mesma luminosidade do fundo (88% contra 88%) e a raia sumia — funcionava só
-            no escuro. Sai de `--foreground` com alfa, que contrasta com o fundo por
-            construção nos dois temas. */}
+        {/* RAIAS — bandas atrás de tudo. ⚠️ A moldura sai de `--foreground` com alfa, não de
+            `--border`/`--muted`: no tema claro esses tokens somem contra o fundo. */}
         {layout.lanes?.length ? (
           <div className="absolute left-0 pointer-events-none rounded-sm"
             style={{
@@ -1211,11 +1054,8 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
         {laneDrag && laneDrag.linha !== null && (
           <div className="absolute left-0 pointer-events-none z-20" style={{ top: laneDrag.linha - 1, width: layout.width, height: 2, background: 'hsl(var(--primary))' }} />
         )}
-        {/* ⚠️ `pointer-events-none` na RAIZ do svg. Um <svg> inline é hit-testável em TODA
-            a sua caixa, e esta cobre o canvas inteiro — vindo depois das raias no DOM, ele
-            engolia o mouse sobre a coluna de rótulos e a raia não podia ser pega nem
-            arrastada. Só as arestas voltam a receber evento (`pointer-events-auto` no
-            <g>), que é o que precisa de hover para o botão de apagar. */}
+        {/* ⚠️ `pointer-events-none` na RAIZ do svg: ele cobre o canvas inteiro e engoliria o
+            mouse sobre a coluna de rótulos. */}
         <svg className="absolute inset-0 overflow-visible pointer-events-none" style={{ width: layout.width, height: layout.height }}>
           <defs>
             <marker id="fl-arrow" markerWidth="8" markerHeight="8" refX="6.5" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="context-stroke" /></marker>
@@ -1224,30 +1064,9 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
             const na = layout.nodes[e.from], nb = layout.nodes[e.to]
             if (!na || !nb) return null
             const { a, aDir, b, bDir } = edgeGeometry(na, nb, obstaculosPara(e.from, e.to))
-            const d = edgeBezier(a, aDir, b, bDir)
             const col = edgeColor(e)
-            const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2
-            /* simulação: a saída vencedora do losango acende; as irmãs perdedoras apagam */
-            const simDoGateway = simulacao && e.from === simulacao.gatewayId
-            const acesa = !!simDoGateway && simulacao!.vencedora === e.id
-            const apagada = !!simDoGateway && !acesa
-            const colFinal = acesa ? '#18c07a' : col
-            return (
-              <g key={e.id} className="pointer-events-auto" opacity={apagada ? 0.25 : 1} onMouseEnter={() => setHoverEdge(e.id)} onMouseLeave={() => setHoverEdge((h) => (h === e.id ? null : h))}>
-                <path d={d} fill="none" stroke="transparent" strokeWidth={16} style={{ cursor: 'pointer' }} />
-                {acesa && <path d={d} fill="none" stroke="#18c07a" strokeWidth={8} strokeLinecap="round" strokeLinejoin="round" opacity={0.22} />}
-                <path d={d} fill="none" stroke={colFinal} strokeWidth={acesa ? 3 : 2.25} strokeLinecap="round" strokeLinejoin="round" markerEnd="url(#fl-arrow)" style={{ color: colFinal }} />
-                {hoverEdge === e.id && (
-                  <g transform={`translate(${mx},${my})`} style={{ cursor: 'pointer' }} onClick={() => onDeleteEdge(e.id)}>
-                    <circle r={9} fill="#fff" stroke="#dc2626" strokeWidth={1.5} />
-                    <line x1={-3.2} y1={-3.2} x2={3.2} y2={3.2} stroke="#dc2626" strokeWidth={1.8} strokeLinecap="round" />
-                    <line x1={3.2} y1={-3.2} x2={-3.2} y2={3.2} stroke="#dc2626" strokeWidth={1.8} strokeLinecap="round" />
-                  </g>
-                )}
-              </g>
-            )
+            return <path key={e.id} d={edgeBezier(a, aDir, b, bDir)} fill="none" stroke={col} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" markerEnd="url(#fl-arrow)" style={{ color: col }} />
           })}
-          {connecting && rubber && <path d={rubber} fill="none" stroke="#18c07a" strokeWidth={2.25} strokeDasharray="5 4" strokeLinecap="round" />}
         </svg>
 
         {/* rótulos das arestas */}
@@ -1261,83 +1080,19 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, onC
           return <div key={`lb-${e.id}`} className="absolute -translate-x-1/2 -translate-y-1/2 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-card border shadow-sm pointer-events-none" style={{ left: mx, top: my, color: e.isDefault ? 'hsl(var(--muted-foreground))' : undefined }}>{e.label}</div>
         })}
 
-        {/* nós + portas de conexão */}
+        {/* nós */}
         {nodes.map((n) => {
           const p = layout.nodes[n.id]
           if (!p) return null
           return (
-            <div key={n.id} data-node-id={n.id} onPointerDown={(e) => startNodeDrag(n.id, e)}
-              className={cn('absolute group select-none', dragId === n.id ? 'z-40 cursor-grabbing' : 'cursor-grab')}
-              style={{ left: p.x, top: p.y, width: p.w, height: p.h }}>
+            <div key={n.id} data-node-id={n.id} className="absolute select-none" style={{ left: p.x, top: p.y, width: p.w, height: p.h }}>
               <FlowNodeView node={n} selected={n.id === selectedId} onClick={() => onSelect(n.id)} resolvePapel={resolvePapel} resolveEntidade={resolveEntidade} aviso={avisoPorNo[n.id]} />
-              {n.type !== 'start' && n.type !== 'end' && (
-                <button data-trash onClick={(e) => { e.stopPropagation(); onDeleteNode(n.id) }} title="Excluir"
-                  className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-card border border-border text-muted-foreground hover:text-destructive hover:border-destructive shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-20">
-                  <Trash2 className="h-3 w-3" />
-                </button>
-              )}
-              {/* Portas de saída nos 4 lados (menos o Fim, que só recebe). Arraste qualquer
-                  uma até OUTRO nó (solte em qualquer lugar dele) para conectar. */}
-              {n.type !== 'end' && (['top', 'right', 'bottom', 'left'] as Side[]).map((side) => (
-                <div key={side} data-port title="Arraste para conectar" onPointerDown={(ev) => startConnect(n.id, side, ev)}
-                  className={cn('absolute w-3 h-3 rounded-full bg-background border-2 border-primary z-10 cursor-crosshair transition-all hover:bg-primary hover:scale-125',
-                    connecting ? 'opacity-70' : 'opacity-0 group-hover:opacity-100', PORT_POS[side])} />
-              ))}
             </div>
           )
         })}
-
-        {/* guias de alinhamento (aparecem ao arrastar) */}
-        {guides.x !== undefined && <div className="absolute top-0 bottom-0 w-px bg-primary/70 pointer-events-none z-30" style={{ left: guides.x }} />}
-        {guides.y !== undefined && <div className="absolute left-0 right-0 h-px bg-primary/70 pointer-events-none z-30" style={{ top: guides.y }} />}
-
-        {menu && <CreateMenu x={menu.x} y={menu.y} onPick={(t) => { onCreateConnected(menu.from, t); setMenu(null) }} onClose={() => setMenu(null)} />}
       </div>
       </div>
     </div>
-    </div>
-  )
-}
-
-/** Controle de zoom, flutuante sobre o canvas. "Ajustar" devolve o enquadramento
- *  automático — e volta a valer a cada atividade nova, até você mexer no zoom. */
-function ZoomBar({ scale, autoFit, onZoom, onFit }: {
-  scale: number; autoFit: boolean; onZoom: (s: number) => void; onFit: () => void
-}) {
-  // vai para o degrau seguinte/anterior da escala — o zoom da roda cai entre eles
-  const passo = (dir: 1 | -1) => {
-    const alvo = dir > 0
-      ? ZOOM_PASSOS.find((s) => s > scale + 0.001)
-      : [...ZOOM_PASSOS].reverse().find((s) => s < scale - 0.001)
-    onZoom(alvo ?? (dir > 0 ? ZOOM_MAX : ZOOM_MIN))
-  }
-  const btn = 'h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-40 disabled:hover:bg-transparent'
-  return (
-    <div className="glass absolute bottom-3 right-3 z-30 flex items-center gap-0.5 rounded-xl p-1 shadow-sm">
-      <button type="button" onClick={() => passo(-1)} disabled={scale <= ZOOM_MIN + 0.001} className={btn} title="Afastar (Ctrl + roda do mouse)"><Minus className="h-3.5 w-3.5" /></button>
-      <button type="button" onClick={() => onZoom(1)} className="h-7 min-w-[3.25rem] px-1 rounded-md text-[11px] font-semibold tabular-nums text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="Voltar para 100%">
-        {Math.round(scale * 100)}%
-      </button>
-      <button type="button" onClick={() => passo(1)} disabled={scale >= ZOOM_MAX - 0.001} className={btn} title="Aproximar (Ctrl + roda do mouse)"><Plus className="h-3.5 w-3.5" /></button>
-      <span className="w-px h-4 bg-border mx-0.5" />
-      <button type="button" onClick={onFit} className={cn(btn, autoFit && 'text-primary')} title="Ajustar à tela"><Maximize2 className="h-3.5 w-3.5" /></button>
-    </div>
-  )
-}
-
-function CreateMenu({ x, y, onPick, onClose }: { x: number; y: number; onPick: (t: AddType) => void; onClose: () => void }) {
-  useEffect(() => {
-    const h = () => onClose()
-    const t = setTimeout(() => window.addEventListener('pointerdown', h), 0)
-    return () => { clearTimeout(t); window.removeEventListener('pointerdown', h) }
-  }, [onClose])
-  return (
-    <div className="glass absolute z-30 w-44 rounded-xl p-1" style={{ left: x, top: y }} onPointerDown={(e) => e.stopPropagation()}>
-      {([['userTask', 'Tarefa', UserSquare, 'text-sky-600 dark:text-sky-400'], ['serviceTask', 'Ação automática', Zap, 'text-amber-600 dark:text-amber-400'], ['exclusiveGateway', 'Decisão (ou/ou)', XorGlyph, 'text-violet-600 dark:text-violet-400'], ['parallelGateway', 'Paralelo (e/e)', AndGlyph, 'text-rose-600 dark:text-rose-400']] as const).map(([t, lbl, Icon, cls]) => (
-        <button key={t} onClick={() => onPick(t)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm hover:bg-accent">
-          <Icon className={cn('h-4 w-4', cls)} /> {lbl}
-        </button>
-      ))}
     </div>
   )
 }
@@ -1394,21 +1149,6 @@ function NodeLabel({ text }: { text?: string }) {
     </span>
   )
 }
-
-/** Losango do gateway em miniatura, para menus e cabeçalhos de painel. */
-function GatewayGlyph({ kind, className }: { kind: 'exclusive' | 'parallel'; className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinejoin="round" strokeLinecap="round" aria-hidden>
-      <path d="M12 2.5 21.5 12 12 21.5 2.5 12Z" />
-      {kind === 'exclusive'
-        ? <><path d="m8.9 8.9 6.2 6.2" /><path d="m15.1 8.9-6.2 6.2" /></>
-        : <><path d="M12 7.7v8.6" /><path d="M7.7 12h8.6" /></>}
-    </svg>
-  )
-}
-/** Mesma assinatura dos ícones do lucide (só `className`), para entrarem nas listas de menu. */
-const XorGlyph = (p: { className?: string }) => <GatewayGlyph kind="exclusive" {...p} />
-const AndGlyph = (p: { className?: string }) => <GatewayGlyph kind="parallel" {...p} />
 
 function FlowNodeView({ node, selected, onClick, resolvePapel, resolveEntidade, aviso }: {
   node: ENode; selected: boolean; onClick: () => void
@@ -1557,16 +1297,6 @@ function devolucaoText(step?: StepFormSchema): string {
 type Papeis = ReturnType<typeof useLookupTable>
 type Screens = ReturnType<typeof useScreens>['screens']
 
-function Field({ label, required, hint, children }: { label: string; required?: boolean; hint?: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="text-xs font-medium mb-1.5 flex items-center gap-1">{label}{required && <span className="text-destructive">*</span>}</label>
-      {children}
-      {hint && <p className="text-[11px] text-muted-foreground mt-1 leading-snug">{hint}</p>}
-    </div>
-  )
-}
-
 /** Campo em GRID: `wide` ocupa a linha inteira (título, texto longo, seletor comprido);
  *  os curtos ficam pareados. Mesma hierarquia dos formulários do sistema. */
 function GField({ label, required, hint, wide, children }: { label: string; required?: boolean; hint?: string; wide?: boolean; children: React.ReactNode }) {
@@ -1689,13 +1419,52 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
     onPatchStep({ lockedFields: travados.includes(chave) ? travados.filter((x) => x !== chave) : [...travados, chave] })
 
   const pickScreen = (id: string) => {
-    if (!id || id === 'none') { onPatchStep({ screenRef: undefined, screenSubject: undefined, entityMode: undefined, entityVar: undefined, lockedFields: undefined }); return }
+    if (!id || id === 'none') { onPatchStep({ screenRef: undefined, screenSubject: undefined, entityMode: undefined, entityVar: undefined, lockedFields: undefined, extraScreens: undefined }); return }
     const sc = entityScreens.find((s) => s.id === id)
-    /* Trocar de tela DENTRO do mesmo tipo preserva os travados: eles são chaves do tipo,
-       não ids daquela tela. Só mudar de subject invalida a lista. */
+    /* Trocar de tela DENTRO do mesmo tipo preserva os travados e as abas adicionais: eles
+       valem para o tipo, não para aquela tela. Só mudar de subject invalida as listas. */
     const mesmoTipo = sc?.subjectType && telaSel?.subjectType && sc.subjectType === telaSel.subjectType
-    onPatchStep({ screenRef: id, screenSubject: sc?.subjectType as ScreenSubject as 'CONTRATO' | 'FORNECEDOR' | undefined, entityMode: step.entityMode ?? 'CREATE', lockedFields: mesmoTipo ? step.lockedFields : undefined })
+    const extrasMantidas = (step.extraScreens ?? []).filter((e) => e.screenRef !== id)
+    onPatchStep({
+      screenRef: id, screenSubject: sc?.subjectType as ScreenSubject as 'CONTRATO' | 'FORNECEDOR' | undefined, entityMode: step.entityMode ?? 'CREATE',
+      lockedFields: mesmoTipo ? step.lockedFields : undefined,
+      extraScreens: mesmoTipo && extrasMantidas.length ? extrasMantidas : undefined,
+    })
   }
+
+  /* Telas ADICIONAIS: o mesmo registro em outras abas na execução. Só telas do mesmo tipo
+     da principal; tela somente consulta nasce (e fica) como "Consultar". */
+  type ExtraScreen = NonNullable<StepFormSchema['extraScreens']>[number]
+  const extras = step.extraScreens ?? []
+  const telasDoTipo = telaSel ? entityScreens.filter((s) => s.subjectType === telaSel.subjectType && s.id !== telaSel.id) : []
+  const usadas = new Set(extras.map((e) => e.screenRef))
+  const livres = telasDoTipo.filter((s) => !usadas.has(s.id))
+  const atividadeSoConsulta = (step.entityMode ?? 'CREATE') === 'VIEW'
+  const gravarExtras = (lista: ExtraScreen[]) => onPatchStep({ extraScreens: lista.length ? lista : undefined })
+  const addExtra = () => { const t = livres[0]; if (t) gravarExtras([...extras, { screenRef: t.id, mode: t.readOnly ? 'VIEW' : 'EDIT' }]) }
+  const setExtra = (i: number, patch: Partial<ExtraScreen>) => gravarExtras(extras.map((e, j) => {
+    if (j !== i) return e
+    const novo = { ...e, ...patch }
+    return entityScreens.find((s) => s.id === novo.screenRef)?.readOnly ? { ...novo, mode: 'VIEW' as const } : novo
+  }))
+  const moverExtra = (i: number, d: -1 | 1) => { const l = [...extras]; const [x] = l.splice(i, 1); l.splice(i + d, 0, x); gravarExtras(l) }
+  const removerExtra = (i: number) => gravarExtras(extras.filter((_, j) => j !== i))
+
+  /* Campos que a atividade pode travar: os de TODAS as telas que editam (principal +
+     abas "Editar"), cada campo listado uma vez — a trava é por chave do tipo. */
+  const telasQueEditam = [telaSel, ...extras.filter((e) => e.mode === 'EDIT').map((e) => entityScreens.find((s) => s.id === e.screenRef))]
+    .filter((t): t is NonNullable<typeof telaSel> => !!t && !t.readOnly)
+  const chavesListadas = new Set<string>()
+  const camposPorTela = telasQueEditam.map((tela) => ({
+    tela,
+    secoes: [...tela.sections].sort((a, b) => a.order - b.order).map((sec2) => {
+      const fs = tela.fields
+        .filter((f) => f.sectionId === sec2.id && f.visible !== false && !chavesListadas.has(fieldValueKey(f)))
+        .sort((a, b) => a.order - b.order)
+      fs.forEach((f) => chavesListadas.add(fieldValueKey(f)))
+      return { sec2, fs }
+    }).filter((x) => x.fs.length > 0),
+  })).filter((x) => x.secoes.length > 0)
 
   // Prazo ÚNICO + unidade (dias/horas/minutos úteis): guarda em apenas UM dos três
   // campos slaBusiness* (os outros ficam undefined) — "de acordo com a unidade, um só campo".
@@ -1758,7 +1527,7 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
   const resumo: Record<string, string> = {
     identificacao: step.stepName || 'sem nome',
     executor: papelSel?.label ?? 'sem papel',
-    formulario: step.screenRef ? `${ENTITY_MODE_LABEL[step.entityMode ?? 'CREATE']} ${entityWord}` : 'sem tela',
+    formulario: step.screenRef ? `${ENTITY_MODE_LABEL[step.entityMode ?? 'CREATE']} ${entityWord}${extras.length ? ` · ${extras.length + 1} telas` : ''}` : 'sem tela',
     prazo: dueText(step) ?? 'sem prazo',
     acao: findConnector(step.connector)?.label ?? 'nenhuma',
     devolucao: retorno.mode === 'NONE' ? 'não devolve'
@@ -1883,7 +1652,7 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
                     <div className="flex gap-1 text-xs max-w-lg">
                       {(['CREATE', 'EDIT', 'VIEW'] as const).map((m) => (
                         <button key={m} type="button"
-                          onClick={() => onPatchStep({ entityMode: m, entityVar: m === 'CREATE' ? undefined : step.entityVar })}
+                          onClick={() => onPatchStep({ entityMode: m, entityVar: undefined, ...(m === 'CREATE' ? { lockedFields: undefined } : {}) })}
                           className={cn('flex-1 rounded-md px-2 py-1.5 border transition-colors', (step.entityMode ?? 'CREATE') === m ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted text-muted-foreground')}>
                           {ENTITY_MODE_LABEL[m]} {entityWord}
                         </button>
@@ -1891,38 +1660,77 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
                     </div>
                   </GField>
                 )}
-                {step.screenRef && step.entityMode && step.entityMode !== 'CREATE' && (
-                  <GField label={`Qual ${entityWord}?`} required wide
-                    hint={availableVars.length === 0
-                      ? 'Nenhuma etapa anterior produz uma referência. Coloque antes uma etapa que crie a entidade.'
-                      : 'A variável do processo que carrega o id — normalmente produzida por uma etapa anterior.'}>
-                    <Select value={step.entityVar || 'none'} onValueChange={(v) => onPatchStep({ entityVar: v === 'none' ? undefined : v })}>
-                      <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Variável com o id…" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">— escolha a variável —</SelectItem>
-                        {availableVars.map((v) => <SelectItem key={v.name} value={v.name} className="text-xs">{v.label}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+
+                {telaSel && (
+                  <GField label={`Telas adicionais (o mesmo ${entityWord})`} wide
+                    hint={`Na execução, cada tela vira uma aba depois da principal, mostrando o mesmo ${entityWord}. Serve para separar o que esta etapa altera do que ela só consulta.${(step.entityMode ?? 'CREATE') === 'CREATE' ? ` As abas adicionais liberam depois que o ${entityWord} for salvo na principal.` : ''}${atividadeSoConsulta ? ' Nesta atividade de consulta, todas abrem em leitura.' : ''}`}>
+                    <div className="space-y-1.5">
+                      {extras.map((e, i) => {
+                        const opcoes = telasDoTipo.filter((s) => s.id === e.screenRef || !usadas.has(s.id))
+                        const telaDaAba = entityScreens.find((s) => s.id === e.screenRef)
+                        const modoEfetivo = atividadeSoConsulta || telaDaAba?.readOnly ? 'VIEW' : e.mode
+                        return (
+                          <div key={`${e.screenRef}-${i}`} className="flex items-center gap-1.5">
+                            <span className="w-5 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">{i + 2}.</span>
+                            <Select value={e.screenRef} onValueChange={(v) => setExtra(i, { screenRef: v })}>
+                              <SelectTrigger className="h-8 min-w-0 flex-1 text-sm"><SelectValue placeholder="Tela removida" /></SelectTrigger>
+                              <SelectContent>
+                                {opcoes.map((s) => <SelectItem key={s.id} value={s.id} className="text-xs">{s.name}{s.readOnly ? ' · somente consulta' : ''}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                            <div className="flex shrink-0 overflow-hidden rounded-md border text-xs" role="group" aria-label="O que esta aba faz">
+                              {(['EDIT', 'VIEW'] as const).map((m) => (
+                                <button key={m} type="button" aria-pressed={modoEfetivo === m}
+                                  disabled={atividadeSoConsulta || (m === 'EDIT' && !!telaDaAba?.readOnly)}
+                                  title={m === 'EDIT' && telaDaAba?.readOnly ? 'Esta tela é somente consulta' : undefined}
+                                  onClick={() => setExtra(i, { mode: m })}
+                                  className={cn('px-2 py-1.5 transition-colors disabled:cursor-not-allowed',
+                                    modoEfetivo === m ? 'bg-primary font-semibold text-primary-foreground' : 'text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:hover:bg-transparent')}>
+                                  {m === 'EDIT' ? 'Editar' : 'Consultar'}
+                                </button>
+                              ))}
+                            </div>
+                            <button type="button" title="Mostrar esta aba antes" aria-label="Subir aba" disabled={i === 0} onClick={() => moverExtra(i, -1)}
+                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent">
+                              <ChevronUp className="h-3.5 w-3.5" />
+                            </button>
+                            <button type="button" title="Mostrar esta aba depois" aria-label="Descer aba" disabled={i === extras.length - 1} onClick={() => moverExtra(i, 1)}
+                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent">
+                              <ChevronDown className="h-3.5 w-3.5" />
+                            </button>
+                            <button type="button" title="Remover esta tela" aria-label="Remover tela adicional" onClick={() => removerExtra(i)}
+                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        )
+                      })}
+                      <button type="button" disabled={livres.length === 0} onClick={addExtra}
+                        className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-primary hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline">
+                        <Plus className="h-3 w-3" />{livres.length === 0 ? `Não há outra tela de ${entityWord} para adicionar` : 'Adicionar tela'}
+                      </button>
+                    </div>
                   </GField>
                 )}
 
-                {/* Camada 2: a atividade APERTA a trava da tela. Em CONSULTA não aparece —
-                    lá a tela inteira já está travada e marcar campo não muda nada. */}
-                {telaSel && (step.entityMode ?? 'CREATE') !== 'VIEW' && (
+                {/* Camada 2: a atividade APERTA a trava da tela — só na etapa que EDITA. Ao
+                    CRIAR vale a configuração da própria tela (pedido do PO: quem cria precisa
+                    preencher); na CONSULTA a tela inteira já está travada. */}
+                {telaSel && step.entityMode === 'EDIT' && (
                   <GField label="Campos travados nesta atividade" wide
-                    hint={telaSel.readOnly
-                      ? 'Esta tela é SOMENTE CONSULTA: todos os campos já estão travados nela.'
-                      : 'A trava da tela vale sempre; aqui você aperta mais. O que marcar não poderá ser alterado NESTA etapa — em outras, continua editável.'}>
-                    {telaSel.readOnly ? (
+                    hint={camposPorTela.length === 0
+                      ? 'As telas que esta atividade edita são SOMENTE CONSULTA: todos os campos já estão travados nelas.'
+                      : `A trava da tela vale sempre; aqui você aperta mais. O que marcar não poderá ser alterado NESTA etapa — em outras, continua editável.${camposPorTela.length > 1 ? ' Vale para todas as abas desta atividade.' : ''}`}>
+                    {camposPorTela.length === 0 ? (
                       <p className="text-xs text-muted-foreground">
                         Nada a marcar: a tela <b className="font-semibold text-foreground">{telaSel.name}</b> está em somente consulta.
                       </p>
                     ) : (
                       <div className="max-h-64 overflow-y-auto rounded-md border divide-y">
-                        {[...telaSel.sections].sort((a, b) => a.order - b.order).map((sec2) => {
-                          const fs = telaSel.fields.filter((f) => f.sectionId === sec2.id && f.visible !== false).sort((a, b) => a.order - b.order)
-                          if (fs.length === 0) return null
-                          return (
+                        {camposPorTela.map(({ tela, secoes }) => (
+                          <Fragment key={tela.id}>
+                            {camposPorTela.length > 1 && <p className="bg-muted/40 px-2.5 py-1 text-[11px] font-semibold">{tela.name}</p>}
+                            {secoes.map(({ sec2, fs }) => (
                             <div key={sec2.id} className="p-1.5">
                               <p className="px-1 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                                 {sec2.label}{sec2.locked && <span className="ml-1.5 normal-case tracking-normal text-amber-600 dark:text-amber-400">· somente consulta</span>}
@@ -1946,8 +1754,9 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
                                 })}
                               </div>
                             </div>
-                          )
-                        })}
+                            ))}
+                          </Fragment>
+                        ))}
                       </div>
                     )}
                   </GField>
@@ -2102,7 +1911,9 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
  *  para o modal. A coluna deixou de ser o lugar de editar (não cabia), mas continua
  *  sendo onde se enxerga o que a etapa faz sem precisar abrir nada. */
 function ActivitySummaryPanel({ node, papeis, onConfigure, onRemove }: {
-  node: ENode; papeis: Papeis; onConfigure: () => void; onRemove: () => void
+  node: ENode; papeis: Papeis
+  /** Ausentes no desenho antigo aberto só para leitura. */
+  onConfigure?: () => void; onRemove?: () => void
 }) {
   const step = node.step!
   const type = node.type as 'userTask' | 'serviceTask'
@@ -2113,7 +1924,7 @@ function ActivitySummaryPanel({ node, papeis, onConfigure, onRemove }: {
   const linhas: Array<{ label: string; valor: string }> = type === 'userTask'
     ? [
         { label: 'Executor', valor: papel ?? '— sem papel definido' },
-        { label: 'Formulário', valor: step.screenRef ? `${ENTITY_MODE_LABEL[step.entityMode ?? 'CREATE']} ${entityWord}` : '— sem tela' },
+        { label: 'Formulário', valor: step.screenRef ? `${ENTITY_MODE_LABEL[step.entityMode ?? 'CREATE']} ${entityWord}${step.extraScreens?.length ? ` · ${step.extraScreens.length + 1} telas` : ''}` : '— sem tela' },
         { label: 'Prazo', valor: dueText(step) ?? '— sem prazo' },
         { label: 'Devolução', valor: devolucaoText(step) },
       ]
@@ -2128,7 +1939,7 @@ function ActivitySummaryPanel({ node, papeis, onConfigure, onRemove }: {
         <span className={cn('inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full', meta.tone)}>
           <meta.Icon className="h-3 w-3" />{meta.label}
         </span>
-        <button onClick={onRemove} title="Remover atividade" className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
+        {onRemove && <button onClick={onRemove} title="Remover atividade" className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>}
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         <div>
@@ -2143,7 +1954,7 @@ function ActivitySummaryPanel({ node, papeis, onConfigure, onRemove }: {
             </div>
           ))}
         </dl>
-        <Button size="sm" className="w-full" onClick={onConfigure}><SlidersHorizontal className="h-3.5 w-3.5" />Configurar atividade</Button>
+        {onConfigure && <Button size="sm" className="w-full" onClick={onConfigure}><SlidersHorizontal className="h-3.5 w-3.5" />Configurar atividade</Button>}
       </div>
     </div>
   )
@@ -2157,376 +1968,7 @@ const RETURN_LABEL: Record<string, string> = {
  *  análise: mostra o cadastro inteiro, não deixa alterar nada. */
 const ENTITY_MODE_LABEL: Record<string, string> = { CREATE: 'Criar', EDIT: 'Editar', VIEW: 'Consultar' }
 const ENTITY_MODE_HINT: Record<string, string> = {
-  CREATE: 'A atividade cria um registro novo, e o id dele fica disponível para as etapas seguintes.',
-  EDIT:   'A atividade abre um registro existente para alteração — escolha abaixo de onde vem o id.',
-  VIEW:   'A atividade apenas MOSTRA o registro, em leitura: nenhum campo pode ser alterado e nada é gravado. Serve para etapas de análise, conferência e ciência.',
-}
-
-function GatewayInspector({ node, nodes, edges, onPatchNode, onConfigure, onRemove }: {
-  node: ENode; nodes: ENode[]; edges: EEdge[]
-  onPatchNode: (patch: Partial<ENode>) => void
-  onConfigure: () => void
-  onRemove: () => void
-}) {
-  const isExcl = node.type === 'exclusiveGateway'
-  const outs = edges.filter((e) => e.from === node.id)
-  const temPadrao = outs.some((e) => e.isDefault)
-  const tone = isExcl ? 'text-violet-600 dark:text-violet-400 bg-violet-500/10' : 'text-rose-600 dark:text-rose-400 bg-rose-500/10'
-  const nomeDestino = (e: EEdge) => {
-    const d = nodes.find((n) => n.id === e.to)
-    return d?.step?.stepName || d?.name || (d?.type === 'end' ? 'Fim' : 'próxima etapa')
-  }
-  return (
-    <div className="flex flex-col h-full">
-      <div className="px-4 py-3 border-b shrink-0 flex items-center justify-between">
-        <span className={cn('inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full', tone)}><GatewayGlyph kind={isExcl ? 'exclusive' : 'parallel'} className="h-3 w-3" />{isExcl ? 'Decisão (ou/ou)' : 'Paralelo (e/e)'}</span>
-        <button onClick={onRemove} title="Remover" className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
-      </div>
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {isExcl ? (
-          <>
-            <h3 className="text-sm font-semibold leading-snug">{node.name || 'Decisão sem pergunta'}</h3>
-            {/* Resumo dos caminhos — a EDIÇÃO acontece no modal, como nas atividades. */}
-            <dl className="rounded-md border bg-muted/20 divide-y">
-              {outs.map((e) => (
-                <div key={e.id} className="px-2.5 py-1.5">
-                  <dt className="text-[10.5px] text-muted-foreground truncate">
-                    {e.isDefault ? 'Caso contrário' : (e.label?.trim() || (e.condition?.trim() ? e.condition : '— sem condição'))}
-                  </dt>
-                  <dd className="text-[11px] font-medium truncate">→ {nomeDestino(e)}</dd>
-                </div>
-              ))}
-              {outs.length === 0 && <div className="px-2.5 py-1.5 text-[11px] text-muted-foreground">Sem saídas — ligue este losango a atividades.</div>}
-            </dl>
-            {!temPadrao && outs.length > 1 && (
-              <p className="text-[11px] rounded-md border border-amber-300 dark:border-amber-900 bg-amber-500/10 text-amber-700 dark:text-amber-400 px-2 py-1.5 leading-snug">
-                Nenhum caminho ficou como “caso contrário” — deixe exatamente um sem filtros.
-              </p>
-            )}
-            <Button size="sm" className="w-full" onClick={onConfigure}><SlidersHorizontal className="h-3.5 w-3.5" />Configurar decisão</Button>
-          </>
-        ) : (
-          <>
-            <Field label="Rótulo">
-              <Input className="h-8 text-sm" placeholder="Ex.: Em paralelo" value={node.name} onChange={(e) => onPatchNode({ name: e.target.value })} />
-            </Field>
-            <p className="text-[11px] text-muted-foreground leading-snug">Todas as saídas rodam ao mesmo tempo; o motor espera todas concluírem antes de seguir. Insira atividades em cada faixa com o <span className="font-medium">+</span> no conector.</p>
-          </>
-        )}
-      </div>
-    </div>
-  )
-}
-
-/* ── Modal de configuração da DECISÃO — mesma anatomia do de atividade: edição ao
-     vivo com RETRATO na abertura; Cancelar/Esc restaura, Aplicar fecha. Quando o
-     "Testar decisão" está ligado, o scrim clareia para a seta vencedora aparecer
-     acesa no canvas atrás do modal. ── */
-function DecisionConfigModal({ node, nodes, edges, screens, onPatchNode, onSetEdge, onSimulacao, onRemove, onClose }: {
-  node: ENode; nodes: ENode[]; edges: EEdge[]; screens: Screens
-  onPatchNode: (patch: Partial<ENode>) => void
-  onSetEdge: (edgeId: string, patch: Partial<EEdge>) => void
-  onSimulacao?: (sim: { gatewayId: string; vencedora: string | null } | null) => void
-  onRemove: () => void
-  onClose: () => void
-}) {
-  const outs = edges.filter((e) => e.from === node.id)
-  const campos = useMemo(() => camposDisponiveis(nodes, edges, node.id, screens), [nodes, edges, node.id, screens])
-  const nomeDestino = (e: EEdge) => {
-    const d = nodes.find((n) => n.id === e.to)
-    return d?.step?.stepName || d?.name || (d?.type === 'end' ? 'Fim' : 'próxima etapa')
-  }
-
-  /* "Caso contrário" DERIVADO (decisão do PO): o caminho sem filtros é o padrão —
-     não há botão. Idempotente, então o efeito converge em uma rodada. */
-  const chaveDerivacao = outs.map((e) => `${e.id}|${e.condition ?? ''}|${JSON.stringify(e.conditionSpec ?? null)}|${e.isDefault ? 1 : 0}`).join('·')
-  useEffect(() => {
-    for (const patch of derivarCasoContrario(outs)) onSetEdge(patch.id, { isDefault: patch.isDefault })
-  }, [chaveDerivacao]) // eslint-disable-line react-hooks/exhaustive-deps
-  const vazias = outs.filter((e) => !saidaTemFiltro(e))
-  const algumaComFiltro = outs.some((e) => saidaTemFiltro(e))
-
-  /* retrato para o Cancelar (mesma semântica do modal de atividade) */
-  const original = useRef<{ name: string; edges: Array<Pick<EEdge, 'id' | 'condition' | 'conditionSpec' | 'isDefault' | 'label'>> }>({
-    name: node.name ?? '',
-    edges: outs.map((e) => ({ id: e.id, condition: e.condition, conditionSpec: e.conditionSpec, isDefault: e.isDefault, label: e.label })),
-  })
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => { setMounted(true) }, [])
-
-  const cancelar = () => {
-    onPatchNode({ name: original.current.name })
-    for (const e of original.current.edges) {
-      onSetEdge(e.id, { condition: e.condition, conditionSpec: e.conditionSpec, isDefault: e.isDefault, label: e.label })
-    }
-    onClose()
-  }
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); cancelar() } }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  })
-
-  /* ── Testar decisão (o mesmo avaliador da execução, com valores de exemplo) ── */
-  const [simAberto, setSimAberto] = useState(false)
-  const [simValores, setSimValores] = useState<Record<string, string>>({})
-  const campoDe = (k: string) => campos.find((c) => c.key === k)
-  const camposDoTeste = useMemo(() => {
-    const usados = new Set<string>()
-    for (const e of outs) for (const r of e.conditionSpec?.rules ?? []) if (r.campo) usados.add(r.campo)
-    return campos.filter((c) => usados.has(c.key))
-  }, [outs, campos])
-  const temTextoLivre = outs.some((e) => !e.isDefault && !e.conditionSpec && !!e.condition?.trim())
-  const vencedora = useMemo(() => {
-    if (!simAberto) return null
-    return decidirSaida(outs, montarVarsSimulacao(simValores, (k) => campoDe(k)?.tipo ?? 'texto'))
-  }, [simAberto, simValores, outs, campos]) // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    onSimulacao?.(simAberto ? { gatewayId: node.id, vencedora } : null)
-    return () => onSimulacao?.(null)
-  }, [simAberto, vencedora, node.id]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (!mounted) return null
-
-  return createPortal(
-    <>
-      {/* scrim clareia durante a simulação: a seta acesa no canvas é parte do show */}
-      <div className={cn('fixed inset-0 z-[60] transition-colors', simAberto ? 'bg-black/10' : 'bg-black/40')} onClick={cancelar} />
-      <div role="dialog" aria-modal="true"
-        className="fixed left-1/2 top-1/2 z-[70] w-[min(720px,94vw)] max-h-[min(680px,90vh)] -translate-x-1/2 -translate-y-1/2 glass-panel rounded-xl border shadow-2xl flex flex-col overflow-hidden">
-
-        <div className="flex items-start justify-between gap-4 px-5 py-3 border-b bg-muted/20 shrink-0">
-          <div className="min-w-0">
-            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full text-violet-600 dark:text-violet-400 bg-violet-500/10">
-              <GatewayGlyph kind="exclusive" className="h-3 w-3" />Decisão (ou/ou)
-            </span>
-            <h2 className="text-sm font-semibold mt-1 truncate">{node.name || 'Decisão sem pergunta'}</h2>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <button onClick={onRemove} title="Remover decisão"
-              className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors">
-              <Trash2 className="h-4 w-4" />
-            </button>
-            <button onClick={cancelar} title="Fechar sem aplicar"
-              className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-
-        <div className="flex-1 min-h-0 overflow-y-auto rolagem-visivel px-5 py-4 space-y-4">
-          <Field label="Pergunta / rótulo">
-            <Input className="h-8 text-sm" placeholder="Ex.: Necessita de parecer do Patrimônio?" value={node.name} onChange={(e) => onPatchNode({ name: e.target.value })} />
-          </Field>
-
-          <p className="text-[11.5px] text-muted-foreground leading-snug">
-            Monte os filtros de cada caminho. O caminho que ficar <span className="font-medium">sem filtros</span> vira
-            o <span className="font-medium">caso contrário</span> — é por ele que o processo segue quando nenhum filtro casa.
-          </p>
-          {outs.length > 1 && vazias.length === 0 && (
-            <p className="text-[11.5px] rounded-md border border-amber-300 dark:border-amber-900 bg-amber-500/10 text-amber-700 dark:text-amber-400 px-2.5 py-1.5 leading-snug">
-              Todos os caminhos têm filtros — deixe <span className="font-semibold">um</span> sem filtros para ser o caso contrário, senão a ativação recusa.
-            </p>
-          )}
-          {outs.length > 1 && vazias.length > 1 && algumaComFiltro && (
-            <p className="text-[11.5px] rounded-md border border-amber-300 dark:border-amber-900 bg-amber-500/10 text-amber-700 dark:text-amber-400 px-2.5 py-1.5 leading-snug">
-              {vazias.length} caminhos sem filtros — deixe apenas <span className="font-semibold">um</span> assim (o caso contrário) e monte filtros nos demais.
-            </p>
-          )}
-
-          {/* Testar decisão */}
-          <div className={cn('rounded-md border', simAberto ? 'border-primary/40 bg-primary/5' : 'bg-muted/20')}>
-            <button type="button" className="w-full flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-left"
-              onClick={() => setSimAberto((v) => !v)}>
-              <Play className={cn('h-3.5 w-3.5', simAberto ? 'text-primary' : 'text-muted-foreground')} />
-              <span className={simAberto ? 'text-primary' : 'text-muted-foreground'}>Testar decisão</span>
-              <span className="ml-auto text-[11px] text-muted-foreground font-normal">{simAberto ? 'fechar' : 'valores de exemplo — a seta acende no desenho'}</span>
-            </button>
-            {simAberto && (
-              <div className="px-3 pb-2.5 space-y-1.5">
-                {camposDoTeste.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground leading-snug">Monte ao menos uma condição abaixo — os campos usados aparecem aqui para você experimentar.</p>
-                ) : camposDoTeste.map((c) => (
-                  <div key={c.key} className="flex items-center gap-2">
-                    <span className="text-[11px] text-muted-foreground flex-1 min-w-0 truncate" title={c.label}>{c.label}</span>
-                    {c.tipo === 'selecao' && c.options?.length ? (
-                      <Select value={simValores[c.key] || undefined} onValueChange={(v) => setSimValores((sv) => ({ ...sv, [c.key]: v }))}>
-                        <SelectTrigger className="h-7 text-xs w-[160px] shrink-0"><SelectValue placeholder="—" /></SelectTrigger>
-                        <SelectContent>{c.options.map((o) => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
-                      </Select>
-                    ) : c.tipo === 'booleano' ? (
-                      <Select value={simValores[c.key] || undefined} onValueChange={(v) => setSimValores((sv) => ({ ...sv, [c.key]: v }))}>
-                        <SelectTrigger className="h-7 text-xs w-[160px] shrink-0"><SelectValue placeholder="—" /></SelectTrigger>
-                        <SelectContent><SelectItem value="true" className="text-xs">Sim</SelectItem><SelectItem value="false" className="text-xs">Não</SelectItem></SelectContent>
-                      </Select>
-                    ) : (
-                      <Input className="h-7 text-xs w-[160px] shrink-0" type={c.tipo === 'data' ? 'date' : 'text'} inputMode={c.tipo === 'numero' ? 'decimal' : undefined}
-                        value={simValores[c.key] ?? ''} onChange={(ev) => setSimValores((sv) => ({ ...sv, [c.key]: ev.target.value }))} />
-                    )}
-                  </div>
-                ))}
-                {temTextoLivre && <p className="text-[10.5px] text-muted-foreground leading-snug">Há saída em modo avançado — ela é avaliada com os mesmos valores, mas os campos dela não aparecem acima.</p>}
-                {camposDoTeste.length > 0 && (
-                  vencedora ? (
-                    <p className="text-xs font-semibold text-primary">→ o processo segue para {nomeDestino(outs.find((o) => o.id === vencedora)!)}</p>
-                  ) : (
-                    <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">Nenhuma condição casa e não há “caso contrário” — em execução isso seria erro.</p>
-                  )
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Caminhos — frases com espaço para respirar */}
-          {outs.map((e) => {
-            const acesa = simAberto && vencedora === e.id
-            const apagada = simAberto && vencedora !== null && vencedora !== e.id
-            return (
-            <div key={e.id} className={cn('rounded-lg border p-3 space-y-2 transition-all',
-              e.isDefault ? 'border-dashed bg-muted/10' : 'bg-muted/20',
-              acesa && 'border-primary ring-1 ring-primary/40 bg-primary/5',
-              apagada && 'opacity-40')}>
-              {e.isDefault ? (
-                <>
-                  <div className="flex items-center gap-2.5 flex-wrap">
-                    <span className="text-[11px] font-extrabold tracking-widest text-muted-foreground">SENÃO</span>
-                    <span className="text-[13px] font-semibold truncate">{nomeDestino(e)}</span>
-                    <Badge variant="outline" className="text-[10px] shrink-0 border-dashed">caso contrário</Badge>
-                    {acesa && <span className="text-[11px] font-bold text-primary shrink-0">✓ é por aqui</span>}
-                  </div>
-                  <p className="text-[10.5px] text-muted-foreground leading-snug">Este caminho ficou sem filtros — para ele deixar de ser o “caso contrário”, monte um filtro aqui e esvazie outro.</p>
-                  <CondBuilder edge={e} campos={campos} onSet={(patch) => onSetEdge(e.id, patch)} />
-                </>
-              ) : (
-                <>
-                  <div className="flex items-start gap-2.5">
-                    <span className="text-[11px] font-extrabold tracking-widest text-violet-600 dark:text-violet-400 mt-2">SE</span>
-                    <div className="flex-1 min-w-0">
-                      <CondBuilder edge={e} campos={campos} onSet={(patch) => onSetEdge(e.id, patch)} />
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2.5 flex-wrap">
-                    <span className="text-[11px] font-extrabold tracking-widest text-violet-600 dark:text-violet-400">SEGUE PARA</span>
-                    <span className="text-[13px] font-semibold truncate">{nomeDestino(e)}</span>
-                    {acesa && <span className="text-[11px] font-bold text-primary shrink-0">✓ é por aqui</span>}
-                  </div>
-                </>
-              )}
-              <Input className="h-7 text-xs px-2.5" value={e.label ?? ''} placeholder="Rótulo da seta (preenchido sozinho pela condição)" onChange={(ev) => onSetEdge(e.id, { label: ev.target.value })} />
-            </div>
-          )})}
-        </div>
-
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t bg-muted/20 shrink-0">
-          <Button variant="ghost" size="sm" onClick={cancelar}>Cancelar</Button>
-          <Button size="sm" onClick={onClose}>Aplicar</Button>
-        </div>
-      </div>
-    </>,
-    document.body,
-  )
-}
-
-/* ── Construtor de condição de UMA saída: [Campo] [operador] [Valor], com E/OU.
-     Gera a expressão do motor a partir do spec; "modo avançado" expõe o texto cru
-     (editar o texto vira a fonte de verdade e apaga o spec). Dimensionado para o
-     MODAL (o painel lateral de 320px espremia os chips — achado do PO). ── */
-function CondBuilder({ edge, campos, onSet }: {
-  edge: EEdge; campos: CampoDisponivel[]; onSet: (patch: Partial<EEdge>) => void
-}) {
-  const spec = edge.conditionSpec ?? null
-
-  const campoDe = (k: string) => campos.find((c) => c.key === k)
-  const tipoDe = (k: string): CampoDisponivel['tipo'] => campoDe(k)?.tipo ?? 'texto'
-  const labelDe = (k: string) => campoDe(k)?.label ?? k
-  const valorLabelDe = (r: EdgeConditionRule) => {
-    const c = campoDe(r.campo)
-    if (c?.tipo === 'booleano') return r.valor === 'true' ? 'Sim' : 'Não'
-    return c?.options?.find((o) => o.value === r.valor)?.label ?? r.valor
-  }
-
-  /* Auto-rótulo da seta: acompanha a condição enquanto o usuário não escrever um
-     rótulo PRÓPRIO (detectado por diferir do auto-rótulo do spec anterior). */
-  const aplicar = (novo: EdgeConditionSpec) => {
-    const autoAnterior = spec ? rotuloDaCondicao(spec, labelDe, valorLabelDe) : ''
-    const auto = rotuloDaCondicao(novo, labelDe, valorLabelDe)
-    const patch: Partial<EEdge> = { conditionSpec: novo, condition: gerarExpressao(novo, tipoDe) }
-    if (!edge.label?.trim() || edge.label === autoAnterior) patch.label = auto
-    onSet(patch)
-  }
-
-  const rules: EdgeConditionRule[] = spec?.rules.length ? spec.rules : [{ campo: '', op: 'eq', valor: '' }]
-  const logic = spec?.logic ?? 'AND'
-  const setRule = (i: number, r: EdgeConditionRule) => aplicar({ logic, rules: rules.map((x, j) => (j === i ? r : x)) })
-  const dropRule = (i: number) => aplicar({ logic, rules: rules.filter((_, j) => j !== i) })
-
-  return (
-    <div className="space-y-1.5">
-      {/* Expressão antiga (digitada no modo avançado, que foi removido a pedido do PO):
-          mostrada como aviso; o primeiro filtro montado a substitui. */}
-      {!spec && !!edge.condition?.trim() && (
-        <p className="text-[10.5px] text-muted-foreground leading-snug rounded-md border border-dashed px-2.5 py-1.5">
-          Expressão antiga: <span className="font-mono">{edge.condition}</span> — montar filtros abaixo a substitui.
-        </p>
-      )}
-      {campos.length === 0 ? (
-        <p className="text-[11px] text-muted-foreground leading-snug rounded-md border border-dashed px-2.5 py-2">
-          Nenhum campo disponível ainda: as condições testam o que as atividades <span className="font-medium">anteriores</span> capturam.
-          Ligue uma atividade com Tela de contrato (ou com formulário) antes deste losango.
-        </p>
-      ) : rules.map((r, i) => {
-        const c = campoDe(r.campo)
-        const ops = OPS_POR_TIPO[c?.tipo ?? 'texto']
-        return (
-          <div key={i} className="flex items-center gap-1.5">
-            <Select value={r.campo || undefined} onValueChange={(v) => { const t = campoDe(v)?.tipo ?? 'texto'; setRule(i, { campo: v, op: OPS_POR_TIPO[t][0].value, valor: '' }) }}>
-              <SelectTrigger className="h-8 text-xs flex-1 min-w-[180px]"><SelectValue placeholder="Campo…" /></SelectTrigger>
-              <SelectContent>
-                {campos.map((cp) => (
-                  <SelectItem key={cp.key} value={cp.key} className="text-xs">
-                    {cp.label} <span className="text-muted-foreground">· {cp.origem}</span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={r.op} onValueChange={(v) => setRule(i, { ...r, op: v as EdgeConditionRule['op'] })}>
-              <SelectTrigger className="h-8 text-xs w-[150px] shrink-0"><SelectValue /></SelectTrigger>
-              <SelectContent>{ops.map((o) => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
-            </Select>
-            {c?.tipo === 'selecao' && c.options?.length ? (
-              <Select value={r.valor || undefined} onValueChange={(v) => setRule(i, { ...r, valor: v })}>
-                <SelectTrigger className="h-8 text-xs w-[150px] shrink-0"><SelectValue placeholder="Valor…" /></SelectTrigger>
-                <SelectContent>{c.options.map((o) => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
-              </Select>
-            ) : c?.tipo === 'booleano' ? (
-              <Select value={r.valor || undefined} onValueChange={(v) => setRule(i, { ...r, valor: v })}>
-                <SelectTrigger className="h-8 text-xs w-[150px] shrink-0"><SelectValue placeholder="Valor…" /></SelectTrigger>
-                <SelectContent><SelectItem value="true" className="text-xs">Sim</SelectItem><SelectItem value="false" className="text-xs">Não</SelectItem></SelectContent>
-              </Select>
-            ) : (
-              <Input className="h-8 text-xs w-[150px] shrink-0" type={c?.tipo === 'numero' ? 'text' : c?.tipo === 'data' ? 'date' : 'text'}
-                inputMode={c?.tipo === 'numero' ? 'decimal' : undefined} placeholder="Valor"
-                value={r.valor} onChange={(ev) => setRule(i, { ...r, valor: ev.target.value })} />
-            )}
-            {rules.length > 1 && (
-              <button aria-label="Remover condição" className="text-muted-foreground hover:text-destructive shrink-0" onClick={() => dropRule(i)}><X className="h-3.5 w-3.5" /></button>
-            )}
-          </div>
-        )
-      })}
-      {campos.length > 0 && (
-        <div className="flex items-center gap-2.5">
-          <button className="text-[11px] text-primary hover:underline" onClick={() => aplicar({ logic, rules: [...rules, { campo: '', op: 'eq', valor: '' }] })}>+ condição</button>
-          {rules.length > 1 && (
-            <div className="flex rounded border overflow-hidden">
-              {(['AND', 'OR'] as const).map((l) => (
-                <button key={l} className={cn('px-2 py-0.5 text-[11px] font-semibold transition-colors', logic === l ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}
-                  onClick={() => aplicar({ logic: l, rules })}>{l === 'AND' ? 'E' : 'OU'}</button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
+  CREATE: 'A atividade cria o registro deste processo, com os campos e as travas definidos na tela escolhida.',
+  EDIT:   'A atividade abre para alteração o registro deste processo — o que uma etapa anterior criou.',
+  VIEW:   'A atividade apenas MOSTRA o registro deste processo, em leitura: nenhum campo pode ser alterado e nada é gravado. Serve para etapas de análise, conferência e ciência.',
 }

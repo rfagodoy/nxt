@@ -100,14 +100,20 @@ export interface StepFormSchema {
    *  precisa ver o cadastro inteiro para decidir, mas não deve alterá-lo. Sem ele, a
    *  única forma de mostrar o contrato numa aprovação era abrir em edição e confiar. */
   entityMode?: 'CREATE' | 'EDIT' | 'VIEW'
-  /** Nos modos EDIT e VIEW, a variável do processo que carrega o id da entidade
-   *  (ex.: `contratoId`/`partnerId` produzido por uma atividade anterior). */
+  /** @deprecated Ignorado desde 13/09/2026: EDIT e VIEW usam sempre o registro do processo
+   *  (`contratoId`/`partnerId`, produzido por uma atividade anterior). Fica no tipo só
+   *  porque desenhos antigos o gravaram. */
   entityVar?: string
   /** Campos da tela que ESTA atividade trava (ids de ScreenField). A trava da atividade
    *  só APERTA: o que a Tela já travou continua travado mesmo fora desta lista, e um id
    *  daqui nunca destrava nada. É como o solicitante edita o valor e o aprovador só o vê,
    *  sem duplicar a tela (a mesma tela = os mesmos valores gravados). */
   lockedFields?: string[]
+  /** Telas ADICIONAIS do mesmo registro, mostradas em ABAS depois da principal
+   *  (`screenRef`) na execução da tarefa. Mesmo assunto da principal; cada aba edita ou
+   *  só consulta. Numa atividade de CONSULTA (entityMode VIEW) todas abrem em leitura.
+   *  Os `lockedFields` valem para todas as abas (são chaves de campo do tipo). */
+  extraScreens?: Array<{ screenRef: string; mode: 'EDIT' | 'VIEW' }>
 }
 
 // ─── Manifesto dos conectores de domínio (F5) ────────────────────────────────
@@ -262,6 +268,10 @@ export interface ProcessFormSchema {
     nodes: Array<{ id: string; type: string; name?: string }>
     edges: Array<{ id: string; from: string; to: string; condition?: string; isDefault?: boolean; label?: string; conditionSpec?: EdgeConditionSpec }>
   }
+  /** Fluxo em BLOCOS (editor desde 09/2026) — a fonte da autoria. `graph` e o bpmnXml
+   *  são GERADOS dele a cada gravação. A forma completa (FluxoBlocos) mora em
+   *  @nxt/workflow-core; aqui fica só o contorno, para este pacote não depender do motor. */
+  blocos?: { versao: 1; inicioId: string; fimId: string; itens: unknown[] }
 }
 
 // ─── Module Schema (estrutura do módulo gerado) ──────────────────────────────
