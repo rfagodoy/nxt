@@ -21,6 +21,7 @@ import { formatScreenCellValue } from '@/lib/screen-value-format'
 import type { ScreenField } from '@/lib/screen-types'
 import { type Row, SIT_CLS, SIT_LABEL, BRL, fmtDate } from '@/components/contracts/contract-detail-view'
 import { useWorkspace } from '@/contexts/workspace-context'
+import { fieldValueKey } from '@/lib/screen-types'
 
 
 
@@ -70,7 +71,7 @@ export default function ContratosPage() {
     [defaultScreen],
   )
   const screenCustomCols = useMemo(
-    () => screenCustomFields.filter(f => isVisibleInTable(f.id)).map(f => ({ key: f.id, label: f.label })),
+    () => screenCustomFields.filter(f => isVisibleInTable(fieldValueKey(f))).map(f => ({ key: fieldValueKey(f), label: f.label })),
     [screenCustomFields, isVisibleInTable],
   )
 
@@ -100,8 +101,8 @@ export default function ContratosPage() {
       if (!vals) return r
       const extra: Record<string, string> = {}
       for (const f of screenCustomFields) {
-        const fmt = formatScreenCellValue(f, vals[f.id])
-        if (fmt) extra[f.id] = fmt
+        const fmt = formatScreenCellValue(f, vals[fieldValueKey(f)])
+        if (fmt) extra[fieldValueKey(f)] = fmt
       }
       return { ...r, ...extra } as Row
     })
@@ -269,7 +270,7 @@ export default function ContratosPage() {
       rows = data.rows; vals = data.customValues ?? {}
     } catch { return }
     if (!rows.length) return
-    const fieldById = new Map(screenCustomFields.map(f => [f.id, f]))
+    const fieldById = new Map(screenCustomFields.map(f => [fieldValueKey(f), f]))
 
     const exportName = activeViewId ? (views.find(v => v.id === activeViewId)?.name ?? 'Todos') : 'Todos'
     /* A planilha leva EXATAMENTE as colunas visíveis na tela, na ordem escolhida
@@ -281,7 +282,7 @@ export default function ContratosPage() {
       columns: orderedColumns.map(c => ({ header: c.label })),
       rows: rows.map(r => orderedColumns.map(c => {
         const f = fieldById.get(c.key)
-        if (f) return formatScreenCellValue(f, vals[r.id]?.[f.id]) ?? ''
+        if (f) return formatScreenCellValue(f, vals[r.id]?.[fieldValueKey(f)]) ?? ''
         return cellText(r, c.key)
       })),
     })

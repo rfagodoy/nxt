@@ -103,6 +103,11 @@ export interface StepFormSchema {
   /** Nos modos EDIT e VIEW, a variável do processo que carrega o id da entidade
    *  (ex.: `contratoId`/`partnerId` produzido por uma atividade anterior). */
   entityVar?: string
+  /** Campos da tela que ESTA atividade trava (ids de ScreenField). A trava da atividade
+   *  só APERTA: o que a Tela já travou continua travado mesmo fora desta lista, e um id
+   *  daqui nunca destrava nada. É como o solicitante edita o valor e o aprovador só o vê,
+   *  sem duplicar a tela (a mesma tela = os mesmos valores gravados). */
+  lockedFields?: string[]
 }
 
 // ─── Manifesto dos conectores de domínio (F5) ────────────────────────────────

@@ -49,6 +49,7 @@ export const fmtDate = (d: string | null) => d ? new Date(d + 'T00:00:00').toLoc
    React). Importados aqui para uso próprio e reexportados porque várias telas já os
    pegam deste módulo. */
 import { SIT_CLS, SIT_LABEL, SIT_DOT_CLS } from '@/lib/contract-situacao'
+import { fieldValueKey } from '@/lib/screen-types'
 export { SIT_CLS, SIT_LABEL, SIT_DOT_CLS }
 
 /* painel de aba: só renderiza quando a aba está ativa */
@@ -58,7 +59,7 @@ export function DSection({ active, children }: { active: boolean; children: Reac
 }
 
 /* ══════════════════════════════════════════════════════════════ */
-export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, screen, readOnly }: { row: Row; onClose: () => void; onSaved?: () => void; onDirtyChange?: (dirty: boolean) => void; screen?: Screen; readOnly?: boolean }) {
+export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, screen, readOnly: readOnlyProp, lockedFields }: { row: Row; onClose: () => void; onSaved?: () => void; onDirtyChange?: (dirty: boolean) => void; screen?: Screen; readOnly?: boolean; /** campos travados pela ATIVIDADE do workflow (só apertam) */ lockedFields?: string[] }) {
   const form = useContractForm({
     ...emptyContractForm(),
     numero: row.numero, titulo: row.titulo, tipo: row.tipo, situacao: normalizeSituacao(row.situacao),
@@ -114,9 +115,15 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
   const { screens } = useScreens('CONTRATO')
   const defaultScreen  = useMemo(() => screen ? reconcileNative(screen) : pickDefaultScreen(screens), [screen, screens])
   const screenDriven   = !!defaultScreen
+  /* Consulta pode vir da ETAPA (entityMode=VIEW) ou da própria TELA (somente consulta).
+     As duas produzem o mesmo efeito: campos travados e nenhuma ação que grave. */
+  const readOnly = readOnlyProp || !!defaultScreen?.readOnly
+  /* Campos travados por ESTA atividade do workflow (camada 2). Só apertam: o que a Tela
+     já travou segue travado, e um id daqui nunca destrava nada. */
+  const stepLocked = useMemo(() => new Set(lockedFields ?? []), [lockedFields])
   const screenSections = useMemo(
-    () => defaultScreen ? resolveContractSections(defaultScreen, v.natureza, 'detail') : [],
-    [defaultScreen, v.natureza],
+    () => defaultScreen ? resolveContractSections(defaultScreen, v.natureza, 'detail', { stepLocked }) : [],
+    [defaultScreen, v.natureza, stepLocked],
   )
   const [screenValues, setScreenValues] = useState<Record<string, string>>({})
   const [screenClean,  setScreenClean]  = useState('{}')
@@ -244,7 +251,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
     }
     // campos personalizados obrigatórios da tela, vazios → bloqueia ATIVAR
     if (isActivation && screenDriven) {
-      const missing = screenSections.find(s => s.customFields.some(cf => cf.required && !(screenValues[cf.id] ?? '').trim()))
+      const missing = screenSections.find(s => s.customFields.some(cf => cf.required && !cf.locked && !(screenValues[fieldValueKey(cf)] ?? '').trim()))
       if (missing) { setTab(missing.key); setSaveError('Preencha os campos obrigatórios destacados.'); return }
     }
     setSaving(true); setSaveError(null)

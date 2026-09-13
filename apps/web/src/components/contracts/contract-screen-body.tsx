@@ -17,6 +17,7 @@ import { ContractHistory } from './contract-history'
 import { ScreenCustomInput } from '@/components/screens/screen-renderer'
 import type { ResolvedContractSection } from '@/lib/screen-contract-layout'
 import type { ScreenField } from '@/lib/screen-types'
+import { fieldValueKey } from '@/lib/screen-types'
 
 /** Contexto com tudo que as seções nativas podem precisar (callbacks, flags). Campos
  *  opcionais: cada seção usa só o que lhe cabe. */
@@ -37,15 +38,17 @@ export interface ContractNativeCtx {
 }
 
 export function ContractSectionNative({ section, ctx }: { section: ResolvedContractSection; ctx: ContractNativeCtx }) {
-  const { nativeKey, screenVis } = section
-  const { form, ro } = ctx
+  const { nativeKey, screenVis, screenLock } = section
+  const { form } = ctx
+  /* Seção-BLOCO é atômica: não tem campo a campo, então a trava dela chega inteira aqui. */
+  const ro = ctx.ro || section.locked
   switch (nativeKey) {
     case 'dados_gerais':
-      return <IdentificacaoFields form={form} ro={ro} isVisible={screenVis} autoNumero={ctx.autoNumero} numeroPreview={ctx.numeroPreview} />
+      return <IdentificacaoFields form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} autoNumero={ctx.autoNumero} numeroPreview={ctx.numeroPreview} />
     case 'vigencia':
-      return <VigenciaFields form={form} ro={ro} isVisible={screenVis} />
+      return <VigenciaFields form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} />
     case 'valor':
-      return <ValoresFields form={form} ro={ro} isVisible={screenVis} />
+      return <ValoresFields form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} />
     case 'partes':
       return <PartesFields form={form} ro={ro} contractId={ctx.contractId} onOpenSearch={ctx.onOpenSearch!} onNewPartner={ctx.onNewPartner!} />
     case 'pagamentos':
@@ -76,8 +79,8 @@ export function ContractCustomFields({ fields, screenValues, onScreenChange, ro 
     <div className="grid grid-cols-2 gap-3 pt-1">
       {fields.map(f => (
         <div key={f.id} className={f.type === 'textarea' ? 'col-span-2' : ''}>
-          <Field label={f.label} required={f.required && !ro}>
-            <ScreenCustomInput field={f} value={screenValues[f.id] ?? ''} ro={ro} onChange={v => onScreenChange(f.id, v)} />
+          <Field label={f.label} required={f.required && !ro && !f.locked}>
+            <ScreenCustomInput field={f} value={screenValues[fieldValueKey(f)] ?? ''} ro={ro || f.locked} onChange={v => onScreenChange(fieldValueKey(f), v)} />
           </Field>
         </div>
       ))}

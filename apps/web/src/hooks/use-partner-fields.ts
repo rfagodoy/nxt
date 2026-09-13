@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { pushSetting, hydrateSetting } from '@/lib/settings-store'
+import type { ScreenFieldType } from '@/lib/screen-types'
 
 export type FieldType  = 'text' | 'number' | 'date' | 'time' | 'datetime' | 'currency' | 'checkbox' | 'select'
 export type SectionKey = 'identificacao' | 'contato' | 'endereco' | 'bancario'
@@ -33,6 +34,10 @@ export interface NativeField {
   label:    string
   section:  string
   hint?:    string
+  /** Forma do dado no cadastro (o widget real do formulário). Ausente = texto.
+   *  ⚠️ Espelha `partner-fields.tsx`: mudou o widget lá, mude aqui junto — é daqui que a
+   *  coluna "Tipo" do construtor de Telas fala. */
+  type?:    ScreenFieldType
 }
 
 export const NATIVE_FIELDS: NativeField[] = [
@@ -42,27 +47,27 @@ export const NATIVE_FIELDS: NativeField[] = [
   { key: 'codigo',          section: 'identificacao', label: 'Código / Documento',  hint: 'Estrangeiras'     },
   { key: 'razao_social',    section: 'identificacao', label: 'Razão Social / Nome'                           },
   { key: 'nome_fantasia',   section: 'identificacao', label: 'Nome Fantasia',       hint: 'Somente PJ'       },
-  { key: 'data_abertura',   section: 'identificacao', label: 'Data de Abertura',    hint: 'Somente PJ'       },
-  { key: 'natureza_juridica', section: 'identificacao', label: 'Natureza Jurídica', hint: 'PJ Brasileira'    },
+  { key: 'data_abertura',   section: 'identificacao', label: 'Data de Abertura',    hint: 'Somente PJ', type: 'date' },
+  { key: 'natureza_juridica', section: 'identificacao', label: 'Natureza Jurídica', hint: 'PJ Brasileira', type: 'select' },
   { key: 'ie',              section: 'identificacao', label: 'Inscrição Estadual',  hint: 'PJ Brasileira'    },
   { key: 'im',              section: 'identificacao', label: 'Inscrição Municipal', hint: 'PJ Brasileira'    },
   { key: 'rg',              section: 'identificacao', label: 'RG',                  hint: 'PF Brasileira'    },
   { key: 'orgao_expedidor', section: 'identificacao', label: 'Órgão Expedidor',     hint: 'PF Brasileira'    },
-  { key: 'data_nascimento', section: 'identificacao', label: 'Data de Nascimento',  hint: 'Pessoa Física'    },
-  { key: 'pais_origem',     section: 'identificacao', label: 'País de Origem',      hint: 'Estrangeiras'     },
+  { key: 'data_nascimento', section: 'identificacao', label: 'Data de Nascimento',  hint: 'Pessoa Física', type: 'date' },
+  { key: 'pais_origem',     section: 'identificacao', label: 'País de Origem',      hint: 'Estrangeiras', type: 'select' },
   // CNAE
-  { key: 'cnae_principal',    section: 'cnae', label: 'CNAE Principal',     hint: 'Somente PJ'  },
-  { key: 'cnaes_secundarios', section: 'cnae', label: 'CNAEs Secundários',  hint: 'Somente PJ · quantidade'  },
+  { key: 'cnae_principal',    section: 'cnae', label: 'CNAE Principal',     hint: 'Somente PJ', type: 'select' },
+  { key: 'cnaes_secundarios', section: 'cnae', label: 'CNAEs Secundários',  hint: 'Somente PJ · quantidade', type: 'multiselect' },
   // Contato
-  { key: 'con_email',       section: 'contato',       label: 'E-mail'                                        },
+  { key: 'con_email',       section: 'contato',       label: 'E-mail', type: 'email' },
   { key: 'con_nome',        section: 'contato',       label: 'Nome do Contato'                               },
-  { key: 'con_telefone',    section: 'contato',       label: 'Telefone'                                      },
-  { key: 'con_celular',     section: 'contato',       label: 'Celular / WhatsApp'                            },
+  { key: 'con_telefone',    section: 'contato',       label: 'Telefone', type: 'phone' },
+  { key: 'con_celular',     section: 'contato',       label: 'Celular / WhatsApp', type: 'phone' },
   { key: 'con_cargo',       section: 'contato',       label: 'Cargo do Contato'                              },
   { key: 'con_website',     section: 'contato',       label: 'Website',              hint: 'Somente PJ'      },
   // Endereço
   { key: 'end_cep',         section: 'endereco',      label: 'CEP',                  hint: 'Endereço BR'     },
-  { key: 'end_estado',      section: 'endereco',      label: 'Estado / UF'                                   },
+  { key: 'end_estado',      section: 'endereco',      label: 'Estado / UF', type: 'select' },
   { key: 'end_logradouro',  section: 'endereco',      label: 'Logradouro',           hint: 'Endereço BR'     },
   { key: 'end_numero',      section: 'endereco',      label: 'Número',               hint: 'Endereço BR'     },
   { key: 'end_complemento', section: 'endereco',      label: 'Complemento',          hint: 'Endereço BR'     },
@@ -70,17 +75,17 @@ export const NATIVE_FIELDS: NativeField[] = [
   { key: 'end_cidade',      section: 'endereco',      label: 'Cidade'                                        },
   { key: 'end_address1',    section: 'endereco',      label: 'Endereço — Linha 1',   hint: 'Endereço EST'    },
   { key: 'end_address2',    section: 'endereco',      label: 'Endereço — Linha 2',   hint: 'Endereço EST'    },
-  { key: 'end_pais',        section: 'endereco',      label: 'País',                 hint: 'Endereço EST'    },
+  { key: 'end_pais',        section: 'endereco',      label: 'País',                 hint: 'Endereço EST', type: 'select' },
   // Bancário
   { key: 'ban_banco',       section: 'bancario',      label: 'Banco'                                         },
-  { key: 'ban_tipo_conta',  section: 'bancario',      label: 'Tipo de Conta'                                 },
+  { key: 'ban_tipo_conta',  section: 'bancario',      label: 'Tipo de Conta', type: 'select' },
   { key: 'ban_agencia',     section: 'bancario',      label: 'Agência'                                       },
   { key: 'ban_conta',       section: 'bancario',      label: 'Conta'                                         },
   { key: 'ban_pix',         section: 'bancario',      label: 'Chave PIX'                                     },
   // Sócios
   { key: 'soc_nome',        section: 'socios',        label: 'Nome do Sócio'                                 },
   { key: 'soc_documento',   section: 'socios',        label: 'CPF / Documento'                               },
-  { key: 'soc_participacao',section: 'socios',        label: 'Participação %'                                },
+  { key: 'soc_participacao',section: 'socios',        label: 'Participação %', type: 'number' },
   { key: 'soc_cargo',       section: 'socios',        label: 'Cargo / Função'                                },
 ]
 

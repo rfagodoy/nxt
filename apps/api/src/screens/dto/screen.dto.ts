@@ -19,13 +19,17 @@ export class ScreenFieldValidationDto {
 
 export class ScreenFieldDto {
   @IsString() id!: string
+  /** Identidade do CAMPO no tipo (compartilhada pelas telas). Ausente = campo novo:
+   *  o servidor adota o próprio id como chave. Ver ScreenField.fieldKey no schema. */
+  @IsOptional() @IsString() fieldKey?: string
   @IsOptional() @IsString() sectionId?: string
   @IsString() name!: string
   @IsString() label!: string
   @IsString() type!: string
   @IsString() source!: string            // NATIVE | CUSTOM
   @IsOptional() @IsString() nativeKey?: string
-  @IsString() mode!: string              // VIEW | EDIT
+  @IsString() mode!: string              // [LEGADO] VIEW | EDIT — não é trava (ver `locked`)
+  @IsOptional() @IsBoolean() locked?: boolean    // campo TRAVADO: mostra o valor, não aceita alteração
   @IsOptional() @IsBoolean() visible?: boolean   // nativo: liga/desliga no cadastro
   @IsBoolean() required!: boolean
   @IsOptional() @IsString() placeholder?: string
@@ -42,11 +46,18 @@ export class ScreenFieldDto {
 
 export class ScreenSectionDto {
   @IsString() id!: string
+  /** Identidade da SEÇÃO na tela. Ausente = seção nova: o servidor adota o próprio id.
+   *  Sem ela de volta, o servidor recalculava a chave a partir do `id` e a seção
+   *  espelhada (id novo, chave da origem) derivava — a linha era apagada e recriada com
+   *  a chave errada, e a propagação seguinte criava uma SEGUNDA seção de mesmo nome. */
+  @IsOptional() @IsString() sectionKey?: string
   @IsString() label!: string
   @IsString() name!: string
   @IsOptional() @IsString() source?: string      // NATIVE | CUSTOM
   @IsOptional() @IsString() nativeKey?: string
   @IsOptional() @IsBoolean() visible?: boolean
+  /** Seção SOMENTE CONSULTA: nenhum campo dela é editável. */
+  @IsOptional() @IsBoolean() locked?: boolean
   @IsInt() order!: number
   @IsBoolean() defaultOpen!: boolean
 }
@@ -58,10 +69,23 @@ export class SaveScreenDto {
   @IsOptional() @IsString() status?: string
   @IsOptional() @IsBoolean() isDefault?: boolean
   @IsOptional() @IsBoolean() isSystem?: boolean
+  /** Tela SOMENTE CONSULTA: nenhum campo é editável, independente do `mode` de cada campo. */
+  @IsOptional() @IsBoolean() readOnly?: boolean
   @IsArray() @ValidateNested({ each: true }) @Type(() => ScreenSectionDto)
   sections!: ScreenSectionDto[]
   @IsArray() @ValidateNested({ each: true }) @Type(() => ScreenFieldDto)
   fields!: ScreenFieldDto[]
+  /**
+   * CHAVES de campos personalizados que o usuário mandou excluir do TIPO.
+   *
+   * Exclusão é DITA, nunca deduzida. Antes o servidor inferia "excluir do tipo" a partir
+   * de "não veio no payload", e três caminhos omitiam campo sem querer — editar um campo
+   * (a gaveta remontava o objeto sem a chave), excluir uma seção, ou salvar de uma aba
+   * aberta antes de um colega criar o campo em outra tela. Qualquer um deles apagava o
+   * campo de todas as telas e órfanava os valores já preenchidos.
+   */
+  @IsOptional() @IsArray() @IsString({ each: true })
+  removedFieldKeys?: string[]
 }
 
 /* ─── Valores preenchidos (ScreenFieldValue) ─────────────────────────────── */

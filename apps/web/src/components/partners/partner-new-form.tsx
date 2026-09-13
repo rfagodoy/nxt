@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft, Building2, Phone, MapPin, CreditCard, Users,
-  ChevronDown, Layers, Briefcase, UserCog,
+  ChevronDown, Layers, Briefcase, UserCog, Eye,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ResponsaveisSection } from '@/components/responsaveis/responsaveis-section'
@@ -17,6 +17,7 @@ import { useScreens, putScreenValues } from '@/hooks/use-screens'
 import { pickDefaultScreen, resolvePartnerSections } from '@/lib/screen-partner-layout'
 import { reconcileNative } from '@/lib/screen-native-structure'
 import type { Screen } from '@/lib/screen-types'
+import { fieldValueKey } from '@/lib/screen-types'
 import { isDocumentoValido } from '@/lib/doc-validation'
 import { PartnerSectionBody } from './partner-screen-body'
 import {
@@ -58,11 +59,13 @@ interface PartnerNewFormProps {
   onCancel?: () => void
   /** Override: renderiza dirigido por ESTA tela (runtime de workflow). Ausente = padrão. */
   screen?: Screen
+  /** Campos travados pela ATIVIDADE do workflow (ids de campo da tela). Só apertam. */
+  lockedFields?: string[]
 }
 
 /* ─── componente principal ───────────────────────────────── */
 
-export default function PartnerNewForm({ embedded = false, onSaved, onCancel, screen }: PartnerNewFormProps) {
+export default function PartnerNewForm({ embedded = false, onSaved, onCancel, screen, lockedFields }: PartnerNewFormProps) {
   const router               = useRouter()
   const form                 = usePartnerForm(emptyPartnerForm('PJ_BR'))
   const v                    = form.values
@@ -85,9 +88,16 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
   const { screens, loading: screensLoading } = useScreens('FORNECEDOR')
   const defaultScreen  = useMemo(() => screen ? reconcileNative(screen) : pickDefaultScreen(screens), [screen, screens])
   const screenDriven   = !!defaultScreen
+  /* Tela em SOMENTE CONSULTA: não dá para criar registro por ela. Os campos já nascem
+     travados (a trava é assada em resolvePartnerSections); o corpo das seções e o
+     rodapé precisam saber disso por fora. */
+  const screenReadOnly = !!defaultScreen?.readOnly
+  /* Campos travados por ESTA atividade do workflow (camada 2). Só apertam: o que a Tela
+     já travou segue travado, e um id daqui nunca destrava nada. */
+  const stepLocked = useMemo(() => new Set(lockedFields ?? []), [lockedFields])
   const screenSections = useMemo(
-    () => defaultScreen ? resolvePartnerSections(defaultScreen, v.category, 'new') : [],
-    [defaultScreen, v.category],
+    () => defaultScreen ? resolvePartnerSections(defaultScreen, v.category, 'new', { stepLocked }) : [],
+    [defaultScreen, v.category, stepLocked],
   )
   const [screenValues, setScreenValues] = useState<Record<string, string>>({})
   const onScreenChange = (fieldId: string, value: string) =>
@@ -183,6 +193,8 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
 
   /* ─── salvar rascunho ───────────────────────────────────── */
   const handleSaveDraft = async () => {
+    // tela em somente consulta não grava — o rodapé já não oferece a ação; aqui é a rede
+    if (screenReadOnly) return
     const razaoSocial = v.razaoSocial.trim()
     const docInvalido = v.documento.trim() !== '' && !isDocumentoValido(v.category, v.documento)
     if (!razaoSocial || docInvalido) {
@@ -215,6 +227,8 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
   /* ─── ativar parceiro ───────────────────────────────────── */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    // tela em somente consulta não grava — o rodapé já não oferece a ação; aqui é a rede
+    if (screenReadOnly) return
     const razaoSocial = v.razaoSocial.trim()
     const err         = new Set<string>()
 
@@ -240,7 +254,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
     if (screenDriven) {
       for (const s of screenSections)
         for (const cf of s.customFields)
-          if (cf.required && !(screenValues[cf.id] ?? '').trim()) { err.add(s.key); customMissing = true }
+          if (cf.required && !cf.locked && !(screenValues[fieldValueKey(cf)] ?? '').trim()) { err.add(s.key); customMissing = true }
     }
 
     setErrors(err)
@@ -350,7 +364,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
             ? screenSections.map(s => (
                 <Section key={s.id} icon={s.icon} title={s.label}
                   isOpen={open.has(s.key)} onToggle={() => toggle(s.key)} hasError={errors.has(s.key)}>
-                  <PartnerSectionBody section={s} form={form} screenValues={screenValues} onScreenChange={onScreenChange} />
+                  <PartnerSectionBody section={s} form={form} ro={screenReadOnly} screenValues={screenValues} onScreenChange={onScreenChange} />
                 </Section>
               ))
             : resolvedOrder.map(key => renderSection(key))
@@ -383,6 +397,11 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
               Cancelar
             </Link>
           )}
+          {screenReadOnly ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              <Eye className="h-3 w-3" />Somente consulta — esta tela não cria registros
+            </span>
+          ) : (
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => { void handleSaveDraft() }} disabled={saving !== null}
               className="inline-flex items-center h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
@@ -400,6 +419,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
               {saving === 'active' ? 'Salvando...' : 'Ativar parceiro'}
             </button>
           </div>
+          )}
         </div>
       </form>
     </div>

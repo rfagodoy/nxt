@@ -7,10 +7,10 @@ import {
   CircleDot, Loader2, UserSquare, AlertTriangle, Building2,
   Minus, Plus, Maximize2, GripVertical, ChevronUp, Redo2,
   Download, FileImage, FileText, ChevronDown, PanelRightClose, PanelRightOpen,
-  X, SlidersHorizontal, Undo2, Check, Play, Info,
+  X, SlidersHorizontal, Undo2, Check, Play, Info, Lock,
 } from 'lucide-react'
 import { createPortal } from 'react-dom'
-import { generateBpmn, compileBpmn, validarDesenho, validarDecisoes, validarAtividades, bloqueantes, avisos as avisosDe, type ProblemaAtivacao, type WfGraph, type WfNode, type WfEdge } from '@nxt/workflow-core'
+import { generateBpmn, compileBpmn, validarDesenho, validarDecisoes, validarAtividades, validarTelasDasAtividades, bloqueantes, avisos as avisosDe, type ProblemaAtivacao, type WfGraph, type WfNode, type WfEdge } from '@nxt/workflow-core'
 import type { StepFormSchema, ProcessFormSchema, EdgeConditionSpec, EdgeConditionRule } from '@nxt/types'
 import { CONNECTORS, findConnector, isRetiredConnector, isCompensable } from '@nxt/types'
 import { camposDisponiveis, gerarExpressao, rotuloDaCondicao, montarVarsSimulacao, decidirSaida, saidaTemFiltro, derivarCasoContrario, OPS_POR_TIPO, type CampoDisponivel } from '@/lib/flow-conditions'
@@ -23,6 +23,7 @@ import { EntitySelect, useEntityLabels, type EntityKind } from '@/components/ui/
 import { useScreens } from '@/hooks/use-screens'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import type { ScreenSubject } from '@/lib/screen-types'
+import { fieldValueKey } from '@/lib/screen-types'
 import { PAPEIS_KEY, INIT_PAPEIS, REFERENCIA, ORIGEM, referenciaDoPapelEntry } from '@/lib/contract-roles'
 import { layoutGraph, titleLineCount, LABEL_W, LANE_SEM_RESPONSAVEL, type FlowNode as LNode, type FlowNodeType, type LaneBand } from '@/lib/flow-layout'
 import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, type ExportEdge } from '@/lib/flow-export'
@@ -295,8 +296,12 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         stepId: n.id, stepName: n.step?.stepName, executor: n.step?.executor,
         slaBusinessDays: n.step?.slaBusinessDays, slaBusinessHours: n.step?.slaBusinessHours, slaBusinessMinutes: n.step?.slaBusinessMinutes,
       }))),
+      ...validarTelasDasAtividades(
+        nodes.filter((n) => n.type === 'userTask').map((n) => ({ stepId: n.id, stepName: n.step?.stepName, screenRef: n.step?.screenRef, entityMode: n.step?.entityMode })),
+        screens,
+      ),
     ]
-  }, [nodes, edges])
+  }, [nodes, edges, screens])
 
   /* Clique numa pendência: seleciona o nó culpado e abre a superfície onde o conserto
      mora (modal da atividade/decisão). Problemas de conexão só selecionam — o conserto
@@ -1672,10 +1677,22 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
     onPatchStep({ executor: { papelId, entityType: p?.origem ?? 'CONTRATO', mode: 'FIXA', entityId: undefined, entityVar: undefined } })
   }
   const setExec = (patch: Partial<NonNullable<StepFormSchema['executor']>>) => executor && onPatchStep({ executor: { ...executor, ...patch } })
+  /* Tela escolhida na atividade — a origem dos campos que esta etapa pode travar. */
+  const telaSel = step.screenRef ? entityScreens.find((s) => s.id === step.screenRef) : undefined
+  const travados = step.lockedFields ?? []
+  /* Guarda a CHAVE do campo (fieldKey), não o id da linha: a chave é a mesma em todas as
+     telas do tipo, então a etapa continua valendo se a tela for trocada por outra do mesmo
+     subject — e o que já estava gravado bate, porque a chave nasceu igual ao id antigo. */
+  const toggleTravado = (chave: string) =>
+    onPatchStep({ lockedFields: travados.includes(chave) ? travados.filter((x) => x !== chave) : [...travados, chave] })
+
   const pickScreen = (id: string) => {
-    if (!id || id === 'none') { onPatchStep({ screenRef: undefined, screenSubject: undefined, entityMode: undefined, entityVar: undefined }); return }
+    if (!id || id === 'none') { onPatchStep({ screenRef: undefined, screenSubject: undefined, entityMode: undefined, entityVar: undefined, lockedFields: undefined }); return }
     const sc = entityScreens.find((s) => s.id === id)
-    onPatchStep({ screenRef: id, screenSubject: sc?.subjectType as ScreenSubject as 'CONTRATO' | 'FORNECEDOR' | undefined, entityMode: step.entityMode ?? 'CREATE' })
+    /* Trocar de tela DENTRO do mesmo tipo preserva os travados: eles são chaves do tipo,
+       não ids daquela tela. Só mudar de subject invalida a lista. */
+    const mesmoTipo = sc?.subjectType && telaSel?.subjectType && sc.subjectType === telaSel.subjectType
+    onPatchStep({ screenRef: id, screenSubject: sc?.subjectType as ScreenSubject as 'CONTRATO' | 'FORNECEDOR' | undefined, entityMode: step.entityMode ?? 'CREATE', lockedFields: mesmoTipo ? step.lockedFields : undefined })
   }
 
   // Prazo ÚNICO + unidade (dias/horas/minutos úteis): guarda em apenas UM dos três
@@ -1884,6 +1901,53 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
                         {availableVars.map((v) => <SelectItem key={v.name} value={v.name} className="text-xs">{v.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
+                  </GField>
+                )}
+
+                {/* Camada 2: a atividade APERTA a trava da tela. Em CONSULTA não aparece —
+                    lá a tela inteira já está travada e marcar campo não muda nada. */}
+                {telaSel && (step.entityMode ?? 'CREATE') !== 'VIEW' && (
+                  <GField label="Campos travados nesta atividade" wide
+                    hint={telaSel.readOnly
+                      ? 'Esta tela é SOMENTE CONSULTA: todos os campos já estão travados nela.'
+                      : 'A trava da tela vale sempre; aqui você aperta mais. O que marcar não poderá ser alterado NESTA etapa — em outras, continua editável.'}>
+                    {telaSel.readOnly ? (
+                      <p className="text-xs text-muted-foreground">
+                        Nada a marcar: a tela <b className="font-semibold text-foreground">{telaSel.name}</b> está em somente consulta.
+                      </p>
+                    ) : (
+                      <div className="max-h-64 overflow-y-auto rounded-md border divide-y">
+                        {[...telaSel.sections].sort((a, b) => a.order - b.order).map((sec2) => {
+                          const fs = telaSel.fields.filter((f) => f.sectionId === sec2.id && f.visible !== false).sort((a, b) => a.order - b.order)
+                          if (fs.length === 0) return null
+                          return (
+                            <div key={sec2.id} className="p-1.5">
+                              <p className="px-1 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                {sec2.label}{sec2.locked && <span className="ml-1.5 normal-case tracking-normal text-amber-600 dark:text-amber-400">· somente consulta</span>}
+                              </p>
+                              <div className="grid grid-cols-2 gap-x-2">
+                                {fs.map((f) => {
+                                  // já travado pela TELA (campo ou seção inteira): a atividade não afrouxa
+                                  const naTela = !!f.locked || !!sec2.locked
+                                  const marcado = naTela || travados.includes(fieldValueKey(f))
+                                  return (
+                                    <label key={f.id} title={naTela ? 'Travado na tela — a atividade não pode liberar' : undefined}
+                                      className={cn('flex items-center gap-1.5 rounded px-1 py-0.5 text-xs',
+                                        naTela ? 'text-muted-foreground cursor-not-allowed' : 'cursor-pointer hover:bg-muted')}>
+                                      <input type="checkbox" checked={marcado} disabled={naTela}
+                                        onChange={() => toggleTravado(fieldValueKey(f))}
+                                        className="h-3.5 w-3.5 accent-primary shrink-0 disabled:opacity-60" />
+                                      <span className="truncate">{f.label}</span>
+                                      {naTela && <Lock className="h-2.5 w-2.5 shrink-0" />}
+                                    </label>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
                   </GField>
                 )}
               </GSection>
