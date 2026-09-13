@@ -1,22 +1,26 @@
 'use client'
 
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ChevronLeft, Plus, Pencil, Trash2, ChevronUp, ChevronDown, Check, X,
-  MoreHorizontal, Star, Lock, Eye,
+  MoreHorizontal, Star, Lock, Eye, Rows3, AlertTriangle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { saveScreen } from '@/hooks/use-screens'
 import {
   SUBJECT_LABELS, STATUS_LABELS, FIELD_TYPE_LABELS, PARTNER_CATEGORIES, slug,
-  type Screen, type ScreenField, type ScreenSubject, type ScreenStatus, type PartnerCategory,
+  fieldValueKey,
+  type Screen, type ScreenField, type ScreenSection, type ScreenSubject, type ScreenStatus, type PartnerCategory,
 } from '@/lib/screen-types'
 import { buildNativeSeed, reconcileNative } from '@/lib/screen-native-structure'
 import { fieldAppliesTo, fieldVisibleFor, requiredFor } from '@/lib/screen-partner-categories'
 import { PARTNER_BLOCK_SECTIONS } from '@/lib/screen-partner-layout'
+import { CONTRACT_BLOCK_SECTIONS } from '@/lib/screen-contract-layout'
+import { pendenciasDeTrava, fraseDaPendencia } from '@/lib/screen-locks'
 import { ScreenRenderer } from './screen-renderer'
 import { ScreenFieldEditor } from './screen-field-editor'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 const ALL_CATEGORIES = PARTNER_CATEGORIES.map(c => c.value)
 
@@ -42,10 +46,13 @@ const iconBtn  = 'h-6 w-6 inline-flex items-center justify-center rounded text-m
    (o cadastro de telas é um molde, não a exibição de um registro real). */
 const emptyNative = () => ''
 
-/* campos nativos longos → largura total (título e campos de texto extensos) */
-const FULL_WIDTH_KEYS = new Set(['razao_social', 'con_email', 'con_website', 'end_logradouro', 'end_address1', 'end_address2', 'ban_pix'])
-const isFullWidth = (f: ScreenField) =>
-  f.type === 'textarea' || (f.source === 'NATIVE' && FULL_WIDTH_KEYS.has(f.nativeKey ?? ''))
+/* Seções-BLOCO: componentes atômicos (Histórico, Pagamentos, Aditivos…). A tela decide
+   se o bloco aparece e se ele aceita alteração — não há campo a campo dentro dele. */
+const NO_BLOCKS = new Set<string>()
+const blockKeysOf = (subject: ScreenSubject) =>
+  subject === 'FORNECEDOR' ? PARTNER_BLOCK_SECTIONS
+    : subject === 'CONTRATO' ? CONTRACT_BLOCK_SECTIONS
+      : NO_BLOCKS
 
 /* interruptor de visibilidade */
 function Switch({ on, onClick, title, sm }: { on: boolean; onClick: () => void; title?: string; sm?: boolean }) {
@@ -61,6 +68,25 @@ function Switch({ on, onClick, title, sm }: { on: boolean; onClick: () => void; 
   )
 }
 
+/* Célula da matriz: quadradinho marcado / desmarcado / "parte sim, parte não".
+   `half` só existe na linha da SEÇÃO — é o resumo dos campos dela. */
+function Marca({ on, half, onClick, title, disabled, tone = 'primary' }: {
+  on: boolean; half?: boolean; onClick: () => void; title?: string; disabled?: boolean; tone?: 'primary' | 'amber'
+}) {
+  return (
+    <button type="button" role="checkbox" aria-checked={half ? 'mixed' : on} onClick={() => { if (!disabled) onClick() }}
+      disabled={disabled} title={title} aria-label={title}
+      className={cn('inline-flex h-4 w-4 items-center justify-center rounded border transition-colors',
+        on || half ? 'border-primary/50 bg-primary/10 text-primary'
+                   : 'border-input bg-background hover:bg-muted',
+        disabled && 'cursor-not-allowed opacity-50')}>
+      {half ? <span className="h-[1.5px] w-2 rounded-full bg-primary" />
+        : on ? <Check className="h-3 w-3" />
+          : tone === 'amber' ? <Lock className="h-2.5 w-2.5 text-amber-600 dark:text-amber-400" /> : null}
+    </button>
+  )
+}
+
 const blank = (subjectType: ScreenSubject): Screen => {
   const seed = buildNativeSeed(subjectType)
   return { id: '', name: '', description: '', subjectType, status: 'DRAFT', isDefault: false, ...seed }
@@ -69,7 +95,7 @@ const blank = (subjectType: ScreenSubject): Screen => {
 export function ScreenBuilder({ initial }: { initial?: Screen }) {
   const router = useRouter()
   const [screen, setScreen] = useState<Screen>(initial ? normalizePartner(reconcileNative(initial)) : blank('FORNECEDOR'))
-  const [mode, setMode] = useState<'edit' | 'preview'>('edit')
+  const [mode, setMode] = useState<'config' | 'preview'>('config')
   const [cat, setCat] = useState<PartnerCategory>('PJ_BR')  // tipo em edição (Fornecedor)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [editingField, setEditingField] = useState<ScreenField | null>(null)
@@ -79,6 +105,14 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
   const [renamingSection, setRenamingSection] = useState<string | null>(null)
   const [renameLabel, setRenameLabel] = useState('')
   const [menuOpen, setMenuOpen] = useState<string | null>(null)
+  /* campo personalizado é do TIPO: excluir tira de TODAS as telas, então pergunta antes */
+  const [excluindoCampo, setExcluindoCampo] = useState<ScreenField | null>(null)
+  const [excluindoSecao, setExcluindoSecao] = useState<ScreenSection | null>(null)
+  /* CHAVES que o usuário mandou excluir do tipo. O servidor só apaga o que está aqui:
+     campo que some do payload por qualquer outro motivo fica onde está. */
+  const [removidos, setRemovidos] = useState<string[]>([])
+  const marcarRemovido = (fs: ScreenField[]) =>
+    setRemovidos(prev => [...new Set([...prev, ...fs.filter(f => f.source === 'CUSTOM').map(fieldValueKey)])])
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
@@ -92,6 +126,15 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
   const nHidden = screen.subjectType === 'FORNECEDOR'
     ? screen.fields.filter(f => fieldAppliesTo(f, cat) && !fieldVisibleFor(f, cat)).length
     : screen.fields.filter(f => f.visible === false).length
+
+  /* Piso vindo de CIMA (tela ou seção): ali o campo não decide sozinho.
+     Declarado ANTES do primeiro uso de propósito — `const` não sofre hoisting. */
+  const secLocked = (sid?: string) => !!screen.readOnly || (!!sid && !!screen.sections.find(x => x.id === sid)?.locked)
+  const isTravado = (f: ScreenField) => secLocked(f.sectionId) || !!f.locked
+
+  const nLocked = screen.fields.filter(f => isTravado(f)).length
+  /* obrigatório E travado: ninguém consegue preencher (não impede salvar; é acusado) */
+  const pendencias = pendenciasDeTrava(screen)
 
   // Telas BASE do sistema são imutáveis: sempre ATIVA e sempre padrão. Uma tela não-padrão
   // de um tipo que já tem base do sistema (Fornecedor/Contrato) não pode virar padrão.
@@ -116,7 +159,13 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
     patch({ sections: [...screen.sections, { id: `ss_${Date.now()}`, label, name: slug(label), source: 'CUSTOM', visible: true, order: sections.length, defaultOpen: true }] })
     setNewSectionLabel(''); setAddingSection(false)
   }
-  const removeSection = (sid: string) => patch({ sections: screen.sections.filter(s => s.id !== sid), fields: screen.fields.filter(f => f.sectionId !== sid) })
+  /* Excluir seção leva os campos personalizados dela junto — e eles são do TIPO, então
+     saem de todas as telas. Por isso passa pelo mesmo diálogo do campo avulso: antes isto
+     apagava campo de todo mundo em silêncio, sem nem perguntar. */
+  const removeSection = (sid: string) => {
+    marcarRemovido(screen.fields.filter(f => f.sectionId === sid))
+    patch({ sections: screen.sections.filter(s => s.id !== sid), fields: screen.fields.filter(f => f.sectionId !== sid) })
+  }
   const renameSection = (sid: string) => {
     const label = renameLabel.trim(); if (!label) return
     patch({ sections: screen.sections.map(s => s.id === sid ? { ...s, label, name: slug(label) } : s) }); setRenamingSection(null)
@@ -142,6 +191,36 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
   /* liga/desliga todos os campos de uma seção de uma vez */
   const setSectionFields = (sid: string, visible: boolean) => patch({ fields: screen.fields.map(f => f.sectionId === sid ? { ...f, visible } : f) })
 
+  /* ── trava de edição (campo a campo) ──
+     A trava é GLOBAL do campo, não por tipo de parceiro: "quem pode alterar" não muda
+     com o tipo, e uma segunda dimensão aqui dobraria a configuração sem caso de uso. */
+  const toggleFieldLocked = (id: string) =>
+    patch({ fields: screen.fields.map(f => f.id === id ? { ...f, locked: !f.locked } : f) })
+  /* A seção é uma camada, não um atalho: `locked` é propriedade DELA e vira o piso dos
+     seus campos. Antes isto gravava campo a campo — o que não sobrevivia a um campo novo
+     criado depois na mesma seção. */
+  const toggleSectionLocked = (sid: string) =>
+    patch({ sections: screen.sections.map(sec => sec.id === sid ? { ...sec, locked: !sec.locked } : sec) })
+  /* obrigatoriedade pela Lista: por TIPO no Fornecedor, global nas demais telas */
+  const toggleFieldRequired = (id: string) => patch({ fields: screen.fields.map(f => {
+    if (f.id !== id) return f
+    if (!isPartner) return { ...f, required: !f.required }
+    const req = new Set(f.requiredCategories ?? (f.required ? ALL_CATEGORIES : []))
+    requiredFor(f, cat) ? req.delete(cat) : req.add(cat)
+    return { ...f, required: req.size > 0, requiredCategories: [...req] }
+  }) })
+
+  /* Obrigatoriedade da SEÇÃO inteira: age só nos campos PERSONALIZADOS — a de um campo
+     nativo é do sistema. Não é propriedade da seção, é um atalho sobre os campos dela. */
+  const setSectionRequired = (sid: string, req: boolean) => patch({ fields: screen.fields.map(f => {
+    if (f.sectionId !== sid || f.source !== 'CUSTOM') return f
+    if (!isPartner) return { ...f, required: req }
+    if (!fieldAppliesTo(f, cat)) return f
+    const set = new Set(f.requiredCategories ?? (f.required ? ALL_CATEGORIES : []))
+    req ? set.add(cat) : set.delete(cat)
+    return { ...f, required: set.size > 0, requiredCategories: [...set] }
+  }) })
+
   /* ── visibilidade POR TIPO (Fornecedor) ── */
   const isPartner = screen.subjectType === 'FORNECEDOR'
   const setFieldHiddenFor = (id: string, category: PartnerCategory, hidden: boolean) =>
@@ -162,7 +241,9 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
         ? (f.hiddenCategories ?? []).filter(c => c !== category)
         : Array.from(new Set([...(f.hiddenCategories ?? []), category])) } : f) })
 
-  /* resolvedores usados no canvas: por tipo (Fornecedor) ou globais (demais telas) */
+  /* resolvedores usados na matriz: por tipo (Fornecedor) ou globais (demais telas) */
+  const blockKeys     = blockKeysOf(screen.subjectType)
+  const fieldRequired = (f: ScreenField) => isPartner ? requiredFor(f, cat) : f.required
   const fieldApplies  = (f: ScreenField) => isPartner ? fieldAppliesTo(f, cat) : true
   const fieldVisible  = (f: ScreenField) => isPartner ? fieldVisibleFor(f, cat) : f.visible !== false
   const toggleField   = (f: ScreenField) => isPartner ? toggleFieldCategory(f.id, cat) : toggleFieldVisible(f.id)
@@ -172,9 +253,9 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
   const handleSave = async () => {
     if (!screen.name.trim()) { setErr('Dê um nome à tela'); return }
     setSaving(true); setErr('')
-    const sortedSections = sections.map((s, i) => ({ id: s.id, label: s.label, name: s.name, source: s.source ?? 'CUSTOM', nativeKey: s.nativeKey, visible: s.visible !== false, order: i, defaultOpen: s.defaultOpen }))
-    const normFields = sortedSections.flatMap(s => fieldsOf(s.id).map((f, i) => ({ id: f.id, sectionId: s.id, name: f.name, label: f.label, type: f.type, source: f.source, nativeKey: f.nativeKey, mode: f.mode, visible: f.visible !== false, required: f.required, placeholder: f.placeholder, options: f.options, validation: f.validation, hiddenCategories: f.hiddenCategories ?? [], requiredCategories: f.requiredCategories ?? undefined, order: i })))
-    const saved = await saveScreen(screen.id || null, { name: screen.name.trim(), description: screen.description ?? '', subjectType: screen.subjectType, status: screen.status, isDefault: screen.isDefault ?? false, isSystem: screen.isSystem ?? false, sections: sortedSections, fields: normFields })
+    const sortedSections = sections.map((s, i) => ({ id: s.id, sectionKey: s.sectionKey, label: s.label, name: s.name, source: s.source ?? 'CUSTOM', nativeKey: s.nativeKey, visible: s.visible !== false, locked: s.locked ?? false, order: i, defaultOpen: s.defaultOpen }))
+    const normFields = sortedSections.flatMap(s => fieldsOf(s.id).map((f, i) => ({ id: f.id, fieldKey: f.fieldKey, sectionId: s.id, name: f.name, label: f.label, type: f.type, source: f.source, nativeKey: f.nativeKey, mode: f.mode, locked: f.locked ?? false, visible: f.visible !== false, required: f.required, placeholder: f.placeholder, options: f.options, validation: f.validation, hiddenCategories: f.hiddenCategories ?? [], requiredCategories: f.requiredCategories ?? undefined, order: i })))
+    const saved = await saveScreen(screen.id || null, { name: screen.name.trim(), description: screen.description ?? '', subjectType: screen.subjectType, status: screen.status, isDefault: screen.isDefault ?? false, isSystem: screen.isSystem ?? false, readOnly: screen.readOnly ?? false, sections: sortedSections, fields: normFields, removedFieldKeys: removidos })
     setSaving(false)
     if (!saved) { setErr('Falha ao salvar. Tente novamente.'); return }
     router.push('/settings/telas')
@@ -192,7 +273,7 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
           <div className="min-w-0 flex-1">
             <input value={screen.name} onChange={e => { patch({ name: e.target.value }); setErr('') }} placeholder="Nome da tela"
               className="w-full max-w-[560px] rounded-md bg-transparent px-1 -mx-1 text-[15px] font-bold tracking-tight outline-none hover:bg-muted/50 focus:bg-card focus:ring-1 focus:ring-ring transition-colors" />
-            <p className="text-[11px] text-muted-foreground mt-0.5">{screen.id ? 'Editando a tela' : 'Nova tela'} — passe o mouse num campo para ligar/desligar ou editar</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">{screen.id ? 'Editando a tela' : 'Nova tela'} — marque o que aparece, o que pode ser alterado e o que é obrigatório</p>
           </div>
 
           <button onClick={() => { if (!defaultLocked) patch({ isDefault: !screen.isDefault }) }} disabled={defaultLocked}
@@ -207,11 +288,11 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
           </button>
 
           <div className="inline-flex rounded-lg border overflow-hidden text-xs font-semibold shrink-0">
-            <button onClick={() => setMode('edit')} className={cn('px-3 py-1.5 flex items-center gap-1.5 transition-colors', mode === 'edit' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted')}>
-              <Pencil className="h-3.5 w-3.5" />Editando
+            <button onClick={() => setMode('config')} className={cn('px-3 py-1.5 flex items-center gap-1.5 transition-colors', mode === 'config' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted')}>
+              <Rows3 className="h-3.5 w-3.5" />Configuração
             </button>
             <button onClick={() => setMode('preview')} className={cn('px-3 py-1.5 flex items-center gap-1.5 border-l transition-colors', mode === 'preview' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted')}>
-              <Eye className="h-3.5 w-3.5" />Prévia limpa
+              <Eye className="h-3.5 w-3.5" />Prévia
             </button>
           </div>
 
@@ -249,7 +330,51 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
               <label className="text-[11px] font-medium text-muted-foreground">Descrição</label>
               <input value={screen.description ?? ''} onChange={e => patch({ description: e.target.value })} placeholder="Opcional" className={cn(inputCls, 'h-8')} />
             </div>
+
+            {/* Somente consulta: trava a tela INTEIRA. É o piso — a atividade do
+                workflow pode travar mais campos, nunca menos. */}
+            <div className="pt-1 border-t space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-[11px] font-medium text-foreground flex items-center gap-1.5">
+                  <Lock className="h-3 w-3 text-amber-600 dark:text-amber-400" />Somente consulta
+                </label>
+                <Switch on={!!screen.readOnly} onClick={() => patch({ readOnly: !screen.readOnly })} sm
+                  title={screen.readOnly ? 'Tela em consulta — nenhum campo é editável' : 'Tela permite alterações'} />
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-snug">
+                {screen.readOnly
+                  ? 'Nenhum campo é editável e nada é gravado por esta tela.'
+                  : 'A tela permite alterações. Trave campo a campo pelo cadeado.'}
+              </p>
+            </div>
           </div>
+
+          {/* pendências: obrigatório E travado — ninguém consegue preencher */}
+          {pendencias.length > 0 && (
+            <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 shadow-sm p-3">
+              <p className="text-[10.5px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400 mb-1.5 flex items-center gap-1.5">
+                <AlertTriangle className="h-3 w-3" />{pendencias.length === 1 ? '1 campo sem saída' : `${pendencias.length} campos sem saída`}
+              </p>
+              <div className="space-y-1">
+                {pendencias.map(pend => (
+                  <button key={pend.fieldId} onClick={() => {
+                    setMode('config')
+                    if (pend.sectionId) {
+                      const sid = pend.sectionId
+                      setCollapsed(prev => { const n = new Set(prev); n.delete(sid); return n })
+                      setTimeout(() => jumpTo(sid), 0)   // a seção pode estar recolhida: rola depois de abrir
+                    }
+                  }}
+                    className="w-full text-left text-[11px] leading-snug text-foreground/90 rounded px-1.5 py-1 hover:bg-amber-500/10 transition-colors">
+                    {fraseDaPendencia(pend)}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1.5 leading-snug">
+                Salvar continua liberado: faz sentido quando o valor chega por outra via (importação, ação automática, etapa anterior).
+              </p>
+            </div>
+          )}
 
           {/* navegação de seções */}
           <div className="rounded-xl border bg-card shadow-sm p-3">
@@ -290,13 +415,15 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
 
           {/* estatísticas */}
           <div className="rounded-xl border bg-card shadow-sm p-3 space-y-2">
+            {/* Contagem, não legenda: as bolinhas coloridas daqui explicavam um código de
+                cores que não existe mais na matriz — legenda de código morto engana. */}
             {[
-              { n: nNative, l: 'campos nativos', c: 'bg-blue-500' },
-              { n: nCustom, l: 'personalizados', c: 'bg-primary' },
-              { n: nHidden, l: isPartner ? `ocultos em ${PARTNER_CATEGORIES.find(c => c.value === cat)?.short}` : 'ocultos no cadastro', c: 'bg-amber-500' },
-            ].map(({ n, l, c }) => (
-              <div key={l} className="flex items-center gap-2 text-[12px] text-muted-foreground">
-                <span className={cn('h-1.5 w-1.5 rounded-full', c)} />
+              { n: nNative, l: 'nativos' },
+              { n: nCustom, l: 'personalizados' },
+              { n: nHidden, l: isPartner ? `ocultos em ${PARTNER_CATEGORIES.find(c => c.value === cat)?.short}` : 'ocultos no cadastro' },
+              { n: screen.readOnly ? nNative + nCustom : nLocked, l: screen.readOnly ? 'travados (tela em consulta)' : 'travados (só consulta)' },
+            ].map(({ n, l }) => (
+              <div key={l} className="flex items-baseline gap-2 text-[12px] text-muted-foreground">
                 <b className="text-foreground font-mono tabular-nums">{n}</b> {l}
               </div>
             ))}
@@ -307,7 +434,7 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
         <div className="min-w-0">
           <div className="flex items-center gap-2.5 mb-3 px-0.5 flex-wrap">
             <span className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
-              {mode === 'edit' ? 'Formulário do cadastro' : 'Prévia — como o fornecedor verá'}
+              {mode === 'config' ? 'Campos da tela' : 'Prévia — como o usuário verá'}
             </span>
             {isPartner && (
               <div className="inline-flex rounded-lg border overflow-hidden text-[11px] font-semibold">
@@ -328,144 +455,233 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
           ) : sections.length === 0 ? (
             <p className="text-xs text-muted-foreground text-center py-10">Crie uma seção para começar.</p>
           ) : (
-            sections.map((s, sIdx) => {
-              const fs = fieldsOf(s.id)
-              const applicable = fs.filter(fieldApplies)          // campos que fazem sentido para o tipo atual
-              const visible = applicable.filter(fieldVisible)
-              const hidden = applicable.filter(f => !fieldVisible(f))
-              const isNativeSec = s.source === 'NATIVE'
-              const secHidden = s.visible === false
-              const isColl = collapsed.has(s.id)
-              // seção-bloco (ex.: Histórico): atômica, aplica a todos os tipos — não é "não se aplica"
-              const isBlockSec = isNativeSec && !!s.nativeKey && PARTNER_BLOCK_SECTIONS.has(s.nativeKey)
-              const naNoTipo = isPartner && isNativeSec && !isBlockSec && applicable.length === 0  // seção nativa que não se aplica ao tipo
-              const allVis = applicable.length > 0 && visible.length === applicable.length
-              const allHid = applicable.length > 0 && hidden.length === applicable.length
-              const wontShow = !secHidden && !naNoTipo && applicable.length > 0 && visible.length === 0
+            /* ── a MATRIZ ──
+               Uma linha por campo, três colunas de decisão. A linha da SEÇÃO usa as MESMAS
+               colunas: é a camada de cima, não um cabeçalho com botões avulsos. */
+            /* sem `overflow-*` no container: qualquer overflow aqui viraria o contexto de
+               rolagem do `sticky` e o cabeçalho pararia de grudar na barra do topo. */
+            <div className="rounded-xl border bg-card shadow-sm">
+              <table className="w-full text-xs">
+                <thead className="sticky top-[68px] z-20">
+                  <tr className="text-[10px] uppercase tracking-wider text-muted-foreground [&_th]:bg-muted [&_th]:border-b">
+                    <th className="text-left font-semibold px-3 py-1.5 rounded-tl-xl">Campo</th>
+                    <th className="text-left font-semibold px-2 py-1.5 w-36">Tipo</th>
+                    <th className="text-center font-semibold px-2 py-1.5 w-24">Aparece</th>
+                    <th className="text-center font-semibold px-2 py-1.5 w-28">Pode editar</th>
+                    <th className="text-center font-semibold px-2 py-1.5 w-28 rounded-tr-xl">Obrigatório</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sections.map((s, sIdx) => {
+                    const applicable = fieldsOf(s.id).filter(fieldApplies)
+                    const visiveis   = applicable.filter(fieldVisible)
+                    const isNativeSec = s.source === 'NATIVE'
+                    const isBlockSec  = isNativeSec && !!s.nativeKey && blockKeys.has(s.nativeKey)
+                    const naNoTipo    = isPartner && isNativeSec && !isBlockSec && applicable.length === 0
+                    const secHidden   = s.visible === false
+                    const secTravada  = !!s.locked || !!screen.readOnly
+                    const isColl      = collapsed.has(s.id)
+                    const wontShow    = !secHidden && !naNoTipo && !isBlockSec && applicable.length > 0 && visiveis.length === 0
+                    // obrigatoriedade em lote: só os personalizados têm essa chave
+                    const customs = applicable.filter(f => f.source === 'CUSTOM')
+                    const allReq  = customs.length > 0 && customs.every(fieldRequired)
+                    const someReq = customs.some(fieldRequired)
 
-              return (
-                <div key={s.id} id={`sec-${s.id}`} className={cn('scroll-mt-24 rounded-xl border bg-card shadow-sm mb-3.5 overflow-hidden transition-opacity', secHidden && 'opacity-60')}>
-                  {/* cabeçalho da seção */}
-                  <div className="flex items-center gap-2.5 px-4 py-2.5">
-                    <button onClick={() => toggleCollapsed(s.id)} className="text-muted-foreground hover:text-foreground transition-colors">
-                      <ChevronDown className={cn('h-4 w-4 transition-transform', isColl && '-rotate-90')} />
-                    </button>
-                    {renamingSection === s.id ? (
-                      <div className="flex-1 flex items-center gap-1.5">
-                        <input autoFocus value={renameLabel} onChange={e => setRenameLabel(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter') renameSection(s.id); if (e.key === 'Escape') setRenamingSection(null) }} className={cn(inputCls, 'h-7')} />
-                        <button onClick={() => renameSection(s.id)} className="text-primary"><Check className="h-3.5 w-3.5" /></button>
-                        <button onClick={() => setRenamingSection(null)} className="text-muted-foreground"><X className="h-3.5 w-3.5" /></button>
-                      </div>
-                    ) : (
-                      <>
-                        <span className="font-bold text-sm tracking-tight truncate">{s.label}</span>
-                        <span className={cn('text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded shrink-0',
-                          isNativeSec ? 'text-blue-600 dark:text-blue-400 bg-blue-500/10' : 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10')}>
-                          {isNativeSec ? 'Nativa' : 'Personalizada'}
-                        </span>
-                        {isNativeSec && applicable.length > 0 && (
-                          <span className={cn('text-[10.5px] font-mono tabular-nums rounded-full border px-2 py-0.5 shrink-0',
-                            wontShow ? 'border-transparent bg-amber-500/10 text-amber-600 dark:text-amber-400' : 'text-muted-foreground')}>
-                            {visible.length} de {applicable.length} visíveis
-                          </span>
-                        )}
-                        {naNoTipo && <span className="text-[10.5px] font-medium text-muted-foreground shrink-0">· não se aplica a este tipo</span>}
-                        {wontShow && <span className="text-[10.5px] font-medium text-amber-600 dark:text-amber-400 shrink-0">· não sai no cadastro</span>}
-
-                        <div className="ml-auto flex items-center gap-2 shrink-0">
-                          {applicable.length > 0 && (
-                            <span className="inline-flex rounded-md border overflow-hidden text-[10.5px] font-bold">
-                              <button onClick={() => setSectionVis(s.id, true)} className={cn('px-2 py-0.5 transition-colors', allVis ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted')}>Tudo</button>
-                              <button onClick={() => setSectionVis(s.id, false)} className={cn('px-2 py-0.5 border-l transition-colors', allHid ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted')}>Nada</button>
-                            </span>
-                          )}
-                          <button onClick={() => { setRenamingSection(s.id); setRenameLabel(s.label) }} title="Renomear seção" className={iconBtn}><Pencil className="h-3.5 w-3.5" /></button>
-                          <div className="relative">
-                            <button onClick={() => setMenuOpen(menuOpen === s.id ? null : s.id)} title="Mais" className={iconBtn}><MoreHorizontal className="h-3.5 w-3.5" /></button>
-                            {menuOpen === s.id && (
-                              <>
-                                <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(null)} />
-                                <div className="glass absolute right-0 top-full mt-1 z-50 w-52 rounded-xl py-1 text-xs">
-                                  <button onClick={() => { moveSection(s.id, -1); setMenuOpen(null) }} disabled={sIdx === 0} className="w-full text-left px-3 py-1.5 hover:bg-muted disabled:opacity-40 flex items-center gap-2"><ChevronUp className="h-3.5 w-3.5" />Mover para cima</button>
-                                  <button onClick={() => { moveSection(s.id, 1); setMenuOpen(null) }} disabled={sIdx === sections.length - 1} className="w-full text-left px-3 py-1.5 hover:bg-muted disabled:opacity-40 flex items-center gap-2"><ChevronDown className="h-3.5 w-3.5" />Mover para baixo</button>
-                                  <button onClick={() => { toggleDefaultOpen(s.id); setMenuOpen(null) }} className="w-full text-left px-3 py-1.5 hover:bg-muted flex items-center gap-2">
-                                    {s.defaultOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                                    {s.defaultOpen ? 'Abre recolhida no cadastro' : 'Abre aberta no cadastro'}
-                                  </button>
-                                  {!isNativeSec && <button onClick={() => { removeSection(s.id); setMenuOpen(null) }} className="w-full text-left px-3 py-1.5 hover:bg-destructive/10 text-destructive flex items-center gap-2"><Trash2 className="h-3.5 w-3.5" />Excluir seção</button>}
-                                </div>
-                              </>
-                            )}
-                          </div>
-                          <Switch on={!secHidden} onClick={() => toggleSectionVisible(s.id)} sm title={secHidden ? 'Seção oculta no cadastro' : 'Seção visível no cadastro'} />
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  {/* corpo: o formulário de verdade + chrome de edição */}
-                  {!isColl && (
-                    <div className="border-t p-4">
-                      {naNoTipo ? (
-                        <p className="text-[11px] text-muted-foreground text-center py-2 italic">Não se aplica a {PARTNER_CATEGORIES.find(c => c.value === cat)?.label}.</p>
-                      ) : applicable.length === 0 ? (
-                        <p className="text-[11px] text-muted-foreground text-center py-2">Nenhum campo. Adicione um campo personalizado abaixo.</p>
-                      ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          {visible.map(f => {
-                            const native = f.source === 'NATIVE'
-                            return (
-                              <div key={f.id} className={cn('group relative flex flex-col gap-1', isFullWidth(f) && 'sm:col-span-2')}>
-                                <label className="text-[10px] font-medium text-muted-foreground flex items-center gap-1.5">
-                                  {native ? <Lock className="h-2.5 w-2.5 text-blue-500" /> : <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
-                                  {f.label}{(isPartner ? requiredFor(f, cat) : f.required) && <span className="text-red-500">*</span>}
-                                  {!native && <span className="text-[9px] font-normal text-muted-foreground/60 normal-case">· {FIELD_TYPE_LABELS[f.type]}</span>}
-                                </label>
-                                {native ? (
-                                  <div className="h-8 rounded-md border border-input/70 bg-muted/30 px-2.5" />
-                                ) : (
-                                  <div className="h-8 rounded-md border border-primary/30 bg-primary/5 px-2.5" />
-                                )}
-                                {/* controles ao passar o mouse */}
-                                <div className="absolute -top-2 right-0 flex gap-0.5 rounded-md border bg-card p-0.5 shadow-md opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                                  {!native && <button onClick={() => setEditingField(f)} title="Editar campo" className={iconBtn}><Pencil className="h-3.5 w-3.5" /></button>}
-                                  {!native && <button onClick={() => removeField(f.id)} title="Excluir campo" className={cn(iconBtn, 'hover:text-destructive')}><Trash2 className="h-3.5 w-3.5" /></button>}
-                                  <button onClick={() => toggleField(f)} title={isPartner ? 'Ocultar neste tipo' : 'Ocultar no cadastro'} className={cn(iconBtn, 'text-primary')}><Eye className="h-3.5 w-3.5" /></button>
-                                </div>
+                    return (
+                      <Fragment key={s.id}>
+                        {/* ── a seção: a camada de cima, nas mesmas colunas ── */}
+                        <tr id={`sec-${s.id}`} className={cn('group/sec scroll-mt-24 border-y bg-muted/25', (secHidden || naNoTipo) && 'opacity-60')}>
+                          <td className="px-3 py-1.5">
+                            {renamingSection === s.id ? (
+                              <div className="flex items-center gap-1.5">
+                                <input autoFocus value={renameLabel} onChange={e => setRenameLabel(e.target.value)}
+                                  onKeyDown={e => { if (e.key === 'Enter') renameSection(s.id); if (e.key === 'Escape') setRenamingSection(null) }}
+                                  className={cn(inputCls, 'h-7 max-w-[280px]')} />
+                                <button onClick={() => renameSection(s.id)} className="text-primary"><Check className="h-3.5 w-3.5" /></button>
+                                <button onClick={() => setRenamingSection(null)} className="text-muted-foreground"><X className="h-3.5 w-3.5" /></button>
                               </div>
-                            )
-                          })}
-
-                          {/* ocultos: linha fininha recuperável */}
-                          {hidden.length > 0 && (
-                            <div className="sm:col-span-2 mt-1 pt-3 border-t border-dashed">
-                              <p className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground/60 mb-2">Ocultos nesta seção</p>
-                              <div className="flex flex-wrap gap-2">
-                                {hidden.map(f => (
-                                  <span key={f.id} className="inline-flex items-center gap-2 rounded-md border border-dashed px-2.5 py-1.5 text-muted-foreground">
-                                    {f.source === 'NATIVE' ? <Lock className="h-3 w-3 text-blue-500/70" /> : <span className="h-1.5 w-1.5 rounded-full bg-primary/60" />}
-                                    <span className="text-xs line-through">{f.label}</span>
-                                    <button onClick={() => toggleField(f)} className="rounded bg-primary/10 text-primary text-[11px] font-semibold px-2 py-0.5 hover:bg-primary/20 transition-colors">Mostrar</button>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <button onClick={() => toggleCollapsed(s.id)} disabled={applicable.length === 0}
+                                  title={isColl ? 'Mostrar os campos' : 'Recolher os campos'}
+                                  className={cn('text-muted-foreground hover:text-foreground transition-colors', applicable.length === 0 && 'invisible')}>
+                                  <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', isColl && '-rotate-90')} />
+                                </button>
+                                <span className="font-bold text-[13px] tracking-tight truncate">{s.label}</span>
+                                {applicable.length > 0 && (
+                                  <span className={cn('font-mono tabular-nums text-[10px] shrink-0', wontShow ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')}>
+                                    {visiveis.length}/{applicable.length}
                                   </span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
+                                )}
+                                {wontShow  && <span className="text-[10.5px] font-medium text-amber-600 dark:text-amber-400 shrink-0">· nenhum campo aparece</span>}
+                                {naNoTipo  && <span className="text-[10.5px] font-medium text-muted-foreground shrink-0">· não se aplica a este tipo</span>}
 
-                          <button onClick={() => setAddingToSection(s.id)} className="sm:col-span-2 mt-1 rounded-lg border border-dashed py-2.5 text-xs font-semibold text-primary hover:bg-primary/5 transition-colors flex items-center justify-center gap-1.5">
-                            <Plus className="h-3.5 w-3.5" />Adicionar campo personalizado
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )
-            })
+                                <span className="ml-auto flex items-center gap-0.5 shrink-0 opacity-0 group-hover/sec:opacity-100 focus-within:opacity-100 transition-opacity">
+                                  <button onClick={() => { setRenamingSection(s.id); setRenameLabel(s.label) }} title="Renomear seção" className={iconBtn}><Pencil className="h-3.5 w-3.5" /></button>
+                                  <div className="relative">
+                                    <button onClick={() => setMenuOpen(menuOpen === s.id ? null : s.id)} title="Mais" className={iconBtn}><MoreHorizontal className="h-3.5 w-3.5" /></button>
+                                    {menuOpen === s.id && (
+                                      <>
+                                        <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(null)} />
+                                        <div className="glass absolute right-0 top-full mt-1 z-50 w-56 rounded-xl py-1 text-xs">
+                                          {applicable.length > 0 && (
+                                            <>
+                                              <button onClick={() => { setSectionVis(s.id, true); setMenuOpen(null) }} className="w-full text-left px-3 py-1.5 hover:bg-muted flex items-center gap-2"><Eye className="h-3.5 w-3.5" />Mostrar todos os campos</button>
+                                              <button onClick={() => { setSectionVis(s.id, false); setMenuOpen(null) }} className="w-full text-left px-3 py-1.5 hover:bg-muted flex items-center gap-2"><Eye className="h-3.5 w-3.5 opacity-40" />Ocultar todos os campos</button>
+                                              <div className="my-1 border-t" />
+                                            </>
+                                          )}
+                                          <button onClick={() => { moveSection(s.id, -1); setMenuOpen(null) }} disabled={sIdx === 0} className="w-full text-left px-3 py-1.5 hover:bg-muted disabled:opacity-40 flex items-center gap-2"><ChevronUp className="h-3.5 w-3.5" />Mover para cima</button>
+                                          <button onClick={() => { moveSection(s.id, 1); setMenuOpen(null) }} disabled={sIdx === sections.length - 1} className="w-full text-left px-3 py-1.5 hover:bg-muted disabled:opacity-40 flex items-center gap-2"><ChevronDown className="h-3.5 w-3.5" />Mover para baixo</button>
+                                          <button onClick={() => { toggleDefaultOpen(s.id); setMenuOpen(null) }} className="w-full text-left px-3 py-1.5 hover:bg-muted flex items-center gap-2">
+                                            {s.defaultOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                                            {s.defaultOpen ? 'Abre recolhida no cadastro' : 'Abre aberta no cadastro'}
+                                          </button>
+                                          {!isNativeSec && <button onClick={() => { setExcluindoSecao(s); setMenuOpen(null) }} className="w-full text-left px-3 py-1.5 hover:bg-destructive/10 text-destructive flex items-center gap-2"><Trash2 className="h-3.5 w-3.5" />Excluir seção</button>}
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                </span>
+                              </div>
+                            )}
+                          </td>
+                          {/* Na linha da seção a coluna só fala quando tem o que dizer: bloco não
+                              tem campo a campo. "Nativa"/"Personalizada" seria origem outra vez. */}
+                          <td className="px-2 py-1.5 text-[10.5px] text-muted-foreground">
+                            {isBlockSec ? 'Seção inteira' : ''}
+                          </td>
+                          <td className="px-2 py-1.5 text-center">
+                            <Marca on={!secHidden} onClick={() => toggleSectionVisible(s.id)}
+                              title={secHidden ? 'Seção oculta no cadastro' : 'Seção aparece no cadastro'} />
+                          </td>
+                          <td className="px-2 py-1.5 text-center">
+                            <Marca on={!secTravada} tone="amber" disabled={!!screen.readOnly} onClick={() => toggleSectionLocked(s.id)}
+                              title={screen.readOnly ? 'A tela inteira está em somente consulta'
+                                : secTravada ? 'Seção em somente consulta — clique para permitir alterações'
+                                             : 'Seção permite alterações — clique para deixá-la só consulta'} />
+                          </td>
+                          <td className="px-2 py-1.5 text-center">
+                            {customs.length === 0
+                              ? <span className="text-muted-foreground/50" title="Só campos criados por você têm obrigatoriedade configurável">—</span>
+                              : <Marca on={allReq} half={someReq && !allReq} onClick={() => setSectionRequired(s.id, !allReq)}
+                                  title={allReq ? 'Todos os campos desta seção são obrigatórios' : 'Tornar obrigatórios os campos desta seção'} />}
+                          </td>
+                        </tr>
+
+                        {/* ── os campos ── */}
+                        {!isColl && applicable.map(f => {
+                          const native    = f.source === 'NATIVE'
+                          const vis       = fieldVisible(f)
+                          const travado   = isTravado(f)
+                          const pisoAcima = secLocked(f.sectionId)
+                          return (
+                            <tr key={f.id} className={cn('group/f border-b last:border-0 hover:bg-muted/30 transition-colors', !vis && 'opacity-55')}>
+                              <td className="px-3 py-1">
+                                <span className="flex items-center gap-1.5 pl-[26px]">
+                                  <span className="truncate">{f.label}</span>
+                                  {/* Etiqueta ESCRITA nos dois, decisão do PO. Antes era uma bolinha azul
+                                      contra uma verde, de 6px: informação que só existia para quem
+                                      distingue as duas cores. O texto é que informa; o tom só reforça. */}
+                                  <span className={cn('shrink-0 rounded px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide',
+                                    native ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary')}>
+                                    {native ? 'Nativo' : 'Personalizado'}
+                                  </span>
+                                  {!native && (
+                                    <span className="ml-auto flex items-center gap-0.5 shrink-0 opacity-0 group-hover/f:opacity-100 focus-within:opacity-100 transition-opacity">
+                                      <button onClick={() => setEditingField(f)} title="Editar campo" className={iconBtn}><Pencil className="h-3 w-3" /></button>
+                                      <button onClick={() => setExcluindoCampo(f)} title={`Excluir do ${SUBJECT_LABELS[screen.subjectType]} — sai de todas as telas`} className={cn(iconBtn, 'hover:text-destructive')}><Trash2 className="h-3 w-3" /></button>
+                                    </span>
+                                  )}
+                                </span>
+                              </td>
+                              {/* A coluna diz sempre a MESMA coisa: a forma do dado. Quem é dono do
+                                  campo já está dito pela bolinha e pela legenda — misturar origem
+                                  ("Do sistema") com tipo ("Lista de opções") era duas línguas na
+                                  mesma coluna. O tipo do nativo vem do seed (screen-native-structure). */}
+                              <td className="px-2 py-1 text-[10.5px] text-muted-foreground truncate">
+                                {FIELD_TYPE_LABELS[f.type]}
+                              </td>
+                              <td className="px-2 py-1 text-center">
+                                <Marca on={vis} onClick={() => toggleField(f)}
+                                  title={vis ? 'Aparece no cadastro' : 'Oculto no cadastro'} />
+                              </td>
+                              <td className="px-2 py-1 text-center">
+                                {vis
+                                  ? <Marca on={!travado} tone="amber" disabled={pisoAcima} onClick={() => toggleFieldLocked(f.id)}
+                                      title={screen.readOnly ? 'A tela inteira está em somente consulta'
+                                        : pisoAcima ? 'A seção inteira está em somente consulta'
+                                          : travado ? 'Travado — só consulta' : 'Editável'} />
+                                  : <span className="text-muted-foreground/50" title="Campo oculto — não há o que editar">—</span>}
+                              </td>
+                              <td className="px-2 py-1 text-center">
+                                {!vis
+                                  ? <span className="text-muted-foreground/50" title="Campo oculto — não há o que exigir">—</span>
+                                  : native
+                                    ? <span className="text-muted-foreground/50" title="A obrigatoriedade de um campo do sistema é definida por ele">—</span>
+                                    : <Marca on={fieldRequired(f)} onClick={() => toggleFieldRequired(f.id)}
+                                        title={isPartner ? `Obrigatório em ${PARTNER_CATEGORIES.find(c => c.value === cat)?.label}` : 'Obrigatório no cadastro'} />}
+                              </td>
+                            </tr>
+                          )
+                        })}
+
+                        {/* seção-bloco: não há campo a campo dentro dela */}
+                        {!isColl && isBlockSec && (
+                          <tr className="border-b last:border-0">
+                            <td colSpan={5} className="px-3 py-1 pl-[52px] text-[10.5px] text-muted-foreground italic">
+                              Bloco pronto do sistema — a tela decide se ele aparece e se aceita alteração.
+                            </td>
+                          </tr>
+                        )}
+
+                        {!isColl && naNoTipo && (
+                          <tr className="border-b last:border-0">
+                            <td colSpan={5} className="px-3 py-1 pl-[52px] text-[10.5px] text-muted-foreground italic">
+                              Não se aplica a {PARTNER_CATEGORIES.find(c => c.value === cat)?.label}.
+                            </td>
+                          </tr>
+                        )}
+
+                        {!isColl && !isBlockSec && !naNoTipo && (
+                          <tr className="border-b last:border-0">
+                            <td colSpan={5} className="px-3 py-1">
+                              <button onClick={() => setAddingToSection(s.id)}
+                                className="ml-[26px] inline-flex items-center gap-1.5 text-[11px] font-semibold text-primary hover:underline transition-colors">
+                                <Plus className="h-3 w-3" />Novo campo nesta seção
+                              </button>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
+
+              <p className="px-3 py-2 border-t bg-muted/20 text-[10px] text-muted-foreground leading-snug">
+                <b className="font-semibold text-foreground/80">Tela → seção → campo</b>: cada nível só aperta. Travar a seção trava os campos dela, e destravar o campo não vence a seção.
+                {' '}<b className="font-semibold text-foreground/80">Pode editar</b> vale para a tela inteira, em todos os tipos.
+                {' '}Campo criado aqui passa a existir em todas as telas de {SUBJECT_LABELS[screen.subjectType]} — <b className="font-semibold text-foreground/80">apagado</b> nas outras, até alguém marcá-lo.
+                {isPartner && <> <b className="font-semibold text-foreground/80">Aparece</b> e <b className="font-semibold text-foreground/80">Obrigatório</b> são do tipo em edição ({PARTNER_CATEGORIES.find(c => c.value === cat)?.label}).</>}
+              </p>
+            </div>
           )}
         </div>
       </div>
+
+      <ConfirmDialog open={!!excluindoCampo} tone="danger" title="Excluir campo" confirmLabel="Excluir"
+        description={<>Excluir <b>“{excluindoCampo?.label}”</b>? O campo é do {SUBJECT_LABELS[screen.subjectType]}, não desta tela — ele sai de <b>todas</b> as telas, e o que já foi preenchido deixa de ser exibido. Para tirá-lo só daqui, desmarque <b>Aparece</b>.</>}
+        onConfirm={() => { if (excluindoCampo) { marcarRemovido([excluindoCampo]); removeField(excluindoCampo.id) } setExcluindoCampo(null) }}
+        onClose={() => setExcluindoCampo(null)} />
+
+      <ConfirmDialog open={!!excluindoSecao} tone="danger" title="Excluir seção" confirmLabel="Excluir"
+        description={(() => {
+          const n = excluindoSecao ? screen.fields.filter(f => f.sectionId === excluindoSecao.id && f.source === 'CUSTOM').length : 0
+          return <>Excluir a seção <b>“{excluindoSecao?.label}”</b>?{n > 0 && <> Os <b>{n === 1 ? '1 campo' : `${n} campos`}</b> dentro dela {n === 1 ? 'é do' : 'são do'} {SUBJECT_LABELS[screen.subjectType]}, não desta tela — {n === 1 ? 'ele sai' : 'eles saem'} de <b>todas</b> as telas, e o que já foi preenchido deixa de ser exibido.</>}</>
+        })()}
+        onConfirm={() => { if (excluindoSecao) removeSection(excluindoSecao.id); setExcluindoSecao(null) }}
+        onClose={() => setExcluindoSecao(null)} />
 
       {(editingField || addingToSection) && (
         <ScreenFieldEditor sections={sections} subjectType={screen.subjectType} initial={editingField ?? undefined} defaultSectionId={addingToSection ?? undefined}

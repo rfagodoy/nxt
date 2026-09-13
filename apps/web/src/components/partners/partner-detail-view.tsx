@@ -138,7 +138,7 @@ function DSection({ active, children }: { active: boolean; children: React.React
   return <div className="rounded-xl border bg-card p-4 space-y-3 shadow-sm">{children}</div>
 }
 
-export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, screen, readOnly }: {
+export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, screen, readOnly: readOnlyProp, lockedFields }: {
   partner: PartnerAPI
   onClose: () => void
   onSaved: () => void
@@ -148,6 +148,8 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
   /** CONSULTA (atividade de workflow com entityMode=VIEW): campos travados e nenhuma
    *  ação que grave — nem as que a situação normalmente permitiria. */
   readOnly?: boolean
+  /** Campos travados pela ATIVIDADE do workflow (ids de campo da tela). Só apertam. */
+  lockedFields?: string[]
 }) {
   const formRef = useRef<HTMLFormElement>(null)
   const partnerForm = usePartnerForm({
@@ -201,6 +203,9 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
   const { screens: allScreens } = useScreens('FORNECEDOR')
   const defaultScreen = useMemo(() => screen ? reconcileNative(screen) : pickDefaultScreen(allScreens), [screen, allScreens])
   const screenDriven  = !!defaultScreen
+  /* Consulta pode vir da ETAPA (entityMode=VIEW) ou da própria TELA (somente consulta).
+     As duas produzem o mesmo efeito: campos travados e nenhuma ação que grave. */
+  const readOnly = readOnlyProp || !!defaultScreen?.readOnly
   useEffect(() => {
     let alive = true
     void getScreenValues('PARTNER', partner.id).then(vals => {
@@ -273,9 +278,12 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
 
   /* R2 — seções resolvidas da tela padrão (ordem/rótulos/visibilidade); gating de categoria por cima.
      R3 — o Histórico entrou na estrutura da tela (seção-bloco só-detalhe): agora liga/desliga pela tela. */
+  /* Campos travados por ESTA atividade do workflow (camada 2). Só apertam: o que a Tela
+     já travou segue travado, e um id daqui nunca destrava nada. */
+  const stepLocked = useMemo(() => new Set(lockedFields ?? []), [lockedFields])
   const screenSections = useMemo(
-    () => defaultScreen ? resolvePartnerSections(defaultScreen, category as PartnerCategory, 'detail') : [],
-    [defaultScreen, category],
+    () => defaultScreen ? resolvePartnerSections(defaultScreen, category as PartnerCategory, 'detail', { stepLocked }) : [],
+    [defaultScreen, category, stepLocked],
   )
 
   /* abas: dirigidas pela tela quando há tela padrão (o Histórico é uma seção da tela, quando visível);

@@ -15,10 +15,21 @@ import { ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { agruparPassos, type SituacaoPasso, type TimelineTask } from '@/lib/tasks-ui'
 
+/* FORMA, não cor. Antes a trilha era só uma fileira de bolinhas — concluído verde,
+   pendente cinza — e esse é justamente o par que some para quem tem deuteranopia ou
+   protanopia. Aqui não havia texto nenhum para compensar: só o `title` no hover.
+   Agora o estado se lê pelo desenho: cheio = concluído, vazado = pendente, cheio com
+   anel = onde você está. A cor segue junto, mas não carrega mais sozinha. */
 const PONTO: Record<SituacaoPasso, string> = {
-  done: 'bg-primary',
-  current: 'bg-primary ring-4 ring-primary/20',
-  pending: 'bg-muted-foreground/30',
+  done:    'bg-primary border-primary',
+  current: 'bg-primary border-primary ring-4 ring-primary/20',
+  pending: 'bg-transparent border-muted-foreground/55',
+}
+const PONTO_BASE = 'h-2.5 w-2.5 rounded-full border-[1.5px] box-border shrink-0'
+
+/** O que o ponto quer dizer, para leitor de tela e para o `title` do hover. */
+const SITUACAO_TEXTO: Record<SituacaoPasso, string> = {
+  done: 'concluída', current: 'você está aqui', pending: 'ainda não chegou',
 }
 
 export function ProcessTrail({ timeline, currentTaskId, className }: {
@@ -48,9 +59,9 @@ export function ProcessTrail({ timeline, currentTaskId, className }: {
         {/* pontos: um por etapa, ligados por um traço. Altura fixa — não cresce com o processo. */}
         <span className="flex items-center gap-0 min-w-0 shrink">
           {passos.map((p, i) => (
-            <span key={p.nodeId} className="flex items-center shrink-0" title={`${p.name}${p.completedBy ? ` · ${p.completedBy}` : ''}${p.passagens > 1 ? ` · ${p.passagens}ª vez` : ''}`}>
+            <span key={p.nodeId} className="flex items-center shrink-0" title={`${p.name} · ${SITUACAO_TEXTO[p.situacao]}${p.completedBy ? ` · ${p.completedBy}` : ''}${p.passagens > 1 ? ` · ${p.passagens}ª vez` : ''}`}>
               {i > 0 && <span className={cn('h-px w-3', p.situacao === 'pending' ? 'bg-muted-foreground/25' : 'bg-primary/40')} />}
-              <span className={cn('h-2 w-2 rounded-full', PONTO[p.situacao])} />
+              <span className={cn(PONTO_BASE, PONTO[p.situacao])} />
             </span>
           ))}
         </span>
@@ -69,7 +80,7 @@ export function ProcessTrail({ timeline, currentTaskId, className }: {
         <div className="flex flex-col gap-1.5 mt-2.5">
           {passos.map((p) => (
             <div key={p.nodeId} className="flex items-center gap-2.5">
-              <span className={cn('h-2 w-2 rounded-full shrink-0', PONTO[p.situacao])} />
+              <span className={cn(PONTO_BASE, PONTO[p.situacao])} />
               <span className={cn('text-[12.5px]', p.situacao === 'current' ? 'font-semibold' : 'text-muted-foreground', p.situacao === 'pending' && 'text-muted-foreground/70')}>{p.name}</span>
               {p.situacao === 'done' && p.completedBy && <span className="text-[11px] text-muted-foreground/70">· {p.completedBy}</span>}
               {/* devolução: dizer que a etapa já passou por aqui antes evita refazer no automático */}

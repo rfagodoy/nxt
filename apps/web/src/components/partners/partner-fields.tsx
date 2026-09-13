@@ -200,9 +200,12 @@ export function usePartnerForm(initial: PartnerFormValues) {
 }
 export type PartnerForm = ReturnType<typeof usePartnerForm>
 
+import { secaoTotalmenteTravada } from '@/lib/screen-locks'
+
 /* ─── visibilidade: callback que decide se um campo nativo aparece ─── */
 export type VisFn = (key: string) => boolean
 const always: VisFn = () => true
+const never:  VisFn = () => false
 
 /* ─── estilos + primitivos controlados (com modo leitura) ── */
 
@@ -328,10 +331,17 @@ export function CustomFieldsGrid({ fields }: { fields: CustomField[] }) {
 
 interface GroupProps {
   form:        PartnerForm
+  /** leitura da TELA INTEIRA (consulta): trava tudo de uma vez. */
   ro?:         boolean
   isVisible?:  VisFn
+  /** campo a campo: travado pela Tela ou pela atividade do workflow. */
+  isLocked?:   VisFn
   customFields?: CustomField[]
 }
+
+/** Trava efetiva de um campo nativo: a tela inteira em consulta OU o campo travado. */
+const lockOf = (ro: boolean | undefined, isLocked: VisFn) => (key: string) => Boolean(ro) || isLocked(key)
+
 
 const isPJof = (c: PartnerCategory) => c === 'PJ_BR' || c === 'PJ_EST'
 const isBRof = (c: PartnerCategory) => c === 'PJ_BR' || c === 'PF_BR'
@@ -346,7 +356,8 @@ interface CnpjLookup {
 }
 
 /** Identificação: documento + razão/nome + campos por categoria (CNPJ/CPF/Código, IE/IM, RG, etc.). */
-export function IdentificacaoFields({ form, ro, isVisible = always, customFields = [] }: GroupProps) {
+export function IdentificacaoFields({ form, ro, isVisible = always, isLocked = never, customFields = [] }: GroupProps) {
+  const lk = lockOf(ro, isLocked)
   const v   = form.values
   const cat = v.category
   const isPJ = isPJof(cat)
@@ -443,12 +454,12 @@ export function IdentificacaoFields({ form, ro, isVisible = always, customFields
         {/* Razão Social / Nome Completo: campo-título em largura total (mais importante e mais longo) */}
         {isVisible('razao_social') && (
           <Field label={isPJ ? 'Razão Social' : 'Nome Completo'} required span2>
-            <Txt value={v.razaoSocial} onChange={x => form.set('razaoSocial', x)} ro={ro} placeholder={isPJ ? 'Razão social da empresa' : 'Nome completo'} />
+            <Txt value={v.razaoSocial} onChange={x => form.set('razaoSocial', x)} ro={lk('razao_social')} placeholder={isPJ ? 'Razão social da empresa' : 'Nome completo'} />
           </Field>
         )}
         {isVisible(docKey) && (
           <Field label={docLabel} required hint={docHint}>
-            {ro ? <span className={readCls}>{v.documento || '—'}</span>
+            {lk(docKey) ? <span className={readCls}>{v.documento || '—'}</span>
               : cat === 'PJ_BR' ? (
                 <>
                   <div className="flex gap-2">
@@ -482,36 +493,36 @@ export function IdentificacaoFields({ form, ro, isVisible = always, customFields
           </Field>
         )}
         {isPJ && isVisible('nome_fantasia') && (
-          <Field label="Nome Fantasia"><Txt value={v.nomeFantasia} onChange={x => form.set('nomeFantasia', x)} ro={ro} placeholder="Nome fantasia (se houver)" /></Field>
+          <Field label="Nome Fantasia"><Txt value={v.nomeFantasia} onChange={x => form.set('nomeFantasia', x)} ro={lk('nome_fantasia')} placeholder="Nome fantasia (se houver)" /></Field>
         )}
         {isPJ && (
           <>
-            {isVisible('data_abertura') && <Field label="Data de Abertura"><Txt type="date" value={v.dataAbertura} onChange={x => form.set('dataAbertura', x)} ro={ro} /></Field>}
+            {isVisible('data_abertura') && <Field label="Data de Abertura"><Txt type="date" value={v.dataAbertura} onChange={x => form.set('dataAbertura', x)} ro={lk('data_abertura')} /></Field>}
           </>
         )}
         {cat === 'PJ_BR' && (
           <>
             {isVisible('natureza_juridica') && (
               <Field label="Natureza Jurídica">
-                <Sel value={v.naturezaJuridica} onChange={x => form.set('naturezaJuridica', x)} ro={ro} options={naturezaOpts} placeholder="Selecione..." />
+                <Sel value={v.naturezaJuridica} onChange={x => form.set('naturezaJuridica', x)} ro={lk('natureza_juridica')} options={naturezaOpts} placeholder="Selecione..." />
               </Field>
             )}
-            {isVisible('ie') && <Field label="Inscrição Estadual"><Txt value={v.ie} onChange={x => form.set('ie', x)} ro={ro} placeholder="Inscrição estadual" /></Field>}
-            {isVisible('im') && <Field label="Inscrição Municipal"><Txt value={v.im} onChange={x => form.set('im', x)} ro={ro} placeholder="Inscrição municipal" /></Field>}
+            {isVisible('ie') && <Field label="Inscrição Estadual"><Txt value={v.ie} onChange={x => form.set('ie', x)} ro={lk('ie')} placeholder="Inscrição estadual" /></Field>}
+            {isVisible('im') && <Field label="Inscrição Municipal"><Txt value={v.im} onChange={x => form.set('im', x)} ro={lk('im')} placeholder="Inscrição municipal" /></Field>}
           </>
         )}
         {cat === 'PF_BR' && (
           <>
-            {isVisible('rg') && <Field label="RG"><Txt value={v.rg} onChange={x => form.set('rg', x)} ro={ro} placeholder="00.000.000-0" /></Field>}
-            {isVisible('orgao_expedidor') && <Field label="Órgão Expedidor"><Txt value={v.orgaoExpedidor} onChange={x => form.set('orgaoExpedidor', x)} ro={ro} placeholder="Ex: SSP/SP" /></Field>}
-            {isVisible('data_nascimento') && <Field label="Data de Nascimento" required><Txt type="date" value={v.dataNascimento} onChange={x => form.set('dataNascimento', x)} ro={ro} /></Field>}
-            {isVisible('pais_origem') && <Field label="País de Origem"><Sel value={v.paisOrigem} onChange={x => form.set('paisOrigem', x)} ro={ro} options={paisOpts} /></Field>}
+            {isVisible('rg') && <Field label="RG"><Txt value={v.rg} onChange={x => form.set('rg', x)} ro={lk('rg')} placeholder="00.000.000-0" /></Field>}
+            {isVisible('orgao_expedidor') && <Field label="Órgão Expedidor"><Txt value={v.orgaoExpedidor} onChange={x => form.set('orgaoExpedidor', x)} ro={lk('orgao_expedidor')} placeholder="Ex: SSP/SP" /></Field>}
+            {isVisible('data_nascimento') && <Field label="Data de Nascimento" required><Txt type="date" value={v.dataNascimento} onChange={x => form.set('dataNascimento', x)} ro={lk('data_nascimento')} /></Field>}
+            {isVisible('pais_origem') && <Field label="País de Origem"><Sel value={v.paisOrigem} onChange={x => form.set('paisOrigem', x)} ro={lk('pais_origem')} options={paisOpts} /></Field>}
           </>
         )}
         {(cat === 'PJ_EST' || cat === 'PF_EST') && (
           <>
-            {isVisible('pais_origem') && <Field label="País de Origem" required><Sel value={v.paisOrigem} onChange={x => form.set('paisOrigem', x)} ro={ro} options={paisOpts} placeholder="Selecione o país..." /></Field>}
-            {cat === 'PF_EST' && isVisible('data_nascimento') && <Field label="Data de Nascimento" required><Txt type="date" value={v.dataNascimento} onChange={x => form.set('dataNascimento', x)} ro={ro} /></Field>}
+            {isVisible('pais_origem') && <Field label="País de Origem" required><Sel value={v.paisOrigem} onChange={x => form.set('paisOrigem', x)} ro={lk('pais_origem')} options={paisOpts} placeholder="Selecione o país..." /></Field>}
+            {cat === 'PF_EST' && isVisible('data_nascimento') && <Field label="Data de Nascimento" required><Txt type="date" value={v.dataNascimento} onChange={x => form.set('dataNascimento', x)} ro={lk('data_nascimento')} /></Field>}
           </>
         )}
       </div>
@@ -521,35 +532,41 @@ export function IdentificacaoFields({ form, ro, isVisible = always, customFields
 }
 
 /** Contato (múltiplos). */
-export function ContatoFields({ form, ro, isVisible = always, customFields = [] }: GroupProps) {
+export function ContatoFields({ form, ro, isVisible = always, isLocked = never, customFields = [] }: GroupProps) {
+  const lk = lockOf(ro, isLocked)
   const v = form.values
   const isPJ = isPJof(v.category)
+  const travada = secaoTotalmenteTravada(['con_nome', 'con_cargo', 'con_email', 'con_telefone', 'con_celular', ...(isPJ ? ['con_website'] : [])], isVisible, lk)
   const isBR = isBRof(v.category)
   return (
     <>
       <div className="space-y-3 max-h-[calc(100vh-24rem)] overflow-y-auto pr-1">
         {v.contatos.map((c, idx) => (
-          <ItemCard key={c.id} index={idx} total={v.contatos.length} label="Contato" onRemove={() => form.remCon(c.id)} ro={ro}>
+          <ItemCard key={c.id} index={idx} total={v.contatos.length} label="Contato" onRemove={() => form.remCon(c.id)} ro={ro || travada}>
             {/* identidade do contato primeiro (nome + cargo), depois e-mail em largura total */}
-            {isVisible('con_nome')     && <Field label="Nome do Contato"><Txt value={c.nome} onChange={x => form.updCon(c.id, 'nome', x)} ro={ro} placeholder="Pessoa responsável" /></Field>}
-            {isVisible('con_cargo')    && <Field label="Cargo do Contato"><Txt value={c.cargo} onChange={x => form.updCon(c.id, 'cargo', x)} ro={ro} placeholder="Ex: Diretor Comercial" /></Field>}
-            {isVisible('con_email')    && <Field label="E-mail" span2><Txt type="email" value={c.email} onChange={x => form.updCon(c.id, 'email', x)} ro={ro} placeholder="email@empresa.com" /></Field>}
-            {isVisible('con_telefone') && <Field label="Telefone"><Txt value={c.telefone} onChange={x => form.updCon(c.id, 'telefone', isBR ? maskTelefone(x) : x)} ro={ro} placeholder={isBR ? '(00) 0000-0000' : '+1 (000) 000-0000'} /></Field>}
-            {isVisible('con_celular')  && <Field label="Celular / WhatsApp"><Txt value={c.celular} onChange={x => form.updCon(c.id, 'celular', isBR ? maskCelular(x) : x)} ro={ro} placeholder={isBR ? '(00) 00000-0000' : '+1 (000) 000-0000'} /></Field>}
-            {isPJ && isVisible('con_website') && <Field label="Website" span2><Txt value={c.website} onChange={x => form.updCon(c.id, 'website', x)} ro={ro} placeholder="https://www.empresa.com" /></Field>}
+            {isVisible('con_nome')     && <Field label="Nome do Contato"><Txt value={c.nome} onChange={x => form.updCon(c.id, 'nome', x)} ro={lk('con_nome')} placeholder="Pessoa responsável" /></Field>}
+            {isVisible('con_cargo')    && <Field label="Cargo do Contato"><Txt value={c.cargo} onChange={x => form.updCon(c.id, 'cargo', x)} ro={lk('con_cargo')} placeholder="Ex: Diretor Comercial" /></Field>}
+            {isVisible('con_email')    && <Field label="E-mail" span2><Txt type="email" value={c.email} onChange={x => form.updCon(c.id, 'email', x)} ro={lk('con_email')} placeholder="email@empresa.com" /></Field>}
+            {isVisible('con_telefone') && <Field label="Telefone"><Txt value={c.telefone} onChange={x => form.updCon(c.id, 'telefone', isBR ? maskTelefone(x) : x)} ro={lk('con_telefone')} placeholder={isBR ? '(00) 0000-0000' : '+1 (000) 000-0000'} /></Field>}
+            {isVisible('con_celular')  && <Field label="Celular / WhatsApp"><Txt value={c.celular} onChange={x => form.updCon(c.id, 'celular', isBR ? maskCelular(x) : x)} ro={lk('con_celular')} placeholder={isBR ? '(00) 00000-0000' : '+1 (000) 000-0000'} /></Field>}
+            {isPJ && isVisible('con_website') && <Field label="Website" span2><Txt value={c.website} onChange={x => form.updCon(c.id, 'website', x)} ro={lk('con_website')} placeholder="https://www.empresa.com" /></Field>}
           </ItemCard>
         ))}
       </div>
       <CustomFieldsGrid fields={customFields} />
-      {!ro && <AddButton onClick={form.addCon}>Adicionar contato</AddButton>}
+      {!(ro || travada) && <AddButton onClick={form.addCon}>Adicionar contato</AddButton>}
     </>
   )
 }
 
 /** Endereço (múltiplos) — com busca de CEP (ViaCEP) para endereços nacionais. */
-export function EnderecoFields({ form, ro, isVisible = always, customFields = [] }: GroupProps) {
+export function EnderecoFields({ form, ro, isVisible = always, isLocked = never, customFields = [] }: GroupProps) {
+  const lk = lockOf(ro, isLocked)
   const v = form.values
   const isBR = isBRof(v.category)
+  const travada = secaoTotalmenteTravada(isBR
+    ? ['end_cep', 'end_estado', 'end_logradouro', 'end_numero', 'end_complemento', 'end_bairro', 'end_cidade']
+    : ['end_address1', 'end_address2', 'end_cidade', 'end_estado', 'end_cep', 'end_pais'], isVisible, lk)
   const { active: paisesAtivos } = useLookupTable(PAISES_STORAGE_KEY, PAISES_SEED)
   const paisesList = paisesAtivos.length ? paisesAtivos.map(e => e.label) : PAISES
   const [cepLoading, setCepLoading] = useState<Record<string, boolean>>({})
@@ -584,12 +601,12 @@ export function EnderecoFields({ form, ro, isVisible = always, customFields = []
     <>
       <div className="space-y-3 max-h-[calc(100vh-24rem)] overflow-y-auto pr-1">
         {v.enderecos.map((en, idx) => (
-          <ItemCard key={en.id} index={idx} total={v.enderecos.length} label="Endereço" onRemove={() => form.remEnd(en.id)} ro={ro}>
+          <ItemCard key={en.id} index={idx} total={v.enderecos.length} label="Endereço" onRemove={() => form.remEnd(en.id)} ro={ro || travada}>
             {isBR ? (
               <>
                 {isVisible('end_cep') && (
                   <Field label="CEP" required={idx === 0}>
-                    {ro ? <span className={readCls}>{en.cep || '—'}</span> : (
+                    {lk('end_cep') ? <span className={readCls}>{en.cep || '—'}</span> : (
                       <>
                         <div className="flex gap-2">
                           <input value={en.cep}
@@ -605,64 +622,68 @@ export function EnderecoFields({ form, ro, isVisible = always, customFields = []
                     )}
                   </Field>
                 )}
-                {isVisible('end_estado')      && <Field label="Estado" required={idx === 0}><Sel value={en.estado} onChange={x => form.updEnd(en.id, 'estado', x)} ro={ro} options={UF.map(u => ({ value: u, label: u }))} placeholder="Selecione..." /></Field>}
-                {isVisible('end_logradouro')  && <Field label="Logradouro" required={idx === 0}><Txt value={en.logradouro} onChange={x => form.updEnd(en.id, 'logradouro', x)} ro={ro} placeholder="Rua, Avenida..." /></Field>}
-                {isVisible('end_numero')      && <Field label="Número" required={idx === 0}><Txt value={en.numero} onChange={x => form.updEnd(en.id, 'numero', x)} ro={ro} placeholder="Nº" /></Field>}
-                {isVisible('end_complemento') && <Field label="Complemento"><Txt value={en.complemento} onChange={x => form.updEnd(en.id, 'complemento', x)} ro={ro} placeholder="Apto, sala, bloco..." /></Field>}
-                {isVisible('end_bairro')      && <Field label="Bairro" required={idx === 0}><Txt value={en.bairro} onChange={x => form.updEnd(en.id, 'bairro', x)} ro={ro} placeholder="Bairro" /></Field>}
-                {isVisible('end_cidade')      && <Field label="Cidade" required={idx === 0} span2><Txt value={en.cidade} onChange={x => form.updEnd(en.id, 'cidade', x)} ro={ro} placeholder="Cidade" /></Field>}
+                {isVisible('end_estado')      && <Field label="Estado" required={idx === 0}><Sel value={en.estado} onChange={x => form.updEnd(en.id, 'estado', x)} ro={lk('end_estado')} options={UF.map(u => ({ value: u, label: u }))} placeholder="Selecione..." /></Field>}
+                {isVisible('end_logradouro')  && <Field label="Logradouro" required={idx === 0}><Txt value={en.logradouro} onChange={x => form.updEnd(en.id, 'logradouro', x)} ro={lk('end_logradouro')} placeholder="Rua, Avenida..." /></Field>}
+                {isVisible('end_numero')      && <Field label="Número" required={idx === 0}><Txt value={en.numero} onChange={x => form.updEnd(en.id, 'numero', x)} ro={lk('end_numero')} placeholder="Nº" /></Field>}
+                {isVisible('end_complemento') && <Field label="Complemento"><Txt value={en.complemento} onChange={x => form.updEnd(en.id, 'complemento', x)} ro={lk('end_complemento')} placeholder="Apto, sala, bloco..." /></Field>}
+                {isVisible('end_bairro')      && <Field label="Bairro" required={idx === 0}><Txt value={en.bairro} onChange={x => form.updEnd(en.id, 'bairro', x)} ro={lk('end_bairro')} placeholder="Bairro" /></Field>}
+                {isVisible('end_cidade')      && <Field label="Cidade" required={idx === 0} span2><Txt value={en.cidade} onChange={x => form.updEnd(en.id, 'cidade', x)} ro={lk('end_cidade')} placeholder="Cidade" /></Field>}
               </>
             ) : (
               <>
-                {isVisible('end_address1') && <Field label="Endereço — Linha 1" required={idx === 0} span2><Txt value={en.address1} onChange={x => form.updEnd(en.id, 'address1', x)} ro={ro} placeholder="Street address, P.O. box" /></Field>}
-                {isVisible('end_address2') && <Field label="Endereço — Linha 2" span2><Txt value={en.address2} onChange={x => form.updEnd(en.id, 'address2', x)} ro={ro} placeholder="Apt, suite, floor..." /></Field>}
-                {isVisible('end_cidade')   && <Field label="Cidade" required={idx === 0}><Txt value={en.cidade} onChange={x => form.updEnd(en.id, 'cidade', x)} ro={ro} placeholder="City" /></Field>}
-                {isVisible('end_estado')   && <Field label="Estado / Província"><Txt value={en.estado} onChange={x => form.updEnd(en.id, 'estado', x)} ro={ro} placeholder="State / Province" /></Field>}
-                {isVisible('end_cep')      && <Field label="CEP / ZIP Code"><Txt value={en.cep} onChange={x => form.updEnd(en.id, 'cep', x)} ro={ro} placeholder="Postal code" /></Field>}
-                {isVisible('end_pais')     && <Field label="País" required={idx === 0}><Sel value={en.pais_endereco} onChange={x => form.updEnd(en.id, 'pais_endereco', x)} ro={ro} options={paisesList.map(p => ({ value: p, label: p }))} placeholder="Selecione o país..." /></Field>}
+                {isVisible('end_address1') && <Field label="Endereço — Linha 1" required={idx === 0} span2><Txt value={en.address1} onChange={x => form.updEnd(en.id, 'address1', x)} ro={lk('end_address1')} placeholder="Street address, P.O. box" /></Field>}
+                {isVisible('end_address2') && <Field label="Endereço — Linha 2" span2><Txt value={en.address2} onChange={x => form.updEnd(en.id, 'address2', x)} ro={lk('end_address2')} placeholder="Apt, suite, floor..." /></Field>}
+                {isVisible('end_cidade')   && <Field label="Cidade" required={idx === 0}><Txt value={en.cidade} onChange={x => form.updEnd(en.id, 'cidade', x)} ro={lk('end_cidade')} placeholder="City" /></Field>}
+                {isVisible('end_estado')   && <Field label="Estado / Província"><Txt value={en.estado} onChange={x => form.updEnd(en.id, 'estado', x)} ro={lk('end_estado')} placeholder="State / Province" /></Field>}
+                {isVisible('end_cep')      && <Field label="CEP / ZIP Code"><Txt value={en.cep} onChange={x => form.updEnd(en.id, 'cep', x)} ro={lk('end_cep')} placeholder="Postal code" /></Field>}
+                {isVisible('end_pais')     && <Field label="País" required={idx === 0}><Sel value={en.pais_endereco} onChange={x => form.updEnd(en.id, 'pais_endereco', x)} ro={lk('end_pais')} options={paisesList.map(p => ({ value: p, label: p }))} placeholder="Selecione o país..." /></Field>}
               </>
             )}
           </ItemCard>
         ))}
       </div>
       <CustomFieldsGrid fields={customFields} />
-      {!ro && <AddButton onClick={form.addEnd}>Adicionar endereço</AddButton>}
+      {!(ro || travada) && <AddButton onClick={form.addEnd}>Adicionar endereço</AddButton>}
     </>
   )
 }
 
 /** Dados Bancários (múltiplos) — com autocomplete de bancos brasileiros. */
-export function BancarioFields({ form, ro, isVisible = always, customFields = [] }: GroupProps) {
+export function BancarioFields({ form, ro, isVisible = always, isLocked = never, customFields = [] }: GroupProps) {
+  const lk = lockOf(ro, isLocked)
   const v = form.values
+  const travada = secaoTotalmenteTravada(['ban_banco', 'ban_tipo_conta', 'ban_agencia', 'ban_conta', 'ban_pix'], isVisible, lk)
   return (
     <>
       <datalist id="brasil-banks">{BRAZIL_BANKS.map(b => <option key={b} value={b} />)}</datalist>
       <div className="space-y-3 max-h-[calc(100vh-24rem)] overflow-y-auto pr-1">
         {v.bancos.map((b, idx) => (
-          <ItemCard key={b.id} index={idx} total={v.bancos.length} label="Banco" onRemove={() => form.remBan(b.id)} ro={ro}>
+          <ItemCard key={b.id} index={idx} total={v.bancos.length} label="Banco" onRemove={() => form.remBan(b.id)} ro={ro || travada}>
             {isVisible('ban_banco') && (
               <Field label="Banco">
-                {ro ? <span className={readCls}>{b.banco || '—'}</span>
+                {lk('ban_banco') ? <span className={readCls}>{b.banco || '—'}</span>
                     : <input list="brasil-banks" value={b.banco} onChange={e => form.updBan(b.id, 'banco', e.target.value)} placeholder="Digite o nome ou número do banco..." className={inputCls} />}
               </Field>
             )}
-            {isVisible('ban_tipo_conta') && <Field label="Tipo de Conta"><Sel value={b.tipo_conta} onChange={x => form.updBan(b.id, 'tipo_conta', x)} ro={ro} options={TIPOS_CONTA} placeholder="Selecione..." /></Field>}
-            {isVisible('ban_agencia')    && <Field label="Agência"><Txt value={b.agencia} onChange={x => form.updBan(b.id, 'agencia', x)} ro={ro} placeholder="0000" /></Field>}
-            {isVisible('ban_conta')      && <Field label="Conta"><Txt value={b.conta} onChange={x => form.updBan(b.id, 'conta', x)} ro={ro} placeholder="00000-0" /></Field>}
-            {isVisible('ban_pix')        && <Field label="Chave PIX" span2><Txt value={b.pix} onChange={x => form.updBan(b.id, 'pix', x)} ro={ro} placeholder="CPF, CNPJ, e-mail, telefone ou chave aleatória" /></Field>}
+            {isVisible('ban_tipo_conta') && <Field label="Tipo de Conta"><Sel value={b.tipo_conta} onChange={x => form.updBan(b.id, 'tipo_conta', x)} ro={lk('ban_tipo_conta')} options={TIPOS_CONTA} placeholder="Selecione..." /></Field>}
+            {isVisible('ban_agencia')    && <Field label="Agência"><Txt value={b.agencia} onChange={x => form.updBan(b.id, 'agencia', x)} ro={lk('ban_agencia')} placeholder="0000" /></Field>}
+            {isVisible('ban_conta')      && <Field label="Conta"><Txt value={b.conta} onChange={x => form.updBan(b.id, 'conta', x)} ro={lk('ban_conta')} placeholder="00000-0" /></Field>}
+            {isVisible('ban_pix')        && <Field label="Chave PIX" span2><Txt value={b.pix} onChange={x => form.updBan(b.id, 'pix', x)} ro={lk('ban_pix')} placeholder="CPF, CNPJ, e-mail, telefone ou chave aleatória" /></Field>}
           </ItemCard>
         ))}
       </div>
       <CustomFieldsGrid fields={customFields} />
-      {!ro && <AddButton onClick={form.addBan}>Adicionar banco</AddButton>}
+      {!(ro || travada) && <AddButton onClick={form.addBan}>Adicionar banco</AddButton>}
     </>
   )
 }
 
 /** Quadro de Sócios (somente PJ) — tabela compacta. */
-export function SociosFields({ form, ro, isVisible = always }: GroupProps) {
+export function SociosFields({ form, ro, isVisible = always, isLocked = never }: GroupProps) {
+  const lk = lockOf(ro, isLocked)
   const v = form.values
   const isBR = isBRof(v.category)
+  const travada = secaoTotalmenteTravada(['soc_nome', 'soc_documento', 'soc_participacao', 'soc_cargo'], isVisible, lk)
   return (
     <>
       {v.socios.length === 0 ? (
@@ -680,18 +701,18 @@ export function SociosFields({ form, ro, isVisible = always }: GroupProps) {
           {v.socios.map((s, idx) => (
             <div key={s.id} className="grid grid-cols-12 gap-2 items-center p-2 rounded-md border bg-muted/20">
               <span className="col-span-1 text-[11px] text-muted-foreground text-center font-medium">{idx + 1}</span>
-              {isVisible('soc_nome')         && <div className="col-span-3"><input value={s.nome} onChange={e => form.updSoc(s.id, 'nome', e.target.value)} disabled={ro} placeholder="Nome completo" className={inputCls} /></div>}
-              {isVisible('soc_documento')    && <div className="col-span-3"><input value={s.documento} onChange={e => form.updSoc(s.id, 'documento', e.target.value)} disabled={ro} placeholder={isBR ? '000.000.000-00' : 'Documento'} className={inputCls} /></div>}
-              {isVisible('soc_participacao') && <div className="col-span-2"><input value={s.participacao} onChange={e => form.updSoc(s.id, 'participacao', e.target.value)} disabled={ro} placeholder="0,00 %" className={inputCls} /></div>}
-              {isVisible('soc_cargo')        && <div className="col-span-2"><input value={s.cargo} onChange={e => form.updSoc(s.id, 'cargo', e.target.value)} disabled={ro} placeholder="Ex: Sócio-Diretor" className={inputCls} /></div>}
+              {isVisible('soc_nome')         && <div className="col-span-3"><input value={s.nome} onChange={e => form.updSoc(s.id, 'nome', e.target.value)} disabled={lk('soc_nome')} placeholder="Nome completo" className={inputCls} /></div>}
+              {isVisible('soc_documento')    && <div className="col-span-3"><input value={s.documento} onChange={e => form.updSoc(s.id, 'documento', e.target.value)} disabled={lk('soc_documento')} placeholder={isBR ? '000.000.000-00' : 'Documento'} className={inputCls} /></div>}
+              {isVisible('soc_participacao') && <div className="col-span-2"><input value={s.participacao} onChange={e => form.updSoc(s.id, 'participacao', e.target.value)} disabled={lk('soc_participacao')} placeholder="0,00 %" className={inputCls} /></div>}
+              {isVisible('soc_cargo')        && <div className="col-span-2"><input value={s.cargo} onChange={e => form.updSoc(s.id, 'cargo', e.target.value)} disabled={lk('soc_cargo')} placeholder="Ex: Sócio-Diretor" className={inputCls} /></div>}
               <div className="col-span-1 flex justify-center">
-                {!ro && <button type="button" onClick={() => form.remSoc(s.id)} className="text-muted-foreground hover:text-destructive transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>}
+                {!(ro || travada) && <button type="button" onClick={() => form.remSoc(s.id)} className="text-muted-foreground hover:text-destructive transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>}
               </div>
             </div>
           ))}
         </div>
       )}
-      {!ro && <AddButton onClick={form.addSoc}>Adicionar sócio</AddButton>}
+      {!(ro || travada) && <AddButton onClick={form.addSoc}>Adicionar sócio</AddButton>}
     </>
   )
 }
@@ -770,7 +791,8 @@ function CnaeCombo({ onPick, exclude, placeholder }: { onPick: (code: string) =>
 }
 
 /** Seção CNAE (só PJ): CNAE principal (1) + secundários (N), do catálogo IBGE. */
-export function CnaeFields({ form, ro, isVisible = always }: { form: PartnerForm; ro?: boolean; isVisible?: VisFn }) {
+export function CnaeFields({ form, ro, isVisible = always, isLocked = never }: { form: PartnerForm; ro?: boolean; isVisible?: VisFn; isLocked?: VisFn }) {
+  const lk = lockOf(ro, isLocked)
   const v = form.values
   const [, force] = useState(0)
 
@@ -802,8 +824,8 @@ export function CnaeFields({ form, ro, isVisible = always }: { form: PartnerForm
         <div className="space-y-1.5">
           <p className="text-[11px] font-medium text-muted-foreground">CNAE Principal</p>
           {v.cnaePrincipal
-            ? <Chip code={v.cnaePrincipal} onRemove={ro ? undefined : () => form.set('cnaePrincipal', '')} />
-            : ro
+            ? <Chip code={v.cnaePrincipal} onRemove={lk('cnae_principal') ? undefined : () => form.set('cnaePrincipal', '')} />
+            : lk('cnae_principal')
               ? <span className={readCls}>—</span>
               : <CnaeCombo onPick={c => form.set('cnaePrincipal', c)} exclude={usados} placeholder="Buscar CNAE principal..." />}
         </div>
@@ -812,15 +834,15 @@ export function CnaeFields({ form, ro, isVisible = always }: { form: PartnerForm
       {isVisible('cnaes_secundarios') && (
         <div className="space-y-1.5">
           <p className="text-[11px] font-medium text-muted-foreground">CNAEs Secundários</p>
-          {v.cnaesSecundarios.length === 0 && ro && <span className={readCls}>—</span>}
+          {v.cnaesSecundarios.length === 0 && lk('cnaes_secundarios') && <span className={readCls}>—</span>}
           {v.cnaesSecundarios.length > 0 && (
             <div className="space-y-1.5">
               {v.cnaesSecundarios.map(code => (
-                <Chip key={code} code={code} onRemove={ro ? undefined : () => form.set('cnaesSecundarios', v.cnaesSecundarios.filter(c => c !== code))} />
+                <Chip key={code} code={code} onRemove={lk('cnaes_secundarios') ? undefined : () => form.set('cnaesSecundarios', v.cnaesSecundarios.filter(c => c !== code))} />
               ))}
             </div>
           )}
-          {!ro && <CnaeCombo onPick={c => form.set('cnaesSecundarios', [...v.cnaesSecundarios, c])} exclude={usados} placeholder="Adicionar CNAE secundário..." />}
+          {!lk('cnaes_secundarios') && <CnaeCombo onPick={c => form.set('cnaesSecundarios', [...v.cnaesSecundarios, c])} exclude={usados} placeholder="Adicionar CNAE secundário..." />}
         </div>
       )}
     </div>

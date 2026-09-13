@@ -10,6 +10,7 @@
  * documento inválido, participação dos sócios) continua nas validações próprias. */
 import type { ContractFormValues } from './contract-options'
 import type { PartnerFormValues } from '@/components/partners/partner-fields'
+import { fieldValueKey, type ScreenField } from './screen-types'
 
 export type AcaoSalvar = 'rascunho' | 'ativar'
 
@@ -24,7 +25,7 @@ export interface CampoFaltante {
 export interface SecaoComCampos {
   key: string
   label?: string
-  customFields: { id: string; label: string; required: boolean }[]
+  customFields: Pick<ScreenField, 'id' | 'fieldKey' | 'label' | 'required' | 'locked'>[]
   /** campos nativos que a tela deixa visíveis nesta seção (ausente = todos) */
   screenVis?: (key: string) => boolean
 }
@@ -40,7 +41,9 @@ export const SECOES_PARCEIRO: Record<string, string> = {
   bancario: 'Dados Bancários', socios: 'Quadro de Sócios',
 }
 
-/** Campos personalizados marcados como obrigatórios na tela e ainda vazios. */
+/** Campos personalizados marcados como obrigatórios na tela e ainda vazios.
+ *  O valor mora na chave do CAMPO NO TIPO (fieldValueKey), não no id da linha da tela.
+ *  Campo TRAVADO não é cobrado: ninguém consegue preenchê-lo (a tela acusa a pendência). */
 export function personalizadosFaltantes(
   secoes: SecaoComCampos[] | null | undefined,
   valores: Record<string, string>,
@@ -48,7 +51,7 @@ export function personalizadosFaltantes(
   const out: CampoFaltante[] = []
   for (const s of secoes ?? [])
     for (const cf of s.customFields)
-      if (cf.required && !(valores[cf.id] ?? '').trim()) out.push({ secao: s.key, campo: cf.label })
+      if (cf.required && !cf.locked && !(valores[fieldValueKey(cf)] ?? '').trim()) out.push({ secao: s.key, campo: cf.label })
   return out
 }
 

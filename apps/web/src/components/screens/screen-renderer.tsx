@@ -4,6 +4,7 @@ import { useState, type ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Screen, ScreenField } from '@/lib/screen-types'
+import { fieldLocked, lockCtx } from '@/lib/screen-locks'
 
 const inputCls = 'flex h-7 w-full rounded-md border border-input bg-background px-2.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
 const readCls  = 'text-xs text-foreground/90 py-1'
@@ -13,7 +14,7 @@ interface Props {
   /** valores dos campos CUSTOM, por fieldId. */
   values?: Record<string, string>
   onChange?: (fieldId: string, value: string) => void
-  /** leitura (sem edição). Campos com mode=VIEW também renderizam como leitura. */
+  /** leitura (sem edição). Campo TRAVADO (ou tela em consulta) também renderiza como leitura. */
   ro?: boolean
   /** resolve o valor de um campo NATIVE (visão) pela nativeKey. */
   nativeValue?: (key: string) => string
@@ -51,7 +52,7 @@ export function ScreenRenderer({ screen, values = {}, onChange, ro, nativeValue 
   )
 
   function renderField(f: ScreenField) {
-    const isView = ro || f.mode === 'VIEW'
+    const isView = ro || fieldLocked(f, lockCtx(screen))
     const span = f.type === 'textarea' ? 'sm:col-span-2' : ''
     return (
       <div key={f.id} className={cn('space-y-0.5', span)}>

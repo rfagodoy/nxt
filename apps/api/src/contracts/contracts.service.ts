@@ -413,13 +413,16 @@ export class ContractsService {
     return data.map(c => toRow(c as ContractRecord)) as ListRow[]
   }
 
-  /** Campos personalizados da tela padrão de CONTRATO: id → tipo/opções (rótulos). */
+  /** Campos personalizados de CONTRATO: CHAVE do campo → tipo/opções (rótulos).
+   *  Chaveado por `fieldKey`, não pelo id da linha: o mesmo campo tem uma linha por tela,
+   *  e o valor gravado responde pela chave. Por id, a coluna sairia vazia na tela em que
+   *  o campo é espelho. */
   private async loadContractCustomFields(organizationId: string): Promise<Map<string, CustomFieldMeta>> {
     const fields = await this.prisma.screenField.findMany({
       where:  { source: 'CUSTOM', screen: { organizationId, subjectType: 'CONTRATO' } },
-      select: { id: true, type: true, options: true },
+      select: { id: true, fieldKey: true, type: true, options: true },
     })
-    return new Map(fields.map((f) => [f.id, {
+    return new Map(fields.map((f) => [f.fieldKey ?? f.id, {
       type:    f.type,
       options: (f.options as unknown as { value: string; label: string }[] | null) ?? [],
     } as CustomFieldMeta]))

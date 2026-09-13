@@ -66,6 +66,16 @@ describe('faltantesContrato', () => {
     const f = faltantesContrato(contratoCheio(), { acao: 'ativar', secoes, valores: { c3: 'Maria', c2: '' } })
     expect(f).toEqual([{ secao: 'sec_extra', campo: 'Centro de custo' }])
   })
+  it('personalizado: lê o valor pela chave do campo no TIPO e não cobra campo travado', () => {
+    const secoes = [{ key: 's', customFields: [
+      { id: 'linha-da-tela-1', fieldKey: 'cc', label: 'Centro de custo', required: true },
+      { id: 'linha-da-tela-2', fieldKey: 'apr', label: 'Aprovador', required: true, locked: true },
+    ] }]
+    // valor guardado sob a fieldKey (não sob o id da linha) → preenchido; o travado nunca é cobrado
+    expect(faltantesContrato(contratoCheio(), { acao: 'ativar', secoes, valores: { cc: '4.1.02' } })).toEqual([])
+    // guardado sob o id da linha não conta: a tela lê pela fieldKey
+    expect(nomes(faltantesContrato(contratoCheio(), { acao: 'ativar', secoes, valores: { 'linha-da-tela-1': 'x' } }))).toEqual(['Centro de custo'])
+  })
   it('rascunho NÃO cobra personalizado obrigatório', () => {
     const secoes = [{ key: 's', customFields: [{ id: 'c1', label: 'X', required: true }] }]
     expect(faltantesContrato(contrato({ numero: '1', titulo: 'T' }), { acao: 'rascunho', secoes, valores: {} })).toEqual([])

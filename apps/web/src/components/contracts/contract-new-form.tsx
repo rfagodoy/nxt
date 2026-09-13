@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, FileText, Calendar, DollarSign, RefreshCw, Users, Paperclip, ChevronDown, TrendingDown, TrendingUp } from 'lucide-react'
+import { ArrowLeft, FileText, Calendar, DollarSign, RefreshCw, Users, Paperclip, ChevronDown, TrendingDown, TrendingUp, Eye } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch, motivoDoErro } from '@/lib/http'
 import { getLogUser } from '@/hooks/use-partner-logs'
@@ -55,9 +55,11 @@ interface ContractNewFormProps {
   /** Override: renderiza o cadastro dirigido por ESTA tela (uso no runtime de workflow).
    *  Ausente = tela padrão do sistema (comportamento normal do módulo). */
   screen?: Screen
+  /** Campos travados pela ATIVIDADE do workflow (ids de campo da tela). Só apertam. */
+  lockedFields?: string[]
 }
 
-export default function ContractNewForm({ embedded = false, onSaved, onCancel, screen }: ContractNewFormProps) {
+export default function ContractNewForm({ embedded = false, onSaved, onCancel, screen, lockedFields }: ContractNewFormProps) {
   const form = useContractForm({ ...emptyContractForm(), partes: [newCParte('')] })
   const v = form.values
   const router = useRouter()
@@ -91,9 +93,16 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
   const { screens, loading: screensLoading } = useScreens('CONTRATO')
   const defaultScreen  = useMemo(() => screen ? reconcileNative(screen) : pickDefaultScreen(screens), [screen, screens])
   const screenDriven   = !!defaultScreen
+  /* Tela em SOMENTE CONSULTA: não dá para criar registro por ela. Os campos já nascem
+     travados (a trava é assada em resolveContractSections), mas as seções-BLOCO
+     (Partes, Pagamentos, Documentos…) e o rodapé precisam saber disso por fora. */
+  const screenReadOnly = !!defaultScreen?.readOnly
+  /* Campos travados por ESTA atividade do workflow (camada 2). Só apertam: o que a Tela
+     já travou segue travado, e um id daqui nunca destrava nada. */
+  const stepLocked = useMemo(() => new Set(lockedFields ?? []), [lockedFields])
   const screenSections = useMemo(
-    () => defaultScreen ? resolveContractSections(defaultScreen, v.natureza, 'new') : [],
-    [defaultScreen, v.natureza],
+    () => defaultScreen ? resolveContractSections(defaultScreen, v.natureza, 'new', { stepLocked }) : [],
+    [defaultScreen, v.natureza, stepLocked],
   )
   const [screenValues, setScreenValues] = useState<Record<string, string>>({})
   const onScreenChange = (fieldId: string, value: string) =>
@@ -140,6 +149,8 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
 
   /* salva o contrato. 'EM_CADASTRO' = rascunho (validação leve); 'VIGENTE' = ativar (validação completa) */
   const submit = async (status: 'EM_CADASTRO' | 'VIGENTE') => {
+    // tela em somente consulta não grava — o rodapé já não oferece a ação; aqui é a rede
+    if (screenReadOnly) return
     const acao: AcaoSalvar = status === 'VIGENTE' ? 'ativar' : 'rascunho'
     const itens = calcFaltantes(acao)
     if (itens.length > 0) {
@@ -207,11 +218,11 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
             <Section key={s.id} secao={s.key} icon={s.icon} title={s.label}
               isOpen={open.has(s.key)} onToggle={() => toggleSection(s.key)} faltando={camposDaSecao(faltantes, s.key)}>
               <ContractSectionNative section={s} ctx={{
-                form, moedaCode: v.moeda, autoNumero, numeroPreview, dualView: true,
+                form, ro: screenReadOnly, moedaCode: v.moeda, autoNumero, numeroPreview, dualView: true,
                 onOpenSearch: (parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds }),
                 onNewPartner: () => setNewPartner({ parteId: '' }),
               }} />
-              <ContractCustomFields fields={s.customFields} screenValues={screenValues} onScreenChange={onScreenChange} />
+              <ContractCustomFields fields={s.customFields} screenValues={screenValues} onScreenChange={onScreenChange} ro={screenReadOnly} />
             </Section>
           ))
         ) : (<>
@@ -267,6 +278,11 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
           ) : (
             <Link href="/modules/contratos" className="text-xs text-muted-foreground hover:text-foreground transition-colors">Cancelar</Link>
           )}
+          {screenReadOnly ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              <Eye className="h-3 w-3" />Somente consulta — esta tela não cria registros
+            </span>
+          ) : (
           <div className="flex gap-2">
             <button type="button" onClick={() => void submit('EM_CADASTRO')} disabled={saving !== null}
               className="inline-flex items-center h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
@@ -284,6 +300,7 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
               {saving === 'active' ? 'Salvando...' : 'Ativar'}
             </button>
           </div>
+          )}
         </div>
       </form>
 
