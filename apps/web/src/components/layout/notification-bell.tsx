@@ -134,7 +134,7 @@ export function NotificationBell({ className }: { className?: string }) {
   return (
     <div className="relative">
       <button ref={btnRef} onClick={toggle} title="Notificações"
-        className={cn('relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-hover transition-colors', className)}>
+        className={cn('relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-white/10 transition-colors', className)}>
         <Bell className="h-4 w-4" />
         {unread > 0 && (
           <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">

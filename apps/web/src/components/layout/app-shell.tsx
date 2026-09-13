@@ -20,12 +20,15 @@ function DeactivateOnNav() {
 function ShellInner({ children }: { children: React.ReactNode }) {
   const { activeId } = useWorkspace()
   return (
-    <div className="flex h-screen overflow-hidden app-ambient bg-background">
+    /* NENHUMA camada opaca entre o degradê (app-mesh) e as ilhas de vidro: sem isso o
+       vidro não tem o que refratar. Sem cabeçalho — o conteúdo começa na altura da
+       borda de cima da ilha do menu (pt-2 = o p-2 da ilha). */
+    <div className="app-mesh flex h-screen overflow-hidden">
       <Sidebar />
-      <div className="flex flex-col flex-1 overflow-hidden min-w-0">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden pt-2">
         <WorkspaceBar />
-        <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto h-full w-full max-w-[1400px] p-6">
+        <main className="min-h-0 flex-1 overflow-y-auto pb-2.5 pl-0.5 pr-2.5">
+          <div className="mx-auto h-full w-full max-w-[1400px]">
             {/* lista roteada: sempre montada (preserva estado), escondida quando um documento está ativo.
                 `h-full` passa a altura adiante para telas que querem preencher (ex.: dashboard);
                 telas de altura natural ignoram (renderizam no topo e rolam via <main>). */}

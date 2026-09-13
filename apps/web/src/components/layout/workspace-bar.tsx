@@ -6,8 +6,10 @@ import { X, FileText, Users, Eraser, ChevronLeft, ChevronRight } from 'lucide-re
 import { cn } from '@/lib/utils'
 import { useWorkspace } from '@/contexts/workspace-context'
 
-/* Barra de abas GLOBAL do shell — documentos de qualquer módulo (contrato + parceiro + unidade) juntos.
-   Recursos: ícone por tipo, indicador de não-salvo, aba ativa estilo navegador (cartão elevado),
+/* Faixa de abas GLOBAL do shell — documentos de qualquer módulo (contrato + parceiro + unidade) juntos.
+   Só existe com documento aberto: sem abas, não há barra nenhuma e o conteúdo começa no topo.
+   É vidro CLARO (não a ilha escura do menu) para não ler como um segundo menu nem como cabeçalho.
+   Recursos: ícone por tipo, indicador de não-salvo, aba ativa em pílula elevada,
    arrastar para reordenar, fechar (clique-do-meio / menu de contexto), limpar tudo,
    setas de rolagem + auto-scroll da aba ativa quando há muitas abas. */
 export function WorkspaceBar() {
@@ -26,7 +28,7 @@ export function WorkspaceBar() {
   const [canR, setCanR] = useState(false)
 
   /* fecha menu de contexto / confirmações ao clicar fora ou rolar.
-     Os popups vão num PORTAL no body (senão o backdrop-filter da barra em vidro prende o
+     Os popups vão num PORTAL no body (senão o backdrop-filter da faixa em vidro prende o
      blur e o conteúdo vaza) — por isso o clique-dentro é detectado por [data-ws-menu],
      não por stopPropagation (que não segura evento nativo de conteúdo portado). */
   useEffect(() => {
@@ -65,31 +67,30 @@ export function WorkspaceBar() {
   if (tabs.length === 0) return null
 
   const dirtyCount = tabs.filter(t => dirty[t.id]).length
-  const tabBase   = 'group relative flex items-center gap-1.5 h-9 px-3 rounded-t-lg cursor-pointer whitespace-nowrap shrink-0 transition-colors select-none'
-  const activeCls = 'bg-card text-foreground border-x border-t border-border -mb-px shadow-sm'
-  const arrowCls  = 'self-center shrink-0 flex h-7 w-5 items-center justify-center rounded text-muted-foreground transition-all'
+  const tabBase   = 'group relative flex items-center gap-1.5 h-7 px-2.5 rounded-lg cursor-pointer whitespace-nowrap shrink-0 transition-colors select-none'
+  /* aba ativa = pílula elevada (fundo + realce + sombra), não só cor */
+  const activeCls = 'bg-white/85 dark:bg-white/[0.13] text-foreground shadow-[0_1px_3px_var(--vidro-sombra),inset_0_1px_0_var(--vidro-spec)]'
+  const idleCls   = 'text-muted-foreground hover:text-foreground hover:bg-white/50 dark:hover:bg-white/[0.07]'
+  const arrowCls  = 'shrink-0 flex h-7 w-5 items-center justify-center rounded text-muted-foreground transition-all'
 
   return (
-    <div className="flex items-stretch h-14 shrink-0 border-b border-white/20 dark:border-white/10 glass-panel">
+    <div className="vidro mb-3 ml-0.5 mr-2.5 flex h-[38px] shrink-0 items-center rounded-xl bg-[var(--vidro-controle)] px-[5px]">
 
       {/* pseudo-aba Lista (fixa) → volta para a página roteada */}
-      <div className="flex items-end pl-2 shrink-0">
-        <button type="button" onClick={() => setActive(null)}
-          className={cn(tabBase, 'font-medium',
-            activeId === null ? 'bg-card text-primary border-x border-t border-border -mb-px shadow-sm'
-                              : 'text-muted-foreground hover:text-foreground hover:bg-card/70')}>
-          <span className="text-xs">Lista</span>
-        </button>
-      </div>
+      <button type="button" onClick={() => setActive(null)}
+        className={cn(tabBase, 'font-medium', activeId === null ? cn(activeCls, 'text-primary') : idleCls)}>
+        <span className="text-xs">Lista</span>
+      </button>
+      <span className="mx-1 h-[18px] w-px shrink-0 bg-foreground/10" />
 
       {/* seta esquerda */}
       <button type="button" aria-label="Rolar abas para a esquerda" onClick={() => scrollBy('left')}
-        className={cn(arrowCls, canL ? 'hover:bg-card hover:text-foreground' : 'opacity-0 pointer-events-none')}>
+        className={cn(arrowCls, canL ? 'hover:bg-white/50 dark:hover:bg-white/10 hover:text-foreground' : 'opacity-0 pointer-events-none')}>
         <ChevronLeft className="h-4 w-4" />
       </button>
 
       {/* abas de documento (rolam) */}
-      <div ref={scrollRef} className="flex items-end flex-1 min-w-0 gap-0.5 overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none] [-ms-overflow-style:none]">
+      <div ref={scrollRef} className="flex items-center flex-1 min-w-0 gap-0.5 overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none] [-ms-overflow-style:none]">
         {tabs.map((t, i) => {
           const Icon    = t.kind === 'contract' ? FileText : Users
           const active  = activeId === t.id
@@ -108,7 +109,7 @@ export function WorkspaceBar() {
               onContextMenu={e => { e.preventDefault(); setActive(t.id); setMenu({ id: t.id, x: e.clientX, y: e.clientY }) }}
               title={t.label}
               className={cn(tabBase,
-                active ? activeCls : 'text-muted-foreground hover:text-foreground hover:bg-card/70',
+                active ? activeCls : idleCls,
                 overIdx === i && drag !== null && drag !== i && 'ring-1 ring-primary/40')}>
               <Icon className={cn('h-3.5 w-3.5 shrink-0', active ? (t.kind === 'contract' ? 'text-primary' : 'text-emerald-500') : '')} />
               <span className="text-xs font-medium max-w-[160px] truncate">{t.label}</span>
@@ -126,15 +127,15 @@ export function WorkspaceBar() {
 
       {/* seta direita */}
       <button type="button" aria-label="Rolar abas para a direita" onClick={() => scrollBy('right')}
-        className={cn(arrowCls, canR ? 'hover:bg-card hover:text-foreground' : 'opacity-0 pointer-events-none')}>
+        className={cn(arrowCls, canR ? 'hover:bg-white/50 dark:hover:bg-white/10 hover:text-foreground' : 'opacity-0 pointer-events-none')}>
         <ChevronRight className="h-4 w-4" />
       </button>
 
       {/* limpar área de trabalho (fixo à direita) */}
-      <div className="flex items-center shrink-0 border-l border-border/60 px-2">
+      <div className="flex shrink-0 items-center pl-1.5">
         <button type="button" title="Fechar todas as abas"
           onClick={e => setClearAt({ x: e.clientX, y: e.clientY })}
-          className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border bg-background text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-card hover:border-foreground/25 transition-colors">
+          className="inline-flex h-[26px] items-center gap-1.5 rounded-md border border-[var(--vidro-borda)] bg-[var(--vidro-controle)] px-2.5 text-xs font-medium text-muted-foreground shadow-[inset_0_1px_0_var(--vidro-spec)] hover:text-foreground hover:border-foreground/25 transition-colors">
           <Eraser className="h-3.5 w-3.5" />Limpar
         </button>
       </div>

@@ -211,7 +211,7 @@ export default function CalendarioPage() {
           { label: `Dias não úteis em ${year}`, value: doAno.length, cls: 'text-amber-600 dark:text-amber-400' },
           { label: 'Dias da semana', value: cal.workdays.length, cls: 'text-muted-foreground' },
         ].map(({ label, value, cls }) => (
-          <div key={label} className="rounded-xl border bg-card px-3 py-2 flex items-center justify-between shadow-sm">
+          <div key={label} className="vidro rounded-xl bg-[var(--vidro-cartao)] px-3 py-2 flex items-center justify-between">
             <p className="text-[11px] text-muted-foreground">{label}</p>
             <p className={cn('text-sm font-bold tabular-nums', cls)}>{value}</p>
           </div>

@@ -8,6 +8,11 @@ import { cn } from '@/lib/utils'
 import { type FilterRow, OPERATORS } from '@/lib/list-filter'
 import type { SavedView } from '@/hooks/use-views'
 
+/* A barra fica direto sobre o degradê do shell: busca e botões usam o material de
+   controle do vidro (cor translúcida + realce), SEM desfoque — é uma fileira de
+   controles, e blur em cada um paga composição à toa. */
+const CONTROLE = 'bg-[var(--vidro-controle)] shadow-[inset_0_1px_0_var(--vidro-spec)]'
+
 /** Barra de ferramentas PADRÃO de listagem (Parceiros/Contratos): busca + filtros (E/OU) +
  *  visões + salvar visão + [config da tela] + exportar + contador. Fonte única — a tela só
  *  liga os dados/estado; a UI e o comportamento vivem aqui. */
@@ -64,13 +69,13 @@ export function ListToolbar({
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <input value={search} onChange={(e) => onSearch(e.target.value)}
-            className="flex h-7 w-full rounded-md border border-input bg-background pl-7 pr-3 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className={cn('flex h-7 w-full rounded-md border border-input pl-7 pr-3 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring', CONTROLE)}
             placeholder="Buscar em todas as colunas..." />
         </div>
 
         <button onClick={() => { setShowFilters((v) => !v); setShowViews(false); if (!filters.length) addFilter() }}
           className={cn('inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium transition-colors',
-            showFilters || activeFiltersCount > 0 ? 'border-primary bg-primary/5 text-primary' : 'hover:bg-muted text-muted-foreground hover:text-foreground')}>
+            showFilters || activeFiltersCount > 0 ? 'border-primary bg-primary/5 text-primary' : cn(CONTROLE, 'hover:bg-muted text-muted-foreground hover:text-foreground'))}>
           <SlidersHorizontal className="h-3.5 w-3.5" />Filtros
           {activeFiltersCount > 0 && <span className="inline-flex items-center justify-center h-3.5 w-3.5 rounded-full bg-primary text-[9px] font-bold text-primary-foreground">{activeFiltersCount}</span>}
         </button>
@@ -78,7 +83,7 @@ export function ListToolbar({
         <div ref={viewsRef} className="relative">
           <button onClick={() => { setShowViews((v) => !v); setShowFilters(false) }}
             className={cn('inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium transition-colors',
-              activeViewId ? 'border-primary bg-primary/5 text-primary' : 'hover:bg-muted text-muted-foreground hover:text-foreground')}>
+              activeViewId ? 'border-primary bg-primary/5 text-primary' : cn(CONTROLE, 'hover:bg-muted text-muted-foreground hover:text-foreground'))}>
             <LayoutList className="h-3.5 w-3.5" />{activeViewId ? activeViewName : 'Visões'}
             <ChevronDown className={cn('h-3 w-3 transition-transform', showViews && 'rotate-180')} />
           </button>
@@ -105,7 +110,7 @@ export function ListToolbar({
             <input ref={saveInputRef} value={viewName} onChange={(e) => setViewName(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') saveNow(); if (e.key === 'Escape') { setSaving(false); setViewName('') } }}
               placeholder="Nome da visão..."
-              className="h-7 w-40 rounded-md border border-input bg-background px-2.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+              className={cn('h-7 w-40 rounded-md border border-input px-2.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring', CONTROLE)} />
             <button aria-label="Salvar visão" onClick={saveNow} disabled={!viewName.trim()} className="inline-flex items-center justify-center h-7 w-7 rounded-md bg-primary text-primary-foreground disabled:opacity-40 hover:bg-primary/90 transition-colors"><Check className="h-3.5 w-3.5" /></button>
             <button aria-label="Cancelar" onClick={() => { setSaving(false); setViewName('') }} className="inline-flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"><X className="h-3.5 w-3.5" /></button>
           </div>
@@ -119,7 +124,7 @@ export function ListToolbar({
         {configSlot && <div className="ml-auto">{configSlot}</div>}
 
         <button onClick={onExport} disabled={exportDisabled}
-          className={cn('inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors', !configSlot && 'ml-auto')}>
+          className={cn('inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors', CONTROLE, !configSlot && 'ml-auto')}>
           <FileDown className="h-3.5 w-3.5" />Exportar
         </button>
 

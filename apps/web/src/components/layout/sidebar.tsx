@@ -78,6 +78,12 @@ const ABERTAS_KEY = 'nxt:sidebar:secoes-abertas'
 /** Aparência ÚNICA do título de seção — recolhível ou não. */
 const TITULO_SECAO = 'px-2.5 mb-0.5 text-[9px] font-semibold uppercase tracking-widest text-sidebar-muted leading-5'
 
+/* A ilha é escura nos DOIS temas: hover e ativo são brancos translúcidos (e não os
+   tokens --sidebar-hover/--sidebar-active, que eram cor chapada da sidebar antiga).
+   O item ativo tem três sinais — pílula, realce e cor —, nunca só a cor. */
+const HOVER_ILHA = 'hover:bg-white/10'
+const ATIVO_ILHA = 'bg-white/[0.15] text-sidebar-active-fg shadow-[inset_0_1px_0_rgb(255_255_255/0.26),0_1px_4px_rgb(0_0_0/0.16)]'
+
 export function Sidebar() {
   const pathname              = usePathname()
   const { collapsed, toggle } = useSidebar()
@@ -118,14 +124,20 @@ export function Sidebar() {
     !sec.recolhivel || abertas.has(sec.label) || sec.items.some((i) => isActive(i.href))
 
   return (
+    /* O p-2 descola a ilha 8px das bordas da tela; a largura inclui esse respiro, então
+       a ilha mantém os 240px (aberta) e 64px (recolhida) de antes. */
+    <div className={cn(
+      'shrink-0 p-2 transition-all duration-300 ease-in-out',
+      collapsed ? 'w-20' : 'w-64',
+    )}>
     <aside className={cn(
-      'relative flex flex-col shrink-0 transition-all duration-300 ease-in-out group/sidebar glass-panel border-r border-white/25 dark:border-white/10',
-      collapsed ? 'w-16' : 'w-60',
+      'vidro group/sidebar relative flex h-full flex-col rounded-2xl text-sidebar-foreground',
+      'bg-[var(--vidro-lateral)] [--vidro-solido:hsl(var(--sidebar-bg))]',
     )}>
 
       {/* Logo + toggle (PanelLeft) */}
       <div className={cn(
-        'flex items-center border-b border-sidebar-border h-14 shrink-0 px-3',
+        'flex items-center border-b border-white/[0.08] h-14 shrink-0 px-3',
         collapsed ? 'justify-center' : 'justify-between gap-2',
       )}>
         {!collapsed && (
@@ -137,7 +149,7 @@ export function Sidebar() {
         <button
           onClick={toggle}
           title={collapsed ? 'Expandir menu' : 'Recolher menu'}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sidebar-muted hover:text-sidebar-foreground hover:bg-sidebar-hover transition-colors"
+          className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sidebar-muted hover:text-sidebar-foreground transition-colors', HOVER_ILHA)}
         >
           <PanelLeft className="h-[18px] w-[18px]" />
         </button>
@@ -192,8 +204,8 @@ export function Sidebar() {
                       'flex items-center gap-2 rounded-md text-[12px] font-medium tracking-tight transition-colors',
                       collapsed ? 'h-8 w-8 justify-center mx-auto' : 'px-2.5 py-1',
                       active
-                        ? 'bg-sidebar-active text-sidebar-active-fg'
-                        : 'text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-hover',
+                        ? ATIVO_ILHA
+                        : cn('text-sidebar-foreground/70 hover:text-sidebar-foreground', HOVER_ILHA),
                     )}
                   >
                     {Icon && <Icon className="h-3.5 w-3.5 shrink-0" />}
@@ -210,6 +222,7 @@ export function Sidebar() {
       {/* Rodapé: usuário + tema + sair */}
       <SidebarFooter collapsed={collapsed} />
     </aside>
+    </div>
   )
 }
 
@@ -226,8 +239,10 @@ function SidebarFooter({ collapsed }: { collapsed: boolean }) {
   const email  = session?.user?.email ?? ''
   const initials = name.split(' ').filter(Boolean).slice(0, 2).map(s => s[0]).join('').toUpperCase() || 'U'
 
-  const iconBtn =
-    'flex items-center justify-center rounded-md text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-hover transition-colors'
+  const iconBtn = cn(
+    'flex items-center justify-center rounded-md text-sidebar-foreground/60 hover:text-sidebar-foreground transition-colors',
+    HOVER_ILHA,
+  )
 
   const ThemeBtn = (
     <button onClick={() => setTheme(isDark ? 'light' : 'dark')}
@@ -252,13 +267,13 @@ function SidebarFooter({ collapsed }: { collapsed: boolean }) {
   )
   const Avatar = (
     <span title={name}
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground ring-1 ring-black/5">
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground ring-1 ring-white/10">
       {initials}
     </span>
   )
 
   return (
-    <div className="border-t border-sidebar-border p-2">
+    <div className="border-t border-white/[0.08] p-2">
       {collapsed ? (
         <div className="flex flex-col items-center gap-1">
           {Avatar}<NotificationBell />{ThemeBtn}{PasswordBtn}{LogoutBtn}

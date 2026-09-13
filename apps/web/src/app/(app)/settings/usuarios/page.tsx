@@ -212,7 +212,7 @@ export default function UsuariosPage() {
           { label: 'Ativos', value: stats.ativos, cls: 'text-emerald-600 dark:text-emerald-400' },
           { label: 'Inativos', value: stats.inativos, cls: 'text-muted-foreground' },
         ].map(({ label, value, cls }) => (
-          <div key={label} className="rounded-xl border bg-card px-3 py-2 flex items-center justify-between shadow-sm">
+          <div key={label} className="vidro rounded-xl bg-[var(--vidro-cartao)] px-3 py-2 flex items-center justify-between">
             <p className="text-[11px] text-muted-foreground">{label}</p>
             <p className={cn('text-sm font-bold tabular-nums', cls)}>{value}</p>
           </div>

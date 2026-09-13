@@ -5,7 +5,7 @@
 @layer base {
   :root {
     /* página: "Mesa de Vidro" — Mist mais PROFUNDO (sage), pra o vidro branco e os
-       cards saltarem por cima. O mesh de marca (app-ambient) dá a profundidade. */
+       cards saltarem por cima. O degradê de marca (app-mesh) dá a profundidade. */
     --background: 138 16% 88%;
     --foreground: 156 28% 11%;
 
@@ -38,87 +38,112 @@
     --ring: 154 76% 35%;
     --radius: 0.5rem;
 
-    /* sidebar (claro): verde-clara, texto Forest Ink, Esmeralda no ativo */
-    --sidebar-bg:        140 22% 97%;
-    --sidebar-fg:        156 26% 16%;
-    --sidebar-border:    150 14% 90%;
-    --sidebar-muted:     150 8% 46%;
-    --sidebar-active-bg: 152 52% 90%;
-    --sidebar-active-fg: 155 80% 24%;
-    --sidebar-hover-bg:  145 24% 94%;
+    /* sidebar: ILHA de Forest Ink fumê nos DOIS temas (vidro). O texto é claro sempre —
+       por isso estes tokens não seguem o foreground da página. --sidebar-bg é a cor
+       SÓLIDA que a ilha assume quando não há desfoque (fallback). */
+    --sidebar-bg:        156 26% 8%;
+    --sidebar-fg:        120 20% 93%;
+    --sidebar-border:    150 12% 20%;
+    --sidebar-muted:     120 6% 64%;
+    --sidebar-active-bg: 0 0% 100%;
+    --sidebar-active-fg: 148 70% 67%;
+    --sidebar-hover-bg:  0 0% 100%;
 
-    /* Liquid Glass — material do CHROME (menus, barras, ícones, modais).
-       Conteúdo (tabelas/formulários) segue sólido (--card). */
+    /* Liquid Glass — material dos FLUTUANTES (menus, dropdowns, modais, drawers).
+       As ilhas do shell e os cartões usam o `.vidro` (tokens --vidro-* abaixo). */
     --glass-bg: 140 26% 99%;
-    --glass-alpha: 0.55;         /* material FINO — chrome encostado (sidebar/barras): mais branco p/ saltar na Mesa de Vidro */
+    --glass-alpha: 0.55;         /* material FINO — painéis encostados (drawers) */
     --glass-alpha-strong: 0.86;  /* material GROSSO — flutuante sobre conteúdo denso (menus/dropdowns/notificações/modais) */
     --glass-border: 0 0% 100%;
     --glass-border-alpha: 0.92;
     --glass-highlight: 1;
     --glass-blur: 30px;
     --glass-shadow: 0 24px 54px -18px hsl(156 28% 11% / 0.40);
-    /* brilhos do ambiente (Esmeralda + Lima) que o vidro refrata — Mesa de Vidro: mesh mais presente */
-    --ambient-a: 154 76% 44%;
-    --ambient-b: 74 84% 62%;
-    --ambient-alpha-a: 0.34;
-    --ambient-alpha-b: 0.34;
+
+    /* Vidro das ILHAS (menu lateral, faixa de abas, cartões de indicador).
+       Só existe porque há degradê atrás: sobre fundo liso o backdrop-filter não tem o
+       que refratar e a superfície vira cinza fosco. Matiz 163 = Forest Ink. */
+    --vidro-desfoque: 28px;
+    --vidro-satura: 195%;
+    --vidro-spec: oklch(1 0 0 / 0.55);                 /* realce da borda superior */
+    --vidro-spec-baixo: oklch(0.30 0.03 163 / 0.10);
+    --vidro-borda: oklch(1 0 0 / 0.30);
+    --vidro-sombra: oklch(0.18 0.02 163 / 0.16);
+    /* menu lateral: .74 (e não .62) porque o degradê claro, borrado e saturado atrás,
+       clareava a ilha para um cinza-oliva e os títulos de seção perdiam contraste */
+    --vidro-lateral: oklch(0.181 0.015 163 / 0.74);
+    --vidro-cartao: oklch(1 0 0 / 0.62);
+    --vidro-controle: oklch(1 0 0 / 0.50);
+    /* degradê de marca: Esmeralda, Esmeralda clara e Lima */
+    --mesh-1: oklch(0.713 0.163 158 / 0.52);
+    --mesh-2: oklch(0.84 0.09 158 / 0.44);
+    --mesh-3: oklch(0.90 0.16 123 / 0.44);
   }
 
   .dark {
-    /* página: Forest Ink — verde quase-preto (identidade Nxt) */
-    --background: 153 30% 6%;
-    --foreground: 140 14% 90%;
+    /* página: ESCURO LEVE — grafite esverdeado (não mais quase-preto). Cartões ficam
+       MAIS CLAROS que o chão (elevação no escuro se lê por claridade, não por sombra);
+       as ilhas de Forest Ink ficam abaixo do chão e seguem "flutuando". */
+    --background: 146 14% 13%;
+    --foreground: 140 14% 91%;
 
-    /* cards: Forest Ink elevado — cria camadas */
-    --card: 156 26% 9%;
-    --card-foreground: 140 14% 90%;
+    --card: 145 10% 20%;
+    --card-foreground: 140 14% 91%;
 
-    --popover: 156 26% 10%;
-    --popover-foreground: 140 14% 90%;
+    --popover: 145 9% 22%;
+    --popover-foreground: 140 14% 91%;
 
-    --border: 154 20% 16%;
-    --input: 154 20% 16%;
+    --border: 145 8% 26%;
+    --input: 145 8% 26%;
 
     /* Emerald mais viva no escuro, com texto Forest Ink (alto contraste) */
     --primary: 152 66% 46%;
     --primary-foreground: 150 40% 7%;
 
-    --secondary: 153 20% 14%;
-    --secondary-foreground: 140 14% 90%;
+    --secondary: 145 8% 25%;
+    --secondary-foreground: 140 14% 91%;
 
-    --muted: 153 18% 14%;
-    --muted-foreground: 145 10% 56%;
+    --muted: 145 9% 24%;
+    --muted-foreground: 140 7% 67%;
 
-    --accent: 153 20% 14%;
-    --accent-foreground: 140 14% 90%;
+    --accent: 145 8% 25%;
+    --accent-foreground: 140 14% 91%;
 
     --destructive: 0 70% 54%;
     --destructive-foreground: 0 0% 100%;
 
     --ring: 152 66% 46%;
 
-    /* sidebar: Forest Ink mais profundo que o fundo */
-    --sidebar-bg:        156 36% 5%;
-    --sidebar-fg:        140 12% 80%;
-    --sidebar-border:    154 22% 12%;
-    --sidebar-muted:     145 10% 48%;
-    --sidebar-active-bg: 153 48% 13%;
-    --sidebar-active-fg: 151 64% 56%;
-    --sidebar-hover-bg:  154 26% 11%;
+    /* sidebar: mesma ilha de Forest Ink (ver :root) */
+    --sidebar-bg:        156 26% 9%;
+    --sidebar-fg:        120 15% 90%;
+    --sidebar-border:    150 12% 20%;
+    --sidebar-muted:     120 5% 62%;
+    --sidebar-active-bg: 0 0% 100%;
+    --sidebar-active-fg: 149 68% 63%;
+    --sidebar-hover-bg:  0 0% 100%;
 
-    /* Liquid Glass (escuro — o vidro brilha mais no Forest Ink) */
-    --glass-bg: 156 28% 15%;
+    /* Liquid Glass (escuro) */
+    --glass-bg: 148 10% 22%;
     --glass-alpha: 0.30;
     --glass-alpha-strong: 0.70;  /* material GROSSO — flutuante sobre conteúdo denso (ver :root) */
     --glass-border: 0 0% 100%;
     --glass-border-alpha: 0.24;
     --glass-highlight: 0.20;
     --glass-blur: 32px;
-    --glass-shadow: 0 26px 60px -20px hsl(0 0% 0% / 0.80);
-    --ambient-a: 154 76% 46%;
-    --ambient-b: 74 84% 60%;
-    --ambient-alpha-a: 0.34;
-    --ambient-alpha-b: 0.28;
+    --glass-shadow: 0 26px 60px -20px hsl(0 0% 0% / 0.70);
+
+    /* Vidro das ilhas (escuro): fumê, com degradê contido para não virar néon */
+    --vidro-spec: oklch(1 0 0 / 0.20);
+    --vidro-spec-baixo: oklch(0 0 0 / 0.16);
+    --vidro-borda: oklch(1 0 0 / 0.14);
+    --vidro-sombra: oklch(0 0 0 / 0.26);
+    --vidro-lateral: oklch(0.19 0.015 163 / 0.70);
+    --vidro-cartao: oklch(0.33 0.017 160 / 0.62);
+    --vidro-controle: oklch(0.38 0.017 160 / 0.50);
+    --mesh-1: oklch(0.58 0.14 158 / 0.42);
+    --mesh-2: oklch(0.62 0.08 160 / 0.34);
+    --mesh-3: oklch(0.70 0.13 123 / 0.26);
   }
 }
 
@@ -171,13 +196,27 @@
   background-color: hsl(var(--muted-foreground) / 0.5);
 }
 
-/* ─── Liquid Glass ────────────────────────────────────────────────────────────
-   `.glass`        superfície flutuante (borda + brilho + sombra) — menus, modais, cards de chrome.
-   `.glass-panel`  painel encostado (só fundo translúcido + blur) — sidebar, barras.
-   `.app-ambient`  brilhos da marca por trás, para o vidro ter o que refratar.
-   ⚠️ Só no CHROME. Conteúdo denso (tabelas/formulários) continua sólido (--card).
-   Acessibilidade/performance: cai para sólido quando o SO pede menos transparência. */
+/* ─── Vidro ───────────────────────────────────────────────────────────────────
+   `.vidro`        ilha/cartão de vidro: desfoque + borda + realce + sombra. Quem usa
+                   escolhe SÓ a cor (bg-[var(--vidro-lateral)] etc.) e, se a cor sólida
+                   do fallback não for o card, a declara em [--vidro-solido:…].
+   `.glass`        flutuante sobre conteúdo (menus, dropdowns, modais).
+   `.glass-panel`  painel encostado (drawers).
+   `.app-mesh`     degradê de marca atrás do shell, para o vidro ter o que refratar.
+   ⚠️ Não aninhar backdrop-filter (vidro dentro de vidro paga duas composições e não
+   muda um pixel) e não pôr desfoque em superfície grande com conteúdo rolando por
+   baixo (tabelas seguem sólidas, com cabeçalho e coluna fixa opacos). */
 @layer components {
+  .vidro {
+    --vidro-solido: hsl(var(--card));
+    -webkit-backdrop-filter: blur(var(--vidro-desfoque)) saturate(var(--vidro-satura));
+    backdrop-filter: blur(var(--vidro-desfoque)) saturate(var(--vidro-satura));
+    border: 1px solid var(--vidro-borda);
+    box-shadow:
+      inset 0 1px 0 var(--vidro-spec),
+      inset 0 -1px 0 var(--vidro-spec-baixo),
+      0 8px 26px var(--vidro-sombra);
+  }
   .glass-panel {
     background-color: hsl(var(--glass-bg) / var(--glass-alpha));
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(2);
@@ -190,18 +229,47 @@
     border: 1px solid hsl(var(--glass-border) / var(--glass-border-alpha));
     box-shadow: var(--glass-shadow), inset 0 1px 0 0 hsl(0 0% 100% / var(--glass-highlight));
   }
-  .app-ambient {
+  /* `background-attachment` não precisa de `fixed`: o shell tem altura de tela e quem
+     rola é o <main> dentro dele — o degradê nunca se move. */
+  .app-mesh {
+    background-color: hsl(var(--background));
     background-image:
-      radial-gradient(52rem 52rem at 3% -4%, hsl(var(--ambient-a) / var(--ambient-alpha-a)), transparent 60%),
-      radial-gradient(44rem 44rem at 102% 6%, hsl(var(--ambient-b) / var(--ambient-alpha-b)), transparent 58%),
-      radial-gradient(56rem 56rem at 64% 106%, hsl(var(--ambient-a) / calc(var(--ambient-alpha-a) * 0.7)), transparent 60%);
+      radial-gradient(120% 90% at 12% -10%, var(--mesh-1), transparent 62%),
+      radial-gradient(100% 80% at 92% 8%, var(--mesh-2), transparent 64%),
+      radial-gradient(110% 95% at 62% 112%, var(--mesh-3), transparent 62%);
+    background-repeat: no-repeat;
+  }
+}
+
+/* Fallbacks FORA de @layer de propósito: saem depois dos utilitários e vencem o
+   bg-[var(--vidro-…)] de mesma especificidade. Sem eles, um navegador sem desfoque
+   mostraria a cor translúcida crua e o texto ficaria ilegível sem aviso. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .vidro {
+    background-color: var(--vidro-solido);
   }
 }
 @media (prefers-reduced-transparency: reduce) {
+  .vidro {
+    background-color: var(--vidro-solido);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
   .glass, .glass-panel {
     background-color: hsl(var(--card));
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
+  }
+}
+@media print {
+  .vidro {
+    background-color: var(--vidro-solido);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+  .app-mesh {
+    background-image: none;
   }
 }
 
