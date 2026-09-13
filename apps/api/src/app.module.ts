@@ -1,6 +1,6 @@
 import { Module, type MiddlewareConsumer, type NestModule } from '@nestjs/common'
 import { ConfigModule } from '@nestjs/config'
-import { APP_GUARD } from '@nestjs/core'
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core'
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler'
 import { AuthModule } from './auth/auth.module'
 import { JwtAuthGuard } from './auth/jwt-auth.guard'
@@ -28,6 +28,8 @@ import { CepModule } from './cep/cep.module'
 import { CnpjModule } from './cnpj/cnpj.module'
 import { WorkflowRolesModule } from './workflow-roles/workflow-roles.module'
 import { RoleAssignmentsModule } from './role-assignments/role-assignments.module'
+import { RealtimeModule } from './realtime/realtime.module'
+import { RealtimeInterceptor } from './realtime/realtime.interceptor'
 
 // Rede de segurança global contra abuso/força-bruta em toda a API. É intencionalmente
 // generoso: o login já tem throttle por IP + lockout de conta; aqui o objetivo é só
@@ -40,6 +42,7 @@ const throttleLimit = Number(process.env.THROTTLE_LIMIT ?? 300)
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ThrottlerModule.forRoot([{ ttl: throttleTtl * 1000, limit: throttleLimit }]),
+    RealtimeModule,
     AuthModule,
     OrganizationsModule,
     ProcessesModule,
@@ -67,6 +70,8 @@ const throttleLimit = Number(process.env.THROTTLE_LIMIT ?? 300)
     // (login/refresh) e para requisições não autenticadas.
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // Tempo real: toda gravação bem-sucedida avisa os navegadores da organização.
+    { provide: APP_INTERCEPTOR, useClass: RealtimeInterceptor },
     DiagnosticoService,
     MailSettingsService,
     PrismaService,
