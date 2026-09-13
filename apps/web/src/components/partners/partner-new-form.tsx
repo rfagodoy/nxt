@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ResponsaveisSection } from '@/components/responsaveis/responsaveis-section'
-import { apiFetch } from '@/lib/http'
+import { apiFetch, motivoDoErro } from '@/lib/http'
 import { usePartnerFields, useFieldVisibility, type CustomField } from '@/hooks/use-partner-fields'
 import { usePartnerSections } from '@/hooks/use-partner-sections'
 import { getLogUser } from '@/hooks/use-partner-logs'
@@ -18,6 +18,8 @@ import { pickDefaultScreen, resolvePartnerSections } from '@/lib/screen-partner-
 import { reconcileNative } from '@/lib/screen-native-structure'
 import type { Screen } from '@/lib/screen-types'
 import { isDocumentoValido } from '@/lib/doc-validation'
+import { faltantesParceiro, camposDaSecao, rotuloDeSecao, SECOES_PARCEIRO, type AcaoSalvar } from '@/lib/campos-obrigatorios'
+import { AvisoCamposFaltantes } from '@/components/forms/aviso-campos-faltantes'
 import { PartnerSectionBody } from './partner-screen-body'
 import {
   usePartnerForm, emptyPartnerForm, newPSoc, CategoryTabs, CustomFieldsGrid,
@@ -30,19 +32,29 @@ export interface PartnerSaveResult { id: string; razaoSocial: string; documento?
 
 /* ─── seção accordion (chrome do cadastro) ───────────────── */
 
-function Section({ icon: Icon, title, isOpen, onToggle, hasError, children }: {
-  icon: React.ElementType; title: string; isOpen: boolean; onToggle: () => void
-  hasError?: boolean; children: React.ReactNode
+function Section({ secao, icon: Icon, title, isOpen, onToggle, hasError, faltando, children }: {
+  secao: string; icon: React.ElementType; title: string; isOpen: boolean; onToggle: () => void
+  /** erro que não é campo vazio (documento inválido, participação dos sócios) */
+  hasError?: boolean
+  /** campos obrigatórios que faltam nesta seção — o cabeçalho diz QUAIS */
+  faltando?: string[]
+  children: React.ReactNode
 }) {
+  const comFalta = !!faltando?.length
+  const erro     = comFalta || hasError
   return (
-    <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+    <div id={`secao-${secao}`} className="rounded-xl border bg-card shadow-sm overflow-hidden scroll-mt-2">
       <button
         type="button" onClick={onToggle}
         className={cn('w-full px-4 py-2 flex items-center gap-2 transition-colors hover:bg-muted/40 bg-muted/30', isOpen && 'border-b')}
       >
-        <Icon className={cn('h-3.5 w-3.5 shrink-0', hasError ? 'text-red-500' : 'text-muted-foreground')} />
-        <h3 className={cn('text-xs font-semibold flex-1 text-left', hasError && 'text-red-500')}>{title}</h3>
-        {hasError && <span className="text-[11px] text-red-500 font-medium mr-1">Campos obrigatórios</span>}
+        <Icon className={cn('h-3.5 w-3.5 shrink-0', erro ? 'text-red-500' : 'text-muted-foreground')} />
+        <h3 className={cn('text-xs font-semibold flex-1 text-left', erro && 'text-red-500')}>{title}</h3>
+        {erro && (
+          <span className="max-w-[60%] truncate text-[11px] text-red-500 font-medium mr-1">
+            {comFalta ? `Falta: ${faltando!.join(', ')}` : 'Revisar'}
+          </span>
+        )}
         <ChevronDown className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform duration-200', isOpen && 'rotate-180')} />
       </button>
       {isOpen && <div className="p-4 space-y-3">{children}</div>}
@@ -71,13 +83,15 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
   const { sections: customSections, sectionOrder, sectionDefaultOpen, loaded: sectionsLoaded } = usePartnerSections()
 
   const [open,          setOpen]          = useState<Set<string>>(new Set<string>())
+  /* erros que NÃO são campo vazio (documento inválido, sócios) — vazio vive em `tentativa` */
   const [errors,        setErrors]        = useState<Set<string>>(new Set())
+  /* última ação que esbarrou em obrigatório; a lista é recalculada a cada render */
+  const [tentativa,     setTentativa]     = useState<AcaoSalvar | null>(null)
   const [saving,        setSaving]        = useState<'draft' | 'active' | null>(null)
   const [saveError,     setSaveError]     = useState<string | null>(null)
   const openInit                          = useRef(false)
 
   const isPJ = v.category === 'PJ_BR' || v.category === 'PJ_EST'
-  const isBR = v.category === 'PJ_BR' || v.category === 'PF_BR'
   const isPJBR = v.category === 'PJ_BR' // CNAE é classificação nacional: só PJ brasileira
 
   /* R2 — a tela padrão (isDefault/ACTIVE) desenha o cadastro: seções, ordem, rótulos e
@@ -138,6 +152,32 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
   const toggle = (key: string) =>
     setOpen(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })
 
+  /* ─── campos obrigatórios ───────────────────────────────── */
+  const calcFaltantes = (acao: AcaoSalvar) =>
+    faltantesParceiro(v, { acao, secoes: screenDriven ? screenSections : null, valores: screenValues })
+  const faltantes   = tentativa ? calcFaltantes(tentativa) : []
+  const rotuloSecao = rotuloDeSecao(SECOES_PARCEIRO, screenDriven ? screenSections : null)
+  const abrirSecoes = (keys: Iterable<string>) => setOpen(prev => new Set([...prev, ...keys]))
+  const irParaSecao = (key: string) => {
+    abrirSecoes([key])
+    requestAnimationFrame(() => document.getElementById(`secao-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
+
+  /** Confere obrigatórios + documento + sócios. Mostra tudo de uma vez; true = pode salvar. */
+  const conferir = (acao: AcaoSalvar): boolean => {
+    const itens       = calcFaltantes(acao)
+    const docInvalido = v.documento.trim() !== '' && !isDocumentoValido(v.category, v.documento)
+    const socErr      = isPJ ? validateSociosParticipacao(v.socios) : null
+    const err = new Set<string>()
+    if (docInvalido) err.add('identificacao')
+    if (socErr)      err.add('socios')
+    setErrors(err)
+    setTentativa(itens.length ? acao : null)
+    setSaveError(docInvalido ? 'CPF/CNPJ inválido — confira o número digitado.' : socErr)
+    if (itens.length || err.size) { abrirSecoes([...itens.map(i => i.secao), ...err]); return false }
+    return true
+  }
+
   /* ─── payload ───────────────────────────────────────────── */
   const buildPayload = (status: string) => {
     const opt = (val: string) => val.trim() || undefined
@@ -181,119 +221,67 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
     if (entries.length) await putScreenValues('PARTNER', partnerId, entries)
   }
 
-  /* ─── salvar rascunho ───────────────────────────────────── */
-  const handleSaveDraft = async () => {
+  const gravar = async (status: 'EM_CADASTRAMENTO' | 'ATIVO') => {
     const razaoSocial = v.razaoSocial.trim()
-    const docInvalido = v.documento.trim() !== '' && !isDocumentoValido(v.category, v.documento)
-    if (!razaoSocial || docInvalido) {
-      setErrors(new Set(['identificacao']))
-      setOpen(prev => { const n = new Set(prev); n.add('identificacao'); return n })
-      if (docInvalido) setSaveError('CPF/CNPJ inválido — confira o número digitado.')
-      return
-    }
-    const socErr = isPJ ? validateSociosParticipacao(v.socios) : null
-    if (socErr) {
-      setErrors(new Set(['socios']))
-      setOpen(prev => { const n = new Set(prev); n.add('socios'); return n })
-      setSaveError(socErr)
-      return
-    }
-    setSaving('draft'); setSaveError(null)
+    setSaving(status === 'ATIVO' ? 'active' : 'draft'); setSaveError(null)
     try {
       const res = await apiFetch(`/api/partners`, {
         method: 'POST',
-        body: JSON.stringify(buildPayload('EM_CADASTRAMENTO')),
+        body: JSON.stringify(buildPayload(status)),
       })
-      if (!res.ok) { setSaveError(`Erro ao salvar (${res.status}). Verifique a conexão com o servidor.`); return }
+      if (!res.ok) {
+        setSaveError(await motivoDoErro(res, status === 'ATIVO' ? 'Não foi possível ativar o parceiro' : 'Não foi possível salvar o parceiro'))
+        return
+      }
       const created = await res.json() as { id?: string }
       if (created.id) { await persistScreen(created.id); afterSave({ id: created.id, razaoSocial, documento: v.documento.trim() }) } else { afterSave() }
     } catch {
       setSaveError('Não foi possível conectar ao servidor. Verifique se o serviço está disponível.')
     } finally { setSaving(null) }
+  }
+
+  /* ─── salvar rascunho ───────────────────────────────────── */
+  const handleSaveDraft = async () => {
+    if (!conferir('rascunho')) return
+    await gravar('EM_CADASTRAMENTO')
   }
 
   /* ─── ativar parceiro ───────────────────────────────────── */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const razaoSocial = v.razaoSocial.trim()
-    const err         = new Set<string>()
-
-    const docInvalido = v.documento.trim() !== '' && !isDocumentoValido(v.category, v.documento)
-    if (!v.documento.trim())  err.add('identificacao')
-    if (docInvalido)          err.add('identificacao')
-    if (!razaoSocial)         err.add('identificacao')
-    if ((v.category === 'PF_BR' || v.category === 'PF_EST') && !v.dataNascimento.trim()) err.add('identificacao')
-    if ((v.category === 'PJ_EST' || v.category === 'PF_EST') && !v.paisOrigem.trim())    err.add('identificacao')
-
-    const e0 = v.enderecos[0]
-    if (isBR) {
-      if (!e0?.cep || !e0?.estado || !e0?.logradouro || !e0?.numero || !e0?.bairro || !e0?.cidade) err.add('endereco')
-    } else {
-      if (!e0?.address1 || !e0?.cidade || !e0?.pais_endereco) err.add('endereco')
-    }
-
-    const socErr = isPJ ? validateSociosParticipacao(v.socios) : null
-    if (socErr) err.add('socios')
-
-    // campos personalizados obrigatórios (efetivo por tipo) da tela, vazios → bloqueia ATIVAR
-    let customMissing = false
-    if (screenDriven) {
-      for (const s of screenSections)
-        for (const cf of s.customFields)
-          if (cf.required && !(screenValues[cf.id] ?? '').trim()) { err.add(s.key); customMissing = true }
-    }
-
-    setErrors(err)
-    if (err.size > 0) {
-      setOpen(prev => { const n = new Set(prev); err.forEach(k => n.add(k)); return n })
-      setSaveError(socErr
-        ?? (docInvalido ? 'CPF/CNPJ inválido — confira o número digitado.'
-        : customMissing ? 'Preencha os campos obrigatórios destacados.' : null))
-      return
-    }
-
-    setSaving('active'); setSaveError(null)
-    try {
-      const res = await apiFetch(`/api/partners`, {
-        method: 'POST',
-        body: JSON.stringify(buildPayload('ATIVO')),
-      })
-      if (!res.ok) { setSaveError(`Erro ao ativar (${res.status}). Verifique a conexão com o servidor.`); return }
-      const created = await res.json() as { id?: string }
-      if (created.id) { await persistScreen(created.id); afterSave({ id: created.id, razaoSocial, documento: v.documento.trim() }) } else { afterSave() }
-    } catch {
-      setSaveError('Não foi possível conectar ao servidor. Verifique se o serviço está disponível.')
-    } finally { setSaving(null) }
+    if (!conferir('ativar')) return
+    await gravar('ATIVO')
   }
 
   /* ─── renderizador de seção por chave ────────────────────── */
+  const falta = (key: string) => camposDaSecao(faltantes, key)
   const renderSection = (key: string): React.ReactNode => {
     if (key === 'identificacao') return (
-      <Section key="identificacao" icon={Building2} title="Identificação"
-        isOpen={open.has('identificacao')} onToggle={() => toggle('identificacao')} hasError={errors.has('identificacao')}>
+      <Section key="identificacao" secao="identificacao" icon={Building2} title="Identificação"
+        isOpen={open.has('identificacao')} onToggle={() => toggle('identificacao')} hasError={errors.has('identificacao')} faltando={falta('identificacao')}>
         <IdentificacaoFields form={form} isVisible={isVisible} customFields={vfs('identificacao')} />
       </Section>
     )
     if (key === 'contato') return (
-      <Section key="contato" icon={Phone} title="Contato" isOpen={open.has('contato')} onToggle={() => toggle('contato')}>
+      <Section key="contato" secao="contato" icon={Phone} title="Contato" isOpen={open.has('contato')} onToggle={() => toggle('contato')}>
         <ContatoFields form={form} isVisible={isVisible} customFields={vfs('contato')} />
       </Section>
     )
     if (key === 'endereco') return (
-      <Section key="endereco" icon={MapPin} title="Endereço"
-        isOpen={open.has('endereco')} onToggle={() => toggle('endereco')} hasError={errors.has('endereco')}>
+      <Section key="endereco" secao="endereco" icon={MapPin} title="Endereço"
+        isOpen={open.has('endereco')} onToggle={() => toggle('endereco')} faltando={falta('endereco')}>
         <EnderecoFields form={form} isVisible={isVisible} customFields={vfs('endereco')} />
       </Section>
     )
     if (key === 'bancario') return (
-      <Section key="bancario" icon={CreditCard} title="Dados Bancários" isOpen={open.has('bancario')} onToggle={() => toggle('bancario')}>
+      <Section key="bancario" secao="bancario" icon={CreditCard} title="Dados Bancários" isOpen={open.has('bancario')} onToggle={() => toggle('bancario')}>
         <BancarioFields form={form} isVisible={isVisible} customFields={vfs('bancario')} />
       </Section>
     )
     if (key === 'socios') {
       if (!isPJ) return null
       return (
-        <Section key="socios" icon={Users} title="Quadro de Sócios" isOpen={open.has('socios')} onToggle={() => toggle('socios')} hasError={errors.has('socios')}>
+        <Section key="socios" secao="socios" icon={Users} title="Quadro de Sócios" isOpen={open.has('socios')} onToggle={() => toggle('socios')} hasError={errors.has('socios')}>
           <SociosFields form={form} isVisible={isVisible} />
         </Section>
       )
@@ -301,14 +289,14 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
     if (key === 'cnae') {
       if (!isPJBR) return null
       return (
-        <Section key="cnae" icon={Briefcase} title="CNAE — Atividades Econômicas" isOpen={open.has('cnae')} onToggle={() => toggle('cnae')}>
+        <Section key="cnae" secao="cnae" icon={Briefcase} title="CNAE — Atividades Econômicas" isOpen={open.has('cnae')} onToggle={() => toggle('cnae')}>
           <CnaeFields form={form} />
         </Section>
       )
     }
     const cs = customSections.find(s => s.id === key)
     if (cs) return (
-      <Section key={cs.id} icon={Layers} title={cs.label} isOpen={open.has(cs.id)} onToggle={() => toggle(cs.id)}>
+      <Section key={cs.id} secao={cs.id} icon={Layers} title={cs.label} isOpen={open.has(cs.id)} onToggle={() => toggle(cs.id)}>
         {vfs(cs.id).length === 0
           ? <p className="text-[11px] text-muted-foreground text-center py-2">Nenhum campo nesta seção.</p>
           : <CustomFieldsGrid fields={vfs(cs.id)} />}
@@ -348,8 +336,8 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
         {(() => {
           const nodes = screenDriven
             ? screenSections.map(s => (
-                <Section key={s.id} icon={s.icon} title={s.label}
-                  isOpen={open.has(s.key)} onToggle={() => toggle(s.key)} hasError={errors.has(s.key)}>
+                <Section key={s.id} secao={s.key} icon={s.icon} title={s.label}
+                  isOpen={open.has(s.key)} onToggle={() => toggle(s.key)} hasError={errors.has(s.key)} faltando={falta(s.key)}>
                   <PartnerSectionBody section={s} form={form} screenValues={screenValues} onScreenChange={onScreenChange} />
                 </Section>
               ))
@@ -357,7 +345,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
           // "Partes envolvidas" por ÚLTIMO (na inclusão não há Histórico). No cadastro
           // novo ainda não há id → a seção orienta a salvar antes de atribuir pessoas.
           const partes = (
-            <Section key="responsaveis" icon={UserCog} title="Partes envolvidas"
+            <Section key="responsaveis" secao="responsaveis" icon={UserCog} title="Partes envolvidas"
               isOpen={open.has('responsaveis')} onToggle={() => toggle('responsaveis')}>
               <ResponsaveisSection entityType="PARCEIRO" entityId={undefined} />
             </Section>
@@ -365,8 +353,11 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
           return [...nodes, partes]
         })()}
 
+        {tentativa && (
+          <AvisoCamposFaltantes itens={faltantes} acao={tentativa} rotuloSecao={rotuloSecao} onIrParaSecao={irParaSecao} />
+        )}
         {saveError && (
-          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">
+          <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">
             {saveError}
           </div>
         )}

@@ -4,7 +4,9 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Building2, Phone, MapPin, CreditCard, Users, Briefcase, Clock, Plus, X, SlidersHorizontal, CheckCircle2, RotateCcw, Pencil, Ban, UserCog, Eye, type LucideIcon } from 'lucide-react'
 import { ResponsaveisSection } from '@/components/responsaveis/responsaveis-section'
 import { cn } from '@/lib/utils'
-import { apiFetch } from '@/lib/http'
+import { apiFetch, motivoDoErro } from '@/lib/http'
+import { faltantesParceiro, rotuloDeSecao, SECOES_PARCEIRO, type AcaoSalvar } from '@/lib/campos-obrigatorios'
+import { AvisoCamposFaltantes } from '@/components/forms/aviso-campos-faltantes'
 import { usePartnerFields, useFieldVisibility } from '@/hooks/use-partner-fields'
 import { getLogUser } from '@/hooks/use-partner-logs'
 import { SaveStatus } from '@/components/save-status'
@@ -303,7 +305,23 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPJ, isPJBR, screenDriven, screenSections.length, tab])
 
+  /* Campos obrigatórios: a MESMA regra do cadastro novo. Antes, o Ativar daqui só conferia
+     os campos personalizados. A lista é recalculada a cada render (o aviso encolhe e some). */
+  const [tentativa, setTentativa] = useState<AcaoSalvar | null>(null)
+  const calcFaltantes = (acao: AcaoSalvar) =>
+    faltantesParceiro(v, { acao, secoes: screenDriven ? screenSections : null, valores: screenValues })
+  const faltantes   = tentativa ? calcFaltantes(tentativa) : []
+  const rotuloSecao = rotuloDeSecao(SECOES_PARCEIRO, screenDriven ? screenSections : null)
+
   const handleSave = async (statusOverride?: string, motivoTexto?: string) => {
+    /* obrigatórios: salvar rascunho cobra o nome; ativar/reativar cobra o cadastro completo.
+       Outras transições (inativar, habilitar para alteração) não ficam presas em campo. */
+    const acaoObrig: AcaoSalvar | null = statusOverride === 'ATIVO' ? 'ativar' : statusOverride === undefined ? 'rascunho' : null
+    if (acaoObrig) {
+      const itens = calcFaltantes(acaoObrig)
+      if (itens.length > 0) { setTentativa(acaoObrig); setSaveError(null); setTab(itens[0].secao); return }
+    }
+    setTentativa(null)
     // Regra dos sócios: valida ao salvar rascunho (sem override) e ao ativar/reativar.
     const validaSocios = statusOverride === undefined || statusOverride === 'ATIVO'
     if (isPJ && validaSocios) {
@@ -317,15 +335,6 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
     if (v.documento.trim() !== '' && !isDocumentoValido(v.category, v.documento)) {
       setSaveError('CPF/CNPJ inválido — confira o número digitado.')
       return
-    }
-    // campos personalizados obrigatórios (efetivo por tipo) vazios → bloqueia ATIVAR/reativar
-    if (statusOverride === 'ATIVO' && screenDriven) {
-      const missing = screenSections.find(s => s.customFields.some(cf => cf.required && !(screenValues[cf.id] ?? '').trim()))
-      if (missing) {
-        setTab(missing.key)
-        setSaveError('Preencha os campos obrigatórios destacados.')
-        return
-      }
     }
     setSaving(true)
     setSaveError(null)
@@ -356,7 +365,7 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
           motivo:       motivoTexto,
         }),
       })
-      if (!res.ok) throw new Error()
+      if (!res.ok) { setSaveError(await motivoDoErro(res, 'Não foi possível salvar o parceiro')); return }
       // valores dos campos personalizados da tela (R2) — persistidos junto ao parceiro
       if (screenDriven) {
         await putScreenValues('PARTNER', partner.id, Object.entries(screenValues).map(([fieldId, value]) => ({ fieldId, value })))
@@ -475,7 +484,10 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
         </div>
       )}
 
-      {saveError && <p className="text-xs text-destructive">{saveError}</p>}
+      {tentativa && (
+        <AvisoCamposFaltantes itens={faltantes} acao={tentativa} rotuloSecao={rotuloSecao} onIrParaSecao={setTab} />
+      )}
+      {saveError && <p role="alert" className="text-xs text-destructive">{saveError}</p>}
 
       {/* categoria — editável apenas em rascunho */}
       {!locked && <CategoryTabs value={category} onChange={partnerForm.setCategory} />}

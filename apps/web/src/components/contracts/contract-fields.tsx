@@ -2379,10 +2379,16 @@ function AditivoCard({ a, idx, form, open, onToggle, onOpenCessaoSearch, onActiv
 
   /* Validação para ATIVAR: regras por efeito do(s) tipo(s) selecionado(s). */
   const validarAtivacao = (): string | null => {
-    if (!a.data) return 'Informe a data de assinatura.'
-    if (!a.descricao.trim()) return 'Informe a descrição do aditivo.'
-    if (a.tipos.length === 0) return 'Selecione ao menos um tipo de aditamento.'
-    if (efeitos.has('termino') && !a.novoTermino) return 'Informe o novo término (prorrogação).'
+    /* Obrigatórios TODOS de uma vez, pelo nome: um por clique fazia a pessoa tentar ativar
+       quatro vezes para descobrir quatro campos. Regras de coerência vêm depois. */
+    const falta: string[] = []
+    if (!a.data)                                   falta.push('Data de assinatura')
+    if (!a.descricao.trim())                       falta.push('Descrição')
+    if (a.tipos.length === 0)                      falta.push('Tipos de aditamento')
+    if (efeitos.has('termino') && !a.novoTermino)  falta.push('Novo término')
+    if (efeitos.has('valor') && !(parseFloat(a.novoValor) > 0)) falta.push('Acréscimo ao valor total')
+    if (efeitos.has('partes') && !a.cessoes.some(c => c.parteId && c.nome)) falta.push('Ao menos uma cessão de parte')
+    if (falta.length) return `Para ativar o aditivo, falta preencher: ${falta.join(', ')}.`
     if (efeitos.has('termino') && a.novoTermino) {
       const anterior = terminoVigenteAntes(v, idx)
       if (anterior && a.novoTermino <= anterior) return `O novo término deve ser posterior ao término vigente anterior (${fmtBR(anterior)}).`

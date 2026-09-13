@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, FileText, Calendar, DollarSign, RefreshCw, Users, Paperclip, ChevronDown, TrendingDown, TrendingUp } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { apiFetch } from '@/lib/http'
+import { apiFetch, motivoDoErro } from '@/lib/http'
 import { getLogUser } from '@/hooks/use-partner-logs'
 import { useScreens, putScreenValues } from '@/hooks/use-screens'
 import { pickDefaultScreen, resolveContractSections } from '@/lib/screen-contract-layout'
@@ -23,19 +23,23 @@ import { useLookupTable } from '@/hooks/use-lookup-table'
 import { PAPEIS_KEY, INIT_PAPEIS, validatePartes } from '@/lib/contract-roles'
 import { cacheRead, pullSetting } from '@/lib/settings-store'
 import { CONTRACT_NUMBERING_KEY, previewNumero, type NumberingCfg } from '@/lib/contract-numbering'
+import { faltantesContrato, camposDaSecao, rotuloDeSecao, SECOES_CONTRATO, type AcaoSalvar } from '@/lib/campos-obrigatorios'
+import { AvisoCamposFaltantes } from '@/components/forms/aviso-campos-faltantes'
 
 /* ─── seção colapsável ───────────────────────────────────── */
-function Section({ icon: Icon, title, isOpen, onToggle, hasError, children }: {
-  icon: React.ElementType; title: string; isOpen: boolean; onToggle: () => void
-  hasError?: boolean; children: React.ReactNode
+function Section({ secao, icon: Icon, title, isOpen, onToggle, faltando, children }: {
+  secao: string; icon: React.ElementType; title: string; isOpen: boolean; onToggle: () => void
+  /** campos obrigatórios que faltam nesta seção — o cabeçalho diz QUAIS, não só "tem erro" */
+  faltando?: string[]; children: React.ReactNode
 }) {
+  const hasError = !!faltando?.length
   return (
-    <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+    <div id={`secao-${secao}`} className="rounded-xl border bg-card shadow-sm overflow-hidden scroll-mt-2">
       <button type="button" onClick={onToggle}
         className={cn('w-full px-4 py-2 flex items-center gap-2 transition-colors hover:bg-muted/40 bg-muted/30', isOpen && 'border-b')}>
         <Icon className={cn('h-3.5 w-3.5 shrink-0', hasError ? 'text-red-500' : 'text-muted-foreground')} />
         <h3 className={cn('text-xs font-semibold flex-1 text-left', hasError && 'text-red-500')}>{title}</h3>
-        {hasError && <span className="text-[11px] text-red-500 font-medium mr-1">Campos obrigatórios</span>}
+        {hasError && <span className="max-w-[60%] truncate text-[11px] text-red-500 font-medium mr-1">Falta: {faltando!.join(', ')}</span>}
         <ChevronDown className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform duration-200', isOpen && 'rotate-180')} />
       </button>
       {isOpen && <div className="p-4 space-y-3">{children}</div>}
@@ -66,7 +70,9 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
      entidade (vazio = veio do rodapé da seção, sem parte de destino definida) */
   const [newPartner, setNewPartner] = useState<{ parteId: string } | null>(null)
   const [open,        setOpen]        = useState<Set<string>>(new Set(['dados_gerais']))
-  const [errors,      setErrors]      = useState<Set<string>>(new Set())
+  /* A última ação tentada que esbarrou em campo obrigatório. A LISTA é recalculada a cada
+     render: conforme a pessoa preenche, o aviso encolhe, e some quando não falta nada. */
+  const [tentativa,   setTentativa]   = useState<AcaoSalvar | null>(null)
   const [saveError,   setSaveError]   = useState<string | null>(null)
   const [saving,      setSaving]      = useState<'draft' | 'active' | null>(null)
 
@@ -121,28 +127,27 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
 
   const toggleSection = (k: string) => setOpen(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
 
+  const calcFaltantes = (acao: AcaoSalvar) =>
+    faltantesContrato(v, { acao, autoNumero, secoes: screenDriven ? screenSections : null, valores: screenValues })
+  const faltantes   = tentativa ? calcFaltantes(tentativa) : []
+  /* sem tela, os títulos do cadastro novo diferem das abas do detalhe em duas seções */
+  const rotuloSecao = rotuloDeSecao(SECOES_CONTRATO, screenDriven ? screenSections
+    : [{ key: 'valor', label: 'Valores' }, { key: 'documentos', label: 'Documentos do contrato' }])
+  const irParaSecao = (key: string) => {
+    setOpen(prev => new Set([...prev, key]))
+    requestAnimationFrame(() => document.getElementById(`secao-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
+
   /* salva o contrato. 'EM_CADASTRO' = rascunho (validação leve); 'VIGENTE' = ativar (validação completa) */
   const submit = async (status: 'EM_CADASTRO' | 'VIGENTE') => {
-    const err = new Set<string>()
-    /* no modo automático o número é gerado no backend ao salvar (não exigir aqui) */
-    if ((!autoNumero && !v.numero.trim()) || !v.titulo.trim()) err.add('dados_gerais')
-    let customMissing = false
-    if (status === 'VIGENTE') {
-      if (!v.tipo) err.add('dados_gerais')
-      if (!v.inicioVigencia) err.add('vigencia')
-      if (!v.partes[0]?.nome.trim()) err.add('partes')
-      // campos personalizados obrigatórios da tela, vazios → bloqueia ATIVAR
-      if (screenDriven)
-        for (const s of screenSections)
-          for (const cf of s.customFields)
-            if (cf.required && !(screenValues[cf.id] ?? '').trim()) { err.add(s.key); customMissing = true }
-    }
-    setErrors(err)
-    if (err.size > 0) {
-      setOpen(prev => new Set([...prev, ...err]))
-      if (customMissing) setSaveError('Preencha os campos obrigatórios destacados.')
+    const acao: AcaoSalvar = status === 'VIGENTE' ? 'ativar' : 'rascunho'
+    const itens = calcFaltantes(acao)
+    if (itens.length > 0) {
+      setTentativa(acao); setSaveError(null)
+      setOpen(prev => new Set([...prev, ...itens.map(i => i.secao)]))
       return
     }
+    setTentativa(null)
 
     /* lançamentos: Data/Valor/Forma obrigatórios em cada pagamento/recebimento */
     const lErr = validateLancamentos(v)
@@ -175,7 +180,7 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
         else router.push('/modules/contratos')
         return
       }
-      setSaveError(`Erro ao salvar contrato (${res.status}).`)
+      setSaveError(await motivoDoErro(res, 'Não foi possível salvar o contrato'))
     } catch {
       setSaveError('Não foi possível conectar ao servidor.')
     } finally {
@@ -199,8 +204,8 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
       <form className="space-y-2" onSubmit={e => e.preventDefault()}>
         {screenDriven ? (
           screenSections.map(s => (
-            <Section key={s.id} icon={s.icon} title={s.label}
-              isOpen={open.has(s.key)} onToggle={() => toggleSection(s.key)} hasError={errors.has(s.key)}>
+            <Section key={s.id} secao={s.key} icon={s.icon} title={s.label}
+              isOpen={open.has(s.key)} onToggle={() => toggleSection(s.key)} faltando={camposDaSecao(faltantes, s.key)}>
               <ContractSectionNative section={s} ctx={{
                 form, moedaCode: v.moeda, autoNumero, numeroPreview, dualView: true,
                 onOpenSearch: (parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds }),
@@ -210,47 +215,50 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
             </Section>
           ))
         ) : (<>
-        <Section icon={FileText} title="Dados Gerais" isOpen={open.has('dados_gerais')} onToggle={() => toggleSection('dados_gerais')} hasError={errors.has('dados_gerais')}>
+        <Section secao="dados_gerais" icon={FileText} title="Dados Gerais" isOpen={open.has('dados_gerais')} onToggle={() => toggleSection('dados_gerais')} faltando={camposDaSecao(faltantes, 'dados_gerais')}>
           <IdentificacaoFields form={form} autoNumero={autoNumero} numeroPreview={numeroPreview} />
         </Section>
 
-        <Section icon={Users} title="Partes Envolvidas" isOpen={open.has('partes')} onToggle={() => toggleSection('partes')} hasError={errors.has('partes')}>
+        <Section secao="partes" icon={Users} title="Partes Envolvidas" isOpen={open.has('partes')} onToggle={() => toggleSection('partes')} faltando={camposDaSecao(faltantes, 'partes')}>
           <PartesFields form={form}
             onOpenSearch={(parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds })}
             onNewPartner={() => setNewPartner({ parteId: '' })} />
         </Section>
 
-        <Section icon={Calendar} title="Vigência" isOpen={open.has('vigencia')} onToggle={() => toggleSection('vigencia')} hasError={errors.has('vigencia')}>
+        <Section secao="vigencia" icon={Calendar} title="Vigência" isOpen={open.has('vigencia')} onToggle={() => toggleSection('vigencia')} faltando={camposDaSecao(faltantes, 'vigencia')}>
           <VigenciaFields form={form} />
         </Section>
 
-        <Section icon={DollarSign} title="Valores" isOpen={open.has('valores')} onToggle={() => toggleSection('valores')}>
+        <Section secao="valor" icon={DollarSign} title="Valores" isOpen={open.has('valor')} onToggle={() => toggleSection('valor')} faltando={camposDaSecao(faltantes, 'valor')}>
           <ValoresFields form={form} />
         </Section>
 
         {temPagamentos(v.natureza) && (
-          <Section icon={TrendingDown} title="Pagamentos realizados" isOpen={open.has('pagamentos')} onToggle={() => toggleSection('pagamentos')}>
+          <Section secao="pagamentos" icon={TrendingDown} title="Pagamentos realizados" isOpen={open.has('pagamentos')} onToggle={() => toggleSection('pagamentos')}>
             <LancamentosFields form={form} field="pagamentos" moedaCode={v.moeda} dualView />
           </Section>
         )}
 
         {temRecebimentos(v.natureza) && (
-          <Section icon={TrendingUp} title="Recebimentos realizados" isOpen={open.has('recebimentos')} onToggle={() => toggleSection('recebimentos')}>
+          <Section secao="recebimentos" icon={TrendingUp} title="Recebimentos realizados" isOpen={open.has('recebimentos')} onToggle={() => toggleSection('recebimentos')}>
             <LancamentosFields form={form} field="recebimentos" moedaCode={v.moeda} dualView />
           </Section>
         )}
 
-        <Section icon={RefreshCw} title="Reajuste" isOpen={open.has('reajuste')} onToggle={() => toggleSection('reajuste')}>
+        <Section secao="reajuste" icon={RefreshCw} title="Reajuste" isOpen={open.has('reajuste')} onToggle={() => toggleSection('reajuste')}>
           <ReajustesFields form={form} />
         </Section>
 
-        <Section icon={Paperclip} title="Documentos do contrato" isOpen={open.has('documentos')} onToggle={() => toggleSection('documentos')}>
+        <Section secao="documentos" icon={Paperclip} title="Documentos do contrato" isOpen={open.has('documentos')} onToggle={() => toggleSection('documentos')} faltando={camposDaSecao(faltantes, 'documentos')}>
           <DocumentosFields form={form} />
         </Section>
         </>)}
 
+        {tentativa && (
+          <AvisoCamposFaltantes itens={faltantes} acao={tentativa} rotuloSecao={rotuloSecao} onIrParaSecao={irParaSecao} />
+        )}
         {saveError && (
-          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">{saveError}</div>
+          <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">{saveError}</div>
         )}
 
         <div className="flex items-center justify-between pt-1 pb-6">

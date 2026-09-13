@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Building2, UserCog, ChevronDown, CornerDownRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { apiFetch } from '@/lib/http'
+import { apiFetch, motivoDoErro } from '@/lib/http'
 import { getLogUser } from '@/hooks/use-partner-logs'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { TIPOS_UNIDADE_KEY, INIT_TIPOS_UNIDADE, CLASS_COLOR } from '@/lib/unit-types'
@@ -108,7 +108,7 @@ export function UnitDetailView({ mode, unit, companyId, parentId, parentName, on
       const res = mode === 'detail' && unit
         ? await apiFetch(`/api/org-units/${unit.id}`, { method: 'PATCH', body: JSON.stringify(body) })
         : await apiFetch(`/api/org-units`, { method: 'POST', body: JSON.stringify({ groupCompanyId: companyId, parentId: parentId ?? undefined, ...body }) })
-      if (!res.ok) { setSaveError(`Erro ao salvar (${res.status}).`); return }
+      if (!res.ok) { setSaveError(await motivoDoErro(res, 'Não foi possível salvar a unidade')); return }
       cleanRef.current = snap(); onDirtyChange?.(false); onSaved?.()
     } catch {
       setSaveError('Não foi possível conectar ao servidor.')

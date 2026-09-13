@@ -3,7 +3,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { FileText, Users, Calendar, Banknote, TrendingUp, TrendingDown, RefreshCw, Paperclip, FilePlus2, Clock, Eye } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { apiFetch } from '@/lib/http'
+import { apiFetch, motivoDoErro } from '@/lib/http'
+import { faltantesContrato, rotuloDeSecao, SECOES_CONTRATO, type AcaoSalvar } from '@/lib/campos-obrigatorios'
+import { AvisoCamposFaltantes } from '@/components/forms/aviso-campos-faltantes'
 import { CONTRACTS_CHANGED_EVENT } from '@/lib/contract-events'
 import { useScreens, getScreenValues, putScreenValues } from '@/hooks/use-screens'
 import { pickDefaultScreen, resolveContractSections } from '@/lib/screen-contract-layout'
@@ -220,6 +222,15 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
      "Responsáveis" (pessoas por papel) é aba fixa, fora da tela customizável. */
   const tabs = screenDriven ? screenSections.map(s => ({ id: s.key, label: s.label, icon: s.icon })) : sectionTabs
 
+  /* Campos obrigatórios: a MESMA regra do cadastro novo. Antes, o Ativar daqui só conferia
+     os campos personalizados — faltando Tipo ou Início, o aviso não dizia nada útil. A lista
+     é recalculada a cada render: conforme a pessoa preenche, o aviso encolhe e some. */
+  const [tentativa, setTentativa] = useState<AcaoSalvar | null>(null)
+  const calcFaltantes = (acao: AcaoSalvar) =>
+    faltantesContrato(v, { acao, secoes: screenDriven ? screenSections : null, valores: screenValues })
+  const faltantes   = tentativa ? calcFaltantes(tentativa) : []
+  const rotuloSecao = rotuloDeSecao(SECOES_CONTRATO, screenDriven ? screenSections : null)
+
   const handleSave = async (statusOverride?: string, motivoTexto?: string, aditivosOverride?: CAditivo[]) => {
     /* A obrigatoriedade da data de assinatura é validada na ATIVAÇÃO de cada aditivo
        (validarAtivacao em AditivosFields). Não bloqueamos o save/transição do contrato:
@@ -227,6 +238,14 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
     const isAditivoOp  = aditivosOverride !== undefined
     const isPlainSave  = statusOverride === undefined
     const isActivation = statusOverride === 'VIGENTE'
+    /* obrigatórios só ao ativar ou salvar um contrato destravado — transições (revisão,
+       encerrar) e operações de aditivo não podem ficar presas num campo do cadastro */
+    const acaoObrig: AcaoSalvar | null = isAditivoOp ? null : isActivation ? 'ativar' : (isPlainSave && !locked) ? 'rascunho' : null
+    if (acaoObrig) {
+      const itens = calcFaltantes(acaoObrig)
+      if (itens.length > 0) { setTentativa(acaoObrig); setSaveError(null); setTab(itens[0].secao); return }
+    }
+    setTentativa(null)
     /* Lançamentos exigem Data/Valor/Forma sempre que persistem — inclusive no save do
        contrato travado, que é justamente quando se registram pagamentos/recebimentos. */
     if (!isAditivoOp && (isPlainSave || isActivation)) {
@@ -241,11 +260,6 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
       if (pErr) { setSaveError(pErr); setTab('partes'); return }
       const bizErr = validateContract(v)
       if (bizErr) { setSaveError(bizErr); return }
-    }
-    // campos personalizados obrigatórios da tela, vazios → bloqueia ATIVAR
-    if (isActivation && screenDriven) {
-      const missing = screenSections.find(s => s.customFields.some(cf => cf.required && !(screenValues[cf.id] ?? '').trim()))
-      if (missing) { setTab(missing.key); setSaveError('Preencha os campos obrigatórios destacados.'); return }
     }
     setSaving(true); setSaveError(null)
     const nextSit = statusOverride ?? v.situacao
@@ -264,7 +278,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
         }
         if (statusOverride) form.set('situacao', statusOverride); cleanRef.current = JSON.stringify(vals); setDirtyLocal(false); setJustSaved(true); setAuditVersion(x => x + 1); onDirtyChange?.(false); onSaved?.()
       }
-      else setSaveError(`Erro ao salvar contrato (${res.status}).`)
+      else setSaveError(await motivoDoErro(res, 'Não foi possível salvar o contrato'))
     } catch {
       setSaveError('Não foi possível conectar ao servidor.')
     } finally {
@@ -377,8 +391,11 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
         </div>
       )}
 
+      {tentativa && (
+        <AvisoCamposFaltantes itens={faltantes} acao={tentativa} rotuloSecao={rotuloSecao} onIrParaSecao={setTab} />
+      )}
       {saveError && (
-        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">
+        <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">
           {saveError}
         </div>
       )}

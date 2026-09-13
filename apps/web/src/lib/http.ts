@@ -24,6 +24,19 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
   return res
 }
 
+/** Mensagem de falha que diz O MOTIVO devolvido pela API (Nest: `{ message: string | string[] }`),
+ *  em vez de só "Erro (400)". Sem corpo legível, cai no texto padrão com o código. */
+export async function motivoDoErro(res: Response, padrao: string): Promise<string> {
+  try {
+    const body = await res.clone().json() as { message?: unknown }
+    const m = Array.isArray(body?.message)
+      ? body.message.filter((x): x is string => typeof x === 'string').join('; ')
+      : typeof body?.message === 'string' ? body.message : ''
+    if (m.trim()) return `${padrao}: ${m.trim()}`
+  } catch { /* resposta sem JSON */ }
+  return `${padrao} (erro ${res.status}).`
+}
+
 /** Variante que já faz parse de JSON e retorna null em erro/!ok. */
 export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<T | null> {
   try {
