@@ -6,6 +6,7 @@ import { Bell, CalendarClock, RefreshCw, Gauge, CheckCheck, Inbox, Clock, AlarmC
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { apiFetch, apiJson } from '@/lib/http'
+import { useAoVivo } from '@/lib/realtime'
 import { useWorkspace } from '@/contexts/workspace-context'
 import type { Task } from '@/lib/tasks-ui'
 
@@ -70,11 +71,13 @@ export function NotificationBell({ className }: { className?: string }) {
     } catch { /* ignore */ }
   }, [])
   useEffect(() => { void load() }, [load])
+  /* Tempo real: o contador sobe no instante em que o aviso nasce (tarefa atribuída, prazo
+     vencido, motor de datas) e ao salvar nesta aba. A consulta periódica sobra só como
+     rede de segurança, espaçada — quem entrega o aviso agora é o servidor. */
+  useAoVivo(() => { void load() })
   useEffect(() => {
-    const iv = setInterval(() => void load(), 120_000)                 // poll a cada 2 min
-    const onRefresh = () => void load()
-    window.addEventListener('nxt:workspace:refresh', onRefresh)         // atualiza após salvar/rodar
-    return () => { clearInterval(iv); window.removeEventListener('nxt:workspace:refresh', onRefresh) }
+    const iv = setInterval(() => void load(), 10 * 60_000)
+    return () => clearInterval(iv)
   }, [load])
 
   // Ancora o painel à direita do sino, alinhado pela base. Painel vai num PORTAL no body

@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { Plus, ArrowUp, ArrowDown, ChevronsUpDown, Settings2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
+import { useAoVivo } from '@/lib/realtime'
 import { useViews, type ViewState } from '@/hooks/use-views'
 import { cacheRead, pushSetting, pullSetting } from '@/lib/settings-store'
 import { exportExcel } from '@/lib/export-excel'
@@ -301,12 +302,9 @@ export default function ParceirosPage() {
     })
   }, [serverRows, screenVals, screenCustomFields])
 
-  /* recarrega a lista quando um documento é salvo na área de trabalho */
-  useEffect(() => {
-    const h = () => { void queryServer() }
-    window.addEventListener('nxt:workspace:refresh', h)
-    return () => window.removeEventListener('nxt:workspace:refresh', h)
-  }, [queryServer])
+  /* Tempo real: recarrega a página atual da lista (com filtros, busca e ordenação) quando
+     um documento é salvo nesta aba OU quando outra pessoa grava algo na organização. */
+  useAoVivo(() => { void queryServer() })
 
   useEffect(() => { setPage(1) }, [debouncedSearch, filters, sort, logic, pageSize])
 

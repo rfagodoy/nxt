@@ -8,6 +8,7 @@ import { CancelInstanceButton } from '@/components/processes/cancel-instance-but
 import { UncancelInstanceButton } from '@/components/processes/uncancel-instance-button'
 import { cn } from '@/lib/utils'
 import { apiJson } from '@/lib/http'
+import { useAoVivo } from '@/lib/realtime'
 import { useViews } from '@/hooks/use-views'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { exportExcel } from '@/lib/export-excel'
@@ -125,6 +126,9 @@ export default function ProcessosPage() {
     else { setErroCarga(true); setRows((atual) => atual ?? []) }
   }, [])
   useEffect(() => { load() }, [load])
+  /* Tempo real: esta lista não recarregava com nada — processo iniciado, concluído ou
+     cancelado (por qualquer pessoa) só aparecia ao reabrir a tela. */
+  useAoVivo(() => { void load() })
 
   useEffect(() => {
     mounted.current = true
