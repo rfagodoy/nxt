@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { LoadErrorBlock } from '@/components/list/load-error'
 import { apiJson } from '@/lib/http'
+import { useAoVivo } from '@/lib/realtime'
 import { cn } from '@/lib/utils'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { dueInfo, kindMeta, COLUMNS, DUE_CHIP, type Task, type Grp, valorCurto } from '@/lib/tasks-ui'
@@ -25,11 +26,13 @@ export default function TarefasPage() {
   }, [])
   useEffect(() => { load() }, [load])
 
-  // A execução da tarefa acontece numa ABA (área de trabalho global). Ao concluir ou
-  // devolver, o host fecha a aba e dispara 'nxt:workspace:refresh' → recarrega o board;
-  // um erro da etapa automática seguinte chega por 'nxt:tasks:notice'.
+  /* Tempo real: a execução acontece numa ABA e, ao concluir ou devolver, o host dispara
+     'nxt:workspace:refresh' — o useAoVivo escuta esse evento E as gravações de outras
+     pessoas, então uma tarefa nova atribuída a mim aparece na caixa sem recarregar. */
+  useAoVivo(() => { void load() })
+
+  // Um erro da etapa automática seguinte chega por 'nxt:tasks:notice'.
   useEffect(() => {
-    const onRefresh = () => void load()
     const onNotice = (e: Event) => {
       const d = (e as CustomEvent<{ msg: string; tom: 'aviso' | 'sucesso' } | string>).detail
       if (!d) return setNotice(null)
@@ -39,13 +42,9 @@ export default function TarefasPage() {
          perder a mensagem por não estar olhando. */
       if (typeof d !== 'string' && d.tom === 'sucesso') setTimeout(() => setNotice(null), 6000)
     }
-    window.addEventListener('nxt:workspace:refresh', onRefresh)
     window.addEventListener('nxt:tasks:notice', onNotice as EventListener)
-    return () => {
-      window.removeEventListener('nxt:workspace:refresh', onRefresh)
-      window.removeEventListener('nxt:tasks:notice', onNotice as EventListener)
-    }
-  }, [load])
+    return () => window.removeEventListener('nxt:tasks:notice', onNotice as EventListener)
+  }, [])
 
   /** Abre a tarefa como documento na área de trabalho (padrão MDI da casa). */
   const openTask = (t: Task) =>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSession } from '@/lib/session-context'
 import {
@@ -9,6 +9,7 @@ import {
 import { ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { cn } from '@/lib/utils'
 import { apiFetch, apiJson } from '@/lib/http'
+import { useAoVivo } from '@/lib/realtime'
 import { dueInfo, type Task } from '@/lib/tasks-ui'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { StartProcessButton } from '@/components/processes/start-process-button'
@@ -55,18 +56,26 @@ function todayLabel(): string {
   return new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })
 }
 
-/** Anima um número de 0 ao alvo com easing — dá vida sem distrair. */
+/** Anima um número até o alvo com easing — dá vida sem distrair.
+ *  Parte do valor que JÁ está na tela, não de 0: com o painel ao vivo, uma recarga que
+ *  muda 7 para 8 desliza de 7 a 8. Partindo de 0, cada gravação de qualquer pessoa
+ *  derrubava o número a zero e o fazia subir de novo. Na primeira carga, a tela mostra
+ *  0, então a entrada continua subindo do zero. */
 function useCountUp(target: number, duration = 900): number {
   const [val, setVal] = useState(0)
+  const atual = useRef(0)
   useEffect(() => {
+    const from = atual.current
+    if (from === target) return
     let raf = 0
     let start = 0
     const tick = (t: number) => {
       if (!start) start = t
       const p = Math.min(1, (t - start) / duration)
-      setVal(target * (1 - Math.pow(1 - p, 3)))
+      const v = p < 1 ? from + (target - from) * (1 - Math.pow(1 - p, 3)) : target
+      atual.current = v
+      setVal(v)
       if (p < 1) raf = requestAnimationFrame(tick)
-      else setVal(target)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
@@ -115,24 +124,34 @@ export default function DashboardPage() {
     return n ? n.split(' ')[0].replace(/^./, c => c.toUpperCase()) : ''
   }, [session])
 
+  /* Carga do painel — a primeira e as recargas ao vivo. Depois da primeira, o esqueleto
+     não volta: só os números mudam, sem a tela piscar. */
+  const carregar = useCallback(async () => {
+    try {
+      /* As DUAS perguntas de quem abre o sistema, lado a lado: "como está a
+         carteira?" (resumo) e "o que preciso fazer?" (tarefas). A segunda vinha
+         sendo respondida só uma tela adiante. */
+      const [res, tarefas] = await Promise.all([
+        apiFetch('/api/dashboard/summary'),
+        apiJson<Task[]>('/api/instances/tasks').catch(() => []),
+      ])
+      if (res.ok && mounted.current) setData(await res.json() as Summary)
+      if (mounted.current) setMinhasTarefas(tarefas ?? [])
+    } catch { /* silencioso — mantém o que já está na tela */ }
+    finally { if (mounted.current) setLoading(false) }
+  }, [])
+
   useEffect(() => {
     mounted.current = true
-    void (async () => {
-      try {
-        /* As DUAS perguntas de quem abre o sistema, lado a lado: "como está a
-           carteira?" (resumo) e "o que preciso fazer?" (tarefas). A segunda vinha
-           sendo respondida só uma tela adiante. */
-        const [res, tarefas] = await Promise.all([
-          apiFetch('/api/dashboard/summary'),
-          apiJson<Task[]>('/api/instances/tasks').catch(() => []),
-        ])
-        if (res.ok && mounted.current) setData(await res.json() as Summary)
-        if (mounted.current) setMinhasTarefas(tarefas ?? [])
-      } catch { /* silencioso — UI mostra estado vazio */ }
-      finally { if (mounted.current) setLoading(false) }
-    })()
+    void carregar()
     return () => { mounted.current = false }
-  }, [])
+  }, [carregar])
+
+  /* Tempo real. O painel fica montado por baixo das abas de documento: prorrogar um
+     contrato numa aba e voltar para cá não o remontava, e os números ficavam velhos até
+     atualizar o navegador. Agora recarrega quando qualquer gravação da organização
+     acontece — desta aba, de outro usuário ou do motor de datas. */
+  useAoVivo(() => { void carregar() })
 
   /* A faixa mostra o ESTADO da caixa, não a caixa: quantas esperam, quantas já
      venceram e qual é a mais urgente. O detalhe vive em /tarefas. */

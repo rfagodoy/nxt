@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common'
 import { InstancesService } from './instances.service'
 import { NotificationsService } from '../notifications/notifications.service'
+import { RealtimeService } from '../realtime/realtime.service'
 
 /** Varredura periódica de prazos (SLA) das tarefas de workflow: avisa quem está
  *  perto de estourar o prazo e marca/avisa as que já venceram. Roda uma vez no
@@ -13,6 +14,7 @@ export class WorkflowSchedulerService implements OnModuleInit {
   constructor(
     private readonly instances: InstancesService,
     private readonly notifications: NotificationsService,
+    private readonly realtime: RealtimeService,
   ) {}
 
   onModuleInit() {
@@ -40,6 +42,9 @@ export class WorkflowSchedulerService implements OnModuleInit {
       if (n > 0) this.logger.warn(`${n} tarefa(s) de workflow venceram o prazo — escalonadas`)
       const again = await this.instances.sweepOverdueReminders()
       if (again > 0) this.logger.warn(`${again} tarefa(s) seguem vencidas — responsáveis reavisados`)
+      /* a varredura roda fora de requisição: sem este aviso, a tela aberta só veria o
+         prazo estourado na próxima recarga. Ela devolve contagem, não organização → todas. */
+      if (soon + n + again > 0) this.realtime.emitirParaTodas(['instances', 'notifications'])
     } catch (e) {
       this.logger.error(`varredura de prazos falhou: ${String(e)}`)
     } finally {

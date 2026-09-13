@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
+import { useAoVivo } from '@/lib/realtime'
 import { ResponsaveisSection } from '@/components/responsaveis/responsaveis-section'
 import { useLookupTable, type LookupEntry } from '@/hooks/use-lookup-table'
 import { TIPOS_UNIDADE_KEY, INIT_TIPOS_UNIDADE, CLASS_COLOR } from '@/lib/unit-types'
@@ -469,12 +470,9 @@ function OrgChart({ companyId, onChanged }: { companyId: string; onChanged: () =
     return out
   }, [cache, expanded])
 
-  /* recarrega a árvore quando uma unidade é salva/criada na área de trabalho */
-  useEffect(() => {
-    const h = () => { void refresh() }
-    window.addEventListener('nxt:workspace:refresh', h)
-    return () => window.removeEventListener('nxt:workspace:refresh', h)
-  }, [refresh])
+  /* Tempo real: recarrega a árvore (mantendo o que está expandido) quando uma unidade é
+     salva nesta aba ou quando outra pessoa altera a estrutura. */
+  useAoVivo(() => { void refresh() })
 
   /* Dialogs do DS no lugar de confirm()/alert() nativos (auditoria 2026-08-21). */
   const [removendo, setRemovendo] = useState<Unit | null>(null)

@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { Plus, ArrowUp, ArrowDown, ChevronsUpDown, Settings2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
+import { useAoVivo } from '@/lib/realtime'
 import { StartProcessButton } from '@/components/processes/start-process-button'
 import { useViews, type ViewState } from '@/hooks/use-views'
 import { exportExcel } from '@/lib/export-excel'
@@ -208,12 +209,10 @@ export default function ContratosPage() {
   const openContract    = (row: Row) => ws.open({ id: `contract:${row.id}`, kind: 'contract', mode: 'detail', label: row.numero, data: row })
   const openNewContract = ()         => ws.open({ id: 'contract:new', kind: 'contract', mode: 'new', label: 'Novo contrato' })
 
-  /* recarrega a lista quando um documento é salvo/transicionado na área de trabalho */
-  useEffect(() => {
-    const h = () => { void queryServer() }
-    window.addEventListener('nxt:workspace:refresh', h)
-    return () => window.removeEventListener('nxt:workspace:refresh', h)
-  }, [queryServer])
+  /* Tempo real: recarrega a página atual da lista (com filtros, busca e ordenação) quando
+     um documento é salvo nesta aba, quando outra pessoa grava algo ou quando o motor de
+     datas renova/encerra um contrato. */
+  useAoVivo(() => { void queryServer() })
 
   useEffect(() => { setPage(1) }, [debouncedSearch, filters, sort, logic, pageSize])
 

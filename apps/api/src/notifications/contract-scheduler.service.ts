@@ -8,6 +8,7 @@ import {
 import type { CoreReajusteRealizado } from '@nxt/contracts-core'
 import type { MotivoNaoAplicar } from '@nxt/contracts-core'
 import { PrismaService } from '../prisma.service'
+import { RealtimeService } from '../realtime/realtime.service'
 import { SettingsService } from '../settings/settings.service'
 import { ContractsService } from '../contracts/contracts.service'
 import { StorageService } from '../files/storage.service'
@@ -104,7 +105,7 @@ export interface ReajusteAplicado {
 @Injectable()
 export class ContractSchedulerService implements OnModuleInit {
   private readonly logger = new Logger('ContractScheduler')
-  constructor(private readonly prisma: PrismaService, private readonly settings: SettingsService, private readonly contracts: ContractsService, private readonly storage: StorageService) {}
+  constructor(private readonly prisma: PrismaService, private readonly settings: SettingsService, private readonly contracts: ContractsService, private readonly storage: StorageService, private readonly realtime: RealtimeService) {}
 
   onModuleInit() {
     /* agendador in-process: dispara ~3h da manhã, todo dia (sem @nestjs/schedule) */
@@ -367,6 +368,9 @@ export class ContractSchedulerService implements OnModuleInit {
         ...(activeKeys.length ? { dedupKey: { notIn: activeKeys } } : {}),
       },
     })
+    /* O motor roda fora de requisição (3h da manhã, boot): sem este aviso, quem estiver com
+       o painel aberto só veria a renovação/encerramento/aviso novo ao recarregar a página. */
+    this.realtime.emitir(organizationId, ['contracts', 'notifications'])
     return { renovados, encerrados, notificacoes: activeKeys.length, resolvidas: resolved.count,
       reajustes: reajustesAplicados.length, detalhe: reajustesAplicados, pendentes: reajustesPendentes }
   }

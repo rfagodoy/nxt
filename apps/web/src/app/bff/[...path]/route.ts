@@ -70,7 +70,9 @@ async function handle(req: Request, ctx: { params: Promise<{ path: string[] }> }
     const accept = req.headers.get('accept')
     if (accept) headers.set('accept', accept)
     if (bearer) headers.set('authorization', `Bearer ${bearer}`)
-    return fetch(target, { method: req.method, headers, body, redirect: 'manual' })
+    /* `signal`: quando o navegador fecha a conexão (ex.: fluxo de tempo real ao sair da
+       tela), a chamada à API é cancelada junto — senão ela fica pendurada no servidor. */
+    return fetch(target, { method: req.method, headers, body, redirect: 'manual', signal: req.signal })
   }
 
   let apiRes = await forward(token)

@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { TablePagination } from '@/components/ui/table-pagination'
 import { apiFetch, apiJson } from '@/lib/http'
+import { useAoVivo } from '@/lib/realtime'
 import { cn } from '@/lib/utils'
 
 interface Notif {
@@ -58,6 +59,8 @@ export default function NotificacoesHistoricoPage() {
     } finally { setBusy(false) }
   }, [page, pageSize, tipo, unread])
   useEffect(() => { void load() }, [load])
+  /* Tempo real: aviso novo (motor de datas, prazo de tarefa) entra na lista sem recarregar. */
+  useAoVivo(() => { void load() })
   useEffect(() => { setPage(1) }, [tipo, unread, pageSize])
 
   const markAll = async () => {
