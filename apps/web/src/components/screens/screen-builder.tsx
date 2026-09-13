@@ -265,7 +265,7 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
     <div className="max-w-[1240px] mx-auto pb-16">
 
       {/* ── barra fixa: título editável + padrão + modo + salvar ── */}
-      <div className="glass-panel sticky top-0 z-30 -mt-4 mb-4 border-b">
+      <div className="glass-panel sticky top-0 z-30 mb-4 border-b">
         <div className="flex items-center gap-3 py-2.5">
           <button onClick={() => router.push('/settings/telas')} title="Voltar" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
             <ChevronLeft className="h-4 w-4" />

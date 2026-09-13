@@ -656,7 +656,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   }, [selectedId, nodeById, removeNode])
 
   return (
-    <div className="flex flex-col h-full -m-6">
+    /* Sem o -m-6 de antes: o <main> não tem mais o p-6 a compensar. O editor vira um
+       cartão que ocupa a área toda, com cantos da mesma família das ilhas. */
+    <div className="flex flex-col h-full overflow-hidden rounded-xl border bg-background">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b bg-card shrink-0">
         <Button variant="ghost" size="icon" onClick={() => router.push('/workflows')} className="h-8 w-8"><ArrowLeft className="h-4 w-4" /></Button>

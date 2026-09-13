@@ -254,7 +254,7 @@ export default function ProcessosPage() {
             onClick={() => setStatusFiltro((atual) => (filtro && atual === filtro ? null : filtro))}
             disabled={!filtro}
             className={cn(
-              'rounded-xl border bg-card px-3 py-2 flex items-center justify-between shadow-sm text-left transition-colors',
+              'vidro rounded-xl bg-[var(--vidro-cartao)] px-3 py-2 flex items-center justify-between text-left transition-colors',
               filtro ? 'hover:bg-muted/60 cursor-pointer' : 'cursor-default',
               filtro && statusFiltro === filtro && 'border-primary bg-primary/5',
               label === 'Com erro' && value > 0 && 'border-red-300 dark:border-red-900',
