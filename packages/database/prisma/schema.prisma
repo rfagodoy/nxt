@@ -558,6 +558,34 @@ model AppSetting {
   @@map("app_settings")
 }
 
+// ─── Coordenação entre instâncias da API ─────────────────────────────────────
+// Permite rodar mais de uma instância da API sobre o mesmo banco sem perder aviso de
+// tempo real nem duplicar rotina automática. O banco é a única coisa que todas veem.
+
+// Trava das rotinas automáticas (motor de datas, varredura de prazos, expurgo, resumo
+// de e-mails). Expira em `lockedUntil`: instância que cai no meio não prende a rotina.
+model SchedulerLock {
+  name        String   @id
+  holder      String   // hostname:pid:sufixo da instância que segura
+  lockedUntil DateTime
+  updatedAt   DateTime @updatedAt
+
+  @@map("scheduler_locks")
+}
+
+// Avisos de tempo real ("algo mudou nesta organização"). Cada instância lê as linhas
+// recentes e entrega aos navegadores conectados nela. Vida curta: apagadas em minutos.
+// `em` é gravado pela aplicação (não pelo default do banco, que segue o fuso do servidor).
+model RealtimeEvent {
+  id             BigInt   @id @default(autoincrement())
+  organizationId String   // "*" = todas (rotina que não sabe de quem era o dado)
+  topicos        String   // separados por vírgula: "contracts,notifications"
+  em             DateTime
+
+  @@index([em])
+  @@map("realtime_events")
+}
+
 // ─── Personalização de telas (Screens) ───────────────────────────────────────
 // Catálogo de "Telas" reutilizáveis (por perfil de acesso e por etapa de processo).
 // DEFINIÇÃO: Screen → ScreenSection/ScreenField. Cada campo é NATIVE (visão de um

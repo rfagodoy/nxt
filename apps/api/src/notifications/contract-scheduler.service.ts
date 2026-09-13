@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
+import { ConflictException, Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import {
   daysBetween, todayISO,
   terminoVigente, valorVigente, consumo,
@@ -9,6 +9,7 @@ import type { CoreReajusteRealizado } from '@nxt/contracts-core'
 import type { MotivoNaoAplicar } from '@nxt/contracts-core'
 import { PrismaService } from '../prisma.service'
 import { RealtimeService } from '../realtime/realtime.service'
+import { TravaService } from '../realtime/trava.service'
 import { SettingsService } from '../settings/settings.service'
 import { ContractsService } from '../contracts/contracts.service'
 import { StorageService } from '../files/storage.service'
@@ -105,7 +106,13 @@ export interface ReajusteAplicado {
 @Injectable()
 export class ContractSchedulerService implements OnModuleInit {
   private readonly logger = new Logger('ContractScheduler')
-  constructor(private readonly prisma: PrismaService, private readonly settings: SettingsService, private readonly contracts: ContractsService, private readonly storage: StorageService, private readonly realtime: RealtimeService) {}
+  constructor(private readonly prisma: PrismaService, private readonly settings: SettingsService, private readonly contracts: ContractsService, private readonly storage: StorageService, private readonly realtime: RealtimeService, private readonly trava: TravaService) {}
+
+  /* Trava ENTRE INSTÂNCIAS do motor. Liberada ao terminar: rodar de novo no mesmo dia é
+     inofensivo (o motor é idempotente); o que duplica auditoria é rodar AO MESMO TEMPO.
+     O prazo cobre uma base grande; se a instância cair no meio, ela expira sozinha. */
+  static readonly TRAVA_MOTOR = 'motor-datas'
+  static readonly DURACAO_MOTOR_MS = 2 * 60 * 60_000
 
   onModuleInit() {
     /* agendador in-process: dispara ~3h da manhã, todo dia (sem @nestjs/schedule) */
@@ -129,12 +136,17 @@ export class ContractSchedulerService implements OnModuleInit {
     if (this.running) { this.logger.warn('runAll já em execução — ignorando disparo concorrente'); return }
     this.running = true
     try {
-      const orgs = await this.prisma.contract.findMany({ distinct: ['organizationId'], select: { organizationId: true } })
-      for (const { organizationId } of orgs) {
-        await this.importIndices(organizationId)  // atualiza valores de índice (BCB) antes das notificações
-        await this.runForOrg(organizationId)
-      }
-      await this.sweepOrphans()  // storage é global (a key carrega o prefixo da org) → varre uma vez só
+      /* `running` segura o disparo duplo DENTRO deste processo; a trava segura ENTRE
+         instâncias — as 3h e o boot de cada uma disparam juntos quando há mais de uma. */
+      const r = await this.trava.executar(ContractSchedulerService.TRAVA_MOTOR, ContractSchedulerService.DURACAO_MOTOR_MS, async () => {
+        const orgs = await this.prisma.contract.findMany({ distinct: ['organizationId'], select: { organizationId: true } })
+        for (const { organizationId } of orgs) {
+          await this.importIndices(organizationId)  // atualiza valores de índice (BCB) antes das notificações
+          await this.runForOrg(organizationId)
+        }
+        await this.sweepOrphans()  // storage é global (a key carrega o prefixo da org) → varre uma vez só
+      })
+      if (!r.executou) this.logger.log('motor de datas já está rodando em outra instância — esta execução foi pulada')
     } catch (e) { this.logger.error(`runAll falhou: ${String(e)}`) }
     finally { this.running = false }
   }
@@ -216,9 +228,22 @@ export class ContractSchedulerService implements OnModuleInit {
    *  `dryRun` calcula tudo e não grava NADA — serve para conferir o que o motor faria
    *  antes de deixá-lo aplicar reajustes sobre uma base histórica. */
   async runNow(organizationId: string, dryRun = false) {
-    const indices = dryRun ? { atualizados: 0, ignorado: true } : await this.importIndices(organizationId)
-    const engine = await this.runForOrg(organizationId, dryRun)
-    return { dryRun, indices: indices.ignorado ? 0 : indices.atualizados, ...engine }
+    /* dry-run não grava nada: pode rodar junto com qualquer execução */
+    if (dryRun) {
+      const engine = await this.runForOrg(organizationId, true)
+      return { dryRun, indices: 0, ...engine }
+    }
+    /* Execução de verdade respeita a MESMA trava da rotina automática: o clique do admin
+       não pode rodar por cima do motor das 3h (nesta ou em outra instância). */
+    const r = await this.trava.executar(ContractSchedulerService.TRAVA_MOTOR, ContractSchedulerService.DURACAO_MOTOR_MS, async () => {
+      const indices = await this.importIndices(organizationId)
+      const engine = await this.runForOrg(organizationId, false)
+      return { dryRun, indices: indices.ignorado ? 0 : indices.atualizados, ...engine }
+    })
+    if (!r.executou) {
+      throw new ConflictException('O motor de datas já está rodando (execução automática ou de outro administrador). Tente de novo em alguns minutos.')
+    }
+    return r.resultado
   }
 
   /** Executa o motor para UMA organização. Retorna um resumo (usado pelo endpoint /run). */
@@ -370,7 +395,7 @@ export class ContractSchedulerService implements OnModuleInit {
     })
     /* O motor roda fora de requisição (3h da manhã, boot): sem este aviso, quem estiver com
        o painel aberto só veria a renovação/encerramento/aviso novo ao recarregar a página. */
-    this.realtime.emitir(organizationId, ['contracts', 'notifications'])
+    await this.realtime.emitir(organizationId, ['contracts', 'notifications'])
     return { renovados, encerrados, notificacoes: activeKeys.length, resolvidas: resolved.count,
       reajustes: reajustesAplicados.length, detalhe: reajustesAplicados, pendentes: reajustesPendentes }
   }

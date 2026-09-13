@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
 import { SettingsService } from '../settings/settings.service'
+import { TravaService } from '../realtime/trava.service'
 import { MailerService, layout, escapeHtml } from './mailer.service'
 import { NOTIF_PARAMS_KEY, emailParams } from './notification-params'
 import { ContractAlertsMailService } from './contract-alerts-mail.service'
@@ -11,16 +12,21 @@ import { ContractAlertsMailService } from './contract-alerts-mail.service'
    liga as duas coisas recebe tudo em dobro e desliga o canal no dia seguinte.
 
    O disparo é por HORA LOCAL configurada (padrão 8h) e uma vez por dia por
-   organização: o agendador tem granularidade de 5 minutos, então a marca do último
-   envio evita repetir dentro da mesma hora. */
+   organização. "Uma vez por dia" é uma trava NO BANCO por organização e data — antes
+   era um Map em memória, que cada instância da API teria o seu: com duas instâncias,
+   o resumo sairia duas vezes. */
 
 const CICLO_MS = 5 * 60_000
+/* a trava do dia dura mais que um dia: mesmo com o relógio da hora configurada caindo
+   perto da virada, ela não expira a tempo de reenviar */
+const TRAVA_DO_DIA_MS = 26 * 60 * 60_000
+/* o ciclo em si também passa pela trava (quase o intervalo, não liberada): duas
+   instâncias não varrem as organizações ao mesmo tempo */
+const TRAVA_CICLO_MS = 4.5 * 60_000
 
 @Injectable()
 export class MailDigestService implements OnModuleInit {
   private readonly logger = new Logger('MailDigest')
-  /** organizationId → 'YYYY-MM-DD' do último resumo enviado */
-  private ultimoEnvio = new Map<string, string>()
   private rodando = false
 
   constructor(
@@ -28,6 +34,7 @@ export class MailDigestService implements OnModuleInit {
     private readonly settings: SettingsService,
     private readonly mailer: MailerService,
     private readonly contractAlerts: ContractAlertsMailService,
+    private readonly trava: TravaService,
   ) {}
 
   onModuleInit() {
@@ -39,11 +46,13 @@ export class MailDigestService implements OnModuleInit {
     if (this.rodando) return
     this.rodando = true
     try {
-      const orgs = await this.prisma.organization.findMany({ select: { id: true } })
-      // o canal é POR ORGANIZAÇÃO: uma pode ter SMTP e outra não
-      for (const org of orgs) {
-        if (await this.mailer.enabled(org.id)) await this.runOrg(org.id)
-      }
+      await this.trava.executar('resumo-email:ciclo', TRAVA_CICLO_MS, async () => {
+        const orgs = await this.prisma.organization.findMany({ select: { id: true } })
+        // o canal é POR ORGANIZAÇÃO: uma pode ter SMTP e outra não
+        for (const org of orgs) {
+          if (await this.mailer.enabled(org.id)) await this.runOrg(org.id)
+        }
+      }, false)
     } catch (e) {
       this.logger.error(`resumo diário falhou: ${String(e)}`)
     } finally {
@@ -63,15 +72,19 @@ export class MailDigestService implements OnModuleInit {
     const agora = new Date()
     const hoje = agora.toISOString().slice(0, 10)
     if (agora.getHours() !== params.horaResumo) return 0
-    if (this.ultimoEnvio.get(organizationId) === hoje) return 0
 
-    const enviados = params.resumoDiario ? await this.enviar(organizationId) : 0
-    /* gate próprio: quem desliga o resumo pessoal não está desligando os alertas de
-       contrato (e vice-versa) — são públicos e decisões diferentes. */
-    const contratos = await this.contractAlerts.enviar(organizationId)
-    this.ultimoEnvio.set(organizationId, hoje)
-    if (enviados > 0) this.logger.log(`resumo diário enviado para ${enviados} pessoa(s)`)
-    return enviados + contratos
+    /* A trava do dia só é pega na hora certa e NÃO é liberada: é ela que diz "já saiu
+       hoje". Se o envio falhar, a trava é solta e o próximo ciclo tenta de novo. */
+    const r = await this.trava.executar(`resumo-email:${organizationId}:${hoje}`, TRAVA_DO_DIA_MS, async () => {
+      const enviados = params.resumoDiario ? await this.enviar(organizationId) : 0
+      /* gate próprio: quem desliga o resumo pessoal não está desligando os alertas de
+         contrato (e vice-versa) — são públicos e decisões diferentes. */
+      const contratos = await this.contractAlerts.enviar(organizationId)
+      return { enviados, contratos }
+    }, false)
+    if (!r.executou) return 0
+    if (r.resultado.enviados > 0) this.logger.log(`resumo diário enviado para ${r.resultado.enviados} pessoa(s)`)
+    return r.resultado.enviados + r.resultado.contratos
   }
 
   /** Monta e envia o resumo. Público para o disparo manual da tela (admin). */

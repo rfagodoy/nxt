@@ -18,6 +18,7 @@ export class RealtimeInterceptor implements NestInterceptor {
     const topicos = topicosDaRota(req.method, req.originalUrl ?? req.url)
     const org = req.user?.[ORG_CLAIM]
     if (topicos.length === 0 || typeof org !== 'string' || !org) return next.handle()
-    return next.handle().pipe(tap({ complete: () => this.realtime.emitir(org, topicos) }))
+    /* sem await: gravar o aviso não pode atrasar a resposta de quem salvou */
+    return next.handle().pipe(tap({ complete: () => { void this.realtime.emitir(org, topicos) } }))
   }
 }
