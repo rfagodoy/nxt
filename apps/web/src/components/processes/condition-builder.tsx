@@ -13,8 +13,10 @@ export interface SaidaCondicional { condition?: string; conditionSpec?: EdgeCond
 
 /* ── Construtor de condição de UM caminho: [Campo] [operador] [Valor], com E/OU.
      Gera a expressão do motor a partir do spec — ninguém digita expressão. ── */
-export function CondBuilder({ edge, campos, onSet }: {
+export function CondBuilder({ edge, campos, onSet, semCampos }: {
   edge: SaidaCondicional; campos: CampoDisponivel[]; onSet: (patch: Partial<SaidaCondicional>) => void
+  /** O que dizer quando não há campo para filtrar (quem chama sabe o PORQUÊ e o conserto). */
+  semCampos?: React.ReactNode
 }) {
   const spec = edge.conditionSpec ?? null
 
@@ -51,7 +53,7 @@ export function CondBuilder({ edge, campos, onSet }: {
           Expressão antiga: <span className="font-mono">{edge.condition}</span> — montar filtros abaixo a substitui.
         </p>
       )}
-      {campos.length === 0 ? (
+      {campos.length === 0 ? (semCampos ??
         <p className="text-[11px] text-muted-foreground leading-snug rounded-md border border-dashed px-2.5 py-2">
           Nenhum campo disponível ainda: as condições testam o que as atividades <span className="font-medium">anteriores</span> capturam.
           Coloque antes desta escolha uma atividade com Tela de contrato (ou com formulário).

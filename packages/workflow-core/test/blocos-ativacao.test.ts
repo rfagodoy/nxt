@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  blocosParaGrafo, grafoParaMotor, moverCaminho, lerFluxoBlocos, pendenciasDosBlocos, resumoDeInicio,
+  blocosParaGrafo, grafoParaMotor, moverCaminho, lerFluxoBlocos, pendenciasDosBlocos, resumoDeInicio, listarEscolhas,
   startProcess, completeToken, makeCounterRuntime,
   type FluxoBlocos,
 } from '../index'
@@ -97,6 +97,15 @@ describe('ordem de avaliação no motor', () => {
   })
   it('na ordem original vence o 1º caminho (diretoria)', () => {
     expect(executar(fluxo())).toEqual(['dir'])
+  })
+})
+
+describe('listarEscolhas', () => {
+  it('acha as escolhas, inclusive dentro de caminhos', () => {
+    const f = fluxo()
+    const par = f.itens[2] as { caminhos: Array<{ itens: unknown[] }> }
+    par.caminhos[0].itens.push({ kind: 'escolha', id: 'aninhada', caminhos: [], casoContrario: { id: 'cc2', itens: [], fim: { tipo: 'segue' } } })
+    expect(listarEscolhas(f).map((e) => e.id)).toEqual(['valor', 'aninhada'])
   })
 })
 

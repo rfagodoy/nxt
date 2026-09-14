@@ -247,6 +247,11 @@ export function listarAtividades(f: FluxoBlocos): ItemAtividade[] {
   return listas(f).flatMap((l) => l.itens.filter((x): x is ItemAtividade => x.kind === 'atividade'))
 }
 
+/** Todas as escolhas do fluxo, inclusive as aninhadas em caminhos. */
+export function listarEscolhas(f: FluxoBlocos): BlocoEscolha[] {
+  return listas(f).flatMap((l) => l.itens.filter((x): x is BlocoEscolha => x.kind === 'escolha'))
+}
+
 /** Atividades que podem ser DESTINO de uma volta a partir da escolha `escolhaId`: as que
  *  vêm antes dela no fluxo e não moram dentro de um "ao mesmo tempo" (armadilha 3). */
 export function destinosDeVolta(f: FluxoBlocos, escolhaId: string): ItemAtividade[] {

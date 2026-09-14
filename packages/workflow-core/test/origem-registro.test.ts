@@ -35,6 +35,20 @@ describe('validarOrigemDoRegistro', () => {
     expect(validarOrigemDoRegistro([{ from: 'auto', to: 'ver' }], [acao, consulta])).toEqual([])
   })
 
+  it('escolha que testa o contrato sem ninguém antes que o crie → aviso de caso contrário sempre', () => {
+    const escolha = { stepId: 'gw', stepName: 'Necessita de parecer do Patrimônio?', tipoItem: 'escolha' as const, screenSubject: 'CONTRATO' }
+    const preencher = { stepId: 'pre', stepName: 'Preencher', screenRef: undefined }
+    const ps = validarOrigemDoRegistro([{ from: 'pre', to: 'gw' }], [preencher, escolha])
+    expect(ps).toHaveLength(1)
+    expect(ps[0]).toMatchObject({ tipo: 'registro-sem-origem', severidade: 'aviso', nodeId: 'gw' })
+    expect(ps[0].mensagem).toContain('seguiria sempre pelo caso contrário')
+  })
+
+  it('escolha com quem crie o contrato antes → nada', () => {
+    const escolha = { stepId: 'gw', stepName: 'Valor alto?', tipoItem: 'escolha' as const, screenSubject: 'CONTRATO' }
+    expect(validarOrigemDoRegistro([{ from: 'cad', to: 'gw' }], [cria, escolha])).toEqual([])
+  })
+
   it('num laço a própria etapa não conta como origem', () => {
     const edges = [{ from: 'start', to: 'rev' }, { from: 'rev', to: 'rev' }]
     expect(validarOrigemDoRegistro(edges, [edita])).toHaveLength(1)
