@@ -18,7 +18,7 @@ import {
   type ItemAtividade, type ItemFluxo, type ProblemaAtivacao,
 } from '@nxt/workflow-core'
 import type { EdgeConditionSpec, StepFormSchema } from '@nxt/types'
-import { camposDisponiveis, decidirSaida, montarVarsSimulacao } from '@/lib/flow-conditions'
+import { camposDasTelasDasAtividades, decidirSaida, montarVarsSimulacao, type CampoDisponivel } from '@/lib/flow-conditions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -77,6 +77,13 @@ function escolhasEmParalelo(f: FluxoBlocos): Set<string> {
   }
   visitar(f.itens, false)
   return out
+}
+
+/** Atividades de uma lista de itens, inclusive as de blocos aninhados nela. */
+function atividadesDentro(itens: ItemFluxo[]): ItemAtividade[] {
+  return itens.flatMap((it) => (it.kind === 'atividade' ? [it]
+    : it.kind === 'escolha' ? [...it.caminhos, it.casoContrario].flatMap((c) => atividadesDentro(c.itens))
+      : it.caminhos.flatMap((c) => atividadesDentro(c.itens))))
 }
 
 function resumoItens(itens: ItemFluxo[], nomeDe: (id: string) => string): string {
@@ -626,21 +633,40 @@ type Screens = ReturnType<typeof useScreens>['screens']
 
 /** Mesma anatomia do modal de atividade: edição ao vivo com RETRATO na abertura —
  *  Cancelar/Esc devolve o fluxo como estava, Aplicar só fecha. */
-export function EscolhaConfigModal({ fluxo, blocoId, nodes, edges, screens, onFluxo, onSimulacao, onRemove, onClose }: {
+export function EscolhaConfigModal({ fluxo, blocoId, nodes, screens, onFluxo, onSimulacao, onRemove, onClose, onConfigurarAtividade }: {
   fluxo: FluxoBlocos
   blocoId: string
-  /** grafo GERADO dos blocos — é nele que se descobre o que vem antes da escolha */
+  /** nós do grafo gerado, com a configuração (tela) de cada atividade */
   nodes: Array<{ id: string; type: string; name?: string; step?: StepFormSchema }>
-  edges: Array<{ from: string; to: string }>
   screens: Screens
   onFluxo: (fn: (f: FluxoBlocos) => FluxoBlocos) => void
   onSimulacao?: (s: Simulacao | null) => void
   onRemove: () => void
   onClose: () => void
+  /** Abre a configuração de uma atividade (na seção Formulário) — o conserto de "sem campos". */
+  onConfigurarAtividade?: (atividadeId: string) => void
 }) {
   const achado = acharItem(fluxo, blocoId)
   const bloco = achado?.kind === 'escolha' ? achado : null
-  const campos = useMemo(() => camposDisponiveis(nodes, edges, blocoId, screens), [nodes, edges, blocoId, screens])
+  /* Os campos de cada caminho vêm da TELA da atividade que está dentro dele (decisão do PO,
+     13/09/2026). O valor testado continua sendo o do contrato do processo no momento da
+     decisão — a tela é só a lista de campos. */
+  const camposPorCaminho = useMemo(() => {
+    const out: Record<string, CampoDisponivel[]> = {}
+    for (const c of bloco?.caminhos ?? []) {
+      const passos = atividadesDentro(c.itens)
+        .map((a) => nodes.find((n) => n.id === a.id)?.step)
+        .filter((s): s is StepFormSchema => !!s)
+      out[c.id] = camposDasTelasDasAtividades(passos, screens)
+    }
+    return out
+  }, [bloco, nodes, screens])
+  // todos os campos juntos: é o vocabulário do "Testar decisão"
+  const campos = useMemo(() => {
+    const m = new Map<string, CampoDisponivel>()
+    for (const lista of Object.values(camposPorCaminho)) for (const c of lista) if (!m.has(c.key)) m.set(c.key, c)
+    return [...m.values()]
+  }, [camposPorCaminho])
   const dentroParalelo = useMemo(() => escolhasEmParalelo(fluxo).has(blocoId), [fluxo, blocoId])
   const nomeDe = (id: string) => nodes.find((n) => n.id === id)?.step?.stepName?.trim() || 'Atividade sem nome'
 
@@ -674,6 +700,36 @@ export function EscolhaConfigModal({ fluxo, blocoId, nodes, edges, screens, onFl
   useEffect(() => () => onSimulacao?.(null), []) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!mounted || !bloco) return null
+
+  /** Por que ESTE caminho não tem campo para filtrar — e o conserto a um clique. */
+  const semCamposDo = (c: CaminhoCondicional) => {
+    const tarefas = atividadesDentro(c.itens).filter((a) => a.tipo === 'userTask')
+    const semTela = tarefas.filter((a) => !nodes.find((n) => n.id === a.id)?.step?.screenRef)
+    return (
+      <div role="status" className="space-y-1.5 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-[11.5px] leading-snug text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+        <p className="flex items-start gap-1.5">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            {tarefas.length === 0
+              ? <>O filtro usa os campos da <span className="font-semibold">tela da atividade deste caminho</span>, e ele ainda não tem atividade. Insira uma atividade com tela de contrato neste caminho, pelo <span className="font-semibold">+</span> no desenho.</>
+              : semTela.length > 0
+                ? <>O filtro usa os campos da <span className="font-semibold">tela da atividade deste caminho</span>, e {semTela.length === 1 ? 'ela está' : 'elas estão'} <span className="font-semibold">sem tela</span>.</>
+                : <>As atividades deste caminho não usam tela de <span className="font-semibold">contrato</span> — o filtro só testa campos do contrato.</>}
+          </span>
+        </p>
+        {semTela.length > 0 && onConfigurarAtividade && (
+          <div className="flex flex-wrap gap-1.5 pl-5">
+            {semTela.map((a) => (
+              <button key={a.id} type="button" onClick={() => onConfigurarAtividade(a.id)}
+                className="inline-flex items-center gap-1 rounded-md border border-amber-400/70 bg-card px-2 py-1 text-[11.5px] font-semibold text-foreground hover:bg-muted">
+                <SlidersHorizontal className="h-3 w-3" />Escolher a tela de “{nomeDe(a.id)}”
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   const marcaSim = (id: string) => {
     const acesa = simAberto && vencedora === id
@@ -788,7 +844,8 @@ export function EscolhaConfigModal({ fluxo, blocoId, nodes, edges, screens, onFl
                     </span>
                   )}
                 </div>
-                <CondBuilder edge={{ condition: c.condition, conditionSpec: c.conditionSpec as EdgeConditionSpec | undefined, label: c.rotulo }} campos={campos}
+                <CondBuilder edge={{ condition: c.condition, conditionSpec: c.conditionSpec as EdgeConditionSpec | undefined, label: c.rotulo }} campos={camposPorCaminho[c.id] ?? []}
+                  semCampos={semCamposDo(c)}
                   onSet={(p) => onFluxo((f) => atualizarCaminho(f, c.id, {
                     ...('condition' in p ? { condition: p.condition } : {}),
                     ...('conditionSpec' in p ? { conditionSpec: p.conditionSpec } : {}),

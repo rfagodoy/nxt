@@ -12,7 +12,7 @@ import {
 import { createPortal } from 'react-dom'
 import {
   generateBpmn, compileBpmn, validarDesenho, validarDecisoes, validarAtividades, validarTelasDasAtividades,
-  bloqueantes, avisos as avisosDe, blocosParaGrafo, grafoParaBlocos, novoFluxo, pendenciasDosBlocos, validarOrigemDoRegistro,
+  bloqueantes, avisos as avisosDe, blocosParaGrafo, grafoParaBlocos, novoFluxo, pendenciasDosBlocos, validarOrigemDoRegistro, listarEscolhas,
   acharItem, inserirItem, removerItem, atualizarItem, SUFIXO_REENCONTRO,
   type ProblemaAtivacao, type WfGraph, type WfNode, type WfEdge, type FluxoBlocos,
 } from '@nxt/workflow-core'
@@ -260,6 +260,10 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
      deseleciona, e o painel lateral segue mostrando o resumo. */
   const [configId, setConfigId] = useState<string | null>(null)
   const [escolhaId, setEscolhaId] = useState<string | null>(null)
+  /* Vindo do aviso "sem campos" da escolha: abre a atividade já na seção Formulário e, ao
+     fechar, devolve a pessoa para a escolha de onde ela saiu. */
+  const [retornoEscolha, setRetornoEscolha] = useState<string | null>(null)
+  const [configSecao, setConfigSecao] = useState<string | undefined>(undefined)
   /* Painel de pendências de ativação (aberto pela pílula ou pelo "Ativar"). */
   const [pendAberto, setPendAberto] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -323,11 +327,17 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         tarefas.map((n) => ({ stepId: n.id, stepName: n.step?.stepName, screenRef: n.step?.screenRef, entityMode: n.step?.entityMode, extraScreens: n.step?.extraScreens })),
         screens,
       ),
-      // editar/consultar usa o registro do processo: avisa quando ninguém antes o cria
-      ...validarOrigemDoRegistro(vedges, nodes.filter((n) => isActivity(n.type)).map((n) => ({
-        stepId: n.id, stepName: n.step?.stepName, screenRef: n.step?.screenRef, screenSubject: n.step?.screenSubject,
-        entityMode: n.step?.entityMode, produz: n.type === 'serviceTask' ? findConnector(n.step?.connector)?.outputs : undefined,
-      }))),
+      /* Editar/consultar — e a escolha que testa campos do contrato — usam o registro do
+         processo: avisa quando nenhuma atividade antes o cria. */
+      ...validarOrigemDoRegistro(vedges, [
+        ...nodes.filter((n) => isActivity(n.type)).map((n) => ({
+          stepId: n.id, stepName: n.step?.stepName, screenRef: n.step?.screenRef, screenSubject: n.step?.screenSubject,
+          entityMode: n.step?.entityMode, produz: n.type === 'serviceTask' ? findConnector(n.step?.connector)?.outputs : undefined,
+        })),
+        ...(fluxo ? listarEscolhas(fluxo) : [])
+          .filter((e) => e.caminhos.some((c) => /\bcontrato\./.test(c.condition ?? '')))
+          .map((e) => ({ stepId: e.id, stepName: e.pergunta, tipoItem: 'escolha' as const, screenSubject: 'CONTRATO' })),
+      ]),
     ]
     if (!fluxo) return [...validarDesenho(vnodes, vedges), ...validarDecisoes(vnodes, vedges), ...dasAtividades]
     /* Em blocos a forma já nasce ligada e com "caso contrário": do desenho sobra o que só
@@ -392,13 +402,15 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   useEffect(() => { setMounted(true); setPanelPref(localStorage.getItem(PANEL_KEY) === '1') }, [])
   useEffect(() => { if (mounted) localStorage.setItem(PANEL_KEY, panelPref ? '1' : '0') }, [panelPref, mounted])
   const panelCollapsed = mounted && panelPref && !selectedId
-  // recolher = "me devolve o desenho": também deseleciona, senão o derivado o manteria aberto
+  /* Alterna pelo que está NA TELA, não pela preferência guardada. Com a preferência já em
+     "recolhido" e um item selecionado, o painel aparece aberto — alternar só a preferência
+     fazia o 1º clique virar "aberto" (nada mudava) e só o 2º recolher (achado do PO). */
   const togglePanel = useCallback(() => {
-    setPanelPref((prev) => {
-      if (!prev) { setSelectedId(null); return true }
-      return false
-    })
-  }, [])
+    if (panelCollapsed) { setPanelPref(false); return }
+    // recolher = "me devolve o desenho": também deseleciona, senão o derivado o manteria aberto
+    setSelectedId(null)
+    setPanelPref(true)
+  }, [panelCollapsed])
 
   const activityCount = nodes.filter((n) => isActivity(n.type)).length
 
@@ -757,18 +769,26 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       </div>
 
       {escolhaId && fluxo && (
-        <EscolhaConfigModal key={escolhaId} fluxo={fluxo} blocoId={escolhaId} nodes={nodes} edges={edges} screens={screens}
+        <EscolhaConfigModal key={escolhaId} fluxo={fluxo} blocoId={escolhaId} nodes={nodes} screens={screens}
           onFluxo={mudarFluxo} onSimulacao={setSimulacao}
-          onRemove={() => remover(escolhaId)} onClose={() => setEscolhaId(null)} />
+          onRemove={() => remover(escolhaId)} onClose={() => setEscolhaId(null)}
+          onConfigurarAtividade={(id) => {
+            setRetornoEscolha(escolhaId); setEscolhaId(null)
+            setSelectedId(id); setConfigSecao('formulario'); setConfigId(id)
+          }} />
       )}
       {/* Configuração da atividade: modal amplo (a coluna de 320px não comporta o
           formulário — ver o comentário em ActivityConfigModal). */}
       {configNode && configNode.step && fluxo && (
         <ActivityConfigModal key={configNode.id} node={configNode} nodes={nodes} edges={edges} screens={screens} papeis={papeis}
+          secaoInicial={configSecao}
           onPatchStep={(p) => patchStep(configNode.id, p)}
           onChangeType={(t) => changeNodeType(configNode.id, t)}
-          onRemove={() => remover(configNode.id)}
-          onClose={() => setConfigId(null)} />
+          onRemove={() => { remover(configNode.id); setRetornoEscolha(null); setConfigSecao(undefined) }}
+          onClose={() => {
+            setConfigId(null); setConfigSecao(undefined)
+            if (retornoEscolha) { setSelectedId(retornoEscolha); setEscolhaId(retornoEscolha); setRetornoEscolha(null) }
+          }} />
       )}
     </div>
   )
@@ -1353,10 +1373,12 @@ function predecessorasDe(edges: EEdge[], alvo: string): Set<string> {
   return preds
 }
 
-function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep, onChangeType, onRemove, onClose }: {
+function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep, onChangeType, onRemove, onClose, secaoInicial }: {
   node: ENode; nodes: ENode[]; edges: EEdge[]; screens: Screens; papeis: Papeis
   onPatchStep: (patch: Partial<StepFormSchema>) => void; onChangeType: (t: 'userTask' | 'serviceTask') => void; onRemove: () => void
   onClose: () => void
+  /** Seção em que o modal abre (ex.: 'formulario', vindo do aviso da escolha). */
+  secaoInicial?: string
 }) {
   const step = node.step!
   const type = node.type as 'userTask' | 'serviceTask'
@@ -1519,7 +1541,7 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
         { id: 'identificacao', label: 'Identificação',   Icon: CircleDot },
         { id: 'acao',          label: 'Ação automática', Icon: Zap },
       ]
-  const [sec, setSec] = useState('identificacao')
+  const [sec, setSec] = useState(secaoInicial ?? 'identificacao')
   useEffect(() => { if (!secoes.some((s) => s.id === sec)) setSec('identificacao') }, [type]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Resumo por seção: fechado, o menu ainda diz o que está configurado — sem isso a

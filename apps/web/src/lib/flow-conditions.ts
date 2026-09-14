@@ -88,7 +88,7 @@ interface ScreenLike {
   id: string
   name?: string
   subjectType?: string
-  fields?: Array<{ id: string; fieldKey?: string | null; label: string; type: string; source?: string; options?: Array<{ label: string; value: string }> | null }>
+  fields?: Array<{ id: string; fieldKey?: string | null; label: string; type: string; source?: string; visible?: boolean; options?: Array<{ label: string; value: string }> | null }>
 }
 
 /** Nós que alcançam `alvo` seguindo as setas (mesma regra do predecessorasDe do editor). */
@@ -159,6 +159,39 @@ export function camposDisponiveis(
 }
 
 /* ── geração da expressão e do rótulo ────────────────────────────────────────── */
+
+/** Campos de um CAMINHO de escolha: os da TELA das atividades que estão dentro dele
+ *  (decisão do PO, 13/09/2026 — quem monta o filtro pensa na tela da etapa para onde o
+ *  caminho leva). Tela de contrato (e as abas adicionais) → nativos curados + os
+ *  personalizados VISÍVEIS nela. O valor testado continua sendo o do contrato do processo
+ *  no momento da decisão; a tela é só a lista de campos. */
+export function camposDasTelasDasAtividades(
+  steps: Array<{ screenRef?: string; screenSubject?: string; extraScreens?: Array<{ screenRef: string }> }>,
+  screens: ScreenLike[],
+): CampoDisponivel[] {
+  const refs = new Set<string>()
+  for (const s of steps) {
+    if (!s.screenRef || s.screenSubject !== 'CONTRATO') continue
+    refs.add(s.screenRef)
+    for (const e of s.extraScreens ?? []) if (e.screenRef) refs.add(e.screenRef)
+  }
+  if (refs.size === 0) return []
+  const out: CampoDisponivel[] = []
+  const vistos = new Set<string>()
+  const add = (c: CampoDisponivel) => { if (!vistos.has(c.key)) { vistos.add(c.key); out.push(c) } }
+  for (const c of CAMPOS_NATIVOS_CONTRATO) add(c)
+  for (const s of screens) {
+    if (!refs.has(s.id)) continue
+    for (const f of s.fields ?? []) {
+      if (f.source !== 'CUSTOM' || f.visible === false) continue
+      const tipo = tipoDoCampo(f.type)
+      if (!tipo) continue
+      // CHAVE do campo (não o id da linha): o valor responde pela chave em todas as telas do tipo
+      add({ key: `contrato.${f.fieldKey ?? f.id}`, label: f.label, tipo, options: f.options ?? undefined, origem: s.name || 'Tela do contrato' })
+    }
+  }
+  return out
+}
 
 /** Valor literal na expressão, pelo tipo do campo. String é aspada; aspas simples no
  *  valor trocam para aspas duplas (o avaliador aceita as duas; não há escape). */

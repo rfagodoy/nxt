@@ -254,7 +254,11 @@ export function validarTelasDasAtividades(
  */
 export function validarOrigemDoRegistro(
   edges: EdgeLike[],
-  steps: Array<{ stepId?: string; stepName?: string; screenRef?: string; screenSubject?: string; entityMode?: string; produz?: string[] }>,
+  steps: Array<{
+    stepId?: string; stepName?: string; screenRef?: string; screenSubject?: string; entityMode?: string; produz?: string[]
+    /** 'escolha': uma decisão que testa campos do registro (id = id do bloco/losango) */
+    tipoItem?: 'atividade' | 'escolha'
+  }>,
 ): ProblemaAtivacao[] {
   const varDoAssunto = (assunto?: string) => (assunto === 'CONTRATO' ? 'contratoId' : 'partnerId')
   const entrada = new Map<string, string[]>()
@@ -283,20 +287,27 @@ export function validarOrigemDoRegistro(
 
   const problemas: ProblemaAtivacao[] = []
   for (const s of steps) {
-    if (!s.stepId || !s.screenRef) continue
-    const modo = s.entityMode ?? 'CREATE'
+    const escolha = s.tipoItem === 'escolha'
+    if (!s.stepId || (!s.screenRef && !escolha)) continue
+    const modo = escolha ? 'VIEW' : (s.entityMode ?? 'CREATE')
     if (modo === 'CREATE') continue
     const alvo = varDoAssunto(s.screenSubject)
     const temOrigem = [...antesDe(s.stepId)].some((id) => { const p = porId.get(id); return !!p && produz(p).has(alvo) })
     if (temOrigem) continue
     const ent = s.screenSubject === 'CONTRATO' ? 'contrato' : 'parceiro'
-    const quem = s.stepName?.trim() ? `A atividade "${s.stepName.trim()}"` : 'Uma atividade'
+    const nome = s.stepName?.trim()
+    /* A escolha testa o valor do registro NO MOMENTO da decisão: sem quem o crie antes, os
+       campos chegam vazios e nenhuma condição casa — o processo seguiria sempre pelo caso
+       contrário, sem erro nenhum que avise. */
+    const mensagem = escolha
+      ? `${nome ? `A escolha "${nome}"` : 'Uma escolha sem pergunta'} testa campos do ${ent}, mas nenhuma atividade antes dela cria um ${ent} — em execução ela seguiria sempre pelo caso contrário. Coloque antes uma atividade que crie o ${ent}.`
+      : `${nome ? `A atividade "${nome}"` : 'Uma atividade'} ${modo === 'VIEW' ? 'consulta' : 'edita'} o ${ent} do processo, mas nenhuma atividade antes dela cria um ${ent} — em execução ela abriria sem ${ent}. Coloque antes uma atividade que crie o ${ent}.`
     problemas.push({
       tipo: 'registro-sem-origem',
       severidade: 'aviso',
       nodeId: s.stepId,
-      rotulo: s.stepName?.trim() ? `"${s.stepName.trim()}"` : '(sem nome)',
-      mensagem: `${quem} ${modo === 'VIEW' ? 'consulta' : 'edita'} o ${ent} do processo, mas nenhuma atividade antes dela cria um ${ent} — em execução ela abriria sem ${ent}. Coloque antes uma atividade que crie o ${ent}.`,
+      rotulo: nome ? `"${nome}"` : '(sem nome)',
+      mensagem,
     })
   }
   return problemas
