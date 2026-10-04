@@ -27,6 +27,9 @@
       ],
       "@nxt/contracts-core": [
         "../../packages/contracts-core/index.ts"
+      ],
+      "@nxt/screens-core": [
+        "../../packages/screens-core/index.ts"
       ]
     },
     "allowJs": true,

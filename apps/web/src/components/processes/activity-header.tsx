@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { AlertTriangle, UserRound } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /* ─── Cabeçalho da atividade ──────────────────────────────────────────────────
@@ -30,7 +31,7 @@ import { cn } from '@/lib/utils'
 const LIMITE_CURTO = 150
 
 export function ActivityHeader({
-  icone, processo, processoHref, numero, papel, titulo, instrucoes, direita, className,
+  icone, processo, processoHref, numero, papel, titulo, instrucoes, direita, className, executorNota, semExecutor,
 }: {
   /** Marca visual da atividade (ícone já estilizado pelo chamador). */
   icone?: React.ReactNode
@@ -50,6 +51,12 @@ export function ActivityHeader({
   /** Canto direito do cabeçalho (prazo, normalmente). */
   direita?: React.ReactNode
   className?: string
+  /** POR QUE a tarefa foi para quem foi ("Solicitante de X — está como Unidade contratante
+   *  no contrato"). Texto, não caixa: é contexto, não impedimento. */
+  executorNota?: string | null
+  /** Ninguém foi encontrado e a tarefa caiu com os administradores — ícone + texto,
+   *  nunca só a cor (o PO é daltônico). */
+  semExecutor?: boolean
 }) {
   const [aberto, setAberto] = useState(false)
   const texto = instrucoes?.trim() || ''
@@ -74,6 +81,16 @@ export function ActivityHeader({
         )}
 
         <h2 className="text-base font-semibold tracking-tight leading-snug">{titulo}</h2>
+
+        {executorNota && (
+          <p className={cn('mt-1 flex items-start gap-1.5 text-[11.5px] leading-snug',
+            semExecutor ? 'font-medium text-amber-800 dark:text-amber-300' : 'text-muted-foreground')}>
+            {semExecutor
+              ? <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
+              : <UserRound className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />}
+            <span>{semExecutor ? executorNota : <>Para: {executorNota}</>}</span>
+          </p>
+        )}
 
         {texto && (
           <div className="mt-1.5">

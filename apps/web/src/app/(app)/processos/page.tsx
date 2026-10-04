@@ -45,8 +45,14 @@ const COLS: Col[] = [
   },
   {
     key: 'etapa', label: 'Etapa atual / conclusão',
-    text: (i) => i.status === 'RUNNING' ? (i.currentStep || '—') : i.status === 'ERROR' ? (i.error || i.stepName || 'erro') : i.status === 'COMPLETED' ? `concluído em ${fmt(i.completedAt)}` : i.status === 'ENDED_INCOMPLETE' ? `encerrado sem conclusão em ${fmt(i.completedAt)}` : i.cancelReason ? `cancelado · motivo: ${i.cancelReason}` : '—',
-    node: (i) => i.status === 'RUNNING' ? (
+    text: (i) => i.status === 'RUNNING' && i.bloqueio ? `parado em ${i.currentStep || '—'}: ${i.bloqueio.mensagem}` : i.status === 'RUNNING' ? (i.currentStep || '—') : i.status === 'ERROR' ? (i.error || i.stepName || 'erro') : i.status === 'COMPLETED' ? `concluído em ${fmt(i.completedAt)}` : i.status === 'ENDED_INCOMPLETE' ? `encerrado sem conclusão em ${fmt(i.completedAt)}` : i.cancelReason ? `cancelado · motivo: ${i.cancelReason}` : '—',
+    node: (i) => i.status === 'RUNNING' && i.bloqueio ? (
+      /* parado numa escolha sem caminho: ícone + texto (nunca só a cor) */
+      <span className="inline-flex items-start gap-1 text-amber-700 dark:text-amber-300" title={i.bloqueio.mensagem}>
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+        <span className="max-w-xs"><span className="font-semibold">Parado</span> em {i.currentStep || '—'} <span className="block text-[11px] truncate">nenhum caminho da escolha serviu — procure um administrador</span></span>
+      </span>
+    ) : i.status === 'RUNNING' ? (
       <div className="flex items-center gap-2">
         <span>{i.currentStep || '—'}</span>
         {i.currentDueAt && <span className={cn('inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium', i.currentOverdue ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' : 'text-amber-600')}><Clock className="h-3 w-3" />{i.currentOverdue ? 'atrasada' : `vence ${fmt(i.currentDueAt)}`}</span>}

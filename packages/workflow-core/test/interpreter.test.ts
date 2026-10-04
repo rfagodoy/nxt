@@ -390,6 +390,6 @@ describe('gateway exclusivo — "caso contrário" pela AUSÊNCIA de filtros', ()
       ...graph,
       edges: graph.edges.map((e) => (e.id === 'e3' ? { ...e, condition: 'valor < 0' } : e)),
     }
-    expect(() => startProcess(g2, { valor: 10 }, makeCounterRuntime())).toThrow(/caso contrário/)
+    expect(() => startProcess(g2, { valor: 10 }, makeCounterRuntime())).toThrow(/Nenhum caminho da escolha/)
   })
 })

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, Query } from '@nestjs/common'
+import { Controller, Get, Post, Patch, Delete, Param, Body, Headers, Query } from '@nestjs/common'
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger'
 import { ContractsService } from './contracts.service'
 import { CreateContractDto } from './dto/create-contract.dto'
@@ -6,17 +6,42 @@ import { UpdateContractDto } from './dto/update-contract.dto'
 import { QueryContractsDto } from './dto/query-contracts.dto'
 import { CurrentOrg } from '../auth/current-org.decorator'
 import { CurrentUser, CurrentUserData } from '../auth/current-user.decorator'
+import { ConferenciaTelaService } from '../screens/conferencia-tela.service'
+import { ScreensService } from '../screens/screens.service'
 
 @ApiTags('contracts')
 @ApiBearerAuth()
 @Controller('contracts')
 export class ContractsController {
-  constructor(private readonly contractsService: ContractsService) {}
+  constructor(
+    private readonly contractsService: ContractsService,
+    private readonly conferencia: ConferenciaTelaService,
+    private readonly screens: ScreensService,
+  ) {}
+
+  /* As Telas valem AQUI, no pedido da tela — antes de gravar qualquer coisa, a gravação
+     (registro + personalizados que vêm junto) é conferida contra a tela que vale: a padrão,
+     ou a da aba da tarefa (cabeçalhos x-nxt-tarefa/x-nxt-tela). Travas e obrigatórios são
+     os do @nxt/screens-core, os mesmos da tela. Importação, rotina automática e conectores
+     do workflow chamam o service direto e não passam por aqui. */
+  private async gravarPersonalizados(organizationId: string, id: string, valores: Record<string, string> | undefined, actor: CurrentUserData) {
+    if (!valores) return
+    await this.screens.putValues(organizationId, 'CONTRACT', id,
+      Object.entries(valores).map(([fieldId, value]) => ({ fieldId, value: value == null ? '' : String(value) })),
+      { nome: actor.name, id: actor.sub })
+  }
 
   @Post()
   @ApiOperation({ summary: 'Cria um novo contrato' })
-  create(@Body() dto: CreateContractDto, @CurrentOrg() organizationId: string, @CurrentUser() actor: CurrentUserData) {
-    return this.contractsService.create(dto, organizationId, actor.name, actor.sub)
+  async create(@Body() dto: CreateContractDto, @CurrentOrg() organizationId: string, @CurrentUser() actor: CurrentUserData, @Headers() headers: Record<string, unknown>) {
+    const { valoresPersonalizados, ...dados } = dto
+    await this.conferencia.conferir({
+      organizationId, subject: 'CONTRATO', actor, origem: ConferenciaTelaService.origemDe(headers),
+      entidadeId: null, antes: null, depois: dados, customDepois: valoresPersonalizados,
+    })
+    const criado = await this.contractsService.create(dados, organizationId, actor.name, actor.sub)
+    await this.gravarPersonalizados(organizationId, criado.id, valoresPersonalizados, actor)
+    return criado
   }
 
   @Get()
@@ -54,8 +79,16 @@ export class ContractsController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Atualiza contrato' })
-  update(@Param('id') id: string, @Body() dto: UpdateContractDto, @CurrentOrg() organizationId: string, @CurrentUser() actor: CurrentUserData) {
-    return this.contractsService.update(id, dto, organizationId, actor.name, actor.sub)
+  async update(@Param('id') id: string, @Body() dto: UpdateContractDto, @CurrentOrg() organizationId: string, @CurrentUser() actor: CurrentUserData, @Headers() headers: Record<string, unknown>) {
+    const { valoresPersonalizados, ...dados } = dto
+    const antes = await this.conferencia.registro(organizationId, 'CONTRATO', id)
+    await this.conferencia.conferir({
+      organizationId, subject: 'CONTRATO', actor, origem: ConferenciaTelaService.origemDe(headers),
+      entidadeId: id, antes, depois: dados, customDepois: valoresPersonalizados,
+    })
+    const salvo = await this.contractsService.update(id, dados, organizationId, actor.name, actor.sub)
+    await this.gravarPersonalizados(organizationId, id, valoresPersonalizados, actor)
+    return salvo
   }
 
   @Delete(':id')

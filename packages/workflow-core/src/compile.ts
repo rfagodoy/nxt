@@ -26,6 +26,7 @@ const NODE_TYPE_BY_LOCAL: Record<string, WfNodeType> = {
   // gateways
   exclusiveGateway: 'exclusiveGateway',
   parallelGateway: 'parallelGateway',
+  inclusiveGateway: 'inclusiveGateway',
 }
 
 const FLOW_NODE_LOCALS = Object.keys(NODE_TYPE_BY_LOCAL)
@@ -82,11 +83,13 @@ export function compileBpmn(xml: string): WfGraph {
   }
 
   // Rejeita explicitamente construções ainda não suportadas (em vez de ignorar
-  // em silêncio, que foi o pecado do BPMN cosmético anterior).
-  for (const local of ['inclusiveGateway', 'eventBasedGateway', 'complexGateway', 'subProcess', 'intermediateCatchEvent', 'intermediateThrowEvent', 'boundaryEvent']) {
+  // em silêncio, que foi o pecado do BPMN cosmético anterior). O inclusivo É suportado
+  // desde 04/10/2026 — na forma que o editor em blocos gera (saída + reencontro com o
+  // mesmo id e o sufixo de reencontro; ver interpreter.ts).
+  for (const local of ['eventBasedGateway', 'complexGateway', 'subProcess', 'intermediateCatchEvent', 'intermediateThrowEvent', 'boundaryEvent']) {
     const found = findByLocal(process, local)
     if (found.length > 0) {
-      throw new CompileError(`Construção BPMN ainda não suportada: <${found[0].name}> (id ${found[0].attrs.id}). Suportados: start/end, task/userTask/manualTask, serviceTask/scriptTask, gateway exclusivo e paralelo.`)
+      throw new CompileError(`Construção BPMN ainda não suportada: <${found[0].name}> (id ${found[0].attrs.id}). Suportados: start/end, task/userTask/manualTask, serviceTask/scriptTask, gateway exclusivo, paralelo e inclusivo.`)
     }
   }
 
@@ -137,7 +140,7 @@ export function compileBpmn(xml: string): WfGraph {
   // O atributo `default="Flow_x"` no gateway marca a seta default. Sem ele, o "caso
   // contrário" é DERIVADO: a única saída SEM condição. É a mesma regra do designer e
   // da ativação — o desenho manda, e não uma marca que pode faltar no XML.
-  for (const local of ['exclusiveGateway', 'parallelGateway']) {
+  for (const local of ['exclusiveGateway', 'parallelGateway', 'inclusiveGateway']) {
     for (const el of findByLocal(process, local)) {
       const def = el.attrs.default
       if (def) {
@@ -157,7 +160,7 @@ export function compileBpmn(xml: string): WfGraph {
     const outs = edges.filter((e) => e.from === id)
     if (node.type === 'end') {
       if (outs.length > 0) throw new CompileError(`Evento de fim "${id}" não pode ter saída`)
-    } else if (node.type === 'exclusiveGateway' || node.type === 'parallelGateway') {
+    } else if (node.type === 'exclusiveGateway' || node.type === 'parallelGateway' || node.type === 'inclusiveGateway') {
       // Gateway sem saída continua sendo erro: ele existe para abrir caminhos, e sem
       // nenhum o token morre dentro da própria decisão/divisão.
       if (outs.length === 0) throw new CompileError(`Gateway "${id}" sem saída`)

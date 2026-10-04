@@ -52,13 +52,15 @@ export type DesfechoInicio = { tom: 'erro' | 'ok'; msg: string } | null
 
 /** Inicia o processo e abre a primeira atividade como aba. Devolve o desfecho a
  *  comunicar quando não houve aba para abrir. */
-export function useIniciarProcesso(): (proc: ProcessoParaIniciar) => Promise<DesfechoInicio> {
+/** `variables`: o que o processo já sabe na partida — Aditivo e Encerramento levam o
+ *  `contratoId` escolhido em "Qual contrato?" (a API confere que é desta organização). */
+export function useIniciarProcesso(): (proc: ProcessoParaIniciar, variables?: Record<string, unknown>) => Promise<DesfechoInicio> {
   const ws = useWorkspace()
 
-  return useCallback(async (proc: ProcessoParaIniciar): Promise<DesfechoInicio> => {
+  return useCallback(async (proc: ProcessoParaIniciar, variables?: Record<string, unknown>): Promise<DesfechoInicio> => {
     const res = await apiFetch('/api/instances', {
       method: 'POST',
-      body: JSON.stringify({ processDefinitionId: proc.id }),
+      body: JSON.stringify({ processDefinitionId: proc.id, ...(variables ? { variables } : {}) }),
     })
     if (!res.ok) {
       const e = await res.json().catch(() => null) as { message?: string } | null

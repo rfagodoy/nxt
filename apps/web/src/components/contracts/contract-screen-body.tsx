@@ -35,6 +35,8 @@ export interface ContractNativeCtx {
   onOpenCessaoSearch?: (aditivoId: string, cessaoId: string, origem: string) => void
   onActivate?:         (id: string) => void
   onRevise?:           (id: string) => void
+  /** a tela deixa "Renovar período"? (ausente = sim) */
+  renovacaoLiberada?:  boolean
 }
 
 export function ContractSectionNative({ section, ctx }: { section: ResolvedContractSection; ctx: ContractNativeCtx }) {
@@ -42,23 +44,26 @@ export function ContractSectionNative({ section, ctx }: { section: ResolvedContr
   const { form } = ctx
   /* Seção-BLOCO é atômica: não tem campo a campo, então a trava dela chega inteira aqui. */
   const ro = ctx.ro || section.locked
+  /* CONSULTA pela tela (seção ou tela travada) ≠ contrato travado pela situação: o contrato
+     vigente ainda registra baixa e reajuste aplicado; a seção em consulta, não — a API recusaria. */
+  const consulta = section.locked
   switch (nativeKey) {
     case 'dados_gerais':
       return <IdentificacaoFields form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} autoNumero={ctx.autoNumero} numeroPreview={ctx.numeroPreview} />
     case 'vigencia':
-      return <VigenciaFields form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} />
+      return <VigenciaFields form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} renovar={ctx.renovacaoLiberada ?? true} />
     case 'valor':
       return <ValoresFields form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} />
     case 'partes':
       return <PartesFields form={form} ro={ro} contractId={ctx.contractId} onOpenSearch={ctx.onOpenSearch!} onNewPartner={ctx.onNewPartner!} />
     case 'pagamentos':
-      return <LancamentosFields form={form} field="pagamentos" moedaCode={ctx.moedaCode} travado={ro} dualView={ctx.dualView} />
+      return <LancamentosFields form={form} field="pagamentos" moedaCode={ctx.moedaCode} travado={ro} consulta={consulta} dualView={ctx.dualView} />
     case 'recebimentos':
-      return <LancamentosFields form={form} field="recebimentos" moedaCode={ctx.moedaCode} travado={ro} dualView={ctx.dualView} />
+      return <LancamentosFields form={form} field="recebimentos" moedaCode={ctx.moedaCode} travado={ro} consulta={consulta} dualView={ctx.dualView} />
     case 'reajuste':
-      return <ReajustesFields form={form} ro={ro} />
+      return <ReajustesFields form={form} ro={ro} consulta={consulta} />
     case 'aditivos':
-      return <AditivosFields form={form} onOpenCessaoSearch={ctx.onOpenCessaoSearch!} onActivate={ctx.onActivate!} onRevise={ctx.onRevise!} />
+      return <AditivosFields form={form} ro={consulta} onOpenCessaoSearch={ctx.onOpenCessaoSearch!} onActivate={ctx.onActivate!} onRevise={ctx.onRevise!} />
     case 'documentos':
       return <DocumentosFields form={form} ro={ro} />
     case 'historico':

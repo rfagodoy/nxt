@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsArray } from 'class-validator'
+import { IsOptional, IsString, IsArray, IsObject } from 'class-validator'
 import { ApiPropertyOptional } from '@nestjs/swagger'
 
 export class UpdatePartnerDto {
@@ -96,6 +96,11 @@ export class UpdatePartnerDto {
   @IsOptional()
   @IsArray()
   socios?: object[]
+
+  @ApiPropertyOptional({ description: 'Campos personalizados da tela (chave do campo → valor). Gravados JUNTO com o registro e conferidos com as mesmas travas e obrigatórios.' })
+  @IsOptional()
+  @IsObject()
+  valoresPersonalizados?: Record<string, string>
 
   @ApiPropertyOptional({ description: 'Usuário que originou a alteração (para auditoria)' })
   @IsOptional()

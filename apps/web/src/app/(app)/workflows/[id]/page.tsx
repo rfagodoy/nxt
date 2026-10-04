@@ -9,6 +9,8 @@ import { Badge } from '@/components/ui/badge'
 import { apiFetch, apiJson } from '@/lib/http'
 import { NoticeDialog } from '@/components/ui/confirm-dialog'
 import { useIniciarProcesso } from '@/lib/iniciar-processo'
+import { EscolherContrato } from '@/components/processes/escolher-contrato'
+import { nasceDeContrato } from '@nxt/types'
 import type { ProcessFormSchema } from '@nxt/types'
 
 interface Process {
@@ -37,6 +39,8 @@ export default function ProcessRunPage() {
   const [proc, setProc] = useState<Process | null | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [iniciandoAgora, setIniciandoAgora] = useState(false)
+  /** Aditivo/Encerramento: "Qual contrato?" antes de iniciar. */
+  const [pedeContrato, setPedeContrato] = useState(false)
   const iniciarProcesso = useIniciarProcesso()
 
   const load = useCallback(async () => {
@@ -53,11 +57,13 @@ export default function ProcessRunPage() {
   /* MESMO caminho do botão "Novo processo": cria a instância e abre a primeira
      atividade como aba. Quando não há atividade para você (o processo terminou
      sozinho, ou travou), o desfecho vira aviso — nunca silêncio. */
-  const iniciar = async () => {
+  const iniciar = async (contratoId?: string) => {
     if (!proc) return
+    if (nasceDeContrato(proc.kind) && !contratoId) { setPedeContrato(true); return }
     setIniciandoAgora(true)
-    const desfecho = await iniciarProcesso({ id: proc.id, name: proc.name, kind: proc.kind })
+    const desfecho = await iniciarProcesso({ id: proc.id, name: proc.name, kind: proc.kind }, contratoId ? { contratoId } : undefined)
     setIniciandoAgora(false)
+    setPedeContrato(false)
     if (desfecho) setAviso(desfecho.msg)
   }
   const activate = async () => {
@@ -126,7 +132,7 @@ export default function ProcessRunPage() {
             </Link>
           )}
           {proc.status === 'ACTIVE' && (
-            <Button size="sm" onClick={iniciar} disabled={iniciandoAgora}>
+            <Button size="sm" onClick={() => void iniciar()} disabled={iniciandoAgora}>
               {iniciandoAgora ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
               Iniciar
             </Button>
@@ -155,6 +161,14 @@ export default function ProcessRunPage() {
       </div>
 
       <NoticeDialog open={!!aviso} message={aviso} onClose={() => setAviso(null)} />
+      {pedeContrato && proc && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={() => setPedeContrato(false)}>
+          <div className="glass w-full max-w-md rounded-2xl text-foreground overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <EscolherContrato processoId={proc.id} processo={proc.name} onVoltar={() => setPedeContrato(false)}
+              iniciando={iniciandoAgora ? '…' : null} onEscolher={(c) => void iniciar(c.id)} />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

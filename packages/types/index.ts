@@ -82,7 +82,14 @@ export interface StepFormSchema {
     entityType: string        // EMPRESA | PARCEIRO | UNIDADE | CONTRATO | ORG
     mode: 'FIXA' | 'VARIAVEL'
     entityId?: string
+    /** VARIAVEL técnica (legado): nome da variável do processo com o id da entidade. */
     entityVar?: string
+    /** VARIAVEL pelo CONTRATO do processo (pedido do PO, 04/10/2026): id do papel de
+     *  STAKEHOLDER (papel de entidade das Partes do contrato — ex.: "Unidade contratante").
+     *  Em execução: a entidade que ocupa esse papel no contrato, já com as cessões dos
+     *  aditivos ativos. `EXECUTOR_CONTRATO_DO_PROCESSO` = o próprio contrato do processo
+     *  (papel de pessoa com origem Contrato). */
+    stakeholder?: string
   }
 
   /** Tela (Personalização de Telas) que serve de FORMULÁRIO desta atividade. Em vez de
@@ -247,8 +254,36 @@ export type CondOp = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte'
 export interface EdgeConditionRule { campo: string; op: CondOp; valor: string }
 export interface EdgeConditionSpec { logic: 'AND' | 'OR'; rules: EdgeConditionRule[] }
 
+/** Uma regra de QUEM PODE INICIAR o workflow (PO, 04/10/2026): papel de PESSOA e onde a
+ *  pessoa o ocupa —
+ *  - em QUALQUER entidade do tipo do papel (nem `entityId` nem `stakeholder`);
+ *  - numa entidade FIXA (`entityId`);
+ *  - na entidade que está no contrato como o `stakeholder` (papel de entidade, ex.: Unidade
+ *    contratante). Em Aditivo/Encerramento confere no contrato escolhido; no Contrato novo basta
+ *    ocupar o papel em alguma entidade — e a parte do contrato criado fica restrita a elas. */
+export interface RegraDeInicio {
+  papelId: string
+  entityType: string
+  entityId?: string
+  stakeholder?: string
+}
+
+/** Quem pode iniciar: TODOS (padrão, como sempre foi) ou só quem atender a alguma regra.
+ *  Administrador sempre pode (socorro). */
+export interface QuemInicia {
+  modo: 'TODOS' | 'PAPEIS'
+  regras: RegraDeInicio[]
+}
+
+/** Executor "Quem iniciou o processo": a tarefa vai para quem clicou em "+ Novo processo". */
+export const EXECUTOR_QUEM_INICIOU = '@iniciador'
+/** Variável do processo com o id de quem o iniciou (gravada na partida). */
+export const VAR_INICIADO_POR = '__iniciadoPor'
+
 export interface ProcessFormSchema {
   steps: StepFormSchema[]
+  /** Quem pode iniciar este workflow. Ausente = qualquer usuário. */
+  quemInicia?: QuemInicia
   /** Posições MANUAIS por id de nó (editor Storyboard). Quando presente para um nó,
    *  sobrepõe o auto-layout. Ausente/vazio = totalmente automático. Não afeta o motor
    *  (é só visual); persiste no formSchema. */
@@ -316,3 +351,13 @@ export interface ApiError {
 
 export type ProcessStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED'
 export type InstanceStatus = 'RUNNING' | 'COMPLETED' | 'CANCELLED' | 'ERROR'
+
+/** Executor "Da variável" que aponta para o PRÓPRIO contrato do processo (papel de pessoa
+ *  com origem Contrato, ex.: Gestor do contrato). */
+export const EXECUTOR_CONTRATO_DO_PROCESSO = '@contrato'
+
+/** Tipos de workflow que nascem DE um contrato existente: o contrato é escolhido ao
+ *  iniciar e vira a variável `contratoId` desde a partida. */
+export const KINDS_QUE_NASCEM_DE_CONTRATO = ['ADITIVO', 'DISTRATO'] as const
+export const nasceDeContrato = (kind?: string | null): boolean =>
+  (KINDS_QUE_NASCEM_DE_CONTRATO as readonly string[]).includes(kind ?? '')

@@ -15,10 +15,12 @@ import { ScreenCustomInput } from '@/components/screens/screen-renderer'
 import type { ResolvedPartnerSection } from '@/lib/screen-partner-layout'
 import { fieldValueKey } from '@/lib/screen-types'
 
-export function PartnerSectionBody({ section, form, ro, screenValues, onScreenChange }: {
+export function PartnerSectionBody({ section, form, ro, criando, screenValues, onScreenChange }: {
   section:        ResolvedPartnerSection
   form:           PartnerForm
   ro?:            boolean
+  /** cadastro novo: o autopreenchimento pode preencher campo travado (ver GroupProps) */
+  criando?:       boolean
   screenValues:   Record<string, string>
   onScreenChange: (fieldId: string, value: string) => void
 }) {
@@ -26,11 +28,11 @@ export function PartnerSectionBody({ section, form, ro, screenValues, onScreenCh
 
   const native = () => {
     switch (nativeKey) {
-      case 'identificacao': return <IdentificacaoFields form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} />
-      case 'contato':       return <ContatoFields      form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} />
-      case 'endereco':      return <EnderecoFields     form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} />
-      case 'bancario':      return <BancarioFields     form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} />
-      case 'socios':        return <SociosFields       form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} />
+      case 'identificacao': return <IdentificacaoFields form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} criando={criando} />
+      case 'contato':       return <ContatoFields      form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} criando={criando} />
+      case 'endereco':      return <EnderecoFields     form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} criando={criando} />
+      case 'bancario':      return <BancarioFields     form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} criando={criando} />
+      case 'socios':        return <SociosFields       form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} criando={criando} />
       case 'cnae':          return <CnaeFields         form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} />
       default:              return null
     }

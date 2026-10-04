@@ -202,6 +202,7 @@ export function usePartnerForm(initial: PartnerFormValues) {
 export type PartnerForm = ReturnType<typeof usePartnerForm>
 
 import { secaoTotalmenteTravada } from '@/lib/screen-locks'
+import { linhaTemValorTravado } from '@nxt/screens-core'
 
 /* ─── visibilidade: callback que decide se um campo nativo aparece ─── */
 export type VisFn = (key: string) => boolean
@@ -338,6 +339,9 @@ interface GroupProps {
   /** campo a campo: travado pela Tela ou pela atividade do workflow. */
   isLocked?:   VisFn
   customFields?: CustomField[]
+  /** cadastro NOVO: a trava é "não alterar o que existe" — o autopreenchimento (CNPJ/CEP)
+   *  pode preencher campo travado e qualquer linha sai (decisão do PO, 04/10/2026). */
+  criando?: boolean
 }
 
 /** Trava efetiva de um campo nativo: a tela inteira em consulta OU o campo travado. */
@@ -357,7 +361,7 @@ interface CnpjLookup {
 }
 
 /** Identificação: documento + razão/nome + campos por categoria (CNPJ/CPF/Código, IE/IM, RG, etc.). */
-export function IdentificacaoFields({ form, ro, isVisible = always, isLocked = never, customFields = [] }: GroupProps) {
+export function IdentificacaoFields({ form, ro, isVisible = always, isLocked = never, customFields = [], criando = false }: GroupProps) {
   const lk = lockOf(ro, isLocked)
   const v   = form.values
   const cat = v.category
@@ -385,6 +389,9 @@ export function IdentificacaoFields({ form, ro, isVisible = always, isLocked = n
    *  o que está VAZIO (não apaga o que o usuário já digitou, ex.: em edição). */
   const applyCnpj = (d: CnpjLookup, overwrite: boolean) => {
     const pick = (rfb: string, cur: string) => (overwrite ? (rfb || cur) : (cur || rfb))
+    /* ao EDITAR, campo travado não é sobrescrito pela Receita — a API recusaria a gravação */
+    const livre = (k: string) => criando || !isLocked(k)
+    const pk = (k: string, rfb: string, cur: string) => (livre(k) ? pick(rfb, cur) : cur)
     form.setValues(prev => {
       const e0 = prev.enderecos[0]
       const c0 = prev.contatos[0]
@@ -395,29 +402,31 @@ export function IdentificacaoFields({ form, ro, isVisible = always, isLocked = n
       const temCnaeSec   = (prev.cnaesSecundarios ?? []).length > 0
       return {
         ...prev,
-        razaoSocial:      pick(d.razaoSocial, prev.razaoSocial),
-        nomeFantasia:     pick(d.nomeFantasia, prev.nomeFantasia),
-        dataAbertura:     pick(d.dataAbertura, prev.dataAbertura),
-        naturezaJuridica: pick(d.naturezaJuridica, prev.naturezaJuridica),
-        cnaePrincipal:    pick(d.cnaePrincipal, prev.cnaePrincipal),
-        cnaesSecundarios: (overwrite ? d.cnaesSecundarios?.length : !temCnaeSec && d.cnaesSecundarios?.length)
+        razaoSocial:      pk('razao_social', d.razaoSocial, prev.razaoSocial),
+        nomeFantasia:     pk('nome_fantasia', d.nomeFantasia, prev.nomeFantasia),
+        dataAbertura:     pk('data_abertura', d.dataAbertura, prev.dataAbertura),
+        naturezaJuridica: pk('natureza_juridica', d.naturezaJuridica, prev.naturezaJuridica),
+        cnaePrincipal:    pk('cnae_principal', d.cnaePrincipal, prev.cnaePrincipal),
+        cnaesSecundarios: livre('cnaes_secundarios') && (overwrite ? d.cnaesSecundarios?.length : !temCnaeSec && d.cnaesSecundarios?.length)
           ? d.cnaesSecundarios : prev.cnaesSecundarios,
         enderecos: e0 ? [{ ...e0,
-          cep:         pick(cepFmt, e0.cep),
-          logradouro:  pick(d.endereco.logradouro,  e0.logradouro),
-          numero:      pick(d.endereco.numero,      e0.numero),
-          complemento: pick(d.endereco.complemento, e0.complemento),
-          bairro:      pick(d.endereco.bairro,      e0.bairro),
-          cidade:      pick(d.endereco.cidade,      e0.cidade),
-          estado:      pick(d.endereco.estado,      e0.estado),
+          cep:         pk('end_cep', cepFmt, e0.cep),
+          logradouro:  pk('end_logradouro', d.endereco.logradouro,  e0.logradouro),
+          numero:      pk('end_numero', d.endereco.numero,      e0.numero),
+          complemento: pk('end_complemento', d.endereco.complemento, e0.complemento),
+          bairro:      pk('end_bairro', d.endereco.bairro,      e0.bairro),
+          cidade:      pk('end_cidade', d.endereco.cidade,      e0.cidade),
+          estado:      pk('end_estado', d.endereco.estado,      e0.estado),
         }, ...prev.enderecos.slice(1)] : prev.enderecos,
         contatos: c0 ? [{ ...c0,
-          email:    pick(d.email, c0.email),
-          telefone: pick(foneFmt, c0.telefone),
+          email:    pk('con_email', d.email, c0.email),
+          telefone: pk('con_telefone', foneFmt, c0.telefone),
         }, ...prev.contatos.slice(1)] : prev.contatos,
         // QSA → Sócios (sem participação → vazia, evita a trava de soma 100%). Em auto,
         // só substitui se ainda não há sócio real (não apaga o quadro digitado).
-        socios: (overwrite ? sociosRfb.length : !temSocioReal && sociosRfb.length) ? sociosRfb : prev.socios,
+        /* trocar o quadro inteiro removeria sócios: só quando nenhum campo de sócio está travado */
+        socios: ['soc_nome', 'soc_documento', 'soc_participacao', 'soc_cargo'].every(livre)
+          && (overwrite ? sociosRfb.length : !temSocioReal && sociosRfb.length) ? sociosRfb : prev.socios,
       }
     })
   }
@@ -533,8 +542,10 @@ export function IdentificacaoFields({ form, ro, isVisible = always, isLocked = n
 }
 
 /** Contato (múltiplos). */
-export function ContatoFields({ form, ro, isVisible = always, isLocked = never, customFields = [] }: GroupProps) {
+export function ContatoFields({ form, ro, isVisible = always, isLocked = never, customFields = [], criando = false }: GroupProps) {
   const lk = lockOf(ro, isLocked)
+  /* linha com valor em campo travado não sai (apagar a linha apagaria o valor protegido) */
+  const presa = (row: object) => !criando && linhaTemValorTravado('contatos', row, isLocked)
   const v = form.values
   const isPJ = isPJof(v.category)
   const travada = secaoTotalmenteTravada(['con_nome', 'con_cargo', 'con_email', 'con_telefone', 'con_celular', ...(isPJ ? ['con_website'] : [])], isVisible, lk)
@@ -543,7 +554,7 @@ export function ContatoFields({ form, ro, isVisible = always, isLocked = never, 
     <>
       <div className="space-y-3 max-h-[calc(100vh-24rem)] overflow-y-auto pr-1">
         {v.contatos.map((c, idx) => (
-          <ItemCard key={c.id} index={idx} total={v.contatos.length} label="Contato" onRemove={() => form.remCon(c.id)} ro={ro || travada}>
+          <ItemCard key={c.id} index={idx} total={v.contatos.length} label="Contato" onRemove={() => form.remCon(c.id)} ro={ro || travada || presa(c)}>
             {/* identidade do contato primeiro (nome + cargo), depois e-mail em largura total */}
             {isVisible('con_nome')     && <Field label="Nome do Contato"><Txt value={c.nome} onChange={x => form.updCon(c.id, 'nome', x)} ro={lk('con_nome')} placeholder="Pessoa responsável" /></Field>}
             {isVisible('con_cargo')    && <Field label="Cargo do Contato"><Txt value={c.cargo} onChange={x => form.updCon(c.id, 'cargo', x)} ro={lk('con_cargo')} placeholder="Ex: Diretor Comercial" /></Field>}
@@ -561,8 +572,11 @@ export function ContatoFields({ form, ro, isVisible = always, isLocked = never, 
 }
 
 /** Endereço (múltiplos) — com busca de CEP (ViaCEP) para endereços nacionais. */
-export function EnderecoFields({ form, ro, isVisible = always, isLocked = never, customFields = [] }: GroupProps) {
+export function EnderecoFields({ form, ro, isVisible = always, isLocked = never, customFields = [], criando = false }: GroupProps) {
   const lk = lockOf(ro, isLocked)
+  const presa = (row: object) => !criando && linhaTemValorTravado('enderecos', row, isLocked)
+  /* ao EDITAR, a busca de CEP não sobrescreve campo travado */
+  const livre = (k: string) => criando || !isLocked(k)
   const v = form.values
   const isBR = isBRof(v.category)
   const travada = secaoTotalmenteTravada(isBR
@@ -586,10 +600,10 @@ export function EnderecoFields({ form, ro, isVisible = always, isLocked = never,
       if (!res.ok) throw new Error()
       const data = await res.json() as { logradouro?: string; bairro?: string; cidade?: string; estado?: string }
       form.patchEnd(id, {
-        ...(data.logradouro ? { logradouro: data.logradouro } : {}),
-        ...(data.bairro     ? { bairro: data.bairro }         : {}),
-        ...(data.cidade     ? { cidade: data.cidade }         : {}),
-        ...(data.estado     ? { estado: data.estado }         : {}),
+        ...(data.logradouro && livre('end_logradouro') ? { logradouro: data.logradouro } : {}),
+        ...(data.bairro     && livre('end_bairro')     ? { bairro: data.bairro }         : {}),
+        ...(data.cidade     && livre('end_cidade')     ? { cidade: data.cidade }         : {}),
+        ...(data.estado     && livre('end_estado')     ? { estado: data.estado }         : {}),
       })
     } catch {
       setCepError(p => ({ ...p, [id]: 'Erro ao buscar CEP.' }))
@@ -602,7 +616,7 @@ export function EnderecoFields({ form, ro, isVisible = always, isLocked = never,
     <>
       <div className="space-y-3 max-h-[calc(100vh-24rem)] overflow-y-auto pr-1">
         {v.enderecos.map((en, idx) => (
-          <ItemCard key={en.id} index={idx} total={v.enderecos.length} label="Endereço" onRemove={() => form.remEnd(en.id)} ro={ro || travada}>
+          <ItemCard key={en.id} index={idx} total={v.enderecos.length} label="Endereço" onRemove={() => form.remEnd(en.id)} ro={ro || travada || presa(en)}>
             {isBR ? (
               <>
                 {isVisible('end_cep') && (
@@ -650,8 +664,9 @@ export function EnderecoFields({ form, ro, isVisible = always, isLocked = never,
 }
 
 /** Dados Bancários (múltiplos) — com autocomplete de bancos brasileiros. */
-export function BancarioFields({ form, ro, isVisible = always, isLocked = never, customFields = [] }: GroupProps) {
+export function BancarioFields({ form, ro, isVisible = always, isLocked = never, customFields = [], criando = false }: GroupProps) {
   const lk = lockOf(ro, isLocked)
+  const presa = (row: object) => !criando && linhaTemValorTravado('bancos', row, isLocked)
   const v = form.values
   const travada = secaoTotalmenteTravada(['ban_banco', 'ban_tipo_conta', 'ban_agencia', 'ban_conta', 'ban_pix'], isVisible, lk)
   return (
@@ -659,7 +674,7 @@ export function BancarioFields({ form, ro, isVisible = always, isLocked = never,
       <datalist id="brasil-banks">{BRAZIL_BANKS.map(b => <option key={b} value={b} />)}</datalist>
       <div className="space-y-3 max-h-[calc(100vh-24rem)] overflow-y-auto pr-1">
         {v.bancos.map((b, idx) => (
-          <ItemCard key={b.id} index={idx} total={v.bancos.length} label="Banco" onRemove={() => form.remBan(b.id)} ro={ro || travada}>
+          <ItemCard key={b.id} index={idx} total={v.bancos.length} label="Banco" onRemove={() => form.remBan(b.id)} ro={ro || travada || presa(b)}>
             {isVisible('ban_banco') && (
               <Field label="Banco">
                 {lk('ban_banco') ? <span className={readCls}>{b.banco || '—'}</span>
@@ -680,8 +695,9 @@ export function BancarioFields({ form, ro, isVisible = always, isLocked = never,
 }
 
 /** Quadro de Sócios (somente PJ) — tabela compacta. */
-export function SociosFields({ form, ro, isVisible = always, isLocked = never }: GroupProps) {
+export function SociosFields({ form, ro, isVisible = always, isLocked = never, criando = false }: GroupProps) {
   const lk = lockOf(ro, isLocked)
+  const presa = (row: object) => !criando && linhaTemValorTravado('socios', row, isLocked)
   const v = form.values
   const isBR = isBRof(v.category)
   const travada = secaoTotalmenteTravada(['soc_nome', 'soc_documento', 'soc_participacao', 'soc_cargo'], isVisible, lk)
@@ -707,7 +723,7 @@ export function SociosFields({ form, ro, isVisible = always, isLocked = never }:
               {isVisible('soc_participacao') && <div className="col-span-2"><input value={s.participacao} onChange={e => form.updSoc(s.id, 'participacao', e.target.value)} disabled={lk('soc_participacao')} placeholder="0,00 %" className={inputCls} /></div>}
               {isVisible('soc_cargo')        && <div className="col-span-2"><input value={s.cargo} onChange={e => form.updSoc(s.id, 'cargo', e.target.value)} disabled={lk('soc_cargo')} placeholder="Ex: Sócio-Diretor" className={inputCls} /></div>}
               <div className="col-span-1 flex justify-center">
-                {!(ro || travada) && <button type="button" onClick={() => form.remSoc(s.id)} className="text-muted-foreground hover:text-destructive transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>}
+                {!(ro || travada || presa(s)) && <button type="button" onClick={() => form.remSoc(s.id)} className="text-muted-foreground hover:text-destructive transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>}
               </div>
             </div>
           ))}

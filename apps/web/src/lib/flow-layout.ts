@@ -13,7 +13,7 @@
      EIXO e todo nó é centrado nele, para a seta entre formas de alturas diferentes
      (losango de 56px × cartão de ~130px) sair reta. */
 
-export type FlowNodeType = 'start' | 'end' | 'userTask' | 'serviceTask' | 'exclusiveGateway' | 'parallelGateway'
+export type FlowNodeType = 'start' | 'end' | 'userTask' | 'serviceTask' | 'exclusiveGateway' | 'parallelGateway' | 'inclusiveGateway'
 
 /** `lane` = RAIA (swimlane) do nó: o papel de quem executa. Quem calcula é o editor
  *  (só ele conhece executor/papel); aqui ela só posiciona. Vazia em evento/gateway —
@@ -83,6 +83,7 @@ export function nodeSize(node: FlowNode, _outDeg: number, _inDeg: number): { w: 
     case 'start':
     case 'end':
     case 'exclusiveGateway':
+    case 'inclusiveGateway':
     case 'parallelGateway':
       return { w: SYMBOL, h: SYMBOL }
     case 'userTask':
@@ -194,7 +195,7 @@ export function layoutGraph(
   for (const n of nodes) {
     const outs = fwdOut[n.id]
     if (outs.length <= 1) { for (const e of outs) edgeOffset[e.id] = 0; continue }
-    if (n.type === 'exclusiveGateway') {
+    if (n.type === 'exclusiveGateway' || n.type === 'inclusiveGateway') {
       // saída PADRÃO (default, ou sem condição) segue reto; condicionais abrem ±
       const def = outs.find((e) => e.isDefault) ?? outs.find((e) => !e.condition) ?? outs[0]
       let k = 1

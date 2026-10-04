@@ -4,11 +4,16 @@ import {
   BadRequestException,
   ForbiddenException,
   ConflictException,
+  UnprocessableEntityException,
 } from '@nestjs/common'
 import { randomUUID } from 'crypto'
 import { PrismaService } from '../prisma.service'
 import { WorkflowRolesService } from '../workflow-roles/workflow-roles.service'
 import { canActOnTask } from './task-access'
+import { formSchemaDaInstancia } from '../processes/definicao-congelada'
+import { ResolvedorDeExecutor, type ExecutorResolvido } from './executor-resolver'
+import { nasceDeContrato, VAR_INICIADO_POR } from '@nxt/types'
+import { RegrasDeInicio, parteForaDaRestricao, restricaoDaInstancia } from './regras-de-inicio'
 import { montarVariavelContrato, type ContratoParaVars } from './contract-vars'
 import { resolveContractId, resolvePartnerId, aditivoFromVars, applyInputMap } from './connector-helpers'
 import {
@@ -19,6 +24,7 @@ import {
   nodesReachableFrom,
   cancelProcess,
   WfError,
+  WfSemCaminho,
   type WfGraph,
   type WfState,
   type WfEffect,
@@ -131,7 +137,22 @@ export class InstancesService {
     private readonly calendar: WorkflowCalendarService,
     private readonly notifier: WorkflowNotifierService,
     private readonly settings: SettingsService,
-  ) {}
+  ) {
+    this.executores = new ResolvedorDeExecutor(prisma, roleAssignments)
+    this.regrasDeInicio = new RegrasDeInicio(prisma, roleAssignments)
+  }
+
+  /** Quem pode iniciar cada workflow — ver regras-de-inicio.ts. */
+  readonly regrasDeInicio: RegrasDeInicio
+
+  /** Executor de cada atividade: fixo, variável técnica (legado) ou pelo stakeholder do
+   *  contrato do processo — ver executor-resolver.ts. */
+  private readonly executores: ResolvedorDeExecutor
+
+  /** "Testar com um contrato" do editor: para quem a atividade iria HOJE, sem gravar nada. */
+  async preverExecutor(organizationId: string, executor: NonNullable<WfNode['executor']>, contratoId: string) {
+    return this.executores.prever(executor, organizationId, contratoId)
+  }
 
   /** Prazo (dueAt) de uma atividade: dias/horas ÚTEIS no calendário comercial da org
    *  (precede o slaMinutes legado). Sem prazo configurado → null. */
@@ -184,6 +205,29 @@ export class InstancesService {
       throw new BadRequestException('Processo sem grafo compilado — reative o processo')
     }
 
+    /* Aditivo e Encerramento nascem DE um contrato (decisão do PO, 04/10/2026): ele é
+       escolhido ao iniciar e vira `contratoId` desde a partida. O id que o cliente manda é
+       conferido aqui — contrato desta organização — e nunca aceito às cegas. */
+    const contratoId = typeof dto.variables?.contratoId === 'string' ? dto.variables.contratoId.trim() : ''
+    if (nasceDeContrato(process.kind) && !contratoId) {
+      throw new BadRequestException(`Escolha o contrato: um workflow de ${process.kind === 'ADITIVO' ? 'aditivo' : 'encerramento'} nasce de um contrato existente.`)
+    }
+    if (contratoId) {
+      const existe = await this.prisma.contract.findFirst({ where: { id: contratoId, organizationId }, select: { id: true } })
+      if (!existe) throw new NotFoundException('Contrato não encontrado')
+    }
+
+    /* QUEM PODE INICIAR (PO, 04/10/2026): a regra do workflow vale aqui, não só na lista do
+       "Novo processo". Administrador sempre pode. */
+    const pode = await this.regrasDeInicio.avaliar(organizationId, actor, process, contratoId || null)
+    if (!pode.pode) throw new ForbiddenException(pode.motivo)
+
+    /* Quem iniciou vai nas variáveis pelo SERVIDOR (o cliente não escolhe): é dele a tarefa
+       "Quem iniciou o processo" e a restrição da parte no contrato novo. */
+    const variaveis: Record<string, unknown> = { ...(dto.variables ?? {}) }
+    delete variaveis[VAR_INICIADO_POR]
+    if (actor?.sub) variaveis[VAR_INICIADO_POR] = actor.sub
+
     // Roda o motor a partir do start e resolve os efeitos (cria tarefas, executa
     // service-tasks: conectores de domínio) até parar nos pontos de espera humanos.
     // Um erro do MOTOR (gateway sem saída casada, laço, nó inexistente) não vira 500:
@@ -191,10 +235,10 @@ export class InstancesService {
     const baseState: WfState = {
       status: 'running',
       tokens: [],
-      variables: { ...(dto.variables ?? {}) },
+      variables: { ...variaveis },
       joinCounts: {},
     }
-    const settled = await this.settle(graph, () => startProcess(graph, dto.variables ?? {}, runtime), {
+    const settled = await this.settle(graph, () => startProcess(graph, variaveis, runtime), {
       organizationId,
       actor,
     }, baseState)
@@ -245,6 +289,21 @@ export class InstancesService {
     }
   }
 
+  /** Contrato NOVO criado nesta tarefa: as entidades permitidas por parte (PO, 04/10/2026).
+   *  A tela só usa para filtrar a busca; quem decide é a conferência na gravação. */
+  async restricaoDePartes(taskId: string, organizationId: string) {
+    const task = await this.prisma.workflowTask.findFirst({
+      where: { id: taskId, instance: { processDefinition: { organizationId } } },
+      include: { instance: { include: { processDefinition: true } } },
+    })
+    if (!task) throw new NotFoundException('Tarefa não encontrada')
+    if (nasceDeContrato(task.instance.processDefinition.kind)) return []
+    const fsInst = await formSchemaDaInstancia(this.prisma, task.instance)
+    const vars = ((task.instance.state as { variables?: Record<string, unknown> } | null)?.variables ?? {})
+    const r = await restricaoDaInstancia(this.prisma, this.roleAssignments, organizationId, fsInst as never, vars)
+    return (r?.restricoes ?? []).map((x) => ({ ...x, papel: r!.rotulo(x.papelId), parte: r!.rotulo(x.stakeholder) }))
+  }
+
   // ── Conclusão de uma tarefa (userTask) ───────────────────────────────────────
   async completeTask(taskId: string, dto: CompleteTaskDto, organizationId: string, actor?: CurrentUserData) {
     const task = await this.prisma.workflowTask.findFirst({
@@ -271,7 +330,60 @@ export class InstancesService {
 
     const prevState = task.instance.state as unknown as WfState
     const prevRevision = task.instance.revision
-    const data = dto.data ?? {}
+    /* `__iniciadoPor` é do servidor: a conclusão nunca troca quem iniciou o processo. */
+    const data: Record<string, unknown> = { ...(dto.data ?? {}) }
+    delete data[VAR_INICIADO_POR]
+
+    /* Contrato NOVO ligado ao processo agora: a parte restrita a quem iniciou (PO, 04/10/2026)
+       vale também aqui — um contrato criado fora da tarefa não fura a regra. */
+    const novoContrato = typeof data.contratoId === 'string' && data.contratoId && data.contratoId !== prevState.variables?.contratoId
+      ? data.contratoId : null
+    if (novoContrato && !nasceDeContrato(task.instance.processDefinition.kind)) {
+      const fsInst = await formSchemaDaInstancia(this.prisma, task.instance)
+      const r = await restricaoDaInstancia(this.prisma, this.roleAssignments, organizationId, fsInst as never, prevState.variables ?? {})
+      if (r) {
+        const c = await this.prisma.contract.findFirst({ where: { id: novoContrato, organizationId }, select: { partes: true } })
+        const frase = c && parteForaDaRestricao(r.restricoes, c.partes, r.rotulo)
+        if (frase) throw new UnprocessableEntityException({ statusCode: 422, error: 'Unprocessable Entity', code: 'PARTE_RESTRITA', message: frase })
+      }
+    }
+
+    /* ── Variável `contrato` para as CONDIÇÕES dos losangos (construtor, 2026-08-23).
+       As atividades de Tela concluem só com o id — os campos do contrato nunca viravam
+       variáveis, e uma condição "contrato.<campo> == 'Sim'" não tinha o que ler. Aqui,
+       a CADA conclusão de tarefa humana com um contrato no processo, o retrato atual
+       (nativos + personalizados por fieldId) entra nas variáveis ANTES de o motor
+       avaliar o gateway. Falha na carga não derruba a conclusão: sem `contrato`, a
+       condição avalia false. */
+    const dadosComContrato = await this.hidratarContratoVars(data, prevState, organizationId)
+
+    /* ── Escolha SEM caminho (PO, 04/10/2026): o "Se nenhum servir" foi excluído. Se,
+       com os dados de agora, a escolha logo à frente não tiver caminho que sirva, o
+       CONCLUIR É RECUSADO — a tarefa fica com a pessoa, o motivo vai para o histórico
+       (o acompanhamento mostra o processo parado) e a tela abre o aviso. O motor é puro:
+       simular aqui não grava nada. Qualquer OUTRO erro do motor segue o caminho de
+       sempre (a instância vai para ERRO em `settle`). */
+    try {
+      completeToken(graph, prevState, task.tokenId, dadosComContrato, runtime)
+    } catch (e) {
+      if (e instanceof WfSemCaminho) {
+        await this.prisma.workflowEvent.create({
+          data: {
+            instanceId: task.instanceId,
+            taskId: task.id,
+            event: 'SEM_CAMINHO',
+            detail: e.pergunta?.trim() || task.name || null,
+            reason: e.message,
+            user: actor?.name ?? 'Usuário do sistema',
+            userId: actor?.sub ?? null,
+          },
+        })
+        throw new UnprocessableEntityException({
+          statusCode: 422, error: 'Unprocessable Entity', code: 'SEM_CAMINHO',
+          message: e.message, escolha: e.pergunta ?? null,
+        })
+      }
+    }
 
     // ── Anti-corrida (1/2): REIVINDICA a tarefa por CAS ANTES de rodar o motor. ──
     // Só um request troca PENDING→DONE; um duplo-submit (2 abas, duplo-clique) perde
@@ -287,15 +399,6 @@ export class InstancesService {
       },
     })
     if (claim.count === 0) throw new BadRequestException('Tarefa já concluída ou cancelada')
-
-    /* ── Variável `contrato` para as CONDIÇÕES dos losangos (construtor, 2026-08-23).
-       As atividades de Tela concluem só com o id — os campos do contrato nunca viravam
-       variáveis, e uma condição "contrato.<campo> == 'Sim'" não tinha o que ler. Aqui,
-       a CADA conclusão de tarefa humana com um contrato no processo, o retrato atual
-       (nativos + personalizados por fieldId) entra nas variáveis ANTES de o motor
-       avaliar o gateway. Falha na carga não derruba a conclusão: sem `contrato`, a
-       condição avalia false e o fluxo segue pela saída padrão. */
-    const dadosComContrato = await this.hidratarContratoVars(data, prevState, organizationId)
 
     // Avança o motor a partir do token desta tarefa (executando conectores). Erro do
     // MOTOR não vira 500: `settle` captura e a instância vai para ERRO.
@@ -679,7 +782,8 @@ export class InstancesService {
       // a atribuição desta execução.
       this.prisma.workflowTask.update({
         where: { id: task.id },
-        data: { assignees: [target.id] as never, assignee: target.id },
+        // delegada a alguém, deixa de estar "sem executor" (o aviso cumpriu o papel)
+        data: { assignees: [target.id] as never, assignee: target.id, semExecutor: false },
       }),
       this.prisma.workflowEvent.create({
         data: {
@@ -803,17 +907,19 @@ export class InstancesService {
   /** Lista instâncias da org para MONITORAMENTO (visão gerencial — admin). Filtra por
    *  status quando informado (ex.: ERROR, para o painel de instâncias com erro). Deriva
    *  a causa do erro (`__connectorError`/`__engineError`) e a etapa automática parada. */
-  async listInstances(organizationId: string, opts: { status?: string } = {}) {
+  async listInstances(organizationId: string, opts: { status?: string; id?: string } = {}) {
     const where: Record<string, unknown> = { processDefinition: { organizationId } }
     if (opts.status) where.status = opts.status
+    // a aba de acompanhamento relê só a SUA linha (mesmo formato da lista)
+    if (opts.id) where.id = opts.id
 
     const instances = await this.prisma.processInstance.findMany({
       where,
       include: {
         processDefinition: { select: { name: true } },
         tasks: { orderBy: { createdAt: 'asc' } },
-        // último cancelamento: a lista precisa dizer POR QUE o processo parou
-        events: { where: { event: 'CANCELADO' }, orderBy: { createdAt: 'desc' }, take: 1 },
+        // último cancelamento e bloqueios de escolha: a lista precisa dizer POR QUE parou
+        events: { where: { event: { in: ['CANCELADO', 'SEM_CAMINHO'] } }, orderBy: { createdAt: 'desc' }, take: 20 },
         _count: { select: { returns: true } },
       },
       orderBy: { updatedAt: 'desc' },
@@ -832,6 +938,15 @@ export class InstancesService {
 
       const tasks = inst.tasks ?? []
       const pending = tasks.filter((t) => t.status === 'PENDING')
+      const cancelamento = inst.events?.find((e) => e.event === 'CANCELADO')
+      /* Parado numa escolha sem caminho: a tentativa de concluir foi recusada e a tarefa
+         continua pendente. Some sozinho quando ela é concluída (dados corrigidos) ou sai. */
+      const bloqueioEv = inst.status === 'RUNNING'
+        ? inst.events?.find((e) => e.event === 'SEM_CAMINHO' && pending.some((t) => t.id === e.taskId))
+        : undefined
+      const bloqueio = bloqueioEv
+        ? { mensagem: bloqueioEv.reason, escolha: bloqueioEv.detail ?? null, tarefa: pending.find((t) => t.id === bloqueioEv.taskId)?.name ?? null, por: bloqueioEv.user, em: bloqueioEv.createdAt }
+        : null
       const done = tasks.filter((t) => t.status === 'DONE')
       const current = pending[0] // etapa atual (1ª pendente)
       const currentDueMs = ms(current?.dueAt)
@@ -899,9 +1014,11 @@ export class InstancesService {
         // Cancelamento: motivo e autor. Só valem enquanto o processo ESTIVER cancelado —
         // o evento continua no histórico depois de reaberto, e exibi-lo na lista faria
         // um processo em andamento parecer cancelado.
-        cancelReason: inst.status === 'CANCELLED' ? (inst.events?.[0]?.reason ?? null) : null,
-        cancelledBy: inst.status === 'CANCELLED' ? (inst.events?.[0]?.user ?? null) : null,
-        cancelledAt: inst.status === 'CANCELLED' ? (inst.events?.[0]?.createdAt ?? null) : null,
+        cancelReason: inst.status === 'CANCELLED' ? (cancelamento?.reason ?? null) : null,
+        cancelledBy: inst.status === 'CANCELLED' ? (cancelamento?.user ?? null) : null,
+        cancelledAt: inst.status === 'CANCELLED' ? (cancelamento?.createdAt ?? null) : null,
+        // parado numa escolha sem caminho (ver completeTask)
+        bloqueio,
       }
     })
   }
@@ -978,8 +1095,13 @@ export class InstancesService {
       }
     })
 
+    /* A etapa (tela, abas, campos travados) COMO ESTAVA quando a instância nasceu — a
+       mesma que a API usa para conferir o que a tarefa grava. Editar o processo depois não
+       muda o que uma instância em andamento deixa alterar. */
+    const formSchema = await formSchemaDaInstancia(this.prisma, instance)
+
     return {
-      instance: { ...instance, tasks },
+      instance: { ...instance, tasks, processDefinition: { ...instance.processDefinition, formSchema } },
       state,
       graph: snap,
       pendingTasks: tasks.filter((t) => t.status === 'PENDING'),
@@ -2064,19 +2186,25 @@ export class InstancesService {
     // Calendário comercial da org (uma leitura por lote) para o prazo em dias/horas úteis.
     const cal = await this.calendar.get(organizationId)
     // Resolve o executor (papel+entidade → usuário[]) de cada tarefa ANTES de gravar.
-    const rows = await Promise.all(tasks.map(async ({ token, node }) => ({
-      id: randomUUID(),
-      instanceId,
-      tokenId: token.id,
-      nodeId: node.id,
-      name: node.name ?? null,
-      role: node.role ?? null,
-      assignee: node.assignee ?? null,
-      assignees: await this.resolveExecutor(node, organizationId, variables),
-      formRef: node.formRef ?? null,
-      dueAt: this.dueAtFor(node, cal),
-      status: 'PENDING',
-    })))
+    const rows = await Promise.all(tasks.map(async ({ token, node }) => {
+      const ex: ExecutorResolvido = await this.executores.resolver(node, organizationId, variables)
+      return {
+        id: randomUUID(),
+        instanceId,
+        tokenId: token.id,
+        nodeId: node.id,
+        name: node.name ?? null,
+        role: node.role ?? null,
+        assignee: node.assignee ?? null,
+        assignees: ex.assignees,
+        // por que foi para quem foi (executor pelo contrato) e se ninguém foi achado
+        executorNota: ex.nota,
+        semExecutor: ex.semExecutor,
+        formRef: node.formRef ?? null,
+        dueAt: this.dueAtFor(node, cal),
+        status: 'PENDING',
+      }
+    }))
     await client.workflowTask.createMany({ data: rows as never })
     return rows.map((r) => ({
       id: r.id, name: r.name, instanceId, assignees: recipientsOf(r), dueAt: r.dueAt,
@@ -2092,20 +2220,7 @@ export class InstancesService {
     organizationId: string,
     variables: Record<string, unknown>,
   ): Promise<string[]> {
-    const ex = node.executor
-    if (!ex?.papelId) return []
-    let entityId: string | undefined
-    if (ex.entityType === 'ORG') {
-      entityId = undefined
-    } else if (ex.mode === 'VARIAVEL') {
-      const v = variables[ex.entityVar ?? '']
-      entityId = v == null || v === '' ? undefined : String(v)
-      if (!entityId) return [] // variável ainda não definida → sem pool (tarefa aberta)
-    } else {
-      entityId = ex.entityId || undefined
-      if (!entityId) return []
-    }
-    return this.roleAssignments.resolveUsers(organizationId, ex.papelId, ex.entityType, entityId)
+    return (await this.executores.resolver(node, organizationId, variables)).assignees
   }
 
   private pendingTasks(instanceId: string) {

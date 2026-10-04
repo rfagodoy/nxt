@@ -22,6 +22,7 @@
     "@nestjs/throttler": "^6.4.0",
     "@nxt/contracts-core": "*",
     "@nxt/database": "*",
+    "@nxt/screens-core": "*",
     "@nxt/types": "*",
     "@nxt/workflow-core": "*",
     "class-transformer": "^0.5.1",

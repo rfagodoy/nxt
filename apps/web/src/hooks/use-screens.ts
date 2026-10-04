@@ -72,14 +72,9 @@ export async function getScreenValues(subjectType: string, subjectId: string): P
   return (await apiJson<ScreenValue[]>(`/api/screen-values?subjectType=${subjectType}&subjectId=${encodeURIComponent(subjectId)}`)) ?? []
 }
 
-export async function putScreenValues(subjectType: string, subjectId: string, values: ScreenValue[]): Promise<ScreenValue[]> {
-  const res = await apiFetch('/api/screen-values', {
-    method: 'PUT',
-    body: JSON.stringify({ subjectType, subjectId, values }),
-  })
-  if (!res.ok) return []
-  return res.json() as Promise<ScreenValue[]>
-}
+/* Gravar: os valores vão JUNTO com o registro (`valoresPersonalizados` no POST/PATCH de
+   parceiro e contrato) — a API confere travas e obrigatórios do conjunto antes de gravar.
+   O antigo putScreenValues engolia a falha (devolvia [] e ninguém olhava). */
 
 /** Valor preenchido em lote (vários subjects) — para colunas custom na listagem/exportação. */
 export interface ScreenValueRow { subjectId: string; fieldId: string; value: string }

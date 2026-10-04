@@ -16,6 +16,8 @@ export interface ProblemaAtivacao {
     | 'inalcancavel-do-inicio' | 'juncao-travada'
     | 'decisao-sem-padrao' | 'decisao-multipadrao'
     | 'atividade-incompleta' | 'tela-so-consulta' | 'registro-sem-origem'
+    | 'executor-sem-stakeholder' | 'executor-incompativel' | 'executor-sem-contrato'
+    | 'quem-inicia-vazio' | 'quem-inicia-invalido' | 'iniciador-sem-regra'
     | ProblemaBloco['tipo']
   /** `erro` impede a ativação; `aviso` é informação — o desenho é legítimo, mas o
    *  desenhista precisa saber o que ele significa em execução. Ausente = erro
@@ -44,7 +46,7 @@ interface EdgeLike { from: string; to?: string; condition?: string; isDefault?: 
 function rotuloLongo(n: NodeLike): string {
   const nome = n.name?.trim()
   const tipo = n.type === 'serviceTask' ? 'A ação automática'
-    : n.type === 'exclusiveGateway' ? 'A decisão'
+    : n.type === 'exclusiveGateway' || n.type === 'inclusiveGateway' ? 'A decisão'
     : n.type === 'parallelGateway' ? 'A divisão em paralelo'
     : 'A atividade'
   return nome ? `${tipo} "${nome}"` : `${tipo.replace('A ', 'Uma ')} sem nome`
@@ -119,7 +121,7 @@ export function validarDesenho(nodes: NodeLike[], edges: EdgeLike[]): ProblemaAt
       jaCulpado.add(n.id)
       problemas.push({ tipo: 'inalcancavel-do-inicio', nodeId: n.id, rotulo: nomeCurto(n), mensagem: `${rotuloLongo(n)} nunca será executada: não existe caminho do início até ela. Ligue-a ao fluxo que sai do início ou exclua-a.` })
     }
-    if (!tem.saida && (n.type === 'exclusiveGateway' || n.type === 'parallelGateway')) {
+    if (!tem.saida && (n.type === 'exclusiveGateway' || n.type === 'parallelGateway' || n.type === 'inclusiveGateway')) {
       jaCulpado.add(n.id)
       problemas.push({ tipo: 'gateway-sem-saida', nodeId: n.id, rotulo: nomeCurto(n), mensagem: `${rotuloLongo(n)} não tem nenhuma saída. Ligue-a aos caminhos que ela deve abrir.` })
     }
@@ -259,6 +261,8 @@ export function validarOrigemDoRegistro(
     /** 'escolha': uma decisão que testa campos do registro (id = id do bloco/losango) */
     tipoItem?: 'atividade' | 'escolha'
   }>,
+  /** variáveis que o processo já tem na PARTIDA (Aditivo/Encerramento nascem com `contratoId`) */
+  iniciais: readonly string[] = [],
 ): ProblemaAtivacao[] {
   const varDoAssunto = (assunto?: string) => (assunto === 'CONTRATO' ? 'contratoId' : 'partnerId')
   const entrada = new Map<string, string[]>()
@@ -292,6 +296,7 @@ export function validarOrigemDoRegistro(
     const modo = escolha ? 'VIEW' : (s.entityMode ?? 'CREATE')
     if (modo === 'CREATE') continue
     const alvo = varDoAssunto(s.screenSubject)
+    if (iniciais.includes(alvo)) continue
     const temOrigem = [...antesDe(s.stepId)].some((id) => { const p = porId.get(id); return !!p && produz(p).has(alvo) })
     if (temOrigem) continue
     const ent = s.screenSubject === 'CONTRATO' ? 'contrato' : 'parceiro'
@@ -309,6 +314,134 @@ export function validarOrigemDoRegistro(
       rotulo: nome ? `"${nome}"` : '(sem nome)',
       mensagem,
     })
+  }
+  return problemas
+}
+
+/** Papel do catálogo, no formato que a guarda do executor precisa. */
+export interface PapelDoCatalogo { id: string; label: string; origem?: string; referencia?: string; active?: boolean }
+
+/** Sentinela do executor "Da variável" = o próprio contrato do processo (espelha @nxt/types). */
+const CONTRATO_DO_PROCESSO = '@contrato'
+
+/** O stakeholder (papel de ENTIDADE das partes do contrato) serve ao papel de PESSOA do
+ *  executor? Unidade com Unidade; Empresa (e Parceiro) com "Empresas do grupo + Parceiros";
+ *  Contrato só com o próprio contrato do processo. */
+export function stakeholderCombina(entityType: string, stakeholder: string, papeis: readonly PapelDoCatalogo[]): boolean {
+  if (stakeholder === CONTRATO_DO_PROCESSO) return entityType === 'CONTRATO'
+  const st = papeis.find((p) => p.id === stakeholder)
+  if (!st || (st.referencia ?? 'ENTIDADE') !== 'ENTIDADE') return false
+  const origem = st.origem ?? 'EMPRESA_PARCEIRO'
+  if (origem === 'UNIDADE') return entityType === 'UNIDADE'
+  return entityType === 'EMPRESA' || entityType === 'PARCEIRO'
+}
+
+/**
+ * Executor "Da variável" pelo CONTRATO do processo (pedido do PO, 04/10/2026): a tarefa vai
+ * para quem ocupa o papel de pessoa na entidade que está no contrato como o stakeholder
+ * escolhido (ex.: Solicitante da Unidade contratante). Três coisas impedem a ativação:
+ *  - "da variável" sem dizer qual stakeholder;
+ *  - stakeholder que não combina com o papel (nunca acharia ninguém);
+ *  - nenhum contrato no processo até ali (nem na partida, nem criado por etapa anterior).
+ * Variável técnica antiga (`entityVar`) segue valendo como antes — não é acusada.
+ */
+export function validarExecutores(
+  edges: EdgeLike[],
+  steps: Array<{
+    stepId?: string; stepName?: string
+    executor?: { papelId?: string; entityType?: string; mode?: string; entityVar?: string; stakeholder?: string } | null
+    screenRef?: string; screenSubject?: string; entityMode?: string; produz?: string[]
+  }>,
+  papeis: readonly PapelDoCatalogo[],
+  iniciais: readonly string[] = [],
+): ProblemaAtivacao[] {
+  const entrada = new Map<string, string[]>()
+  for (const e of edges) if (e.to) entrada.set(e.to, [...(entrada.get(e.to) ?? []), e.from])
+  const antesDe = (id: string): Set<string> => {
+    const vistos = new Set<string>()
+    const fila = [...(entrada.get(id) ?? [])]
+    while (fila.length) {
+      const n = fila.pop() as string
+      if (vistos.has(n)) continue
+      vistos.add(n)
+      fila.push(...(entrada.get(n) ?? []))
+    }
+    vistos.delete(id)
+    return vistos
+  }
+  const porId = new Map(steps.filter((s) => s.stepId).map((s) => [s.stepId as string, s]))
+  const criaContrato = (s: (typeof steps)[number]) =>
+    (s.produz ?? []).includes('contratoId') ||
+    (!!s.screenRef && (s.entityMode ?? 'CREATE') === 'CREATE' && s.screenSubject === 'CONTRATO')
+
+  const problemas: ProblemaAtivacao[] = []
+  for (const s of steps) {
+    const ex = s.executor
+    if (!s.stepId || !ex?.papelId || ex.mode !== 'VARIAVEL' || ex.entityType === 'ORG' || ex.entityVar) continue
+    const nome = s.stepName?.trim()
+    const quem = nome ? `A atividade "${nome}"` : 'Uma atividade'
+    const rotulo = nome ? `"${nome}"` : '(sem nome)'
+    const papel = papeis.find((p) => p.id === ex.papelId)?.label ?? 'o papel'
+    if (!ex.stakeholder) {
+      problemas.push({ tipo: 'executor-sem-stakeholder', nodeId: s.stepId, rotulo,
+        mensagem: `${quem} busca o executor "da variável", mas não diz de qual parte do contrato. Escolha o stakeholder em Quem executa.` })
+      continue
+    }
+    if (!stakeholderCombina(ex.entityType ?? '', ex.stakeholder, papeis)) {
+      const st = papeis.find((p) => p.id === ex.stakeholder)?.label
+      problemas.push({ tipo: 'executor-incompativel', nodeId: s.stepId, rotulo,
+        mensagem: st
+          ? `${quem} procura "${papel}" na parte "${st}" do contrato, mas os dois não combinam — nunca acharia ninguém. Escolha outro stakeholder em Quem executa.`
+          : `${quem} aponta para um stakeholder que não existe mais no catálogo de papéis. Escolha outro em Quem executa.` })
+      continue
+    }
+    const temContrato = iniciais.includes('contratoId') ||
+      [...antesDe(s.stepId)].some((id) => { const p = porId.get(id); return !!p && criaContrato(p) })
+    if (!temContrato)
+      problemas.push({ tipo: 'executor-sem-contrato', nodeId: s.stepId, rotulo,
+        mensagem: `${quem} procura o executor no contrato do processo, mas nesse ponto o processo ainda não tem contrato: nenhuma atividade antes dela o cria. Coloque antes uma atividade que crie o contrato — ou use um workflow de Aditivo ou Encerramento, que nasce de um contrato.` })
+  }
+  return problemas
+}
+
+/** Executor "Quem iniciou o processo" (espelha @nxt/types). */
+const QUEM_INICIOU = '@iniciador'
+
+/**
+ * Quem pode INICIAR o workflow (PO, 04/10/2026). Erros: restringir sem nenhuma regra; regra com
+ * papel que não é de pessoa, que sumiu, ou stakeholder que não combina com o papel; stakeholder num
+ * workflow que não trabalha com contrato. AVISO: a 1ª atividade é de "Quem iniciou" e qualquer
+ * usuário pode iniciar — aí qualquer um a executaria.
+ */
+export function validarQuemInicia(
+  cfg: { modo: 'TODOS' | 'PAPEIS'; regras: Array<{ papelId: string; entityType: string; entityId?: string; stakeholder?: string }> } | null | undefined,
+  papeis: readonly PapelDoCatalogo[],
+  opts: { kind?: string | null; primeiraAtividade?: { stepId?: string; stepName?: string; executor?: { papelId?: string } | null } | null } = {},
+): ProblemaAtivacao[] {
+  const problemas: ProblemaAtivacao[] = []
+  const restrito = cfg?.modo === 'PAPEIS'
+  if (restrito && !cfg!.regras.length) {
+    problemas.push({ tipo: 'quem-inicia-vazio', mensagem: '“Quem inicia” está restrito a papéis, mas nenhum papel foi escolhido — ninguém conseguiria iniciar. Escolha ao menos um papel ou volte para “qualquer usuário”.' })
+  }
+  const comContrato = ['CONTRATO', 'ADITIVO', 'DISTRATO'].includes(opts.kind ?? '')
+  if (restrito) for (const r of cfg!.regras) {
+    const p = papeis.find((x) => x.id === r.papelId)
+    const nome = p?.label ? `“${p.label}”` : 'Uma regra'
+    if (!p || (p.referencia ?? 'ENTIDADE') !== 'PESSOA') {
+      problemas.push({ tipo: 'quem-inicia-invalido', mensagem: `${nome} em “Quem inicia” não é um papel de pessoa (ou foi removido do catálogo). Escolha outro.` })
+    } else if (r.stakeholder && !comContrato) {
+      problemas.push({ tipo: 'quem-inicia-invalido', mensagem: `${nome} em “Quem inicia” depende de uma parte do contrato, mas este workflow não trabalha com contrato. Use “em qualquer” ou uma entidade fixa.` })
+    } else if (r.stakeholder === CONTRATO_DO_PROCESSO && opts.kind === 'CONTRATO') {
+      problemas.push({ tipo: 'quem-inicia-invalido', mensagem: `${nome} “do contrato” em “Quem inicia” só serve a Aditivo e Encerramento: num contrato novo ninguém ocupa esse papel ainda. Use “em qualquer” ou uma entidade fixa.` })
+    } else if (r.stakeholder && !stakeholderCombina(r.entityType, r.stakeholder, papeis)) {
+      problemas.push({ tipo: 'quem-inicia-invalido', mensagem: `${nome} em “Quem inicia” aponta para uma parte do contrato que não combina com o papel — ninguém conseguiria iniciar.` })
+    }
+  }
+  const pa = opts.primeiraAtividade
+  if (pa?.executor?.papelId === QUEM_INICIOU && !restrito) {
+    const nome = pa.stepName?.trim()
+    problemas.push({ tipo: 'iniciador-sem-regra', severidade: 'aviso', nodeId: pa.stepId, rotulo: nome ? `"${nome}"` : '(sem nome)',
+      mensagem: `${nome ? `A atividade "${nome}"` : 'A primeira atividade'} é de “Quem iniciou o processo”, e qualquer usuário pode iniciar este workflow — então qualquer um a executaria. Se não é isso, restrinja “Quem inicia”.` })
   }
   return problemas
 }
@@ -360,13 +493,21 @@ const AGREGADO: Record<ProblemaAtivacao['tipo'], { plural: string; instrucao: st
   'juncao-travada': { plural: 'junções esperam por caminhos que o início nunca alcança', instrucao: 'O processo travaria nelas: ligue esses trechos ao fluxo ou remova as setas que entram na junção.' },
   // blocos: cada frase já nomeia o bloco e o caminho — agrupar apagaria o "qual"
   'escolha-sem-caminho': null,
+  'todos-com-saida': null,
+  'senao-descontinuado': null,
   'caminho-sem-condicao': null,
   'paralelo-com-um-caminho': null,
   'saida-dentro-de-paralelo': null,
   'volta-invalida': null,
   'trecho-inalcancavel': null,
+  'executor-sem-stakeholder': { plural: 'atividades buscam o executor "da variável" sem dizer o stakeholder', instrucao: 'Em cada uma, escolha a parte do contrato em Quem executa.' },
+  'executor-incompativel': { plural: 'atividades combinam papel e stakeholder que nunca achariam ninguém', instrucao: 'Em cada uma, escolha outro stakeholder em Quem executa.' },
+  'executor-sem-contrato': { plural: 'atividades procuram o executor num contrato que o processo ainda não tem', instrucao: 'Coloque antes delas uma atividade que crie o contrato — ou use um workflow de Aditivo ou Encerramento.' },
+  'quem-inicia-vazio': null,
+  'quem-inicia-invalido': null,
   // aviso: nunca entra na mensagem de recusa
   'registro-sem-origem': null,
+  'iniciador-sem-regra': null,
 }
 
 /** `"A", "B" (3) e "C"` — repetições ganham contagem em vez de repetir a linha. */

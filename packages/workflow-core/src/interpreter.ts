@@ -25,8 +25,19 @@ import type {
   WfState,
 } from './types'
 import { evalCondition } from './conditions'
+import { SUFIXO_REENCONTRO } from './blocos'
 
 export class WfError extends Error {}
+
+/** Nenhum caminho da escolha serviu e ela não tem para onde seguir (o "Se nenhum servir"
+ *  foi excluído a pedido do PO, 04/10/2026): o processo PARA. Erro próprio para o backend
+ *  recusar a conclusão da tarefa com uma mensagem humana — e não confundir com defeito. */
+export class WfSemCaminho extends WfError {
+  constructor(readonly gatewayId: string, readonly pergunta?: string) {
+    super(`Nenhum caminho da escolha ${pergunta?.trim() ? `“${pergunta.trim()}”` : 'deste processo'} serviu para os dados atuais, e ela não tem como seguir. Procure um administrador do sistema para revisar as condições do workflow.`)
+    this.name = 'WfSemCaminho'
+  }
+}
 
 /** Trava contra laço infinito de nós automáticos (gateway sempre-verdadeiro em
  *  ciclo). Cada passo do worklist consome uma iteração. */
@@ -43,15 +54,29 @@ const ehCasoContrario = (e: WfEdge): boolean => !!e.isDefault || !e.condition?.t
 
 /** Escolhe a única saída de um gateway exclusivo: primeira condição verdadeira,
  *  na ordem; se nenhuma casar, o "caso contrário". Erro se nada casar. */
-function pickExclusive(outs: WfEdge[], vars: Record<string, unknown>): WfEdge {
+function pickExclusive(node: WfNode, outs: WfEdge[], vars: Record<string, unknown>): WfEdge {
   for (const e of outs) {
     if (ehCasoContrario(e)) continue
     if (evalCondition(e.condition, vars)) return e
   }
   const def = outs.find(ehCasoContrario)
   if (def) return def
-  throw new WfError('Gateway exclusivo: nenhuma condição casou e não há caminho "caso contrário"')
+  throw new WfSemCaminho(node.id, node.name)
 }
+
+/** Escolha "todos os que servirem": TODA saída com condição verdadeira; nenhuma → o
+ *  "caso contrário". Erro se nada servir e não houver caso contrário. */
+function pickInclusive(node: WfNode, outs: WfEdge[], vars: Record<string, unknown>): WfEdge[] {
+  const certas = outs.filter((e) => !ehCasoContrario(e) && evalCondition(e.condition, vars))
+  if (certas.length) return certas
+  const def = outs.find(ehCasoContrario)
+  if (def) return [def]
+  throw new WfSemCaminho(node.id, node.name)
+}
+
+/** É o reencontro de uma escolha inclusiva? (gerado com o id da saída + sufixo) */
+const ehReencontroInclusivo = (graph: WfGraph, id: string): boolean =>
+  graph.nodes[id]?.type === 'inclusiveGateway' && id.endsWith(SUFIXO_REENCONTRO)
 
 /** Propaga tokens a partir de uma lista de nós "recém-alcançados". Muta `state`
  *  e `effects` (ambos locais à operação — o chamador já clonou o estado). */
@@ -102,8 +127,33 @@ function propagate(
       }
 
       case 'exclusiveGateway': {
-        const chosen = pickExclusive(outgoing(graph, nodeId), state.variables)
+        const chosen = pickExclusive(node, outgoing(graph, nodeId), state.variables)
         queue.push(chosen.to)
+        break
+      }
+
+      case 'inclusiveGateway': {
+        if (ehReencontroInclusivo(graph, nodeId)) {
+          // REENCONTRO: espera exatamente os caminhos que a saída ativou
+          const need = state.inclusiveNeed?.[nodeId] ?? 1
+          const have = (state.joinCounts[nodeId] ?? 0) + 1
+          if (have < need) {
+            state.joinCounts[nodeId] = have
+            break
+          }
+          state.joinCounts[nodeId] = 0
+          if (state.inclusiveNeed) delete state.inclusiveNeed[nodeId]
+          for (const e of outgoing(graph, nodeId)) queue.push(e.to)
+          break
+        }
+        // SAÍDA: ativa todo caminho que serve e diz ao reencontro quantos esperar
+        const ativas = pickInclusive(node, outgoing(graph, nodeId), state.variables)
+        const reencontro = nodeId + SUFIXO_REENCONTRO
+        if (graph.nodes[reencontro]) {
+          state.inclusiveNeed = { ...(state.inclusiveNeed ?? {}), [reencontro]: ativas.length }
+          state.joinCounts[reencontro] = 0
+        }
+        for (const e of ativas) queue.push(e.to)
         break
       }
 
@@ -152,8 +202,9 @@ function propagate(
 function juncaoPendente(graph: WfGraph, state: WfState): boolean {
   for (const [nodeId, have] of Object.entries(state.joinCounts)) {
     if (!have) continue
-    if (graph.nodes[nodeId]?.type !== 'parallelGateway') continue
-    if (have < incoming(graph, nodeId).length) return true
+    const tipo = graph.nodes[nodeId]?.type
+    if (tipo === 'parallelGateway' && have < incoming(graph, nodeId).length) return true
+    if (tipo === 'inclusiveGateway' && have < (state.inclusiveNeed?.[nodeId] ?? 1)) return true
   }
   return false
 }
@@ -361,7 +412,9 @@ export function returnToken(
   // 2) zera as junções do sub-grafo: chegadas parciais de ramos que acabaram de
   //    ser descartados não podem contar quando o fluxo passar por aqui de novo.
   for (const id of sub) {
-    if (graph.nodes[id]?.type === 'parallelGateway') delete state.joinCounts[id]
+    const tipo = graph.nodes[id]?.type
+    if (tipo === 'parallelGateway' || tipo === 'inclusiveGateway') delete state.joinCounts[id]
+    if (tipo === 'inclusiveGateway' && state.inclusiveNeed) delete state.inclusiveNeed[id]
   }
 
   // 3) recoloca o processo no alvo (propagate cria o token + o efeito createTask)

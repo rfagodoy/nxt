@@ -16,6 +16,8 @@ export interface Inst {
   returnCount: number
   /** cancelamento (nulos quando o processo não foi cancelado) */
   cancelReason?: string | null; cancelledBy?: string | null; cancelledAt?: string | null
+  /** PARADO numa escolha sem caminho: alguém tentou concluir e foi recusado (PO, 04/10/2026) */
+  bloqueio?: { mensagem: string; escolha: string | null; tarefa: string | null; por: string; em: string } | null
 }
 export interface TaskRow {
   id: string; nodeId: string; name?: string | null; role?: string | null; assignee?: string | null
@@ -100,7 +102,7 @@ export function pontualidadeLabel(i: Inst): string {
 export interface HistoryEvent {
   key: string
   ts: string
-  kind: 'done' | 'return' | 'delegate' | 'cancel' | 'reopen'
+  kind: 'done' | 'return' | 'delegate' | 'cancel' | 'reopen' | 'blocked'
   /** a atividade envolvida; ausente no cancelamento, que é da INSTÂNCIA, não de uma etapa */
   task?: TaskRow
   /** retrocesso: para onde voltou; delegação: para quem foi */
@@ -143,6 +145,9 @@ export function buildHistory(tasks: TaskRow[], returns: ReturnRow[], events: Eve
       })
     } else if (e.event === 'CANCELADO') {
       evs.push({ key: `c:${e.id}`, ts: e.createdAt, kind: 'cancel', label: e.detail ?? undefined, reason: e.reason, by: e.user })
+    } else if (e.event === 'SEM_CAMINHO') {
+      // conclusão recusada: nenhum caminho da escolha à frente serviu
+      evs.push({ key: `b:${e.id}`, ts: e.createdAt, kind: 'blocked', task: e.taskId ? byId.get(e.taskId) : undefined, label: e.detail ?? undefined, reason: e.reason, by: e.user })
     } else if (e.event === 'REATIVADO') {
       evs.push({ key: `u:${e.id}`, ts: e.createdAt, kind: 'reopen', label: e.detail ?? undefined, reason: e.reason, by: e.user })
     }

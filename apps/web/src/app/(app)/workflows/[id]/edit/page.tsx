@@ -15,6 +15,7 @@ interface Proc {
   description?: string | null
   bpmnXml: string
   kind?: string | null
+  status?: string
   formSchema: ProcessFormSchema
 }
 
@@ -27,7 +28,7 @@ export default function EditProcessPage() {
     void (async () => {
       const p = await apiJson<Proc>(`/api/processes/${id}`)
       if (!p) { setInitial(null); return }
-      setInitial({ id: p.id, name: p.name, description: p.description, kind: p.kind, bpmnXml: p.bpmnXml, steps: p.formSchema?.steps ?? [], laneOrder: p.formSchema?.laneOrder, graph: p.formSchema?.graph, blocos: p.formSchema?.blocos as FluxoBlocos | undefined })
+      setInitial({ id: p.id, name: p.name, description: p.description, kind: p.kind, status: p.status, bpmnXml: p.bpmnXml, steps: p.formSchema?.steps ?? [], laneOrder: p.formSchema?.laneOrder, graph: p.formSchema?.graph, blocos: p.formSchema?.blocos as FluxoBlocos | undefined, quemInicia: p.formSchema?.quemInicia })
     })()
   }, [id])
 

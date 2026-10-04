@@ -9,6 +9,8 @@ import { useIniciarProcesso, type DesfechoInicio } from '@/lib/iniciar-processo'
 import { useSession } from '@/lib/session-context'
 import { EmptyState } from '@/components/ui/empty-state'
 import { WorkflowKindIcon } from './workflow-kind-icon'
+import { EscolherContrato } from './escolher-contrato'
+import { nasceDeContrato } from '@nxt/types'
 
 interface ProcRow {
   id: string
@@ -47,25 +49,28 @@ export function StartProcessButton({ variant = 'outline', className, kinds }: {
   const [iniciando, setIniciando] = useState<string | null>(null)
   /** Desfecho que NÃO abre aba (processo terminou sozinho, ou falhou). */
   const [aviso, setAviso] = useState<DesfechoInicio>(null)
+  /** Aditivo/Encerramento: o workflow escolhido espera o "Qual contrato?" antes de iniciar. */
+  const [pedeContrato, setPedeContrato] = useState<ProcRow | null>(null)
 
   const openModal = async () => {
     setOpen(true)
     if (procs === null) {
-      const all = await apiJson<ProcRow[]>('/api/processes')
-      setProcs((all ?? []).filter((p) =>
-        p.status === 'ACTIVE' && (!kinds || (!!p.kind && kinds.includes(p.kind))),
-      ))
+      /* só o que ESTA pessoa pode iniciar — regra "Quem inicia" do workflow (API) */
+      const all = await apiJson<ProcRow[]>('/api/processes/iniciaveis')
+      setProcs((all ?? []).filter((p) => !kinds || (!!p.kind && kinds.includes(p.kind))))
     }
   }
-  const fechar = () => { setOpen(false); setAviso(null); setIniciando(null) }
+  const fechar = () => { setOpen(false); setAviso(null); setIniciando(null); setPedeContrato(null) }
 
   /* Iniciar de verdade mora em `useIniciarProcesso` — o MESMO caminho que o botão
      "Iniciar" da tela do workflow usa. Aqui só cuidamos do giro na linha e do que
      dizer quando não houve aba para abrir. */
-  const start = async (proc: ProcRow) => {
-    setIniciando(proc.id)
+  const start = async (proc: ProcRow, contratoId?: string) => {
+    /* Aditivo e Encerramento nascem DE um contrato: primeiro "Qual contrato?" */
+    if (nasceDeContrato(proc.kind) && !contratoId) { setAviso(null); setPedeContrato(proc); return }
+    setIniciando(contratoId ?? proc.id)
     setAviso(null)
-    const desfecho = await iniciarProcesso(proc)
+    const desfecho = await iniciarProcesso(proc, contratoId ? { contratoId } : undefined)
     setIniciando(null)
     if (desfecho) setAviso(desfecho)
     else fechar()
@@ -112,6 +117,11 @@ export function StartProcessButton({ variant = 'outline', className, kinds }: {
               </div>
             )}
 
+            {pedeContrato ? (
+              <EscolherContrato processoId={pedeContrato.id} processo={pedeContrato.name} iniciando={iniciando}
+                onVoltar={() => { setPedeContrato(null); setAviso(null) }}
+                onEscolher={(c) => void start(pedeContrato, c.id)} />
+            ) : (
             <div className="max-h-[60vh] overflow-y-auto rolagem-visivel p-2">
               {procs === null ? (
                 <Esqueleto />
@@ -166,6 +176,7 @@ export function StartProcessButton({ variant = 'outline', className, kinds }: {
                 </ul>
               )}
             </div>
+            )}
           </div>
         </div>
       )}

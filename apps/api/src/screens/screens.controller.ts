@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Headers, Param, Post, Put, Query, UseGuards } from '@nestjs/common'
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger'
 import { ScreensService } from './screens.service'
 import { SaveScreenDto, PutValuesDto, BatchValuesDto } from './dto/screen.dto'
@@ -6,12 +6,16 @@ import { CurrentOrg } from '../auth/current-org.decorator'
 import { Roles } from '../auth/roles.decorator'
 import { RolesGuard } from '../auth/roles.guard'
 import { CurrentUser, CurrentUserData } from '../auth/current-user.decorator'
+import { ConferenciaTelaService, type SujeitoTela } from './conferencia-tela.service'
 
 @ApiTags('screens')
 @ApiBearerAuth()
 @Controller()
 export class ScreensController {
-  constructor(private readonly service: ScreensService) {}
+  constructor(
+    private readonly service: ScreensService,
+    private readonly conferencia: ConferenciaTelaService,
+  ) {}
 
   /* ─── definições ─── */
 
@@ -76,7 +80,19 @@ export class ScreensController {
 
   @Put('screen-values')
   @ApiOperation({ summary: 'Grava (upsert) os valores preenchidos de um subject' })
-  putValues(@CurrentOrg() org: string, @Body() dto: PutValuesDto, @CurrentUser() user: CurrentUserData) {
+  async putValues(@CurrentOrg() org: string, @Body() dto: PutValuesDto, @CurrentUser() user: CurrentUserData, @Headers() headers: Record<string, unknown>) {
+    /* Por aqui também valem as travas da tela (a mesma conferência da gravação do
+       registro) — senão este seria o atalho para alterar o personalizado travado. E o
+       registro tem de existir NESTA organização: antes, qualquer id era aceito. */
+    const subject: SujeitoTela | null = dto.subjectType === 'CONTRACT' ? 'CONTRATO' : dto.subjectType === 'PARTNER' ? 'FORNECEDOR' : null
+    if (subject) {
+      const antes = await this.conferencia.registro(org, subject, dto.subjectId)
+      await this.conferencia.conferir({
+        organizationId: org, subject, actor: user, origem: ConferenciaTelaService.origemDe(headers),
+        entidadeId: dto.subjectId, antes, depois: {}, soPersonalizados: true,
+        customDepois: Object.fromEntries(dto.values.map(v => [v.fieldId, v.value])),
+      })
+    }
     /* O autor vem do TOKEN, nunca do corpo: é ele que assina o histórico, e cliente
        não pode escolher em nome de quem grava. */
     return this.service.putValues(org, dto.subjectType, dto.subjectId, dto.values, {

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
-import { Search, X, Plus } from 'lucide-react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import { Search, X, Plus, Lock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { ORIGEM } from '@/lib/contract-roles'
@@ -20,17 +20,21 @@ export interface EmpresaItem { id: string; nome: string; documento: string }
  * - UNIDADE: unidades da estrutura (busca server)
  * Busca server-side escala para milhares de registros.
  */
-export function EntitySearchModal({ origem, empresas, excludeIds, onSelect, onClose, onNewPartner }: {
+export function EntitySearchModal({ origem, empresas, excludeIds, somente, onSelect, onClose, onNewPartner }: {
   origem: string
   empresas: EmpresaItem[]
   /** ids de entidades já usadas neste papel — não devem aparecer (evita duplicidade) */
   excludeIds?: string[]
+  /** só estas entidades podem ser escolhidas (regra "Quem inicia" no contrato novo), com a frase do porquê */
+  somente?: { ids: string[]; motivo: string }
   onSelect: (e: EntityRef) => void
   onClose: () => void
   onNewPartner: () => void
 }) {
   const isUnidade = origem === ORIGEM.UNIDADE
   const exclude = useMemo(() => new Set(excludeIds ?? []), [excludeIds])
+  const permitidos = useMemo(() => (somente ? new Set(somente.ids) : null), [somente])
+  const pode = useCallback((id: string) => !exclude.has(id) && (!permitidos || permitidos.has(id)), [exclude, permitidos])
   const [q, setQ] = useState('')
   const [parceiros, setParceiros] = useState<EmpresaItem[]>([])
   const [unidades,  setUnidades]  = useState<{ id: string; nome: string; documento: string; empresa?: string; codigo?: string }[]>([])
@@ -64,14 +68,14 @@ export function EntitySearchModal({ origem, empresas, excludeIds, onSelect, onCl
     if (isUnidade) return []
     const lq = q.toLowerCase().trim(); const dq = q.replace(/\D/g, '')
     return empresas
-      .filter(e => !exclude.has(e.id) && (!q || e.nome.toLowerCase().includes(lq) || (dq.length > 0 && e.documento.replace(/\D/g, '').includes(dq))))
+      .filter(e => pode(e.id) && (!q || e.nome.toLowerCase().includes(lq) || (dq.length > 0 && e.documento.replace(/\D/g, '').includes(dq))))
       .sort(byNome)
-  }, [q, empresas, isUnidade, exclude])
+  }, [q, empresas, isUnidade, pode])
 
   /* parceiros DEPOIS, em ordem alfabética (o servidor já ordena; reordena no cliente para a
      exibição ficar consistente em pt-BR). Remove entidades já usadas neste papel. */
-  const parceirosShown = useMemo(() => parceiros.filter(p => !exclude.has(p.id)).sort(byNome), [parceiros, exclude])
-  const unidadesShown  = useMemo(() => unidades.filter(u => !exclude.has(u.id)), [unidades, exclude])
+  const parceirosShown = useMemo(() => parceiros.filter(p => pode(p.id)).sort(byNome), [parceiros, pode])
+  const unidadesShown  = useMemo(() => unidades.filter(u => pode(u.id)), [unidades, pode])
 
   const hasResults = isUnidade ? unidadesShown.length > 0 : (empresasFiltered.length + parceirosShown.length) > 0
   const title = isUnidade ? 'Selecionar unidade' : 'Selecionar empresa do grupo ou parceiro'
@@ -92,6 +96,11 @@ export function EntitySearchModal({ origem, empresas, excludeIds, onSelect, onCl
           </div>
         </div>
 
+        {somente && (
+          <p className="flex items-start gap-1.5 border-b bg-muted/30 px-4 py-2 text-[11px] leading-snug text-muted-foreground shrink-0">
+            <Lock className="mt-px h-3.5 w-3.5 shrink-0" />{somente.motivo}
+          </p>
+        )}
         <div className="overflow-y-auto divide-y divide-border/60 flex-1">
           {loading && <p className="px-4 py-3 text-xs text-muted-foreground">Buscando...</p>}
 
@@ -126,11 +135,11 @@ export function EntitySearchModal({ origem, empresas, excludeIds, onSelect, onCl
           ))}
 
           {!loading && !hasResults && (
-            <p className="px-4 py-10 text-center text-xs text-muted-foreground">{q ? `Nenhum resultado para "${q}"` : 'Digite para buscar'}</p>
+            <p className="px-4 py-10 text-center text-xs text-muted-foreground">{somente && !somente.ids.length ? 'Nenhuma entidade disponível para esta regra.' : q ? `Nenhum resultado para "${q}"` : 'Digite para buscar'}</p>
           )}
         </div>
 
-        {!isUnidade && (
+        {!isUnidade && !somente && (
           <div className="px-4 py-2.5 border-t flex items-center justify-between bg-muted/20 shrink-0">
             <button type="button" onClick={onNewPartner} className="inline-flex items-center gap-1 text-xs text-primary hover:underline font-medium"><Plus className="h-3 w-3" />Cadastrar novo parceiro</button>
             <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Fechar</button>

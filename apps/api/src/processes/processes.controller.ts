@@ -20,6 +20,18 @@ export class ProcessesController {
     return this.processesService.findAll(organizationId)
   }
 
+  @Get('iniciaveis')
+  @ApiOperation({ summary: 'Workflows ativos que quem chama pode iniciar (regra "Quem inicia")' })
+  iniciaveis(@CurrentOrg() organizationId: string, @CurrentUser() actor: CurrentUserData) {
+    return this.processesService.iniciaveis(organizationId, actor)
+  }
+
+  @Get(':id/contratos-para-iniciar')
+  @ApiOperation({ summary: '"Qual contrato?": contratos vivos em que quem chama pode iniciar este workflow' })
+  contratosParaIniciar(@Param('id') id: string, @CurrentOrg() organizationId: string, @CurrentUser() actor: CurrentUserData) {
+    return this.processesService.contratosParaIniciar(id, organizationId, actor)
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Busca processo por ID' })
   findOne(@Param('id') id: string, @CurrentOrg() organizationId: string) {

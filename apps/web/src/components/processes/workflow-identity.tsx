@@ -29,7 +29,7 @@ import { WorkflowKindIcon } from './workflow-kind-icon'
 export interface WorkflowKindOption { value: string; label: string }
 
 export function WorkflowIdentity({
-  name, onName, description, onDescription, kind, onKind, kinds, autoFocus,
+  name, onName, description, onDescription, kind, onKind, kinds, autoFocus, resumo, extra,
 }: {
   name: string
   onName: (v: string) => void
@@ -40,6 +40,10 @@ export function WorkflowIdentity({
   kinds: readonly WorkflowKindOption[]
   /** Workflow novo abre com o cursor no nome; ao editar um existente, não rouba o foco. */
   autoFocus?: boolean
+  /** tamanho do fluxo ("14 atividades · 3 escolhas") — orienta em workflow grande */
+  resumo?: string
+  /** pastilhas ao lado do tipo (ex.: "Quem inicia") */
+  extra?: React.ReactNode
 }) {
   const descRef = useRef<HTMLTextAreaElement>(null)
 
@@ -59,17 +63,63 @@ export function WorkflowIdentity({
     'focus-visible:ring-2 focus-visible:ring-primary/40'
 
   return (
-    <div className="shrink-0 relative px-8 pt-5 pb-4">
-      {/* eslint-disable-next-line jsx-a11y/no-autofocus -- é a única coisa a fazer na tela ao criar */}
-      <input
-        value={name}
-        onChange={(e) => onName(e.target.value)}
-        autoFocus={autoFocus}
-        aria-label="Nome do workflow"
-        placeholder="Dê um nome a este workflow"
-        className={cn(campoCls, 'py-0.5 text-2xl font-extrabold tracking-tight leading-tight placeholder:font-bold placeholder:text-muted-foreground/45')}
-      />
-
+    /* COMPACTO (opção A do PO, 04/10/2026): em workflow grande o cabeçalho comia um terço
+       da altura. Continua sendo o CABEÇALHO DO DOCUMENTO — mesmos campos e as mesmas
+       affordances (fundo no hover/foco, anel no foco) —, só que numa faixa: nome, tipo e
+       tamanho do fluxo numa linha; a descrição logo abaixo. */
+    <div className="shrink-0 relative px-6 pt-2.5 pb-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {/* eslint-disable-next-line jsx-a11y/no-autofocus -- é a única coisa a fazer na tela ao criar */}
+        <input
+          value={name}
+          onChange={(e) => onName(e.target.value)}
+          autoFocus={autoFocus}
+          aria-label="Nome do workflow"
+          placeholder="Dê um nome a este workflow"
+          className={cn(campoCls, 'min-w-[240px] flex-1 py-0.5 text-lg font-extrabold tracking-tight leading-tight placeholder:font-bold placeholder:text-muted-foreground/45')}
+        />
+        <span title="O tipo determina onde ele aparece em “Novo processo”." className="shrink-0">
+          <Select value={kind || 'none'} onValueChange={(v) => onKind(v === 'none' ? '' : v)}>
+            <SelectTrigger
+              aria-label="Tipo do workflow"
+              className={cn(
+                'h-auto w-auto gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold shadow-none',
+                /* Sem tipo, a pastilha PEDE — tracejada e âmbar. Escolhido, ela AFIRMA:
+                   sólida, esmeralda, com o glifo do tipo. A forma diz o estado antes da
+                   leitura. */
+                kind
+                  ? 'border-primary/30 bg-primary/10 text-primary'
+                  : 'border-dashed border-amber-400/70 bg-amber-500/10 text-amber-700 dark:text-amber-400',
+              )}
+            >
+              {kind ? (
+                <span className="flex items-center gap-1.5">
+                  <WorkflowKindIcon kind={kind} className="h-3.5 w-3.5" />
+                  {kinds.find((k) => k.value === kind)?.label ?? kind}
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5"><Plus className="h-3.5 w-3.5" />Definir o tipo</span>
+              )}
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">
+                <span className="flex items-center gap-2 text-muted-foreground">
+                  <WorkflowKindIcon className="h-4 w-4" />— sem tipo (só no Dashboard)
+                </span>
+              </SelectItem>
+              {kinds.map((k) => (
+                <SelectItem key={k.value} value={k.value}>
+                  <span className="flex items-center gap-2">
+                    <WorkflowKindIcon kind={k.value} className="h-4 w-4" />{k.label}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </span>
+        {extra}
+        {resumo && <span className="shrink-0 text-[11px] text-muted-foreground">{resumo}</span>}
+      </div>
       <textarea
         ref={descRef}
         rows={1}
@@ -77,56 +127,11 @@ export function WorkflowIdentity({
         onChange={(e) => onDescription(e.target.value)}
         aria-label="Descrição do workflow"
         placeholder="Descreva o objetivo — para quem for gerenciá-lo depois."
-        className={cn(campoCls, 'mt-1 py-0.5 resize-none overflow-hidden text-sm text-muted-foreground placeholder:text-muted-foreground/45')}
+        className={cn(campoCls, 'mt-0.5 py-0.5 resize-none overflow-hidden text-xs text-muted-foreground placeholder:text-muted-foreground/45')}
       />
-
-      <div className="mt-3 flex items-center gap-2.5 flex-wrap">
-        <Select value={kind || 'none'} onValueChange={(v) => onKind(v === 'none' ? '' : v)}>
-          <SelectTrigger
-            aria-label="Tipo do workflow"
-            className={cn(
-              'h-auto w-auto gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold shadow-none',
-              /* Sem tipo, a pastilha PEDE — tracejada e âmbar. Escolhido, ela AFIRMA:
-                 sólida, esmeralda, com o glifo do tipo. A forma diz o estado antes da
-                 leitura. */
-              kind
-                ? 'border-primary/30 bg-primary/10 text-primary'
-                : 'border-dashed border-amber-400/70 bg-amber-500/10 text-amber-700 dark:text-amber-400',
-            )}
-          >
-            {kind ? (
-              <span className="flex items-center gap-1.5">
-                <WorkflowKindIcon kind={kind} className="h-3.5 w-3.5" />
-                {kinds.find((k) => k.value === kind)?.label ?? kind}
-              </span>
-            ) : (
-              <span className="flex items-center gap-1.5"><Plus className="h-3.5 w-3.5" />Definir o tipo</span>
-            )}
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">
-              <span className="flex items-center gap-2 text-muted-foreground">
-                <WorkflowKindIcon className="h-4 w-4" />— sem tipo (só no Dashboard)
-              </span>
-            </SelectItem>
-            {kinds.map((k) => (
-              <SelectItem key={k.value} value={k.value}>
-                <span className="flex items-center gap-2">
-                  <WorkflowKindIcon kind={k.value} className="h-4 w-4" />{k.label}
-                </span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <span className="text-[11px] text-muted-foreground">
-          Determina onde ele aparece em “Novo processo”.
-        </span>
-      </div>
-
       {/* Fio que nasce e morre transparente: separa a identidade do desenho sem
           cortar a superfície de ponta a ponta. */}
-      <span aria-hidden className="absolute inset-x-8 bottom-0 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
+      <span aria-hidden className="absolute inset-x-6 bottom-0 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
     </div>
   )
 }

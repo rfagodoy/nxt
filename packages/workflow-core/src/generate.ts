@@ -17,6 +17,7 @@ const BPMN_LOCAL_BY_TYPE: Record<WfNodeType, string> = {
   serviceTask: 'serviceTask',
   exclusiveGateway: 'exclusiveGateway',
   parallelGateway: 'parallelGateway',
+  inclusiveGateway: 'inclusiveGateway',
 }
 
 const escAttr = (s: string): string =>
@@ -50,7 +51,7 @@ export function generateBpmn(graph: WfGraph): string {
     if (node.connector) attrs.push(`nxt:connector="${escAttr(node.connector)}"`)
     if (typeof node.slaMinutes === 'number') attrs.push(`nxt:sla="${node.slaMinutes}"`)
     // seta default do gateway
-    if (node.type === 'exclusiveGateway' || node.type === 'parallelGateway') {
+    if (node.type === 'exclusiveGateway' || node.type === 'parallelGateway' || node.type === 'inclusiveGateway') {
       const def = edges.find((e) => e.from === id && e.isDefault)
       if (def) attrs.push(`default="${escAttr(def.id)}"`)
     }

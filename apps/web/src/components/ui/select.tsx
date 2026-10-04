@@ -43,7 +43,9 @@ const SelectContent = React.forwardRef<
            impossível de escolher (modal de atividade do workflow, field-drawers,
            editor de telas, delegar/devolver tarefa…). Popup sempre flutua por cima
            de quem o abriu: ao criar uma sobreposição nova, mantenha-a abaixo disto. */
-        'glass relative z-[100] min-w-[8rem] overflow-hidden rounded-xl text-popover-foreground',
+        /* altura limitada ao espaço da janela, com rolagem: lista longa não pode passar
+           do fim da tela e esconder as últimas opções (achado do PO, 04/10/2026) */
+        'glass relative z-[100] min-w-[8rem] max-h-[min(var(--radix-select-content-available-height),360px)] overflow-y-auto rounded-xl text-popover-foreground',
         position === 'popper' && 'translate-y-1',
         className,
       )}

@@ -169,6 +169,8 @@ export default function TarefasPage() {
                       )}
                       <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                         <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded-md whitespace-nowrap tabular-nums', DUE_CHIP[info.grp])}>{info.label}</span>
+                        {/* caiu com os administradores porque ninguém ocupa o papel no contrato */}
+                        {t.semExecutor && <span title={t.executorNota ?? undefined} className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-md whitespace-nowrap border border-amber-300 text-amber-800 dark:border-amber-800 dark:text-amber-300"><AlertTriangle className="h-2.5 w-2.5" aria-hidden />Sem executor</span>}
                         {t.instance?.numero != null && <span className="text-[10px] font-mono text-muted-foreground shrink-0">#{t.instance.numero}</span>}
                         <span className="text-[10.5px] text-muted-foreground break-words min-w-0 flex-1">{t.instance?.processDefinition?.name || 'Processo'}</span>
                         <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 group-hover:text-primary group-hover:translate-x-0.5 transition-all" />

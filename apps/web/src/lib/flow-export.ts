@@ -12,7 +12,7 @@ import { titleLineCount, LABEL_W, LANE_HEADER_W } from './flow-layout'
 
 export type FlowExportFormat = 'jpg' | 'pdf'
 
-export type ExportNodeType = 'start' | 'end' | 'userTask' | 'serviceTask' | 'exclusiveGateway' | 'parallelGateway'
+export type ExportNodeType = 'start' | 'end' | 'userTask' | 'serviceTask' | 'exclusiveGateway' | 'parallelGateway' | 'inclusiveGateway'
 export interface ExportNode {
   id: string; type: ExportNodeType; x: number; y: number; w: number; h: number
   name: string; typeLabel?: string; meta?: string[]; isFork?: boolean
@@ -224,7 +224,7 @@ function drawDiagram(ctx: CanvasRenderingContext2D, model: ExportModel, C: Theme
   for (const n of model.nodes) {
     const x = offX + n.x, y = offY + n.y, w = n.w, h = n.h
     if (n.type === 'start' || n.type === 'end') drawEvent(ctx, n, x, y, w, h, C)
-    else if (n.type === 'exclusiveGateway' || n.type === 'parallelGateway') drawGateway(ctx, n, x, y, w, h, C)
+    else if (n.type === 'exclusiveGateway' || n.type === 'parallelGateway' || n.type === 'inclusiveGateway') drawGateway(ctx, n, x, y, w, h, C)
     else drawCard(ctx, n, x, y, w, h, C)
   }
 }
@@ -249,7 +249,7 @@ function drawEvent(ctx: CanvasRenderingContext2D, n: ExportNode, x: number, y: n
 /** BPMN: losango com "X" = exclusivo (ou/ou); com "+" = paralelo (e/e). Fork e junção
  *  têm a MESMA forma — o que muda é só o rótulo (a junção não tem). */
 function drawGateway(ctx: CanvasRenderingContext2D, n: ExportNode, x: number, y: number, w: number, h: number, C: Theme) {
-  const pal = n.type === 'exclusiveGateway' ? VIOLET : ROSE
+  const pal = n.type === 'exclusiveGateway' || n.type === 'inclusiveGateway' ? VIOLET : ROSE
   const cx = x + w / 2, cy = y + h / 2, r = w / 2 - 1
   ctx.beginPath(); ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy); ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy); ctx.closePath()
   ctx.fillStyle = pal.fill; ctx.fill()
@@ -257,7 +257,7 @@ function drawGateway(ctx: CanvasRenderingContext2D, n: ExportNode, x: number, y:
   const m = 9.5
   ctx.strokeStyle = pal.text; ctx.lineWidth = 3.4; ctx.lineCap = 'round'
   ctx.beginPath()
-  if (n.type === 'exclusiveGateway') {
+  if (n.type === 'exclusiveGateway' || n.type === 'inclusiveGateway') {
     ctx.moveTo(cx - m, cy - m); ctx.lineTo(cx + m, cy + m)
     ctx.moveTo(cx + m, cy - m); ctx.lineTo(cx - m, cy + m)
   } else {
