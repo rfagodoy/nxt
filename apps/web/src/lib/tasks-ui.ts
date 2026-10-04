@@ -24,6 +24,10 @@ export interface Task {
   createdAt: string
   instance?: { numero?: number | null; processDefinition?: { name?: string; kind?: string | null } }
   assunto?: AssuntoTarefa
+  /** POR QUE a tarefa foi para quem foi (executor pelo stakeholder do contrato) */
+  executorNota?: string | null
+  /** ninguém encontrado: foi para os administradores, com aviso */
+  semExecutor?: boolean
 }
 
 const MOEDA_FMT = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })

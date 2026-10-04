@@ -2,9 +2,9 @@ import { Injectable, NotFoundException, BadRequestException, ConflictException }
 import { PrismaService } from '../prisma.service'
 import { CreateProcessDto } from './dto/create-process.dto'
 import { UpdateProcessDto } from './dto/update-process.dto'
-import { ProcessFormSchema, isCompensable } from '@nxt/types'
+import { ProcessFormSchema, isCompensable, findConnector, nasceDeContrato, EXECUTOR_QUEM_INICIOU } from '@nxt/types'
 import {
-  compileBpmn, CompileError, type WfGraph, validarDesenho, validarDecisoes, validarAtividades, validarTelasDasAtividades, formatarProblemas, bloqueantes,
+  compileBpmn, CompileError, type WfGraph, validarDesenho, validarDecisoes, validarAtividades, validarTelasDasAtividades, validarExecutores, validarQuemInicia, formatarProblemas, bloqueantes,
   type ProblemaAtivacao, resumoDeInicio, type EtapaPrevia,
   lerFluxoBlocos, blocosParaGrafo, grafoParaBlocos, grafoParaMotor, generateBpmn, pendenciasDosBlocos, SUFIXO_REENCONTRO,
 } from '@nxt/workflow-core'
@@ -15,6 +15,8 @@ const DESENHO_LIVRE_NAO_ATIVA =
   'Este workflow foi desenhado no editor antigo, com ligações livres que o motor pode não conseguir executar. ' +
   'Monte o fluxo em blocos (Escolher um caminho / Fazer ao mesmo tempo) no editor antes de ativar.'
 import { RoleAssignmentsService } from '../role-assignments/role-assignments.service'
+import { RegrasDeInicio } from '../instances/regras-de-inicio'
+import type { CurrentUserData } from '../auth/current-user.decorator'
 
 /** Autor da ação, vindo do JWT (nunca do corpo da requisição). */
 export interface Autor { name: string; sub?: string }
@@ -51,7 +53,33 @@ export class ProcessesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly roleAssignments: RoleAssignmentsService,
-  ) {}
+  ) {
+    this.regras = new RegrasDeInicio(prisma, roleAssignments)
+  }
+
+  private readonly regras: RegrasDeInicio
+
+  /* ─── Quem pode iniciar (PO, 04/10/2026) ─────────────────────────────────────
+     O "+ Novo processo" lista só o que a pessoa pode iniciar; a partida confere de novo
+     (instances.service). `porContrato` = a regra depende do contrato escolhido
+     (Aditivo/Encerramento com "da ‹parte› do contrato"): o "Qual contrato?" filtra. */
+  async iniciaveis(organizationId: string, actor?: CurrentUserData) {
+    const ativos = await this.prisma.processDefinition.findMany({
+      where: { organizationId, status: 'ACTIVE' },
+      orderBy: { name: 'asc' },
+    })
+    const out: Array<(typeof ativos)[number] & { porContrato: boolean }> = []
+    for (const p of ativos) {
+      const r = await this.regras.avaliar(organizationId, actor, p)
+      if (r.pode) out.push({ ...p, porContrato: r.porContrato })
+    }
+    return out
+  }
+
+  async contratosParaIniciar(id: string, organizationId: string, actor?: CurrentUserData) {
+    const proc = await this.findOne(id, organizationId)
+    return this.regras.contratosPermitidos(organizationId, actor, proc)
+  }
 
   /* ─── Camada 1: histórico ────────────────────────────────────────────────────
      Retrato da definição, para poder voltar atrás. Gravado ANTES de cada sobrescrita
@@ -207,10 +235,13 @@ export class ProcessesService {
     etapa: EtapaPrevia,
     papeis: Map<string, string>,
     organizationId: string,
-  ): Promise<{ papel: string | null; entidade: string | null; pessoas: string[]; aberta: boolean; dependeDoProcesso: boolean }> {
+  ): Promise<{ papel: string | null; entidade: string | null; pessoas: string[]; aberta: boolean; dependeDoProcesso: boolean; quemIniciou?: boolean }> {
     const ex = etapa.executor
     if (!ex?.papelId) {
       return { papel: null, entidade: null, pessoas: [], aberta: true, dependeDoProcesso: false }
+    }
+    if (ex.papelId === EXECUTOR_QUEM_INICIOU) {
+      return { papel: 'Quem iniciou o processo', entidade: null, pessoas: [], aberta: false, dependeDoProcesso: false, quemIniciou: true }
     }
     const papel = papeis.get(ex.papelId) ?? null
 
@@ -347,6 +378,30 @@ export class ProcessesService {
         })
         problemas.push(...validarTelasDasAtividades(stepsDeUsuario, telas))
       }
+      /* Executor "Da variável" pelo contrato do processo: precisa dizer o stakeholder, ele
+         tem de combinar com o papel, e o processo tem de ter contrato até ali — na partida
+         (Aditivo/Encerramento) ou criado por uma atividade anterior. Mesma regra do editor. */
+      const vedges = (editorGraph.edges ?? []).map((e) => ({ from: e.from, to: e.to }))
+      problemas.push(...validarExecutores(
+        vedges,
+        (formSchema.steps ?? []).map((st) => ({
+          ...st,
+          executor: nosDoEditor.find((n) => n.id === st.stepId)?.type === 'userTask' ? st.executor : undefined,
+          produz: findConnector(st.connector)?.outputs,
+        })),
+        await this.roleAssignments.catalogoDePapeis(organizationId),
+        nasceDeContrato(process.kind) ? ['contratoId'] : [],
+      ))
+      /* Quem pode iniciar (PO, 04/10/2026) — e o aviso de 1ª atividade "Quem iniciou" com
+         qualquer usuário podendo iniciar. A 1ª atividade = o que sai direto do início. */
+      const inicio = nosDoEditor.find((n) => n.type === 'start')
+      const primeiroId = inicio ? (editorGraph.edges ?? []).find((e) => e.from === inicio.id)?.to : undefined
+      const primeiraAtividade = primeiroId && nosDoEditor.find((n) => n.id === primeiroId)?.type === 'userTask'
+        ? (formSchema.steps ?? []).find((st) => st.stepId === primeiroId) ?? null
+        : null
+      problemas.push(...validarQuemInicia(formSchema.quemInicia, await this.roleAssignments.catalogoDePapeis(organizationId), {
+        kind: process.kind, primeiraAtividade,
+      }))
     }
     // Só o que IMPEDE barra a ativação. AVISO (ex.: atividade que executa mas não
     // leva ao fim) é desenho legítimo desde a regra do fim: informa no editor, não

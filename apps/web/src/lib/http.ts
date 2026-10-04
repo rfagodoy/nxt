@@ -47,3 +47,11 @@ export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<
     return null
   }
 }
+
+/** Gravação feita dentro de uma TAREFA do workflow: qual tarefa e por qual aba (tela).
+ *  A API usa isso para aplicar a tela e as travas DAQUELA etapa — sem os cabeçalhos,
+ *  vale a tela padrão do tipo. A API confere tudo (tarefa pendente, quem pode agir,
+ *  registro do processo, tela da etapa); mandar errado só faz valer a tela padrão. */
+export interface OrigemDaTarefa { tarefaId: string; telaId: string }
+export const cabecalhosDaTarefa = (o?: OrigemDaTarefa | null): Record<string, string> =>
+  o ? { 'x-nxt-tarefa': o.tarefaId, 'x-nxt-tela': o.telaId } : {}

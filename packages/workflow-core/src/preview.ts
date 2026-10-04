@@ -97,11 +97,11 @@ function alcancar(graph: WfGraph, deId: string): Alcance {
       alcancaFim = true
       continue
     }
-    if (no.type === 'parallelGateway') viaParalelo = true
+    if (no.type === 'parallelGateway' || no.type === 'inclusiveGateway') viaParalelo = true
 
     // Losango: o nome dele é a pergunta que decide os ramos abaixo. Carrega adiante
     // para a etapa saber sob qual condição ela existe.
-    const rotulo = no.type === 'exclusiveGateway' ? (no.name ?? '').trim() || undefined : atual.decisao
+    const rotulo = no.type === 'exclusiveGateway' || no.type === 'inclusiveGateway' ? (no.name ?? '').trim() || undefined : atual.decisao
     for (const e of saidasDe(atual.id)) fila.push({ id: e.to, decisao: rotulo })
   }
 
@@ -117,7 +117,7 @@ export function resumoDeInicio(graph: WfGraph): ResumoDeInicio {
   const saidas = (id: string) => (graph?.edges ?? []).filter((e) => e.from === id).length
   const totais = {
     atividades: nos.filter((n) => n.type === 'userTask' || n.type === 'serviceTask').length,
-    decisoes: nos.filter((n) => n.type === 'exclusiveGateway' && saidas(n.id) > 1).length,
+    decisoes: nos.filter((n) => (n.type === 'exclusiveGateway' || n.type === 'inclusiveGateway') && saidas(n.id) > 1).length,
   }
   const caminhoVaria = totais.decisoes > 0
 

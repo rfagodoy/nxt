@@ -10,15 +10,14 @@
  */
 
 import { createContext, Fragment, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { AlertTriangle, ArrowDown, ArrowUp, Building2, Clock, GripVertical, Info, Play, Plus, SlidersHorizontal, Trash2, User, UserSquare, X, Zap } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, Building2, ChevronDown, ChevronsDownUp, ChevronsUpDown, Clock, CornerDownRight, GripVertical, Info, Link2, Play, Plus, SlidersHorizontal, Trash2, User, UserSquare, X, Zap } from 'lucide-react'
 import {
-  acharItem, adicionarCaminho, atualizarCaminho, atualizarItem, destinosDeVolta, moverCaminho, moverItem, removerCaminho,
-  type BlocoEscolha, type BlocoParalelo, type CaminhoCondicional, type FimCaminho, type FluxoBlocos,
+  acharItem, adicionarCaminho, atualizarCaminho, atualizarItem, destinosDeVolta, gruposDeVinculo, listarAtividades, modoDaEscolha, moverCaminho, moverItem, removerCaminho, senaoParaCaminho, temSenaoAntigo,
+  type BlocoEscolha, type ModoEscolha, type BlocoParalelo, type CaminhoCondicional, type FimCaminho, type FluxoBlocos,
   type ItemAtividade, type ItemFluxo, type ProblemaAtivacao,
 } from '@nxt/workflow-core'
 import type { EdgeConditionSpec, StepFormSchema } from '@nxt/types'
-import { camposDasTelasDasAtividades, decidirSaida, montarVarsSimulacao, type CampoDisponivel } from '@/lib/flow-conditions'
+import { camposDasTelasDasAtividades, decidirSaidas, montarVarsSimulacao, type CampoDisponivel } from '@/lib/flow-conditions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -30,6 +29,8 @@ import { cn } from '@/lib/utils'
 
 /* ─── modelo ─────────────────────────────────────────────────────────────────── */
 
+const PREF_EXPANDIR = 'nxt:workflow:expandir-tudo'
+
 const novoId = (prefixo: string) => `${prefixo}_${Math.random().toString(36).slice(2, 9)}`
 
 export type NovoItem = 'userTask' | 'serviceTask' | 'escolha' | 'paralelo'
@@ -38,8 +39,9 @@ export type NovoItem = 'userTask' | 'serviceTask' | 'escolha' | 'paralelo'
  *  "ao mesmo tempo", com dois caminhos — um bloco com menos não faria sentido. */
 export function novoItem(tipo: NovoItem): ItemFluxo {
   if (tipo === 'escolha') {
+    /* nasce "todos os que servirem" e sem Senão (vazio = segue adiante) — PO, 04/10/2026 */
     return {
-      kind: 'escolha', id: novoId('Escolha'), pergunta: '',
+      kind: 'escolha', id: novoId('Escolha'), pergunta: '', modo: 'todos',
       caminhos: [{ id: novoId('Caminho'), itens: [], fim: { tipo: 'segue' } }],
       casoContrario: { id: novoId('Caminho'), itens: [], fim: { tipo: 'segue' } },
     }
@@ -101,8 +103,9 @@ function textoFim(fim: FimCaminho, nomeDe: (id: string) => string): string {
 /* ─── trilho ─────────────────────────────────────────────────────────────────── */
 
 export type MetaAtividade = { kind: 'exec' | 'entidade' | 'prazo'; text: string }
-/** "Testar decisão": qual caminho da escolha venceria com os valores de exemplo. */
-export type Simulacao = { blocoId: string; caminhoId: string | null }
+/** "Testar": quais caminhos da escolha serviriam com os valores de exemplo (vários no "todos"). */
+export type Simulacao = { blocoId: string; caminhoIds: string[] }
+type Screens = ReturnType<typeof useScreens>['screens']
 
 interface TrilhoProps {
   fluxo: FluxoBlocos
@@ -112,10 +115,24 @@ interface TrilhoProps {
   metaDe: (id: string) => MetaAtividade[]
   onAbrir: (id: string | null) => void
   onInserir: (ref: string, indice: number, tipo: NovoItem) => void
+  /** insere uma atividade VINCULADA a outra já configurada (mesma configuração) */
+  onInserirVinculada: (ref: string, indice: number, origemId: string) => void
   onRemover: (id: string) => void
   onFluxo: (fn: (f: FluxoBlocos) => FluxoBlocos) => void
+  /** telas — de onde saem os campos que o filtro de cada caminho pode usar */
+  screens: Screens
+  onSimulacao: (s: Simulacao | null) => void
+  /** abre a configuração de uma atividade (o conserto de "caminho sem campos") */
+  onConfigurarAtividade?: (atividadeId: string) => void
 }
 interface TrilhoCtx extends TrilhoProps {
+  /** blocos abertos em gaveta, de fora para dentro */
+  abertos: string[]
+  alternarBloco: (id: string) => void
+  /** tudo aberto no próprio trilho (o desenho antigo) */
+  expandirTudo: boolean
+  /** raiz → atividades vinculadas a ela */
+  vinculos: Map<string, string[]>
   arrastando: string | null
   setArrastando: (id: string | null) => void
   problemas: Map<string, ProblemaAtivacao[]>
@@ -133,12 +150,35 @@ export function BlocosTrilho({ pendencias, pendAberto, onTogglePend, onFocar, ..
   pendencias: ProblemaAtivacao[]; pendAberto: boolean; onTogglePend: () => void; onFocar: (p: ProblemaAtivacao) => void
 }) {
   const [arrastando, setArrastando] = useState<string | null>(null)
+  /* Mapa (opção A): blocos recolhidos em cartões; os abertos viram gavetas embaixo. */
+  const [expandirTudo, setExpandirTudoState] = useState(false)
+  useEffect(() => { try { setExpandirTudoState(localStorage.getItem(PREF_EXPANDIR) === '1') } catch { /* sem storage */ } }, [])
+  const setExpandirTudo = (v: boolean) => { setExpandirTudoState(v); try { localStorage.setItem(PREF_EXPANDIR, v ? '1' : '0') } catch { /* sem storage */ } }
+  const [abertosBrutos, setAbertos] = useState<string[]>([])
+  const abertos = useMemo(() => abertosBrutos.filter((id) => { const b = acharItem(props.fluxo, id); return !!b && b.kind !== 'atividade' }), [abertosBrutos, props.fluxo])
+  const alternarBloco = (id: string) => {
+    if (abertos.includes(id)) { setAbertos(abertos.slice(0, abertos.indexOf(id))); return } // recolher não mexe na seleção
+    setAbertos([...blocosAcimaDe(props.fluxo, id), id])
+    props.onAbrir(id)
+  }
+  /* Seleção vinda de FORA (bloco recém-inserido, pendência clicada): abre a gaveta dele —
+     ou a do bloco onde a atividade mora — para ela não ficar escondida num cartão. */
+  useEffect(() => {
+    const id = props.selectedId
+    if (!id) return
+    const it = acharItem(props.fluxo, id)
+    if (!it) return
+    const cadeia = [...blocosAcimaDe(props.fluxo, id), ...(it.kind !== 'atividade' ? [id] : [])]
+    // só ABRE: selecionar algo no trilho principal não fecha as gavetas abertas
+    setAbertos((atual) => (!cadeia.length || cadeia.every((x, i) => atual[i] === x) ? atual : cadeia))
+  }, [props.selectedId]) // eslint-disable-line react-hooks/exhaustive-deps
   const problemas = useMemo(() => {
     const m = new Map<string, ProblemaAtivacao[]>()
     for (const p of pendencias) if (p.nodeId) m.set(p.nodeId, [...(m.get(p.nodeId) ?? []), p])
     return m
   }, [pendencias])
   const emParalelo = useMemo(() => escolhasEmParalelo(props.fluxo), [props.fluxo])
+  const vinculos = useMemo(() => gruposDeVinculo(props.fluxo), [props.fluxo])
   const nomeDe = (id: string) => props.steps[id]?.stepName?.trim() || 'Atividade sem nome'
 
   /* Zoom por `zoom` do CSS (e não transform): o trilho reflui no tamanho novo, então a
@@ -170,14 +210,22 @@ export function BlocosTrilho({ pendencias, pendAberto, onTogglePend, onFocar, ..
   }, [])
 
   const irAte = (id: string) => {
-    scrollRef.current?.querySelector(`[data-item-id="${CSS.escape(id)}"]`)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' })
+    const it = acharItem(props.fluxo, id)
+    if (it) setAbertos([...blocosAcimaDe(props.fluxo, id), ...(it.kind !== 'atividade' ? [id] : [])])
+    setTimeout(() => scrollRef.current?.querySelector(`[data-item-id="${CSS.escape(id)}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }), 60)
   }
 
   return (
-    <Ctx.Provider value={{ ...props, arrastando, setArrastando, problemas, emParalelo, nomeDe }}>
+    <Ctx.Provider value={{ ...props, abertos, alternarBloco, expandirTudo, vinculos, arrastando, setArrastando, problemas, emParalelo, nomeDe }}>
       <div className="flex-1 min-w-0 min-h-0 relative">
         <ZoomBar scale={scale} autoFit={ajustado} onZoom={zoom} onFit={ajustar} />
+        <button type="button" onClick={() => { setExpandirTudo(!expandirTudo); setAbertos([]) }}
+          title={expandirTudo ? 'Mostrar os blocos como cartões; cada um abre numa gaveta' : 'Desenhar todos os blocos abertos no trilho'}
+          className="absolute right-3 top-3 z-10 inline-flex h-8 items-center gap-1.5 rounded-lg border bg-card/95 px-2.5 text-[11.5px] font-semibold shadow-sm backdrop-blur hover:bg-muted">
+          {expandirTudo ? <><ChevronsDownUp className="h-3.5 w-3.5" />Recolher blocos</> : <><ChevronsUpDown className="h-3.5 w-3.5" />Expandir tudo</>}
+        </button>
+        <Minimapa scrollRef={scrollRef} versao={`${abertos.join(',')}|${expandirTudo}|${scale}|${props.fluxo.itens.length}`} />
         <PendenciasPill pendencias={pendencias} aberto={pendAberto} onToggle={onTogglePend} style={{ left: 12 }}
           onItem={(p) => { if (p.nodeId) irAte(p.nodeId); onFocar(p) }} />
         {props.fluxo.itens.length === 0 && (
@@ -192,12 +240,15 @@ export function BlocosTrilho({ pendencias, pendAberto, onTogglePend, onFocar, ..
             if (!e.currentTarget.contains(e.target as Node)) return
             if (!(e.target as HTMLElement).closest('[data-item-id],[data-trilho-menu]')) props.onAbrir(null)
           }}>
-          <div className="min-h-full min-w-full w-max flex items-center">
+          <div className={cn('min-h-full min-w-full w-max flex', abertos.length && !expandirTudo ? 'items-start' : 'items-center')}>
             <div ref={medidaRef} className="w-max">
-              <div className="flex items-center px-8 pt-12 pb-20" style={{ zoom: scale }}>
-                <Evento fim={false} />
-                <Sequencia refId="raiz" itens={props.fluxo.itens} />
-                <Evento fim />
+              <div className="flex flex-col gap-6 px-8 pt-14 pb-24" style={{ zoom: scale }}>
+                <div className="flex items-center">
+                  <Evento fim={false} />
+                  <Sequencia refId="raiz" itens={props.fluxo.itens} />
+                  <Evento fim />
+                </div>
+                {!expandirTudo && abertos.map((id) => <Gaveta key={id} id={id} />)}
               </div>
             </div>
           </div>
@@ -224,14 +275,19 @@ function Sequencia({ refId, itens }: { refId: string; itens: ItemFluxo[] }) {
       <Vaga refId={refId} indice={0} />
       {itens.map((it, i) => (
         <Fragment key={it.id}>
-          {it.kind === 'atividade' ? <CartaoAtividade item={it} />
-            : it.kind === 'escolha' ? <BlocoEscolhaView bloco={it} />
-              : <BlocoParaleloView bloco={it} />}
+          <ItemDoTrilho item={it} />
           <Vaga refId={refId} indice={i + 1} />
         </Fragment>
       ))}
     </div>
   )
+}
+
+function ItemDoTrilho({ item }: { item: ItemFluxo }) {
+  const t = useTrilho()
+  if (item.kind === 'atividade') return <CartaoAtividade item={item} />
+  if (!t.expandirTudo) return <BlocoResumo bloco={item} />
+  return item.kind === 'escolha' ? <BlocoEscolhaView bloco={item} /> : <BlocoParaleloView bloco={item} />
 }
 
 /** Ligação entre dois itens: a seta do fluxo + o `+` que insere ali. Durante um arrasto,
@@ -255,7 +311,10 @@ function Vaga({ refId, indice, vazia }: { refId: string; indice: number; vazia?:
   const ancora = useRef<HTMLButtonElement>(null)
   const abrirMenu = (e: React.MouseEvent) => { e.stopPropagation(); setMenu((v) => !v) }
   const menuEl = menu && (
-    <MenuInserir ancora={ancora} onClose={() => setMenu(false)} onPick={(tipo) => { setMenu(false); t.onInserir(refId, indice, tipo) }} />
+    <MenuInserir ancora={ancora} onClose={() => setMenu(false)}
+      onPick={(tipo) => { setMenu(false); t.onInserir(refId, indice, tipo) }}
+      vinculaveis={listarAtividades(t.fluxo).filter((a) => !a.vinculoDe).map((a) => ({ id: a.id, nome: t.nomeDe(a.id), tipo: a.tipo }))}
+      onVincular={(origemId) => { setMenu(false); t.onInserirVinculada(refId, indice, origemId) }} />
   )
 
   if (vazia) {
@@ -291,7 +350,13 @@ function Vaga({ refId, indice, vazia }: { refId: string; indice: number; vazia?:
 
 /** Menu do `+`. Flutua no <body>: dentro do trilho (rolável e com zoom) ele saía
  *  cortado quando o `+` ficava perto da borda — foi o que o PO viu no primeiro `+`. */
-function MenuInserir({ ancora, onPick, onClose }: { ancora: React.RefObject<HTMLElement | null>; onPick: (t: NovoItem) => void; onClose: () => void }) {
+function MenuInserir({ ancora, onPick, onClose, vinculaveis, onVincular }: {
+  ancora: React.RefObject<HTMLElement | null>; onPick: (t: NovoItem) => void; onClose: () => void
+  /** atividades já configuradas que podem ser repetidas aqui (mesma configuração) */
+  vinculaveis: Array<{ id: string; nome: string; tipo: 'userTask' | 'serviceTask' }>
+  onVincular: (origemId: string) => void
+}) {
+  const [repetir, setRepetir] = useState(false)
   const opcoes: Array<{ tipo: NovoItem; rotulo: string; dica: string; icone: React.ReactNode }> = [
     { tipo: 'userTask', rotulo: 'Tarefa', dica: 'Uma pessoa executa', icone: <UserSquare className="h-4 w-4 text-sky-600 dark:text-sky-400" /> },
     { tipo: 'serviceTask', rotulo: 'Ação automática', dica: 'O sistema executa sozinho', icone: <Zap className="h-4 w-4 text-amber-600 dark:text-amber-400" /> },
@@ -300,8 +365,27 @@ function MenuInserir({ ancora, onPick, onClose }: { ancora: React.RefObject<HTML
   ]
   return (
     <FloatingMenu anchor={ancora} onClose={onClose} align="center" data-trilho-menu role="menu"
-      className="glass w-64 rounded-xl p-1 shadow-lg">
-      {opcoes.map((o) => (
+      className="w-72 rounded-xl border bg-card p-1 text-card-foreground shadow-xl">
+      {repetir ? (
+        <>
+          <button type="button" onClick={(e) => { e.stopPropagation(); setRepetir(false) }}
+            className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11.5px] font-semibold text-muted-foreground hover:bg-accent">
+            <ArrowUp className="h-3 w-3 -rotate-90" />Voltar
+          </button>
+          <p className="px-2 pb-1 text-[10.5px] leading-snug text-muted-foreground">
+            A atividade repetida usa a <span className="font-semibold text-foreground">mesma configuração</span> — mudou numa, muda em todas. Na execução, cada lugar gera a sua tarefa.
+          </p>
+          <div className="max-h-64 overflow-y-auto">
+            {vinculaveis.map((v) => (
+              <button key={v.id} type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); onVincular(v.id) }}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent">
+                {v.tipo === 'serviceTask' ? <Zap className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" /> : <UserSquare className="h-4 w-4 shrink-0 text-sky-600 dark:text-sky-400" />}
+                <span className="truncate text-[12.5px] font-medium">{v.nome}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      ) : opcoes.map((o) => (
         <button key={o.tipo} type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); onPick(o.tipo) }}
           className="w-full flex items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent">
           <span className="mt-0.5 shrink-0">{o.icone}</span>
@@ -311,6 +395,16 @@ function MenuInserir({ ancora, onPick, onClose }: { ancora: React.RefObject<HTML
           </span>
         </button>
       ))}
+      {!repetir && vinculaveis.length > 0 && (
+        <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setRepetir(true) }}
+          className="mt-0.5 flex w-full items-start gap-2 rounded-md border-t px-2 py-1.5 pt-2 text-left hover:bg-accent">
+          <span className="mt-0.5 shrink-0"><Link2 className="h-4 w-4 text-primary" /></span>
+          <span className="min-w-0">
+            <span className="block text-[12.5px] font-medium">Repetir uma atividade já configurada</span>
+            <span className="block text-[10.5px] leading-snug text-muted-foreground">Mesma configuração em outra frente — muda junto</span>
+          </span>
+        </button>
+      )}
     </FloatingMenu>
   )
 }
@@ -333,6 +427,9 @@ function CartaoAtividade({ item }: { item: ItemAtividade }) {
   const auto = item.tipo === 'serviceTask'
   const Icone = auto ? Zap : UserSquare
   const nome = t.steps[item.id]?.stepName?.trim()
+  const raiz = item.vinculoDe ?? item.id
+  const grupo = t.vinculos.get(raiz)
+  const vinculada = !!grupo?.length
   return (
     <div data-item-id={item.id} draggable title="Clique para configurar · arraste para mudar de lugar"
       onDragStart={(e) => { e.stopPropagation(); e.dataTransfer.setData('text/plain', item.id); e.dataTransfer.effectAllowed = 'move'; t.setArrastando(item.id) }}
@@ -348,6 +445,12 @@ function CartaoAtividade({ item }: { item: ItemAtividade }) {
             <Icone className="h-3 w-3" />
           </span>
           <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{auto ? 'Ação automática' : 'Tarefa'}</span>
+          {vinculada && (
+            <span title={`Mesma configuração em ${grupo!.length + 1} lugares — mudou numa, muda em todas`}
+              className="inline-flex items-center gap-0.5 rounded-full bg-primary/10 px-1.5 py-px text-[9.5px] font-semibold text-primary">
+              <Link2 className="h-2.5 w-2.5" />{grupo!.length + 1}×
+            </span>
+          )}
           <span className="ml-auto flex items-center gap-0.5">
             <MarcaProblema id={item.id} />
             <button type="button" title="Remover atividade" aria-label="Remover atividade"
@@ -418,78 +521,272 @@ function BotaoIcone({ title, onClick, perigo, children }: { title: string; onCli
   )
 }
 
+/* ─── Escolha em FRASES (opção A do PO, 04/10/2026) ─────────────────────────────
+   Sem modal: a escolha se configura no próprio trilho e lê como português —
+   "Se [condição] então [atividades] e depois [segue]". A condição abre num balão
+   ancorado nela mesma; a pergunta, o modo e o "se nenhum servir" estão no bloco. */
+
+/** Campos que o filtro de um caminho pode usar: os da TELA das atividades dele. */
+function useCamposDoCaminho() {
+  const t = useTrilho()
+  return (c: { itens: ItemFluxo[] }) => camposDasTelasDasAtividades(
+    atividadesDentro(c.itens).map((a) => t.steps[a.id]).filter((s): s is StepFormSchema => !!s),
+    t.screens,
+  )
+}
+
+/** Por que ESTE caminho não tem campo para filtrar — e o conserto a um clique. */
+function SemCampos({ caminho }: { caminho: CaminhoCondicional }) {
+  const t = useTrilho()
+  const tarefas = atividadesDentro(caminho.itens).filter((a) => a.tipo === 'userTask')
+  const semTela = tarefas.filter((a) => !t.steps[a.id]?.screenRef)
+  return (
+    <div role="status" className="space-y-1.5 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-[11.5px] leading-snug text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+      <p className="flex items-start gap-1.5">
+        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <span>
+          {tarefas.length === 0
+            ? <>O filtro usa os campos da <span className="font-semibold">tela da atividade deste caminho</span>, e ele ainda não tem atividade. Insira uma atividade com tela de contrato neste caminho, pelo <span className="font-semibold">+</span>.</>
+            : semTela.length > 0
+              ? <>O filtro usa os campos da <span className="font-semibold">tela da atividade deste caminho</span>, e {semTela.length === 1 ? 'ela está' : 'elas estão'} <span className="font-semibold">sem tela</span>.</>
+              : <>As atividades deste caminho não usam tela de <span className="font-semibold">contrato</span> — o filtro só testa campos do contrato.</>}
+        </span>
+      </p>
+      {semTela.length > 0 && t.onConfigurarAtividade && (
+        <div className="flex flex-wrap gap-1.5 pl-5">
+          {semTela.map((a) => (
+            <button key={a.id} type="button" onClick={() => t.onConfigurarAtividade?.(a.id)}
+              className="inline-flex items-center gap-1 rounded-md border border-amber-400/70 bg-card px-2 py-1 text-[11.5px] font-semibold text-foreground hover:bg-muted">
+              <SlidersHorizontal className="h-3 w-3" />Escolher a tela de “{t.nomeDe(a.id)}”
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** A condição de um caminho, como pedaço da frase. Clicou, abre o construtor ancorado. */
+function CondicaoNaFrase({ bloco, caminho, indice }: { bloco: BlocoEscolha; caminho: CaminhoCondicional; indice: number }) {
+  const t = useTrilho()
+  const camposDe = useCamposDoCaminho()
+  const ancora = useRef<HTMLButtonElement>(null)
+  const [aberto, setAberto] = useState(false)
+  const temCond = !!caminho.condition?.trim()
+  const ordemConta = modoDaEscolha(bloco) === 'primeiro' && bloco.caminhos.length > 1
+  return (
+    <>
+      <button ref={ancora} type="button" onClick={(e) => { e.stopPropagation(); setAberto((v) => !v) }}
+        title="Configurar a condição deste caminho" aria-expanded={aberto}
+        className={cn('line-clamp-2 max-w-[280px] shrink-0 rounded px-1 py-0.5 text-left text-[11.5px] font-semibold leading-snug underline decoration-dotted decoration-violet-500/70 underline-offset-4 hover:bg-violet-500/10',
+          !temCond && 'text-amber-700 dark:text-amber-400')}>
+        {temCond ? (caminho.rotulo?.trim() || caminho.condition)
+          : <span className="inline-flex items-center gap-1"><AlertTriangle className="h-3 w-3" />escolher a condição</span>}
+      </button>
+      {aberto && (
+        <FloatingMenu anchor={ancora} onClose={() => setAberto(false)} data-trilho-menu role="dialog" aria-label={`Condição do ${indice + 1}º caminho`}
+          className="w-[min(640px,94vw)] overflow-hidden rounded-xl border bg-card text-card-foreground shadow-2xl"
+          onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-start gap-3 border-b bg-violet-500/[0.06] px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300">Condição do {indice + 1}º caminho</p>
+              <p className="mt-0.5 truncate text-sm font-semibold">Quando seguir para: {resumoItens(caminho.itens, t.nomeDe)}</p>
+            </div>
+            {ordemConta && (
+              /* no "primeiro que servir" a ORDEM decide: vence o primeiro verdadeiro */
+              <div className="flex shrink-0 items-center gap-0.5 rounded-lg border bg-card p-0.5" title="Ordem de teste: vence o primeiro caminho verdadeiro">
+                <button type="button" aria-label="Testar este caminho antes do anterior" title="Testar antes do anterior" disabled={indice === 0}
+                  onClick={() => t.onFluxo((f) => moverCaminho(f, bloco.id, caminho.id, -1))}
+                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted disabled:opacity-30"><ArrowUp className="h-3.5 w-3.5" /></button>
+                <button type="button" aria-label="Testar este caminho depois do seguinte" title="Testar depois do seguinte" disabled={indice === bloco.caminhos.length - 1}
+                  onClick={() => t.onFluxo((f) => moverCaminho(f, bloco.id, caminho.id, 1))}
+                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted disabled:opacity-30"><ArrowDown className="h-3.5 w-3.5" /></button>
+              </div>
+            )}
+            <button type="button" onClick={() => setAberto(false)} aria-label="Fechar" title="Fechar"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"><X className="h-4 w-4" /></button>
+          </div>
+
+          <div className="space-y-4 px-4 py-4">
+            <CondBuilder edge={{ condition: caminho.condition, conditionSpec: caminho.conditionSpec as EdgeConditionSpec | undefined, label: caminho.rotulo }}
+              campos={camposDe(caminho)} semCampos={<SemCampos caminho={caminho} />}
+              onSet={(p) => t.onFluxo((f) => atualizarCaminho(f, caminho.id, {
+                ...('condition' in p ? { condition: p.condition } : {}),
+                ...('conditionSpec' in p ? { conditionSpec: p.conditionSpec } : {}),
+                ...('label' in p ? { rotulo: p.label } : {}),
+              }))} />
+            <div className="space-y-1 border-t pt-3">
+              <label htmlFor={`rotulo-${caminho.id}`} className="block text-xs font-medium">Como este caminho aparece no desenho</label>
+              <Input id={`rotulo-${caminho.id}`} className="h-9 text-sm" value={caminho.rotulo ?? ''} placeholder="Ex.: Precisa do Patrimônio"
+                onChange={(e) => { const rotulo = e.target.value; t.onFluxo((f) => atualizarCaminho(f, caminho.id, { rotulo })) }} />
+              <p className="text-[11px] text-muted-foreground">Preenchido sozinho a partir das regras. Troque por um nome curto, se preferir.</p>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 border-t bg-muted/30 px-4 py-2.5">
+            <Button size="sm" onClick={() => setAberto(false)}>Pronto</Button>
+          </div>
+        </FloatingMenu>
+      )}
+    </>
+  )
+}
+
+/** "Testar com valores": os caminhos que serviriam acendem no próprio trilho. */
+function TestarEscolha({ bloco }: { bloco: BlocoEscolha }) {
+  const t = useTrilho()
+  const camposDe = useCamposDoCaminho()
+  const ancora = useRef<HTMLButtonElement>(null)
+  const [aberto, setAberto] = useState(false)
+  const [valores, setValores] = useState<Record<string, string>>({})
+  const campos = useMemo(() => {
+    const usados = new Set(bloco.caminhos.flatMap((c) => (c.conditionSpec?.rules ?? []).map((r) => r.campo).filter(Boolean)))
+    const m = new Map<string, CampoDisponivel>()
+    for (const c of bloco.caminhos) for (const cp of camposDe(c)) if (usados.has(cp.key) && !m.has(cp.key)) m.set(cp.key, cp)
+    return [...m.values()]
+  }, [bloco]) // eslint-disable-line react-hooks/exhaustive-deps
+  const todos = modoDaEscolha(bloco) === 'todos'
+  const vencedores = useMemo(() => {
+    if (!aberto) return null
+    const saidas = [...bloco.caminhos.map((c) => ({ id: c.id, condition: c.condition })), ...(temSenaoAntigo(bloco) ? [{ id: bloco.casoContrario.id, isDefault: true }] : [])]
+    return decidirSaidas(saidas, montarVarsSimulacao(valores, (k) => campos.find((c) => c.key === k)?.tipo ?? 'texto'), todos)
+  }, [aberto, valores, bloco, campos, todos])
+  useEffect(() => { t.onSimulacao(aberto && vencedores && campos.length ? { blocoId: bloco.id, caminhoIds: vencedores } : null) }, [aberto, vencedores]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => t.onSimulacao(null), []) // eslint-disable-line react-hooks/exhaustive-deps
+  const frase = !vencedores ? '' : vencedores.length === 0 || vencedores.includes(bloco.casoContrario.id)
+    ? 'nenhum filtro serviu → o processo PARA e avisa quem está executando'
+    : `segue por: ${vencedores.map((id) => `${bloco.caminhos.findIndex((c) => c.id === id) + 1}º`).join(' e ')} caminho${vencedores.length > 1 ? 's, ao mesmo tempo' : ''}`
+  return (
+    <>
+      <button ref={ancora} type="button" onClick={(e) => { e.stopPropagation(); setAberto((v) => !v) }} title="Testar com valores de exemplo" aria-label="Testar com valores"
+        className={cn('flex h-6 items-center gap-1 rounded px-1.5 text-[11px] font-semibold transition-colors hover:bg-muted', aberto ? 'text-primary' : 'text-muted-foreground')}>
+        <Play className="h-3 w-3" />Testar
+      </button>
+      {aberto && (
+        <FloatingMenu anchor={ancora} onClose={() => setAberto(false)} align="end" data-trilho-menu
+          className="w-[360px] space-y-2.5 rounded-xl border bg-card p-4 text-card-foreground shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <p className="text-xs font-semibold">Testar com valores <span className="font-normal text-muted-foreground">— o caminho acende no desenho</span></p>
+          {campos.length === 0 ? (
+            <p className="text-[11px] leading-snug text-muted-foreground">Monte ao menos uma condição — os campos usados aparecem aqui.</p>
+          ) : campos.map((c) => (
+            <div key={c.key} className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground" title={c.label}>{c.label}</span>
+              {c.tipo === 'selecao' && c.options?.length ? (
+                <Select value={valores[c.key] || undefined} onValueChange={(v) => setValores((sv) => ({ ...sv, [c.key]: v }))}>
+                  <SelectTrigger className="h-7 w-[150px] shrink-0 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+                  <SelectContent>{c.options.map((o) => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
+                </Select>
+              ) : c.tipo === 'booleano' ? (
+                <Select value={valores[c.key] || undefined} onValueChange={(v) => setValores((sv) => ({ ...sv, [c.key]: v }))}>
+                  <SelectTrigger className="h-7 w-[150px] shrink-0 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+                  <SelectContent><SelectItem value="true" className="text-xs">Sim</SelectItem><SelectItem value="false" className="text-xs">Não</SelectItem></SelectContent>
+                </Select>
+              ) : (
+                <Input className="h-7 w-[150px] shrink-0 text-xs" type={c.tipo === 'data' ? 'date' : 'text'} inputMode={c.tipo === 'numero' ? 'decimal' : undefined}
+                  value={valores[c.key] ?? ''} onChange={(ev) => setValores((sv) => ({ ...sv, [c.key]: ev.target.value }))} />
+              )}
+            </div>
+          ))}
+          {campos.length > 0 && frase && <p className="text-xs font-semibold text-primary">→ {frase}</p>}
+        </FloatingMenu>
+      )}
+    </>
+  )
+}
+
 function BlocoEscolhaView({ bloco }: { bloco: BlocoEscolha }) {
   const t = useTrilho()
   const { alca, bloco: arrasto } = useArrastoPelaAlca(bloco.id)
   const dentroParalelo = t.emParalelo.has(bloco.id)
+  const todos = modoDaEscolha(bloco) === 'todos'
   const sim = t.simulacao?.blocoId === bloco.id ? t.simulacao : null
-  const faixas: Array<{ c: CaminhoCondicional | BlocoEscolha['casoContrario']; padrao: boolean }> = [
-    ...bloco.caminhos.map((c) => ({ c, padrao: false })),
-    { c: bloco.casoContrario, padrao: true },
-  ]
+  const luz = (id: string) => ({ acesa: !!sim && sim.caminhoIds.includes(id), apagada: !!sim && !sim.caminhoIds.includes(id) })
+  const senao = bloco.casoContrario
+  const senaoAntigo = temSenaoAntigo(bloco)
   return (
     <section data-item-id={bloco.id} aria-label="Escolher um caminho" {...arrasto}
       className={cn('shrink-0 flex flex-col rounded-2xl border-[1.5px] border-violet-500/55 bg-card shadow-sm',
         t.selectedId === bloco.id && 'ring-2 ring-primary', t.arrastando === bloco.id && 'opacity-40')}>
       <header onClick={() => t.onAbrir(bloco.id)}
-        className="flex cursor-pointer items-center gap-2 rounded-t-2xl border-b bg-violet-500/[0.07] px-2 py-1.5">
+        className="flex cursor-pointer flex-wrap items-center gap-x-2 gap-y-1 rounded-t-2xl border-b bg-violet-500/[0.07] px-2 py-1.5">
         <span {...alca} className="cursor-grab text-muted-foreground/70 hover:text-foreground"><GripVertical className="h-3.5 w-3.5" /></span>
         <GatewayGlyph kind="exclusive" className="h-4 w-4 shrink-0 text-violet-600 dark:text-violet-400" />
         <div className="min-w-0">
           <span className="block text-[9.5px] font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300">Escolher um caminho</span>
-          <span className="block max-w-[360px] truncate text-[12.5px] font-semibold leading-tight">
-            {bloco.pergunta?.trim() || <span className="font-normal italic text-muted-foreground">Sem pergunta</span>}
-          </span>
+          <input value={bloco.pergunta ?? ''} placeholder="Qual é a pergunta?" aria-label="Pergunta da escolha"
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => { const pergunta = e.target.value; t.onFluxo((f) => atualizarItem(f, bloco.id, { pergunta })) }}
+            className="block w-[300px] bg-transparent text-[12.5px] font-semibold leading-tight outline-none placeholder:font-normal placeholder:italic placeholder:text-muted-foreground focus:underline focus:decoration-dotted" />
+        </div>
+        <div className="flex items-center gap-1.5 pl-2 text-[11px] text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+          <span>Se mais de um servir:</span>
+          <Select value={todos ? 'todos' : 'primeiro'} onValueChange={(v) => t.onFluxo((f) => atualizarItem(f, bloco.id, { modo: v as ModoEscolha }))}>
+            <SelectTrigger className="h-6 w-[150px] text-[11px]" aria-label="Quando mais de um filtro servir"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos" className="text-xs">todos, ao mesmo tempo</SelectItem>
+              <SelectItem value="primeiro" className="text-xs">só o primeiro (de cima)</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <span className="ml-auto flex items-center gap-0.5 pl-3">
           <MarcaProblema id={bloco.id} />
-          <BotaoIcone title="Configurar condições" onClick={() => t.onAbrir(bloco.id)}><SlidersHorizontal className="h-3.5 w-3.5" /></BotaoIcone>
+          <TestarEscolha bloco={bloco} />
           <BotaoIcone title="Remover a escolha e o que há dentro dela" perigo onClick={() => t.onRemover(bloco.id)}><Trash2 className="h-3.5 w-3.5" /></BotaoIcone>
         </span>
       </header>
 
       <div className="flex flex-col gap-1.5 p-2">
-        {faixas.map(({ c, padrao }) => {
-          const cond = padrao ? null : (c as CaminhoCondicional)
-          const temCond = !!cond?.condition?.trim()
-          const acesa = !!sim && sim.caminhoId === c.id
-          const apagada = !!sim && sim.caminhoId !== null && !acesa
+        {bloco.caminhos.map((c, i) => {
+          const { acesa, apagada } = luz(c.id)
           return (
-            <div key={c.id}
-              className={cn('flex items-center gap-1 rounded-lg px-2 py-1 transition-opacity',
-                padrao ? 'border border-dashed border-foreground/20' : 'bg-muted/45',
-                acesa && 'bg-primary/5 ring-2 ring-primary', apagada && 'opacity-40')}>
-              <button type="button" onClick={() => t.onAbrir(bloco.id)} title={padrao ? 'Quando nenhuma condição acima for verdadeira' : 'Configurar a condição'}
-                className="w-[150px] shrink-0 text-left text-[11.5px] leading-snug">
-                {padrao ? (
-                  <span className="font-semibold text-muted-foreground">Caso contrário</span>
-                ) : temCond ? (
-                  <><span className="font-bold text-violet-700 dark:text-violet-300">Se </span><span className="font-semibold">{cond!.rotulo?.trim() || cond!.condition}</span></>
-                ) : (
-                  <span className="inline-flex items-center gap-1 font-semibold text-amber-700 dark:text-amber-400"><AlertTriangle className="h-3 w-3" />Sem condição</span>
-                )}
-                {acesa && <span className="block text-[10.5px] font-bold text-primary">✓ é por aqui</span>}
-              </button>
+            <div key={c.id} className={cn('flex items-center gap-1.5 rounded-lg bg-muted/45 px-2 py-1 transition-opacity', acesa && 'bg-primary/5 ring-2 ring-primary', apagada && 'opacity-40')}>
+              <span className="shrink-0 text-[11.5px] font-bold text-violet-700 dark:text-violet-300">Se</span>
+              <CondicaoNaFrase bloco={bloco} caminho={c} indice={i} />
+              <span className="shrink-0 text-[11.5px] font-semibold">então</span>
+              {acesa && <span className="shrink-0 text-[10.5px] font-bold text-primary">✓ por aqui</span>}
               <div className="flex min-w-0 flex-1 items-center"><Sequencia refId={c.id} itens={c.itens} /></div>
-              <div className="flex shrink-0 items-center gap-0.5 pl-1">
-                {!dentroParalelo && (
-                  <FimSelect fluxo={t.fluxo} escolhaId={bloco.id} caminhoId={c.id} fim={c.fim} nomeDe={t.nomeDe} onFluxo={t.onFluxo} />
-                )}
-                {!padrao && bloco.caminhos.length > 1 && (
+              <div className="flex shrink-0 items-center gap-1 pl-1">
+                <span className="text-[11px] text-muted-foreground">e depois</span>
+                {todos || dentroParalelo
+                  /* em "todos" (e dentro de um paralelo) um caminho com filtro só segue */
+                  ? (c.fim.tipo === 'segue'
+                      ? <span className="text-[11px] font-semibold">segue</span>
+                      : <FimSelect fluxo={t.fluxo} escolhaId={bloco.id} caminhoId={c.id} fim={c.fim} nomeDe={t.nomeDe} onFluxo={t.onFluxo} soSegue />)
+                  : <FimSelect fluxo={t.fluxo} escolhaId={bloco.id} caminhoId={c.id} fim={c.fim} nomeDe={t.nomeDe} onFluxo={t.onFluxo} />}
+                {bloco.caminhos.length > 1 && (
                   <BotaoIcone title="Remover este caminho" perigo onClick={() => t.onFluxo((f) => removerCaminho(f, bloco.id, c.id))}><X className="h-3.5 w-3.5" /></BotaoIcone>
                 )}
               </div>
             </div>
           )
         })}
+
+        {senaoAntigo && (
+          /* "Se nenhum servir" foi EXCLUÍDO (PO, 04/10/2026). Um Senão desenhado antes não
+             some em silêncio: fica marcado, com o conserto a um clique, e a ativação recusa. */
+          <div role="status" className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11.5px] text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            <span className="min-w-0 flex-1">
+              <span className="font-semibold">“Senão” antigo (descontinuado)</span> — {resumoItens(senao.itens, t.nomeDe)} · {textoFim(senao.fim, t.nomeDe)}.
+              Quando nenhum filtro servir, o processo agora para e avisa.
+            </span>
+            <button type="button" onClick={(e) => { e.stopPropagation(); const id = novoId('Caminho'); t.onFluxo((f) => senaoParaCaminho(f, bloco.id, id)) }}
+              className="inline-flex shrink-0 items-center gap-1 rounded-md border border-amber-400/70 bg-card px-2 py-1 font-semibold text-foreground hover:bg-muted">
+              <CornerDownRight className="h-3 w-3" />Transformar em caminho com filtro
+            </button>
+          </div>
+        )}
       </div>
 
       <footer className="flex items-center gap-3 border-t px-2.5 py-1.5">
         <button type="button" onClick={() => { const id = novoId('Caminho'); t.onFluxo((f) => adicionarCaminho(f, bloco.id, id)) }}
           className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-violet-700 hover:underline dark:text-violet-300">
-          <Plus className="h-3 w-3" />caminho
+          <Plus className="h-3 w-3" />outra condição
         </button>
-        <span className="text-[10.5px] text-muted-foreground">Segue um caminho só; os que seguem se reencontram na saída.</span>
+        <span className="text-[10.5px] text-muted-foreground">
+          {todos ? 'Todos os que servirem acontecem juntos.' : 'Segue só o primeiro que servir, de cima para baixo.'}{' '}
+          <span className="font-medium text-foreground">Se nenhum servir, o processo para e avisa.</span>
+        </span>
       </footer>
     </section>
   )
@@ -508,10 +805,10 @@ function BlocoParaleloView({ bloco }: { bloco: BlocoParalelo }) {
         <GatewayGlyph kind="parallel" className="h-4 w-4 shrink-0 text-rose-600 dark:text-rose-400" />
         <div className="min-w-0">
           <span className="block text-[9.5px] font-bold uppercase tracking-wider text-rose-700 dark:text-rose-300">Fazer ao mesmo tempo</span>
-          <input value={bloco.nome ?? ''} placeholder="Sem nome" aria-label="Nome do bloco"
+          <input value={bloco.nome ?? ''} placeholder="Dê um nome (ex.: Pareceres)" aria-label="Nome do bloco"
             onClick={(e) => e.stopPropagation()}
             onChange={(e) => { const nome = e.target.value; t.onFluxo((f) => atualizarItem(f, bloco.id, { nome })) }}
-            className="block w-[200px] bg-transparent text-[12.5px] font-semibold leading-tight outline-none placeholder:font-normal placeholder:italic placeholder:text-muted-foreground focus:underline focus:decoration-dotted" />
+            className="block w-[220px] bg-transparent text-[12.5px] font-semibold leading-tight outline-none placeholder:font-normal placeholder:italic placeholder:text-muted-foreground focus:underline focus:decoration-dotted" />
         </div>
         <span className="ml-auto flex items-center gap-0.5 pl-3">
           <MarcaProblema id={bloco.id} />
@@ -520,12 +817,13 @@ function BlocoParaleloView({ bloco }: { bloco: BlocoParalelo }) {
       </header>
 
       <div className="flex flex-col gap-1.5 p-2">
+        <span className="px-1 text-[11.5px] font-semibold">Ao mesmo tempo:</span>
         {bloco.caminhos.map((c, i) => (
-          <div key={c.id} className="flex items-center gap-1 rounded-lg bg-muted/45 px-2 py-1">
-            <span className="w-[68px] shrink-0 text-[11px] font-semibold text-muted-foreground">Caminho {i + 1}</span>
+          <div key={c.id} className="flex items-center gap-1.5 rounded-lg bg-muted/45 px-2 py-1">
+            <span className="w-[64px] shrink-0 text-[11px] font-semibold text-muted-foreground">{i === 0 ? 'Frente 1' : `e frente ${i + 1}`}</span>
             <div className="flex min-w-0 flex-1 items-center"><Sequencia refId={c.id} itens={c.itens} /></div>
             {bloco.caminhos.length > 1 && (
-              <BotaoIcone title="Remover este caminho" perigo onClick={() => t.onFluxo((f) => removerCaminho(f, bloco.id, c.id))}><X className="h-3.5 w-3.5" /></BotaoIcone>
+              <BotaoIcone title="Remover esta frente" perigo onClick={() => t.onFluxo((f) => removerCaminho(f, bloco.id, c.id))}><X className="h-3.5 w-3.5" /></BotaoIcone>
             )}
           </div>
         ))}
@@ -534,9 +832,9 @@ function BlocoParaleloView({ bloco }: { bloco: BlocoParalelo }) {
       <footer className="flex items-center gap-3 border-t px-2.5 py-1.5">
         <button type="button" onClick={() => { const id = novoId('Caminho'); t.onFluxo((f) => adicionarCaminho(f, bloco.id, id)) }}
           className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-rose-700 hover:underline dark:text-rose-300">
-          <Plus className="h-3 w-3" />caminho
+          <Plus className="h-3 w-3" />frente
         </button>
-        <span className="text-[10.5px] text-muted-foreground">Todos começam juntos; o processo segue quando todos terminarem.</span>
+        <span className="text-[11px]"><span className="font-semibold">Segue quando</span> todas as frentes terminarem.</span>
       </footer>
     </section>
   )
@@ -544,10 +842,12 @@ function BlocoParaleloView({ bloco }: { bloco: BlocoParalelo }) {
 
 /** Como um caminho da escolha termina. "Voltar" só lista atividades que vêm ANTES da
  *  escolha e fora de um "ao mesmo tempo" — as outras travariam o motor. */
-function FimSelect({ fluxo, escolhaId, caminhoId, fim, nomeDe, onFluxo }: {
+function FimSelect({ fluxo, escolhaId, caminhoId, fim, nomeDe, onFluxo, soSegue }: {
   fluxo: FluxoBlocos; escolhaId: string; caminhoId: string; fim: FimCaminho
   nomeDe: (id: string) => string
   onFluxo: (fn: (f: FluxoBlocos) => FluxoBlocos) => void
+  /** só "segue" é válido aqui; o valor atual (inválido) aparece para poder ser trocado */
+  soSegue?: boolean
 }) {
   const destinos = useMemo(() => destinosDeVolta(fluxo, escolhaId), [fluxo, escolhaId])
   const valor = fim.tipo === 'volta' ? `volta:${fim.alvoId}` : fim.tipo
@@ -563,8 +863,8 @@ function FimSelect({ fluxo, escolhaId, caminhoId, fim, nomeDe, onFluxo }: {
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="segue" className="text-xs">Ao terminar: segue</SelectItem>
-        <SelectItem value="encerra" className="text-xs">Encerra o processo</SelectItem>
-        {destinos.map((d) => <SelectItem key={d.id} value={`volta:${d.id}`} className="text-xs">Volta para: {nomeDe(d.id)}</SelectItem>)}
+        <SelectItem value="encerra" disabled={soSegue} className="text-xs">Encerra o processo{soSegue ? ' (não vale aqui)' : ''}</SelectItem>
+        {!soSegue && destinos.map((d) => <SelectItem key={d.id} value={`volta:${d.id}`} className="text-xs">Volta para: {nomeDe(d.id)}</SelectItem>)}
         {alvoInvalido && <SelectItem value={valor} className="text-xs">Volta para: {nomeDe(alvoInvalido)} (não vale mais)</SelectItem>}
       </SelectContent>
     </Select>
@@ -573,10 +873,9 @@ function FimSelect({ fluxo, escolhaId, caminhoId, fim, nomeDe, onFluxo }: {
 
 /* ─── painel lateral de um bloco ─────────────────────────────────────────────── */
 
-export function BlocoInspector({ bloco, nomeDe, onConfigure, onRenomear, onRemove }: {
+export function BlocoInspector({ bloco, nomeDe, onRenomear, onRemove }: {
   bloco: BlocoEscolha | BlocoParalelo
   nomeDe: (id: string) => string
-  onConfigure: () => void
   onRenomear: (nome: string) => void
   onRemove: () => void
 }) {
@@ -604,11 +903,14 @@ export function BlocoInspector({ bloco, nomeDe, onConfigure, onRenomear, onRemov
                 </div>
               ))}
               <div className="px-2.5 py-1.5">
-                <dt className="text-[10.5px] text-muted-foreground">Caso contrário</dt>
+                <dt className="text-[10.5px] text-muted-foreground">Se nenhum servir</dt>
                 <dd className="truncate text-[11px] font-medium">{resumoItens(bloco.casoContrario.itens, nomeDe)} · {textoFim(bloco.casoContrario.fim, nomeDe)}</dd>
               </div>
             </dl>
-            <Button size="sm" className="w-full" onClick={onConfigure}><SlidersHorizontal className="h-3.5 w-3.5" />Configurar escolha</Button>
+            <p className="text-[11px] leading-snug text-muted-foreground">
+              Configure direto no desenho: clique na <span className="font-medium">condição</span> de um caminho para montar o filtro,
+              e use <span className="font-medium">Testar</span> para ver por onde o processo seguiria.
+            </p>
           </>
         ) : (
           <>
@@ -617,7 +919,7 @@ export function BlocoInspector({ bloco, nomeDe, onConfigure, onRenomear, onRemov
               <Input id="paralelo-nome" className="h-8 text-sm" placeholder="Ex.: Pareceres" value={bloco.nome ?? ''} onChange={(e) => onRenomear(e.target.value)} />
             </div>
             <p className="text-[11px] leading-snug text-muted-foreground">
-              Os {bloco.caminhos.length} caminhos começam juntos, e o processo só segue quando todos terminarem.
+              As {bloco.caminhos.length} frentes começam juntas, e o processo só segue quando todas terminarem.
               Use o <span className="font-medium">+</span> dentro de cada caminho para inserir atividades.
             </p>
           </>
@@ -627,272 +929,162 @@ export function BlocoInspector({ bloco, nomeDe, onConfigure, onRenomear, onRemov
   )
 }
 
-/* ─── modal da escolha ───────────────────────────────────────────────────────── */
+/* ─── MAPA: blocos que recolhem (opção A do PO, 04/10/2026) ──────────────────────
+   Em workflow grande, escolhas e "ao mesmo tempo" dentro de outros viravam uma parede
+   horizontal. Agora cada bloco aparece no trilho como um CARTÃO-RESUMO; clicar abre o
+   bloco numa GAVETA logo abaixo do trilho (um bloco dentro dele abre a gaveta seguinte),
+   sem empurrar o resto para os lados. "Expandir tudo" volta a desenhar tudo aberto. */
 
-type Screens = ReturnType<typeof useScreens>['screens']
-
-/** Mesma anatomia do modal de atividade: edição ao vivo com RETRATO na abertura —
- *  Cancelar/Esc devolve o fluxo como estava, Aplicar só fecha. */
-export function EscolhaConfigModal({ fluxo, blocoId, nodes, screens, onFluxo, onSimulacao, onRemove, onClose, onConfigurarAtividade }: {
-  fluxo: FluxoBlocos
-  blocoId: string
-  /** nós do grafo gerado, com a configuração (tela) de cada atividade */
-  nodes: Array<{ id: string; type: string; name?: string; step?: StepFormSchema }>
-  screens: Screens
-  onFluxo: (fn: (f: FluxoBlocos) => FluxoBlocos) => void
-  onSimulacao?: (s: Simulacao | null) => void
-  onRemove: () => void
-  onClose: () => void
-  /** Abre a configuração de uma atividade (na seção Formulário) — o conserto de "sem campos". */
-  onConfigurarAtividade?: (atividadeId: string) => void
-}) {
-  const achado = acharItem(fluxo, blocoId)
-  const bloco = achado?.kind === 'escolha' ? achado : null
-  /* Os campos de cada caminho vêm da TELA da atividade que está dentro dele (decisão do PO,
-     13/09/2026). O valor testado continua sendo o do contrato do processo no momento da
-     decisão — a tela é só a lista de campos. */
-  const camposPorCaminho = useMemo(() => {
-    const out: Record<string, CampoDisponivel[]> = {}
-    for (const c of bloco?.caminhos ?? []) {
-      const passos = atividadesDentro(c.itens)
-        .map((a) => nodes.find((n) => n.id === a.id)?.step)
-        .filter((s): s is StepFormSchema => !!s)
-      out[c.id] = camposDasTelasDasAtividades(passos, screens)
+/** Blocos que contêm `id`, de fora para dentro (o próprio id não entra). */
+function blocosAcimaDe(f: FluxoBlocos, id: string): string[] {
+  let achado: string[] | null = null
+  const visitar = (itens: ItemFluxo[], acima: string[]) => {
+    for (const it of itens) {
+      if (achado) return
+      if (it.id === id) { achado = acima; return }
+      if (it.kind === 'escolha') {
+        for (const c of [...it.caminhos, it.casoContrario]) { if (c.id === id) { achado = [...acima, it.id]; return } visitar(c.itens, [...acima, it.id]) }
+      } else if (it.kind === 'paralelo') {
+        for (const c of it.caminhos) { if (c.id === id) { achado = [...acima, it.id]; return } visitar(c.itens, [...acima, it.id]) }
+      }
     }
-    return out
-  }, [bloco, nodes, screens])
-  // todos os campos juntos: é o vocabulário do "Testar decisão"
-  const campos = useMemo(() => {
-    const m = new Map<string, CampoDisponivel>()
-    for (const lista of Object.values(camposPorCaminho)) for (const c of lista) if (!m.has(c.key)) m.set(c.key, c)
-    return [...m.values()]
-  }, [camposPorCaminho])
-  const dentroParalelo = useMemo(() => escolhasEmParalelo(fluxo).has(blocoId), [fluxo, blocoId])
-  const nomeDe = (id: string) => nodes.find((n) => n.id === id)?.step?.stepName?.trim() || 'Atividade sem nome'
-
-  const original = useRef(fluxo)
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => { setMounted(true) }, [])
-  const cancelar = () => { const antes = original.current; onFluxo(() => antes); onClose() }
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); cancelar() } }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  })
-
-  /* ── Testar decisão: o mesmo avaliador da execução, com valores de exemplo ── */
-  const [simAberto, setSimAberto] = useState(false)
-  const [simValores, setSimValores] = useState<Record<string, string>>({})
-  const campoDe = (k: string) => campos.find((c) => c.key === k)
-  const camposDoTeste = useMemo(() => {
-    const usados = new Set<string>()
-    for (const c of bloco?.caminhos ?? []) for (const r of c.conditionSpec?.rules ?? []) if (r.campo) usados.add(r.campo)
-    return campos.filter((c) => usados.has(c.key))
-  }, [bloco, campos])
-  const vencedora = useMemo(() => {
-    if (!simAberto || !bloco) return null
-    const saidas = [...bloco.caminhos.map((c) => ({ id: c.id, condition: c.condition })), { id: bloco.casoContrario.id, isDefault: true }]
-    return decidirSaida(saidas, montarVarsSimulacao(simValores, (k) => campoDe(k)?.tipo ?? 'texto'))
-  }, [simAberto, simValores, bloco, campos]) // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    onSimulacao?.(simAberto ? { blocoId, caminhoId: vencedora } : null)
-  }, [simAberto, vencedora, blocoId]) // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => () => onSimulacao?.(null), []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (!mounted || !bloco) return null
-
-  /** Por que ESTE caminho não tem campo para filtrar — e o conserto a um clique. */
-  const semCamposDo = (c: CaminhoCondicional) => {
-    const tarefas = atividadesDentro(c.itens).filter((a) => a.tipo === 'userTask')
-    const semTela = tarefas.filter((a) => !nodes.find((n) => n.id === a.id)?.step?.screenRef)
-    return (
-      <div role="status" className="space-y-1.5 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-[11.5px] leading-snug text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-        <p className="flex items-start gap-1.5">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>
-            {tarefas.length === 0
-              ? <>O filtro usa os campos da <span className="font-semibold">tela da atividade deste caminho</span>, e ele ainda não tem atividade. Insira uma atividade com tela de contrato neste caminho, pelo <span className="font-semibold">+</span> no desenho.</>
-              : semTela.length > 0
-                ? <>O filtro usa os campos da <span className="font-semibold">tela da atividade deste caminho</span>, e {semTela.length === 1 ? 'ela está' : 'elas estão'} <span className="font-semibold">sem tela</span>.</>
-                : <>As atividades deste caminho não usam tela de <span className="font-semibold">contrato</span> — o filtro só testa campos do contrato.</>}
-          </span>
-        </p>
-        {semTela.length > 0 && onConfigurarAtividade && (
-          <div className="flex flex-wrap gap-1.5 pl-5">
-            {semTela.map((a) => (
-              <button key={a.id} type="button" onClick={() => onConfigurarAtividade(a.id)}
-                className="inline-flex items-center gap-1 rounded-md border border-amber-400/70 bg-card px-2 py-1 text-[11.5px] font-semibold text-foreground hover:bg-muted">
-                <SlidersHorizontal className="h-3 w-3" />Escolher a tela de “{nomeDe(a.id)}”
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    )
   }
+  visitar(f.itens, [])
+  return achado ?? []
+}
 
-  const marcaSim = (id: string) => {
-    const acesa = simAberto && vencedora === id
-    return { acesa, apagada: simAberto && vencedora !== null && !acesa }
+/** Tudo que mora dentro de um bloco (ids de atividades e blocos), para somar pendências. */
+function idsDentro(b: BlocoEscolha | BlocoParalelo): string[] {
+  const out: string[] = []
+  const visitar = (itens: ItemFluxo[]) => {
+    for (const it of itens) {
+      out.push(it.id)
+      if (it.kind === 'escolha') [...it.caminhos, it.casoContrario].forEach((c) => visitar(c.itens))
+      else if (it.kind === 'paralelo') it.caminhos.forEach((c) => visitar(c.itens))
+    }
   }
+  const caminhos: Array<{ itens: ItemFluxo[] }> = b.kind === 'escolha' ? [...b.caminhos, b.casoContrario] : b.caminhos
+  caminhos.forEach((c) => visitar(c.itens))
+  return out
+}
 
-  return createPortal(
-    <>
-      {/* o scrim clareia durante o teste: o caminho aceso no trilho é parte da resposta */}
-      <div className={cn('fixed inset-0 z-[60] transition-colors', simAberto ? 'bg-black/10' : 'bg-black/40')} onClick={cancelar} />
-      <div role="dialog" aria-modal="true" aria-label="Configurar escolha"
-        className="glass-panel fixed left-1/2 top-1/2 z-[70] flex max-h-[min(720px,90vh)] w-[min(760px,94vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border shadow-2xl">
+const nomeDoBloco = (b: BlocoEscolha | BlocoParalelo) =>
+  (b.kind === 'escolha' ? b.pergunta?.trim() : b.nome?.trim()) || (b.kind === 'escolha' ? 'Escolha sem pergunta' : 'Bloco sem nome')
 
-        <div className="flex shrink-0 items-start justify-between gap-4 border-b bg-muted/20 px-5 py-3">
-          <div className="min-w-0">
-            <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 px-2 py-0.5 text-[11px] font-semibold text-violet-600 dark:text-violet-400">
-              <GatewayGlyph kind="exclusive" className="h-3 w-3" />Escolher um caminho
-            </span>
-            <h2 className="mt-1 truncate text-sm font-semibold">{bloco.pergunta?.trim() || 'Escolha sem pergunta'}</h2>
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <button onClick={onRemove} title="Remover a escolha" className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive">
-              <Trash2 className="h-4 w-4" />
-            </button>
-            <button onClick={cancelar} title="Fechar sem aplicar" className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
+/** O bloco recolhido: o que ele é, quanto há dentro e se há pendência — num cartão do
+ *  tamanho de uma atividade. Clicar abre (ou fecha) a gaveta dele. */
+function BlocoResumo({ bloco }: { bloco: BlocoEscolha | BlocoParalelo }) {
+  const t = useTrilho()
+  const escolha = bloco.kind === 'escolha'
+  const aberto = t.abertos.includes(bloco.id)
+  const caminhos = escolha ? bloco.caminhos.length : bloco.caminhos.length
+  const dentro = idsDentro(bloco)
+  const atividades = atividadesDentro(escolha ? [...bloco.caminhos, bloco.casoContrario].flatMap((c) => c.itens) : bloco.caminhos.flatMap((c) => c.itens)).length
+  const blocos = dentro.length - atividades
+  const pend = [bloco.id, ...dentro].reduce((n, id) => n + (t.problemas.get(id)?.filter((p) => p.severidade !== 'aviso').length ?? 0), 0)
+  const resumo = [
+    `${caminhos} ${escolha ? (caminhos === 1 ? 'caminho' : 'caminhos') : (caminhos === 1 ? 'frente' : 'frentes')}`,
+    `${atividades} ${atividades === 1 ? 'atividade' : 'atividades'}`,
+    ...(blocos > 0 ? [`${blocos} ${blocos === 1 ? 'bloco' : 'blocos'} dentro`] : []),
+  ].join(' · ')
+  return (
+    <button type="button" data-item-id={bloco.id} draggable aria-expanded={aberto}
+      title={aberto ? 'Clique para recolher · arraste para mudar de lugar' : 'Clique para abrir · arraste para mudar de lugar'}
+      onDragStart={(e) => { e.stopPropagation(); e.dataTransfer.setData('text/plain', bloco.id); e.dataTransfer.effectAllowed = 'move'; t.setArrastando(bloco.id) }}
+      onDragEnd={() => t.setArrastando(null)}
+      onClick={(e) => { e.stopPropagation(); t.alternarBloco(bloco.id) }}
+      className={cn('w-[230px] shrink-0 rounded-xl border-[1.5px] bg-card p-2.5 text-left shadow-sm transition-shadow hover:shadow-md',
+        escolha ? 'border-violet-500/55' : 'border-rose-500/55',
+        aberto && (escolha ? 'bg-violet-500/[0.06] ring-2 ring-violet-500/40' : 'bg-rose-500/[0.06] ring-2 ring-rose-500/40'),
+        t.selectedId === bloco.id && !aberto && 'ring-2 ring-primary', t.arrastando === bloco.id && 'opacity-40')}>
+      <span className="flex items-center gap-1.5">
+        <GatewayGlyph kind={escolha ? 'exclusive' : 'parallel'} className={cn('h-3.5 w-3.5 shrink-0', escolha ? 'text-violet-600 dark:text-violet-400' : 'text-rose-600 dark:text-rose-400')} />
+        <span className={cn('text-[9.5px] font-bold uppercase tracking-wider', escolha ? 'text-violet-700 dark:text-violet-300' : 'text-rose-700 dark:text-rose-300')}>
+          {escolha ? 'Escolher um caminho' : 'Ao mesmo tempo'}
+        </span>
+        <ChevronDown className={cn('ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', !aberto && '-rotate-90')} aria-hidden />
+      </span>
+      <span className="mt-1 line-clamp-2 block text-[12.5px] font-semibold leading-tight">{nomeDoBloco(bloco)}</span>
+      <span className="mt-1 block text-[11px] text-muted-foreground">{resumo}</span>
+      {pend > 0 && (
+        <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-800 dark:text-amber-300">
+          <AlertTriangle className="h-3 w-3" />{pend} {pend === 1 ? 'pendência' : 'pendências'}
+        </span>
+      )}
+    </button>
+  )
+}
 
-        <div className="rolagem-visivel min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
-          <div>
-            <label htmlFor="escolha-pergunta" className="mb-1.5 block text-xs font-medium">Pergunta</label>
-            <Input id="escolha-pergunta" className="h-8 text-sm" placeholder="Ex.: O valor do contrato passa de R$ 100 mil?"
-              value={bloco.pergunta ?? ''} onChange={(e) => { const pergunta = e.target.value; onFluxo((f) => atualizarItem(f, blocoId, { pergunta })) }} />
-          </div>
-
-          <p className="text-[11.5px] leading-snug text-muted-foreground">
-            O processo testa os caminhos <span className="font-medium text-foreground">de cima para baixo</span> e segue pelo primeiro cuja
-            condição for verdadeira. Se nenhuma for, segue pelo <span className="font-medium text-foreground">caso contrário</span>.
-          </p>
-          {dentroParalelo && (
-            <p className="rounded-md border border-dashed px-2.5 py-1.5 text-[11.5px] leading-snug text-muted-foreground">
-              Esta escolha está dentro de um bloco “ao mesmo tempo”: ali todo caminho segue — encerrar o processo ou voltar não é permitido.
-            </p>
-          )}
-
-          {/* Testar decisão */}
-          <div className={cn('rounded-md border', simAberto ? 'border-primary/40 bg-primary/5' : 'bg-muted/20')}>
-            <button type="button" className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-xs font-semibold" onClick={() => setSimAberto((v) => !v)}>
-              <Play className={cn('h-3.5 w-3.5', simAberto ? 'text-primary' : 'text-muted-foreground')} />
-              <span className={simAberto ? 'text-primary' : 'text-muted-foreground'}>Testar decisão</span>
-              <span className="ml-auto text-[11px] font-normal text-muted-foreground">{simAberto ? 'fechar' : 'valores de exemplo — o caminho acende no desenho'}</span>
-            </button>
-            {simAberto && (
-              <div className="space-y-1.5 px-3 pb-2.5">
-                {camposDoTeste.length === 0 ? (
-                  <p className="text-[11px] leading-snug text-muted-foreground">Monte ao menos uma condição abaixo — os campos usados aparecem aqui para você experimentar.</p>
-                ) : camposDoTeste.map((c) => (
-                  <div key={c.key} className="flex items-center gap-2">
-                    <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground" title={c.label}>{c.label}</span>
-                    {c.tipo === 'selecao' && c.options?.length ? (
-                      <Select value={simValores[c.key] || undefined} onValueChange={(v) => setSimValores((sv) => ({ ...sv, [c.key]: v }))}>
-                        <SelectTrigger className="h-7 w-[160px] shrink-0 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
-                        <SelectContent>{c.options.map((o) => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
-                      </Select>
-                    ) : c.tipo === 'booleano' ? (
-                      <Select value={simValores[c.key] || undefined} onValueChange={(v) => setSimValores((sv) => ({ ...sv, [c.key]: v }))}>
-                        <SelectTrigger className="h-7 w-[160px] shrink-0 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
-                        <SelectContent><SelectItem value="true" className="text-xs">Sim</SelectItem><SelectItem value="false" className="text-xs">Não</SelectItem></SelectContent>
-                      </Select>
-                    ) : (
-                      <Input className="h-7 w-[160px] shrink-0 text-xs" type={c.tipo === 'data' ? 'date' : 'text'} inputMode={c.tipo === 'numero' ? 'decimal' : undefined}
-                        value={simValores[c.key] ?? ''} onChange={(ev) => setSimValores((sv) => ({ ...sv, [c.key]: ev.target.value }))} />
-                    )}
-                  </div>
-                ))}
-                {camposDoTeste.length > 0 && vencedora && (
-                  <p className="text-xs font-semibold text-primary">
-                    → segue pelo {vencedora === bloco.casoContrario.id ? 'caso contrário' : `${bloco.caminhos.findIndex((c) => c.id === vencedora) + 1}º caminho`}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-
-          {bloco.caminhos.map((c, i) => {
-            const { acesa, apagada } = marcaSim(c.id)
-            return (
-              <div key={c.id} className={cn('space-y-2 rounded-lg border bg-muted/20 p-3 transition-all', acesa && 'border-primary bg-primary/5 ring-1 ring-primary/40', apagada && 'opacity-40')}>
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-extrabold tracking-widest text-violet-600 dark:text-violet-400">SE</span>
-                  <span className="min-w-0 truncate text-[11px] text-muted-foreground">{i + 1}º caminho · {resumoItens(c.itens, nomeDe)}</span>
-                  {acesa && <span className="shrink-0 text-[11px] font-bold text-primary">✓ é por aqui</span>}
-                  {bloco.caminhos.length > 1 && (
-                    /* A ordem decide: vence o primeiro caminho cuja condição for verdadeira. */
-                    <span className="ml-auto flex shrink-0 items-center gap-0.5">
-                      <button type="button" title="Testar este caminho antes do anterior" aria-label="Subir caminho" disabled={i === 0}
-                        onClick={() => onFluxo((f) => moverCaminho(f, blocoId, c.id, -1))}
-                        className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent">
-                        <ArrowUp className="h-3.5 w-3.5" />
-                      </button>
-                      <button type="button" title="Testar este caminho depois do seguinte" aria-label="Descer caminho" disabled={i === bloco.caminhos.length - 1}
-                        onClick={() => onFluxo((f) => moverCaminho(f, blocoId, c.id, 1))}
-                        className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent">
-                        <ArrowDown className="h-3.5 w-3.5" />
-                      </button>
-                      <button type="button" title="Remover este caminho" aria-label="Remover caminho" onClick={() => onFluxo((f) => removerCaminho(f, blocoId, c.id))}
-                        className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </span>
-                  )}
-                </div>
-                <CondBuilder edge={{ condition: c.condition, conditionSpec: c.conditionSpec as EdgeConditionSpec | undefined, label: c.rotulo }} campos={camposPorCaminho[c.id] ?? []}
-                  semCampos={semCamposDo(c)}
-                  onSet={(p) => onFluxo((f) => atualizarCaminho(f, c.id, {
-                    ...('condition' in p ? { condition: p.condition } : {}),
-                    ...('conditionSpec' in p ? { conditionSpec: p.conditionSpec } : {}),
-                    ...('label' in p ? { rotulo: p.label } : {}),
-                  }))} />
-                <div className="flex flex-wrap items-center gap-2">
-                  <Input className="h-7 min-w-[220px] flex-1 px-2.5 text-xs" value={c.rotulo ?? ''} placeholder="Rótulo do caminho (preenchido sozinho pela condição)"
-                    onChange={(e) => { const rotulo = e.target.value; onFluxo((f) => atualizarCaminho(f, c.id, { rotulo })) }} />
-                  {!dentroParalelo && <FimSelect fluxo={fluxo} escolhaId={blocoId} caminhoId={c.id} fim={c.fim} nomeDe={nomeDe} onFluxo={onFluxo} />}
-                </div>
-              </div>
-            )
-          })}
-
-          <button type="button" onClick={() => { const id = novoId('Caminho'); onFluxo((f) => adicionarCaminho(f, blocoId, id)) }}
-            className="inline-flex items-center gap-1 rounded-md border border-dashed border-violet-500/50 px-2.5 py-1 text-[11.5px] font-semibold text-violet-700 hover:bg-violet-500/5 dark:text-violet-300">
-            <Plus className="h-3 w-3" />caminho com condição
-          </button>
-
-          {(() => {
-            const c = bloco.casoContrario
-            const { acesa, apagada } = marcaSim(c.id)
-            return (
-              <div className={cn('space-y-2 rounded-lg border border-dashed p-3 transition-all', acesa && 'border-primary bg-primary/5 ring-1 ring-primary/40', apagada && 'opacity-40')}>
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-extrabold tracking-widest text-muted-foreground">SENÃO</span>
-                  <span className="min-w-0 truncate text-[11px] text-muted-foreground">caso contrário · {resumoItens(c.itens, nomeDe)}</span>
-                  {acesa && <span className="shrink-0 text-[11px] font-bold text-primary">✓ é por aqui</span>}
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="min-w-[220px] flex-1 text-[11px] leading-snug text-muted-foreground">Quando nenhuma condição acima for verdadeira. Este caminho sempre existe — é ele que impede o processo de ficar sem saída.</p>
-                  {!dentroParalelo && <FimSelect fluxo={fluxo} escolhaId={blocoId} caminhoId={c.id} fim={c.fim} nomeDe={nomeDe} onFluxo={onFluxo} />}
-                </div>
-              </div>
-            )
-          })()}
-        </div>
-
-        <div className="flex shrink-0 items-center justify-between gap-3 border-t bg-muted/20 px-5 py-3">
-          <p className="text-[11px] text-muted-foreground">As atividades de cada caminho são inseridas no desenho, pelo <span className="font-medium">+</span>.</p>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={cancelar}>Cancelar</Button>
-            <Button size="sm" onClick={onClose}>Aplicar</Button>
-          </div>
-        </div>
+/** Gaveta: o bloco aberto, por inteiro, embaixo do trilho — com a trilha de onde ele mora. */
+function Gaveta({ id }: { id: string }) {
+  const t = useTrilho()
+  const b = acharItem(t.fluxo, id)
+  if (!b || b.kind === 'atividade') return null
+  const acima = blocosAcimaDe(t.fluxo, id).map((x) => acharItem(t.fluxo, x)).filter((x): x is BlocoEscolha | BlocoParalelo => !!x && x.kind !== 'atividade')
+  return (
+    <div className="w-max min-w-[640px]">
+      <div className="mb-1.5 flex items-center gap-1.5 px-1 text-[11px] text-muted-foreground">
+        <span>Fluxo</span>
+        {acima.map((a) => <Fragment key={a.id}><span aria-hidden>›</span><span className="max-w-[220px] truncate">{nomeDoBloco(a)}</span></Fragment>)}
+        <span aria-hidden>›</span><span className="max-w-[260px] truncate font-semibold text-foreground">{nomeDoBloco(b)}</span>
+        <button type="button" onClick={() => t.alternarBloco(id)}
+          className="ml-2 inline-flex items-center gap-1 rounded-md border bg-card px-2 py-0.5 font-semibold text-foreground hover:bg-muted">
+          <ChevronDown className="h-3 w-3 rotate-180" />Recolher
+        </button>
       </div>
-    </>,
-    document.body,
+      {b.kind === 'escolha' ? <BlocoEscolhaView bloco={b} /> : <BlocoParaleloView bloco={b} />}
+    </div>
+  )
+}
+
+/** Minimapa: o desenho inteiro em miniatura com a janela visível; clicar ou arrastar navega.
+ *  Só aparece quando o desenho é maior que a tela. */
+function Minimapa({ scrollRef, versao }: { scrollRef: React.RefObject<HTMLDivElement | null>; versao: unknown }) {
+  const [m, setM] = useState<{ W: number; H: number; vx: number; vy: number; vw: number; vh: number; itens: Array<{ x: number; y: number; w: number; h: number; tipo: string }> } | null>(null)
+  const LARG = 200
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const medir = () => {
+      const base = el.getBoundingClientRect()
+      const itens = [...el.querySelectorAll<HTMLElement>('[data-item-id]')].map((n) => {
+        const r = n.getBoundingClientRect()
+        return { x: r.left - base.left + el.scrollLeft, y: r.top - base.top + el.scrollTop, w: r.width, h: r.height, tipo: n.getAttribute('aria-label') ?? (n.tagName === 'BUTTON' ? 'bloco' : 'atividade') }
+      })
+      setM({ W: el.scrollWidth, H: el.scrollHeight, vx: el.scrollLeft, vy: el.scrollTop, vw: el.clientWidth, vh: el.clientHeight, itens })
+    }
+    medir()
+    el.addEventListener('scroll', medir, { passive: true })
+    const ro = new ResizeObserver(medir)
+    ro.observe(el)
+    if (el.firstElementChild) ro.observe(el.firstElementChild)
+    return () => { el.removeEventListener('scroll', medir); ro.disconnect() }
+  }, [scrollRef, versao])
+  if (!m || (m.W <= m.vw * 1.05 && m.H <= m.vh * 1.05)) return null
+  const s = LARG / m.W
+  const alt = Math.max(40, Math.min(140, m.H * s))
+  const sy = alt / m.H
+  const irPara = (e: React.PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollTo({ left: (e.clientX - r.left) / s - m.vw / 2, top: (e.clientY - r.top) / sy - m.vh / 2 })
+  }
+  return (
+    <div className="absolute bottom-16 right-3 z-10 rounded-xl border bg-card/95 p-2 shadow-lg backdrop-blur">
+      <p className="mb-1 text-[9.5px] font-bold uppercase tracking-wider text-muted-foreground">Mapa do fluxo</p>
+      <div role="slider" aria-label="Mapa do fluxo — arraste para navegar" aria-valuenow={Math.round(m.vx)} tabIndex={0}
+        className="relative cursor-pointer overflow-hidden rounded-md bg-muted/50" style={{ width: LARG, height: alt }}
+        onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); irPara(e) }}
+        onPointerMove={(e) => { if (e.buttons === 1) irPara(e) }}>
+        {m.itens.map((it, i) => (
+          <span key={i} className={cn('absolute rounded-[2px]',
+            it.tipo === 'Escolher um caminho' ? 'bg-violet-500/50' : it.tipo === 'Fazer ao mesmo tempo' ? 'bg-rose-500/40' : 'bg-foreground/30')}
+            style={{ left: it.x * s, top: it.y * sy, width: Math.max(2, it.w * s), height: Math.max(2, it.h * sy) }} />
+        ))}
+        <span className="pointer-events-none absolute rounded-sm border-2 border-primary bg-primary/10"
+          style={{ left: m.vx * s, top: m.vy * sy, width: m.vw * s, height: m.vh * sy }} />
+      </div>
+    </div>
   )
 }

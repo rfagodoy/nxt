@@ -68,6 +68,7 @@ export const CAMPOS_NATIVOS_CONTRATO: CampoDisponivel[] = [
     options: [{ value: 'CONTRATADA', label: 'Instalações da contratada' }, { value: 'CONTRATANTE', label: 'Instalações da contratante' }, { value: 'TERCEIRO', label: 'Instalações de terceiro' }] },
   { key: 'contrato.inicioVigencia',    label: 'Início da vigência',   tipo: 'data',     origem: 'Contrato' },
   { key: 'contrato.terminoVigencia',   label: 'Término da vigência',  tipo: 'data',     origem: 'Contrato' },
+  { key: 'contrato.dataAssinatura',    label: 'Data de assinatura',   tipo: 'data',     origem: 'Contrato' },
 ]
 
 /* ── vocabulário: o que dá para testar NESTE losango ─────────────────────────── */
@@ -281,6 +282,23 @@ export function decidirSaida(
     try { if (evalCondition(e.condition, vars)) return e.id } catch { /* expressão inválida não casa */ }
   }
   return outs.find((e) => e.isDefault)?.id ?? null
+}
+
+/** Quais saídas serviriam: no "todos os que servirem" TODAS as verdadeiras; no "primeiro",
+ *  só a primeira. Nenhuma → o "caso contrário". Mesma regra do motor (interpreter.ts). */
+export function decidirSaidas(
+  outs: Array<{ id: string; condition?: string; isDefault?: boolean }>,
+  vars: Record<string, unknown>,
+  todos: boolean,
+): string[] {
+  if (!todos) { const id = decidirSaida(outs, vars); return id ? [id] : [] }
+  const certas = outs.filter((e) => {
+    if (e.isDefault) return false
+    try { return evalCondition(e.condition, vars) } catch { return false }
+  }).map((e) => e.id)
+  if (certas.length) return certas
+  const def = outs.find((e) => e.isDefault)?.id
+  return def ? [def] : []
 }
 
 /** Rótulo humano da condição (auto-rótulo da seta): "Parecer do Patrimônio é Sim". */

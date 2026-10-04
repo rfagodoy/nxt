@@ -3,12 +3,14 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { FileText, Users, Calendar, Banknote, TrendingUp, TrendingDown, RefreshCw, Paperclip, FilePlus2, Clock, Eye } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { apiFetch, motivoDoErro } from '@/lib/http'
+import { apiFetch, motivoDoErro, cabecalhosDaTarefa, type OrigemDaTarefa } from '@/lib/http'
 import { faltantesContrato, rotuloDeSecao, SECOES_CONTRATO, type AcaoSalvar } from '@/lib/campos-obrigatorios'
 import { AvisoCamposFaltantes } from '@/components/forms/aviso-campos-faltantes'
 import { CONTRACTS_CHANGED_EVENT } from '@/lib/contract-events'
-import { useScreens, getScreenValues, putScreenValues } from '@/hooks/use-screens'
+import { useScreens, getScreenValues } from '@/hooks/use-screens'
 import { pickDefaultScreen, resolveContractSections } from '@/lib/screen-contract-layout'
+import { renovacaoLiberada } from '@nxt/screens-core'
+import { IniciarDoContrato } from '@/components/processes/iniciar-do-contrato'
 import { reconcileNative } from '@/lib/screen-native-structure'
 import type { Screen } from '@/lib/screen-types'
 import { ContractSectionNative, ContractCustomFields } from '@/components/contracts/contract-screen-body'
@@ -60,7 +62,7 @@ export function DSection({ active, children }: { active: boolean; children: Reac
 }
 
 /* ══════════════════════════════════════════════════════════════ */
-export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, screen, readOnly: readOnlyProp, lockedFields }: { row: Row; onClose: () => void; onSaved?: () => void; onDirtyChange?: (dirty: boolean) => void; screen?: Screen; readOnly?: boolean; /** campos travados pela ATIVIDADE do workflow (só apertam) */ lockedFields?: string[] }) {
+export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, screen, readOnly: readOnlyProp, lockedFields, origem }: { row: Row; onClose: () => void; onSaved?: () => void; onDirtyChange?: (dirty: boolean) => void; screen?: Screen; readOnly?: boolean; /** campos travados pela ATIVIDADE do workflow (só apertam) */ lockedFields?: string[]; /** gravação de dentro de uma tarefa (a API aplica a tela da etapa) */ origem?: OrigemDaTarefa }) {
   const form = useContractForm({
     ...emptyContractForm(),
     numero: row.numero, titulo: row.titulo, tipo: row.tipo, situacao: normalizeSituacao(row.situacao),
@@ -123,8 +125,8 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
      já travou segue travado, e um id daqui nunca destrava nada. */
   const stepLocked = useMemo(() => new Set(lockedFields ?? []), [lockedFields])
   const screenSections = useMemo(
-    () => defaultScreen ? resolveContractSections(defaultScreen, v.natureza, 'detail', { stepLocked }) : [],
-    [defaultScreen, v.natureza, stepLocked],
+    () => defaultScreen ? resolveContractSections(defaultScreen, v.natureza, 'detail', { stepLocked, screenReadOnly: readOnlyProp || undefined }) : [],
+    [defaultScreen, v.natureza, stepLocked, readOnlyProp],
   )
   const [screenValues, setScreenValues] = useState<Record<string, string>>({})
   const [screenClean,  setScreenClean]  = useState('{}')
@@ -272,16 +274,16 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
     const vals = { ...v, situacao: nextSit, ...(aditivosOverride ? { aditivos: aditivosOverride } : {}) }
     try {
       const res = await apiFetch(`/api/contracts/${row.id}`, {
-        method: 'PATCH',
-        body:   JSON.stringify(contractToPayload(vals, { user: getLogUser(), motivo: motivoTexto })),
+        method:  'PATCH',
+        headers: cabecalhosDaTarefa(origem),
+        /* personalizados vão NO MESMO pedido: a API confere travas e obrigatórios do conjunto
+           antes de gravar qualquer coisa — nunca mais "o contrato salvou, os campos não" */
+        body:    JSON.stringify(contractToPayload(vals, {
+          user: getLogUser(), motivo: motivoTexto, ...(screenDriven ? { valoresPersonalizados: screenValues } : {}),
+        })),
       })
       if (res.ok) {
-        /* R3 — grava os valores dos campos personalizados da tela junto do save do contrato */
-        if (screenDriven) {
-          const entries = Object.entries(screenValues).map(([fieldId, value]) => ({ fieldId, value }))
-          await putScreenValues('CONTRACT', row.id, entries)
-          setScreenClean(JSON.stringify(screenValues))
-        }
+        if (screenDriven) setScreenClean(JSON.stringify(screenValues))
         if (statusOverride) form.set('situacao', statusOverride); cleanRef.current = JSON.stringify(vals); setDirtyLocal(false); setJustSaved(true); setAuditVersion(x => x + 1); onDirtyChange?.(false); onSaved?.()
       }
       else setSaveError(await motivoDoErro(res, 'Não foi possível salvar o contrato'))
@@ -346,6 +348,9 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
             </span>
           )}
           <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Fechar</button>
+
+          {/* Aditivo/Encerramento a partir DESTE contrato — fora de tarefa (lá o processo já existe) */}
+          {!readOnly && !origem && stored === 'VIGENTE' && !showMotivo && <IniciarDoContrato contratoId={row.id} />}
 
           {/* Salvar sempre disponível: permite registrar pagamentos/recebimentos mesmo com o contrato travado */}
           {!readOnly && !showMotivo && (
@@ -451,6 +456,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
                 onNewPartner: () => setNewPartner({}),
                 onOpenCessaoSearch: (aditivoId, cessaoId, origem) => setCessaoSearch({ aditivoId, cessaoId, origem }),
                 onActivate: activateAditivo, onRevise: reviseAditivo,
+                renovacaoLiberada: renovacaoLiberada(defaultScreen, { stepLocked, screenReadOnly: readOnly || undefined }),
               }} />
               <ContractCustomFields fields={s.customFields} screenValues={screenValues} onScreenChange={onScreenChange} ro={locked} />
             </DSection>

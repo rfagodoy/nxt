@@ -6,9 +6,10 @@
    (mesmo motor das listas). "Linha do tempo" = estado atual; "Histórico" = trilha de
    eventos (concluída / retrocedida). */
 
-import { useEffect, useState, type ReactNode } from 'react'
-import { Loader2, User, GitBranch, CheckCircle2, Undo2, Clock, UserPlus, Ban, RotateCcw } from 'lucide-react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { Loader2, User, GitBranch, CheckCircle2, Undo2, Clock, UserPlus, Ban, RotateCcw, AlertTriangle } from 'lucide-react'
 import { apiJson } from '@/lib/http'
+import { useAoVivo } from '@/lib/realtime'
 import { cn } from '@/lib/utils'
 import { TableToolbar } from '@/components/list/table-toolbar'
 import { filterRows, type FilterRow } from '@/lib/list-filter'
@@ -64,7 +65,10 @@ function FilteredTable<T>({ cols, rows, rowKey, emptyText }: {
   )
 }
 
-export function ProcessInstanceDocView({ inst }: { inst: Inst }) {
+export function ProcessInstanceDocView({ inst: instAoAbrir }: { inst: Inst }) {
+  /** a linha da instância RELIDA (a da aba é a foto do momento em que ela abriu) */
+  const [instViva, setInstViva] = useState<Inst | null>(null)
+  const inst = instViva?.id === instAoAbrir.id ? instViva : instAoAbrir
   const [tasks, setTasks] = useState<TaskRow[] | null>(null)
   const [returns, setReturns] = useState<ReturnRow[]>([])
   const [events, setEvents] = useState<EventRow[]>([])
@@ -72,18 +76,29 @@ export function ProcessInstanceDocView({ inst }: { inst: Inst }) {
   // é destino deliberado — sinalizado por um contador/realce, mas nunca aberto sozinho.
   const [tab, setTab] = useState<'andamento' | 'historico'>('andamento')
 
+
+  /* Acompanhamento AO VIVO (PO, 04/10/2026): a aba lia a instância uma vez só, ao abrir —
+     concluir as tarefas em outras abas deixava tudo "Pendente" aqui, e as atividades que
+     nasceram depois (ex.: a 2ª validação do RH) nem apareciam. Agora relê a cada escrita
+     da organização (tempo real) e ao voltar para a aba. */
+  const id = instAoAbrir.id
+  const carregar = useCallback(async (inicial: boolean) => {
+    const [ctx, linha] = await Promise.all([
+      apiJson<{ instance?: { tasks?: TaskRow[] }; returns?: ReturnRow[]; events?: EventRow[] }>(`/api/instances/${id}`),
+      apiJson<Inst[]>(`/api/instances?id=${encodeURIComponent(id)}`),
+    ])
+    if (linha?.[0]?.id === id) setInstViva(linha[0])
+    if (!ctx) { if (inicial) setTasks([]); return } // falha numa releitura não apaga o que já está na tela
+    setTasks(ctx.instance?.tasks ?? [])
+    setReturns(ctx.returns ?? [])
+    setEvents(ctx.events ?? [])
+  }, [id])
+
   useEffect(() => {
-    let cancel = false
     setTasks(null); setReturns([]); setEvents([])
-    void (async () => {
-      const ctx = await apiJson<{ instance?: { tasks?: TaskRow[] }; returns?: ReturnRow[]; events?: EventRow[] }>(`/api/instances/${inst.id}`)
-      if (cancel) return
-      setTasks(ctx?.instance?.tasks ?? [])
-      setReturns(ctx?.returns ?? [])
-      setEvents(ctx?.events ?? [])
-    })()
-    return () => { cancel = true }
-  }, [inst.id])
+    void carregar(true)
+  }, [carregar])
+  useAoVivo(() => { void carregar(false) })
 
   const st = STATUS[inst.status] ?? STATUS.RUNNING
   const history = tasks ? buildHistory(tasks, returns, events) : null
@@ -109,6 +124,7 @@ export function ProcessInstanceDocView({ inst }: { inst: Inst }) {
     delegate: { label: 'Delegada',    icon: UserPlus,     cls: 'bg-sky-500/10 text-sky-600 dark:text-sky-400' },
     cancel:   { label: 'Cancelado',   icon: Ban,          cls: 'bg-muted text-muted-foreground' },
     reopen:   { label: 'Reaberto',    icon: RotateCcw,    cls: 'bg-primary/10 text-primary' },
+    blocked:  { label: 'Conclusão recusada', icon: AlertTriangle, cls: 'bg-amber-500/10 text-amber-700 dark:text-amber-300' },
   }
   const activityOf = (e: HistoryEvent) => e.task ? (e.task.name || e.task.nodeId) : (e.label || '—')
   const detailText = (e: HistoryEvent) =>
@@ -116,6 +132,7 @@ export function ProcessInstanceDocView({ inst }: { inst: Inst }) {
     : e.kind === 'delegate' ? `de ${e.from || 'tarefa aberta'} para ${e.to || '—'}${e.reason ? ` · motivo: ${e.reason}` : ''}`
     : e.kind === 'cancel'   ? `cancelado por ${e.by || '—'}${e.reason ? ` · motivo: ${e.reason}` : ''}`
     : e.kind === 'reopen'   ? `reaberto por ${e.by || '—'}${e.reason ? ` · motivo: ${e.reason}` : ''}`
+    : e.kind === 'blocked'  ? `${e.by || '—'} tentou concluir · ${e.reason ?? ''}`
     : '—'
   const histCols: Col<HistoryEvent>[] = [
     { key: 'atividade', label: 'Atividade', vcenter: true, get: activityOf, cell: (e) => <span className="font-medium">{activityOf(e)}</span> },
@@ -146,7 +163,8 @@ export function ProcessInstanceDocView({ inst }: { inst: Inst }) {
             {e.kind === 'delegate' && <>de <span className="font-medium text-foreground">{e.from || 'tarefa aberta'}</span> para <span className="font-medium text-foreground">{e.to || '—'}</span></>}
             {e.kind === 'cancel' && <>cancelado por <span className="font-medium text-foreground">{e.by || '—'}</span></>}
             {e.kind === 'reopen' && <>reaberto por <span className="font-medium text-foreground">{e.by || '—'}</span></>}
-            {e.reason && <span className="block text-[11px] italic mt-0.5">motivo: {e.reason}</span>}
+            {e.kind === 'blocked' && <><span className="font-medium text-foreground">{e.by || '—'}</span> tentou concluir</>}
+            {e.reason && <span className="block text-[11px] italic mt-0.5">{e.kind === 'blocked' ? e.reason : <>motivo: {e.reason}</>}</span>}
           </span>
         )
       } },
@@ -172,6 +190,17 @@ export function ProcessInstanceDocView({ inst }: { inst: Inst }) {
             <st.icon className="h-3 w-3" />{st.label}
           </span>
         </div>
+        {inst.bloqueio && (
+          /* PARADO numa escolha sem caminho: dizer onde, por quê e o que fazer */
+          <div role="alert" className="flex items-start gap-2.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-[12px] leading-snug text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="min-w-0">
+              <p className="font-semibold">Processo parado{inst.bloqueio.tarefa ? <> em “{inst.bloqueio.tarefa}”</> : null}</p>
+              <p className="mt-0.5">{inst.bloqueio.mensagem}</p>
+              <p className="mt-1 text-[11px] opacity-80">{inst.bloqueio.por} tentou concluir em {fmt(inst.bloqueio.em)}. A atividade continua com quem a executa; depois do ajuste, é só concluir de novo.</p>
+            </div>
+          </div>
+        )}
 
         {/* chips de situação — só conclusão/erro (prazo do processo e "reaberta N×"
             foram removidos a pedido; o detalhe de retrocesso vive no Histórico). */}

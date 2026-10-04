@@ -113,6 +113,7 @@ describe('pendenciasDosBlocos', () => {
   it('traduz os problemas do bloco para pendências de ativação apontando o bloco', () => {
     const f = fluxo()
     ;(f.itens[1] as { caminhos: Array<{ condition?: string }> }).caminhos[1].condition = ''
+    ;(f.itens[1] as { casoContrario: unknown }).casoContrario = { id: 'cc', itens: [], fim: { tipo: 'segue' } } // sem Senão antigo
     const ps = pendenciasDosBlocos(f)
     expect(ps).toHaveLength(1)
     expect(ps[0]).toMatchObject({ tipo: 'caminho-sem-condicao', severidade: 'erro', nodeId: 'valor' })

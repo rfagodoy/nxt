@@ -9,11 +9,11 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ResponsaveisSection } from '@/components/responsaveis/responsaveis-section'
-import { apiFetch, motivoDoErro } from '@/lib/http'
+import { apiFetch, motivoDoErro, cabecalhosDaTarefa, type OrigemDaTarefa } from '@/lib/http'
 import { usePartnerFields, useFieldVisibility, type CustomField } from '@/hooks/use-partner-fields'
 import { usePartnerSections } from '@/hooks/use-partner-sections'
 import { getLogUser } from '@/hooks/use-partner-logs'
-import { useScreens, putScreenValues } from '@/hooks/use-screens'
+import { useScreens } from '@/hooks/use-screens'
 import { pickDefaultScreen, resolvePartnerSections } from '@/lib/screen-partner-layout'
 import { reconcileNative } from '@/lib/screen-native-structure'
 import type { Screen } from '@/lib/screen-types'
@@ -72,11 +72,13 @@ interface PartnerNewFormProps {
   screen?: Screen
   /** Campos travados pela ATIVIDADE do workflow (ids de campo da tela). Só apertam. */
   lockedFields?: string[]
+  /** gravação de dentro de uma tarefa (a API aplica a tela da etapa) */
+  origem?: OrigemDaTarefa
 }
 
 /* ─── componente principal ───────────────────────────────── */
 
-export default function PartnerNewForm({ embedded = false, onSaved, onCancel, screen, lockedFields }: PartnerNewFormProps) {
+export default function PartnerNewForm({ embedded = false, onSaved, onCancel, screen, lockedFields, origem }: PartnerNewFormProps) {
   const router               = useRouter()
   const form                 = usePartnerForm(emptyPartnerForm('PJ_BR'))
   const v                    = form.values
@@ -211,6 +213,8 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
       bancos:    v.bancos,
       socios:    v.socios,
       user:      getLogUser(),
+      /* personalizados no MESMO pedido: a API confere o conjunto antes de gravar */
+      ...(screenDriven && Object.keys(screenValues).length ? { valoresPersonalizados: screenValues } : {}),
     }
   }
 
@@ -223,19 +227,13 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
     router.push('/modules/parceiros')
   }
 
-  /* R2 — grava os valores dos campos personalizados da tela ligados ao novo parceiro. */
-  const persistScreen = async (partnerId: string) => {
-    if (!screenDriven) return
-    const entries = Object.entries(screenValues).map(([fieldId, value]) => ({ fieldId, value }))
-    if (entries.length) await putScreenValues('PARTNER', partnerId, entries)
-  }
-
   const gravar = async (status: 'EM_CADASTRAMENTO' | 'ATIVO') => {
     const razaoSocial = v.razaoSocial.trim()
     setSaving(status === 'ATIVO' ? 'active' : 'draft'); setSaveError(null)
     try {
       const res = await apiFetch(`/api/partners`, {
         method: 'POST',
+        headers: cabecalhosDaTarefa(origem),
         body: JSON.stringify(buildPayload(status)),
       })
       if (!res.ok) {
@@ -243,7 +241,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
         return
       }
       const created = await res.json() as { id?: string }
-      if (created.id) { await persistScreen(created.id); afterSave({ id: created.id, razaoSocial, documento: v.documento.trim() }) } else { afterSave() }
+      if (created.id) { afterSave({ id: created.id, razaoSocial, documento: v.documento.trim() }) } else { afterSave() }
     } catch {
       setSaveError('Não foi possível conectar ao servidor. Verifique se o serviço está disponível.')
     } finally { setSaving(null) }
@@ -350,7 +348,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
             ? screenSections.map(s => (
                 <Section key={s.id} secao={s.key} icon={s.icon} title={s.label}
                   isOpen={open.has(s.key)} onToggle={() => toggle(s.key)} hasError={errors.has(s.key)} faltando={falta(s.key)}>
-                  <PartnerSectionBody section={s} form={form} ro={screenReadOnly} screenValues={screenValues} onScreenChange={onScreenChange} />
+                  <PartnerSectionBody section={s} form={form} ro={screenReadOnly} criando screenValues={screenValues} onScreenChange={onScreenChange} />
                 </Section>
               ))
             : resolvedOrder.map(key => renderSection(key))

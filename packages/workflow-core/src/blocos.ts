@@ -27,7 +27,13 @@ import type { ProblemaAtivacao } from './activation-guard'
 /** Condição estruturada de um caminho (mesma forma do EdgeConditionSpec do editor). */
 export interface CondicaoCaminho { logic: 'AND' | 'OR'; rules: Array<{ campo: string; op: string; valor: string }> }
 
-export interface ItemAtividade { kind: 'atividade'; id: string; tipo: 'userTask' | 'serviceTask'; nome?: string }
+export interface ItemAtividade {
+  kind: 'atividade'; id: string; tipo: 'userTask' | 'serviceTask'; nome?: string
+  /** Atividade VINCULADA (PO, 04/10/2026): usa a MESMA configuração da atividade `vinculoDe`
+   *  (nome, executor, tela, prazo) — mudou numa, muda em todas. Cada uma é um nó próprio no
+   *  grafo: na execução, cada frente gera a sua tarefa. */
+  vinculoDe?: string
+}
 
 export type FimCaminho = { tipo: 'segue' } | { tipo: 'encerra' } | { tipo: 'volta'; alvoId: string }
 
@@ -42,10 +48,26 @@ export interface CaminhoCondicional {
   fim: FimCaminho
 }
 export interface CaminhoPadrao { id: string; itens: ItemFluxo[]; fim: FimCaminho }
+/** Quando mais de um filtro servir (decisão do PO, 04/10/2026):
+ *  - 'primeiro': segue só o primeiro, de cima para baixo (como sempre foi) — permite que
+ *    um caminho ENCERRE o processo ou VOLTE para uma atividade anterior;
+ *  - 'todos': todos os que servirem acontecem juntos, e o processo segue quando todos
+ *    terminarem. Aí um caminho com filtro só pode SEGUIR (o "Senão", que só acontece
+ *    sozinho, continua podendo encerrar ou voltar).
+ *  Ausente = 'primeiro' (escolhas gravadas antes). Escolha nova nasce 'todos'. */
+export type ModoEscolha = 'primeiro' | 'todos'
+export const modoDaEscolha = (b: Pick<BlocoEscolha, 'modo'>): ModoEscolha => b.modo ?? 'primeiro'
+
+/** "Senão" desenhado antes de ele ser excluído: tem atividade, ou encerra/volta. Vazio e
+ *  seguindo não conta — é o que toda escolha carrega por compatibilidade de formato. */
+export const temSenaoAntigo = (b: Pick<BlocoEscolha, 'casoContrario'>): boolean =>
+  b.casoContrario.itens.length > 0 || b.casoContrario.fim.tipo !== 'segue'
+
 export interface BlocoEscolha {
   kind: 'escolha'
   id: string
   pergunta?: string
+  modo?: ModoEscolha
   caminhos: CaminhoCondicional[]
   casoContrario: CaminhoPadrao
 }
@@ -126,7 +148,8 @@ export function blocosParaGrafo(f: FluxoBlocos): GrafoGerado {
     }
 
     if (it.kind === 'escolha') {
-      nodes.push({ id: it.id, type: 'exclusiveGateway', name: it.pergunta })
+      const todos = modoDaEscolha(it) === 'todos'
+      nodes.push({ id: it.id, type: todos ? 'inclusiveGateway' : 'exclusiveGateway', name: it.pergunta })
       escolhas.push(it.id)
       pend.forEach((p) => ligar(p, it.id))
       const seguem: Pendente[] = []
@@ -140,7 +163,19 @@ export function blocosParaGrafo(f: FluxoBlocos): GrafoGerado {
       for (const c of it.caminhos) {
         caminho(c.itens, c.fim, { condition: c.condition, conditionSpec: c.conditionSpec, label: c.rotulo })
       }
-      caminho(it.casoContrario.itens, it.casoContrario.fim, { isDefault: true, label: ROTULO_CASO_CONTRARIO })
+      /* O "Se nenhum servir" foi EXCLUÍDO (PO, 04/10/2026): sem caminho que sirva, o processo
+         para e avisa. Só um Senão ANTIGO com conteúdo ainda vira seta — e a ativação o recusa
+         (senao-descontinuado), então ele não chega a executar num workflow novo. */
+      if (temSenaoAntigo(it)) caminho(it.casoContrario.itens, it.casoContrario.fim, { isDefault: true, label: ROTULO_CASO_CONTRARIO })
+      if (todos) {
+        /* o reencontro do inclusivo existe SEMPRE e conta chegadas: é ele que espera os
+           caminhos ativados (o motor acha o par pelo id da saída + sufixo) */
+        if (!seguem.length) return []
+        const reencontro = it.id + SUFIXO_REENCONTRO
+        nodes.push({ id: reencontro, type: 'inclusiveGateway' })
+        seguem.forEach((p) => ligar(p, reencontro))
+        return [{ from: reencontro }]
+      }
       return reencontrar(seguem, it.id + SUFIXO_REENCONTRO)
     }
 
@@ -282,7 +317,7 @@ export function destinosDeVolta(f: FluxoBlocos, escolhaId: string): ItemAtividad
 export interface ProblemaBloco {
   tipo:
     | 'escolha-sem-caminho' | 'caminho-sem-condicao' | 'paralelo-com-um-caminho'
-    | 'saida-dentro-de-paralelo' | 'volta-invalida' | 'trecho-inalcancavel'
+    | 'saida-dentro-de-paralelo' | 'volta-invalida' | 'trecho-inalcancavel' | 'todos-com-saida' | 'senao-descontinuado'
   severidade: 'erro' | 'aviso'
   itemId: string
   mensagem: string
@@ -300,14 +335,24 @@ export function validarBlocos(f: FluxoBlocos): ProblemaBloco[] {
       if (it.kind === 'escolha') {
         const nome = nomeEscolha(it)
         if (it.caminhos.length === 0) {
-          problemas.push({ tipo: 'escolha-sem-caminho', severidade: 'erro', itemId: it.id, mensagem: `${nome} só tem o caso contrário. Acrescente ao menos um caminho com condição.` })
+          problemas.push({ tipo: 'escolha-sem-caminho', severidade: 'erro', itemId: it.id, mensagem: `${nome} não tem nenhum caminho. Acrescente ao menos um caminho com condição.` })
         }
         it.caminhos.forEach((c, n) => {
           if (!c.condition?.trim()) {
             problemas.push({ tipo: 'caminho-sem-condicao', severidade: 'erro', itemId: it.id, mensagem: `${nome}: o ${n + 1}º caminho ainda não tem condição. Sem ela, ele seria escolhido sempre.` })
           }
         })
-        const todos = [...it.caminhos, it.casoContrario]
+        if (modoDaEscolha(it) === 'todos') {
+          it.caminhos.forEach((c, n) => {
+            if (c.fim.tipo !== 'segue') {
+              problemas.push({ tipo: 'todos-com-saida', severidade: 'erro', itemId: it.id, mensagem: `${nome} segue “todos os que servirem”, e o ${n + 1}º caminho ${c.fim.tipo === 'encerra' ? 'encerra o processo' : 'volta para outra atividade'} — ele poderia acontecer junto com outro caminho. Deixe-o seguir, mude a escolha para “o primeiro que servir”, ou use o “Senão”.` })
+            }
+          })
+        }
+        if (temSenaoAntigo(it)) {
+          problemas.push({ tipo: 'senao-descontinuado', severidade: 'erro', itemId: it.id, mensagem: `${nome} ainda tem um “Senão” antigo. Ele foi descontinuado: quando nenhum filtro servir, o processo para e avisa. Transforme o Senão em um caminho com filtro (botão no próprio bloco).` })
+        }
+        const todos = temSenaoAntigo(it) ? [...it.caminhos, it.casoContrario] : [...it.caminhos]
         for (const c of todos) {
           if (dentroParalelo && c.fim.tipo !== 'segue') {
             problemas.push({ tipo: 'saida-dentro-de-paralelo', severidade: 'erro', itemId: it.id, mensagem: `${nome} está dentro de um bloco “ao mesmo tempo”: ali um caminho não pode ${c.fim.tipo === 'encerra' ? 'encerrar o processo' : 'voltar para outra atividade'}, porque os caminhos irmãos continuariam rodando.` })
@@ -321,7 +366,7 @@ export function validarBlocos(f: FluxoBlocos): ProblemaBloco[] {
           }
           conferirSequencia(c.itens, dentroParalelo)
         }
-        if (todos.every((c) => c.fim.tipo !== 'segue') && i < itens.length - 1) {
+        if (todos.length > 0 && todos.every((c) => c.fim.tipo !== 'segue') && i < itens.length - 1) {
           problemas.push({ tipo: 'trecho-inalcancavel', severidade: 'erro', itemId: it.id, mensagem: `${nome}: todos os caminhos encerram o processo ou voltam, então o que vem depois dela nunca será executado.` })
         }
       } else if (it.kind === 'paralelo') {
@@ -365,9 +410,9 @@ export function lerFluxoBlocos(bruto: unknown): FluxoBlocos | null {
   const itensOk = (x: unknown): boolean => Array.isArray(x) && x.every(itemOk)
   const itemOk = (it: unknown): boolean => {
     if (!obj(it) || !idNovo(it.id)) return false
-    if (it.kind === 'atividade') return (it.tipo === 'userTask' || it.tipo === 'serviceTask') && texto(it.nome)
+    if (it.kind === 'atividade') return (it.tipo === 'userTask' || it.tipo === 'serviceTask') && texto(it.nome) && texto(it.vinculoDe)
     if (it.kind === 'escolha') {
-      return texto(it.pergunta) && Array.isArray(it.caminhos)
+      return texto(it.pergunta) && (it.modo === undefined || it.modo === 'primeiro' || it.modo === 'todos') && Array.isArray(it.caminhos)
         && it.caminhos.every((c) => obj(c) && idNovo(c.id) && texto(c.rotulo) && texto(c.condition) && condicaoOk(c.conditionSpec) && fimOk(c.fim) && itensOk(c.itens))
         && obj(it.casoContrario) && idNovo(it.casoContrario.id) && fimOk(it.casoContrario.fim) && itensOk(it.casoContrario.itens)
     }
@@ -516,4 +561,42 @@ export function atualizarCaminho(f: FluxoBlocos, caminhoId: string, patch: Patch
     }
   }
   return f
+}
+
+/* ─── atividade VINCULADA e Senão descontinuado (PO, 04/10/2026) ─────────────── */
+
+/** Atividades que compartilham configuração, por raiz: raiz → ids vinculados a ela. */
+export function gruposDeVinculo(f: FluxoBlocos): Map<string, string[]> {
+  const grupos = new Map<string, string[]>()
+  for (const a of listarAtividades(f)) if (a.vinculoDe) grupos.set(a.vinculoDe, [...(grupos.get(a.vinculoDe) ?? []), a.id])
+  return grupos
+}
+
+/** Depois de remover algo: vínculo cuja RAIZ sumiu não pode ficar órfão (perderia a
+ *  configuração). A primeira atividade do grupo vira a nova raiz e as demais passam a
+ *  apontar para ela. Devolve as promoções para o editor copiar a configuração. */
+export function religarVinculos(f: FluxoBlocos): { fluxo: FluxoBlocos; promovidas: Array<{ de: string; para: string }> } {
+  const vivos = new Set(listarAtividades(f).map((a) => a.id))
+  const orfaos = [...gruposDeVinculo(f).entries()].filter(([raiz]) => !vivos.has(raiz))
+  if (!orfaos.length) return { fluxo: f, promovidas: [] }
+  const g = clonar(f)
+  const promovidas: Array<{ de: string; para: string }> = []
+  const porId = new Map(listarAtividades(g).map((a) => [a.id, a]))
+  for (const [raiz, ids] of orfaos) {
+    const [nova, ...resto] = ids
+    delete porId.get(nova)!.vinculoDe
+    for (const id of resto) porId.get(id)!.vinculoDe = nova
+    promovidas.push({ de: raiz, para: nova })
+  }
+  return { fluxo: g, promovidas }
+}
+
+/** Senão antigo → caminho comum (ainda SEM filtro — a ativação pede a condição). */
+export function senaoParaCaminho(f: FluxoBlocos, blocoId: string, caminhoId: string): FluxoBlocos {
+  const g = clonar(f)
+  const b = acharItem(g, blocoId)
+  if (!b || b.kind !== 'escolha' || !temSenaoAntigo(b)) return f
+  b.caminhos.push({ id: caminhoId, itens: b.casoContrario.itens, fim: b.casoContrario.fim })
+  b.casoContrario = { ...b.casoContrario, itens: [], fim: { tipo: 'segue' } }
+  return g
 }

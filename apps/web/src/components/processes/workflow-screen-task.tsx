@@ -36,7 +36,9 @@ type PartnerRow = Parameters<typeof PartnerDetailView>[0]['partner']
  *  - toda troca RELÊ o registro: a aba anterior pode ter acabado de salvar, e a próxima
  *    não pode mostrar — nem regravar por cima — os valores de antes.
  */
-export function WorkflowScreenTask({ step, entityId, onEntity, onEntityGone, onCancel }: {
+export function WorkflowScreenTask({ taskId, step, entityId, onEntity, onEntityGone, onCancel }: {
+  /** a tarefa em execução — vai junto em cada gravação para a API aplicar a tela DESTA etapa */
+  taskId: string
   step: StepFormSchema
   /** id atual da entidade (null = ainda não criada, em modo CREATE) */
   entityId: string | null
@@ -173,6 +175,7 @@ export function WorkflowScreenTask({ step, entityId, onEntity, onEntityGone, onC
     // Já tem entidade (EDIT, VIEW ou pós-CREATE): mostra a tela da aba. Salvar reporta o id (estável).
     const props = {
       screen, readOnly: !aba.editavel, lockedFields: travasDaAtividade, onClose: onCancel ?? (() => {}),
+      origem: { tarefaId: taskId, telaId: aba.screenRef },
       onSaved: () => { setSalvoNestaTarefa(true); onEntity(entityId) },
       onDirtyChange: setSujo,
     }
@@ -218,8 +221,8 @@ export function WorkflowScreenTask({ step, entityId, onEntity, onEntityGone, onC
     // CREATE: cria a entidade (sempre pela tela principal) e reporta o id (sem avançar o workflow).
     const onCreated = (r?: { id?: string }) => { if (r?.id) { setSalvoNestaTarefa(true); onEntity(r.id) } }
     corpo = isContract
-      ? <ContractNewForm embedded screen={screen} onSaved={onCreated} onCancel={onCancel} />
-      : <PartnerNewForm embedded screen={screen} onSaved={onCreated} onCancel={onCancel} />
+      ? <ContractNewForm embedded screen={screen} onSaved={onCreated} onCancel={onCancel} origem={{ tarefaId: taskId, telaId: aba.screenRef }} />
+      : <PartnerNewForm embedded screen={screen} onSaved={onCreated} onCancel={onCancel} origem={{ tarefaId: taskId, telaId: aba.screenRef }} />
   }
 
   return <>{barra}{corpo}</>

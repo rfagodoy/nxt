@@ -70,6 +70,11 @@ async function handle(req: Request, ctx: { params: Promise<{ path: string[] }> }
     const accept = req.headers.get('accept')
     if (accept) headers.set('accept', accept)
     if (bearer) headers.set('authorization', `Bearer ${bearer}`)
+    /* gravação de dentro de uma tarefa: a API aplica a tela e as travas da etapa */
+    for (const h of ['x-nxt-tarefa', 'x-nxt-tela']) {
+      const v = req.headers.get(h)
+      if (v) headers.set(h, v)
+    }
     /* `signal`: quando o navegador fecha a conexão (ex.: fluxo de tempo real ao sair da
        tela), a chamada à API é cancelada junto — senão ela fica pendurada no servidor. */
     return fetch(target, { method: req.method, headers, body, redirect: 'manual', signal: req.signal })

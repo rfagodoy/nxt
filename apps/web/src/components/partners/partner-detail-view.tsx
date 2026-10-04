@@ -4,13 +4,13 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Building2, Phone, MapPin, CreditCard, Users, Briefcase, Clock, Plus, X, SlidersHorizontal, CheckCircle2, RotateCcw, Pencil, Ban, UserCog, Eye, type LucideIcon } from 'lucide-react'
 import { ResponsaveisSection } from '@/components/responsaveis/responsaveis-section'
 import { cn } from '@/lib/utils'
-import { apiFetch, motivoDoErro } from '@/lib/http'
+import { apiFetch, motivoDoErro, cabecalhosDaTarefa, type OrigemDaTarefa } from '@/lib/http'
 import { faltantesParceiro, rotuloDeSecao, SECOES_PARCEIRO, type AcaoSalvar } from '@/lib/campos-obrigatorios'
 import { AvisoCamposFaltantes } from '@/components/forms/aviso-campos-faltantes'
 import { usePartnerFields, useFieldVisibility } from '@/hooks/use-partner-fields'
 import { getLogUser } from '@/hooks/use-partner-logs'
 import { SaveStatus } from '@/components/save-status'
-import { useScreens, getScreenValues, putScreenValues } from '@/hooks/use-screens'
+import { useScreens, getScreenValues } from '@/hooks/use-screens'
 import { pickDefaultScreen, resolvePartnerSections } from '@/lib/screen-partner-layout'
 import { reconcileNative } from '@/lib/screen-native-structure'
 import type { Screen } from '@/lib/screen-types'
@@ -138,7 +138,7 @@ function DSection({ active, children }: { active: boolean; children: React.React
   return <div className="rounded-xl border bg-card p-4 space-y-3 shadow-sm">{children}</div>
 }
 
-export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, screen, readOnly: readOnlyProp, lockedFields }: {
+export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, screen, readOnly: readOnlyProp, lockedFields, origem }: {
   partner: PartnerAPI
   onClose: () => void
   onSaved: () => void
@@ -150,6 +150,8 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
   readOnly?: boolean
   /** Campos travados pela ATIVIDADE do workflow (ids de campo da tela). Só apertam. */
   lockedFields?: string[]
+  /** gravação de dentro de uma tarefa (a API aplica a tela da etapa) */
+  origem?: OrigemDaTarefa
 }) {
   const formRef = useRef<HTMLFormElement>(null)
   const partnerForm = usePartnerForm({
@@ -282,8 +284,8 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
      já travou segue travado, e um id daqui nunca destrava nada. */
   const stepLocked = useMemo(() => new Set(lockedFields ?? []), [lockedFields])
   const screenSections = useMemo(
-    () => defaultScreen ? resolvePartnerSections(defaultScreen, category as PartnerCategory, 'detail', { stepLocked }) : [],
-    [defaultScreen, category, stepLocked],
+    () => defaultScreen ? resolvePartnerSections(defaultScreen, category as PartnerCategory, 'detail', { stepLocked, screenReadOnly: readOnlyProp || undefined }) : [],
+    [defaultScreen, category, stepLocked, readOnlyProp],
   )
 
   /* abas: dirigidas pela tela quando há tela padrão (o Histórico é uma seção da tela, quando visível);
@@ -349,6 +351,7 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
     try {
       const res = await apiFetch(`/api/partners/${partner.id}`, {
         method: 'PATCH',
+        headers: cabecalhosDaTarefa(origem),
         body: JSON.stringify({
           categoria:    v.category,
           documento:    v.documento.trim(),
@@ -371,14 +374,12 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
           cnaesSecundarios: v.cnaesSecundarios,
           user:         getLogUser(),
           motivo:       motivoTexto,
+          /* personalizados no MESMO pedido: a API confere o conjunto antes de gravar */
+          ...(screenDriven ? { valoresPersonalizados: screenValues } : {}),
         }),
       })
       if (!res.ok) { setSaveError(await motivoDoErro(res, 'Não foi possível salvar o parceiro')); return }
-      // valores dos campos personalizados da tela (R2) — persistidos junto ao parceiro
-      if (screenDriven) {
-        await putScreenValues('PARTNER', partner.id, Object.entries(screenValues).map(([fieldId, value]) => ({ fieldId, value })))
-        setScreenDirty(false)
-      }
+      if (screenDriven) setScreenDirty(false)
       if (statusOverride) setSituacao(statusOverride)
       cleanRef.current = JSON.stringify(v); setDirtyLocal(false); setJustSaved(true); onDirtyChange?.(false)
       void fetchAudit()

@@ -54,18 +54,29 @@ export function FloatingMenu({ anchor, onClose, align = 'start', matchWidth, cla
     const fora = (e: PointerEvent) => {
       const alvo = e.target as Node
       if (ref.current?.contains(alvo) || anchor.current?.contains(alvo)) return
+      /* lista de um seletor ABERTA DE DENTRO do menu (o Radix a desenha num portal, fora
+         dele): escolher uma opção não é "clicar fora" */
+      if ((alvo as Element).closest?.('[data-radix-popper-content-wrapper],[role="listbox"]')) return
+      // menu ABERTO DE DENTRO deste (ex.: escolha de campo dentro do balão da condição)
+      if ((alvo as Element).closest?.('[data-floating-menu]') && !ref.current?.contains(alvo)) return
       fechar.current()
     }
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') fechar.current() }
+    /* Esc com uma lista (Select) aberta DENTRO do menu fecha só a lista. Captura: lê o DOM
+       antes de a lista se desmontar. */
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      if (document.querySelector('[data-radix-popper-content-wrapper] [role="listbox"]')) return
+      fechar.current()
+    }
     window.addEventListener('pointerdown', fora, true)
-    window.addEventListener('keydown', esc)
+    window.addEventListener('keydown', esc, true)
     window.addEventListener('resize', posicionar)
     window.addEventListener('scroll', posicionar, true)
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(posicionar) : null
     if (ro && ref.current) ro.observe(ref.current)
     return () => {
       window.removeEventListener('pointerdown', fora, true)
-      window.removeEventListener('keydown', esc)
+      window.removeEventListener('keydown', esc, true)
       window.removeEventListener('resize', posicionar)
       window.removeEventListener('scroll', posicionar, true)
       ro?.disconnect()
@@ -73,7 +84,7 @@ export function FloatingMenu({ anchor, onClose, align = 'start', matchWidth, cla
   }, [posicionar, anchor])
 
   return createPortal(
-    <div ref={ref} {...rest} className={cn('fixed z-[80]', className)}
+    <div ref={ref} data-floating-menu {...rest} className={cn('fixed z-[80]', className)}
       style={{
         ...style,
         top: pos?.top ?? 0, left: pos?.left ?? 0,

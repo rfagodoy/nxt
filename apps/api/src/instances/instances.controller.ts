@@ -7,6 +7,7 @@ import { ReturnTaskDto } from './dto/return-task.dto'
 import { AssignTaskDto } from './dto/assign-task.dto'
 import { CancelInstanceDto } from './dto/cancel-instance.dto'
 import { TransferTasksDto } from './dto/transfer-tasks.dto'
+import { PreviewExecutorDto } from './dto/preview-executor.dto'
 import { CurrentOrg } from '../auth/current-org.decorator'
 import { CurrentUser, type CurrentUserData } from '../auth/current-user.decorator'
 import { Roles } from '../auth/roles.decorator'
@@ -24,13 +25,23 @@ export class InstancesController {
     return this.instancesService.start(dto, organizationId, actor)
   }
 
+  /* "Testar com um contrato" do editor de workflow (admin, como o editor): para quem a
+     atividade iria HOJE naquele contrato — nada é gravado. Rota estática antes de ':id'. */
+  @Post('executor-preview')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Prévia do executor pelo contrato (editor de workflow) — admin' })
+  previewExecutor(@Body() dto: PreviewExecutorDto, @CurrentOrg() organizationId: string) {
+    return this.instancesService.preverExecutor(organizationId, dto.executor, dto.contratoId)
+  }
+
   // Monitoramento (visão gerencial) — admin. Filtra por status (ex.: ?status=ERROR).
   @Get()
   @UseGuards(RolesGuard)
   @Roles('admin')
   @ApiOperation({ summary: 'Lista instâncias da org para monitoramento (filtra por status) — admin' })
-  list(@CurrentOrg() organizationId: string, @Query('status') status?: string) {
-    return this.instancesService.listInstances(organizationId, { status })
+  list(@CurrentOrg() organizationId: string, @Query('status') status?: string, @Query('id') id?: string) {
+    return this.instancesService.listInstances(organizationId, { status, id })
   }
 
   // Rota estática ANTES da param `:id` para não colidir com ela.
@@ -70,6 +81,12 @@ export class InstancesController {
   }
 
   // Rotas de DEVOLUÇÃO — ficam sob `tasks/`, antes da param `:id`, para não colidir.
+  @Get('tasks/:taskId/restricao-de-partes')
+  @ApiOperation({ summary: 'Contrato novo na tarefa: entidades permitidas por parte (regra "Quem inicia")' })
+  restricaoDePartes(@Param('taskId') taskId: string, @CurrentOrg() organizationId: string) {
+    return this.instancesService.restricaoDePartes(taskId, organizationId)
+  }
+
   @Get('tasks/:taskId/return-targets')
   @ApiOperation({ summary: 'Etapas anteriores para onde a tarefa pode ser devolvida (inclui bloqueadas, com motivo)' })
   returnTargets(

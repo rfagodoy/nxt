@@ -108,8 +108,8 @@ describe('blocosParaGrafo — execução no motor', () => {
     grande.passo('x'); grande.passo('y')
     expect(grande.abertas()).toEqual(['fim-das-contas'])
     const pequeno = executar(f)
-    pequeno.passo('inicio', { grande: false })
-    expect(pequeno.abertas()).toEqual(['fim-das-contas'])   // caminho vazio segue direto
+    // sem "Se nenhum servir" (PO, 04/10/2026): nenhum filtro serviu → o processo PARA e avisa
+    expect(() => pequeno.passo('inicio', { grande: false })).toThrow(/Nenhum caminho da escolha/)
   })
 
   it('caminho que encerra o processo conclui sem passar pelo que vem depois', () => {
@@ -183,8 +183,17 @@ describe('grafoParaBlocos — só o que é linear', () => {
 })
 
 describe('validarBlocos', () => {
-  it('o exemplo bem montado não tem problema', () => {
-    expect(validarBlocos(exemplo())).toEqual([])
+  it('o exemplo antigo só acusa o Senão descontinuado — ele ainda executa, mas não ativa', () => {
+    expect(validarBlocos(exemplo()).map((p) => p.tipo)).toEqual(['senao-descontinuado'])
+  })
+  it('o mesmo exemplo no formato novo (Senão virou caminho com filtro) não tem problema', () => {
+    const f = exemplo()
+    const esc = f.itens[1] as Extract<ItemFluxo, { kind: 'escolha' }>
+    esc.caminhos.push({ id: 'c-baixo', condition: 'valor <= 100000', itens: esc.casoContrario.itens, fim: esc.casoContrario.fim })
+    esc.casoContrario = { id: 'c-padrao', itens: [], fim: { tipo: 'segue' } }
+    expect(validarBlocos(f)).toEqual([])
+    const g = grafoParaMotor(blocosParaGrafo(f))
+    expect(g.edges.filter((e) => e.from === 'valor').some((e) => e.isDefault)).toBe(false) // nenhuma seta "senão"
   })
   it('escolha sem caminho com condição, e caminho sem condição', () => {
     const f = fluxo([

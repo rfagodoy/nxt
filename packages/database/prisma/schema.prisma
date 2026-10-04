@@ -304,6 +304,8 @@ model WorkflowTask {
   assignee    String? // executor por usuário direto (F2)
   assignees   String  @default("[]") @db.NVarChar(Max) // [JSON] userId[] resolvidos do executor papel+entidade (Papéis/Responsáveis)
   formRef     String? // tela/formulário associado à atividade (F3)
+  executorNota String? @db.NVarChar(1000) // POR QUE foi para quem foi (executor pelo stakeholder do contrato)
+  semExecutor Boolean   @default(false) // ninguém encontrado → foi para os administradores, com aviso
   status      String    @default("PENDING") // PENDING | DONE | CANCELED | RETURNED
   dueAt       DateTime? // prazo/SLA (F4)
   escalatedAt DateTime? // quando a varredura marcou a tarefa como vencida/escalonada (F4)

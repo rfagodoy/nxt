@@ -9,7 +9,10 @@
  *  - userTask: atividade humana — o token DESCANSA aqui até uma pessoa concluir.
  *  - serviceTask: atividade automática — o backend executa um conector (domínio).
  *  - exclusiveGateway: escolhe UM caminho de saída (primeira condição verdadeira / default).
- *  - parallelGateway: bifurca (fork) em todos os caminhos e/ou sincroniza (join). */
+ *  - parallelGateway: bifurca (fork) em todos os caminhos e/ou sincroniza (join).
+ *  - inclusiveGateway: escolha "TODOS OS QUE SERVIREM" (04/10/2026). Na saída, ativa toda
+ *    seta cuja condição for verdadeira (nenhuma → o "caso contrário"); no reencontro
+ *    (id da saída + SUFIXO_REENCONTRO) espera exatamente os caminhos que foram ativados. */
 export type WfNodeType =
   | 'start'
   | 'end'
@@ -17,6 +20,7 @@ export type WfNodeType =
   | 'serviceTask'
   | 'exclusiveGateway'
   | 'parallelGateway'
+  | 'inclusiveGateway'
 
 /** Nó do grafo. Campos além de id/type/name são opcionais e por-tipo. */
 export interface WfNode {
@@ -72,7 +76,8 @@ export interface WfNode {
     entityType: string          // EMPRESA | PARCEIRO | UNIDADE | CONTRATO | ORG
     mode: 'FIXA' | 'VARIAVEL'    // ignorado quando entityType === ORG
     entityId?: string           // quando FIXA
-    entityVar?: string          // nome da variável quando VARIAVEL
+    entityVar?: string          // nome da variável quando VARIAVEL (técnica, legado)
+    stakeholder?: string        // VARIAVEL pelo contrato do processo: papel de stakeholder (ou '@contrato')
   }
 
   /** PARA ONDE esta atividade pode DEVOLVER o processo. Sem isto (padrão), o motor
@@ -132,6 +137,9 @@ export interface WfState {
   /** Contagem de chegadas por parallelGateway (para o join sincronizar). Interno
    *  ao motor, mas persistido junto ao estado para sobreviver entre chamadas. */
   joinCounts: Record<string, number>
+  /** Escolha "todos os que servirem": quantos caminhos a saída ATIVOU, por reencontro —
+   *  é quanto o reencontro espera. Ausente nos estados antigos (não havia inclusivo). */
+  inclusiveNeed?: Record<string, number>
   /** Algum caminho já ATRAVESSOU um evento de fim. É o que dá significado ao fim:
    *  sem esta marca, ficar sem token é parada, não conclusão. Ausente nos estados
    *  gravados antes desta regra — e isso é seguro, porque naqueles desenhos o

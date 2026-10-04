@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, FileText, Calendar, DollarSign, RefreshCw, Users, Paperclip, ChevronDown, TrendingDown, TrendingUp, Eye } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { apiFetch, motivoDoErro } from '@/lib/http'
+import { apiFetch, apiJson, motivoDoErro, cabecalhosDaTarefa, type OrigemDaTarefa } from '@/lib/http'
 import { getLogUser } from '@/hooks/use-partner-logs'
-import { useScreens, putScreenValues } from '@/hooks/use-screens'
+import { useScreens } from '@/hooks/use-screens'
 import { pickDefaultScreen, resolveContractSections } from '@/lib/screen-contract-layout'
 import { reconcileNative } from '@/lib/screen-native-structure'
 import type { Screen } from '@/lib/screen-types'
@@ -57,9 +57,11 @@ interface ContractNewFormProps {
   screen?: Screen
   /** Campos travados pela ATIVIDADE do workflow (ids de campo da tela). Só apertam. */
   lockedFields?: string[]
+  /** gravação de dentro de uma tarefa (a API aplica a tela da etapa) */
+  origem?: OrigemDaTarefa
 }
 
-export default function ContractNewForm({ embedded = false, onSaved, onCancel, screen, lockedFields }: ContractNewFormProps) {
+export default function ContractNewForm({ embedded = false, onSaved, onCancel, screen, lockedFields, origem }: ContractNewFormProps) {
   const form = useContractForm({ ...emptyContractForm(), partes: [newCParte('')] })
   const v = form.values
   const router = useRouter()
@@ -76,6 +78,20 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
      render: conforme a pessoa preenche, o aviso encolhe, e some quando não falta nada. */
   const [tentativa,   setTentativa]   = useState<AcaoSalvar | null>(null)
   const [saveError,   setSaveError]   = useState<string | null>(null)
+  /* Contrato novo numa tarefa de workflow com "Quem inicia" por parte do contrato (PO,
+     04/10/2026): a busca da parte mostra só as entidades de quem iniciou. A API confere. */
+  const [restricoes, setRestricoes] = useState<Array<{ stakeholder: string; ids: string[]; papel: string; parte: string }>>([])
+  useEffect(() => {
+    if (!origem?.tarefaId) return
+    let vivo = true
+    void apiJson<typeof restricoes>(`/api/instances/tasks/${origem.tarefaId}/restricao-de-partes`).then((r) => { if (vivo) setRestricoes(r ?? []) })
+    return () => { vivo = false }
+  }, [origem?.tarefaId])
+  const somenteDaParte = (parteId: string) => {
+    const papel = v.partes.find((p) => p.id === parteId)?.papel
+    const r = restricoes.find((x) => x.stakeholder === papel)
+    return r ? { ids: r.ids, motivo: `Neste processo, “${r.parte}” só pode ser onde quem iniciou o processo é ${r.papel}.` } : undefined
+  }
   const [saving,      setSaving]      = useState<'draft' | 'active' | null>(null)
 
   /** Liga o parceiro recém-criado a uma parte: à parte que pediu o cadastro, senão à
@@ -176,17 +192,17 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
     setSaving(status === 'VIGENTE' ? 'active' : 'draft')
     try {
       const res = await apiFetch(`/api/contracts`, {
-        method: 'POST',
-        body:   JSON.stringify(contractToPayload({ ...v, situacao: status }, { user: getLogUser() })),
+        method:  'POST',
+        headers: cabecalhosDaTarefa(origem),
+        /* personalizados no MESMO pedido: a API confere o conjunto antes de gravar */
+        body:    JSON.stringify(contractToPayload({ ...v, situacao: status }, {
+          user: getLogUser(),
+          ...(screenDriven && Object.keys(screenValues).length ? { valoresPersonalizados: screenValues } : {}),
+        })),
       })
       if (res.ok) {
         let result: { id?: string } | undefined
         try { result = await res.json() as { id?: string } } catch { /* sem corpo */ }
-        /* R3 — grava os valores dos campos personalizados da tela ligados ao novo contrato */
-        if (screenDriven && result?.id) {
-          const entries = Object.entries(screenValues).map(([fieldId, value]) => ({ fieldId, value }))
-          if (entries.length) await putScreenValues('CONTRACT', result.id, entries)
-        }
         if (onSaved) onSaved(result)
         else router.push('/modules/contratos')
         return
@@ -309,6 +325,7 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
           origem={searchModal.origem}
           empresas={empresas}
           excludeIds={searchModal.excludeIds}
+          somente={somenteDaParte(searchModal.parteId)}
           onSelect={(e) => { form.setParteEntity(searchModal.parteId, e); setSearchModal(null) }}
           onClose={() => setSearchModal(null)}
           onNewPartner={() => { const parteId = searchModal.parteId; setSearchModal(null); setNewPartner({ parteId }) }}

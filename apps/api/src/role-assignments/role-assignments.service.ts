@@ -124,6 +124,15 @@ export class RoleAssignmentsService {
     return new Map(entries.map((e) => [e.id, e.label]))
   }
 
+  /** Catálogo COMPLETO de papéis (com referência e origem) — a ativação do workflow
+   *  confere se o papel de pessoa do executor combina com o stakeholder escolhido. */
+  async catalogoDePapeis(organizationId: string): Promise<Array<{ id: string; label: string; origem?: string; referencia?: string; active?: boolean }>> {
+    const row = await this.prisma.appSetting.findUnique({
+      where: { organizationId_userId_key: { organizationId, userId: '', key: PAPEIS_KEY } },
+    })
+    return parsePapeis(row?.value)
+  }
+
   /** Resolve os usuários responsáveis por um PAPEL numa entidade — usado pelo motor de
    *  workflow (Fase 3) para rotear a tarefa à(s) pessoa(s) certa(s). */
   async resolveUsers(organizationId: string, papelId: string, entityType: string, entityId?: string): Promise<string[]> {

@@ -414,7 +414,9 @@ const toCReajusteRealizado = (r: CoreReajusteRealizado): CReajusteRealizado => (
   dataAplicacao: r.dataAplicacao ?? '', observacao: r.observacao ?? '', createdAt: r.createdAt ?? '',
 })
 
-export function VigenciaFields({ form, ro, isVisible = showAll, isLocked = lockNone }: { form: ContractForm; ro?: boolean; isVisible?: ContractVisFn; isLocked?: ContractVisFn }) {
+export function VigenciaFields({ form, ro, isVisible = showAll, isLocked = lockNone, renovar = true }: { form: ContractForm; ro?: boolean; isVisible?: ContractVisFn; isLocked?: ContractVisFn
+  /** a tela deixa renovar? (término, parcelas e reajustes — ver `renovacaoLiberada` no core) */
+  renovar?: boolean }) {
   const lk = lockOf(ro, isLocked)
   const v = form.values
   /* série de índices e catálogo: alimentam o reajuste que a renovação aplica antes de gerar o período */
@@ -450,7 +452,7 @@ export function VigenciaFields({ form, ro, isVisible = showAll, isLocked = lockN
   const dias  = parseInt(prazoCadastrado ? v.renovacaoDias  : rDias, 10)  || 0
   const temPrazo = (anos || meses || dias) > 0
 
-  const podeRenovar = !v.prazoIndeterminado && !!terminoVigente(v) && v.acaoTermino !== 'ENCERRAR'
+  const podeRenovar = renovar && !v.prazoIndeterminado && !!terminoVigente(v) && v.acaoTermino !== 'ENCERRAR'
 
   const campoRenov: LancField = campoRenovacao(v.natureza)
 
@@ -534,10 +536,11 @@ export function VigenciaFields({ form, ro, isVisible = showAll, isLocked = lockN
           ) : (
             <div className="space-y-2">
               {/* "Prazo indeterminado" torna a vigência sem término (marca Prazo indeterminado = Sim e oculta o Término) */}
-              <label className="flex items-center gap-2 cursor-pointer">
+              {/* atalho que muda OUTRO campo: some quando aquele campo está travado */}
+              {!lk('prazo_indeterminado') && <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={false} onChange={e => { if (e.target.checked) form.set('prazoIndeterminado', true) }} className="h-3.5 w-3.5 rounded border-gray-300 accent-primary" />
                 <span className="text-xs text-muted-foreground">Prazo indeterminado (renova sem data de término)</span>
-              </label>
+              </label>}
               <div className="grid grid-cols-3 gap-2">
                 <NumBox caption="Anos"  value={v.renovacaoAnos}  onChange={x => form.set('renovacaoAnos', x)} />
                 <NumBox caption="Meses" value={v.renovacaoMeses} onChange={x => form.set('renovacaoMeses', x)} />
@@ -758,7 +761,10 @@ function StatTile({ label, value, bar, danger, hint }: { label: string; value: s
 /** Pagamentos/Recebimentos como "extrato operacional": resumo (total, nº, % do contrato, saldo),
  *  toolbar fixa (adicionar / gerar em massa) e lista agrupada por ano — cada ano recolhível.
  *  Editável mesmo com o contrato travado. */
-export function LancamentosFields({ form, field, moedaCode, travado, dualView }: { form: ContractForm; field: 'pagamentos' | 'recebimentos'; moedaCode: string; travado?: boolean; dualView?: boolean }) {
+export function LancamentosFields({ form, field, moedaCode, travado, consulta = false, dualView }: { form: ContractForm; field: 'pagamentos' | 'recebimentos'; moedaCode: string; travado?: boolean
+  /** seção em CONSULTA pela tela: diferente do `travado` (contrato vigente, que ainda dá
+   *  baixa), aqui nada muda — nem baixa, nem comprovante, nem parcela nova. Ver e exportar, sim. */
+  consulta?: boolean; dualView?: boolean }) {
   const v = form.values
   const lista = v[field]
   const singular = field === 'pagamentos' ? 'pagamento' : 'recebimento'
@@ -1036,8 +1042,10 @@ export function LancamentosFields({ form, field, moedaCode, travado, dualView }:
       {/* toolbar fixa (não some ao rolar a lista) */}
       <div className="sticky top-0 z-20 flex items-center justify-between gap-3 bg-background py-1.5 border-b border-border/60">
         <div className="flex items-center gap-4">
-          <button type="button" onClick={adicionar} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar {singular}</button>
+          {!consulta && <>
+<button type="button" onClick={adicionar} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar {singular}</button>
           <button type="button" onClick={abrirGerar} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-medium transition-colors"><ListPlus className="h-3.5 w-3.5" />Gerar cronograma</button>
+          </>}
           <button type="button" onClick={() => void exportar()} disabled={!lista.length}
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
             <FileDown className="h-3.5 w-3.5" />Exportar
@@ -1187,10 +1195,10 @@ export function LancamentosFields({ form, field, moedaCode, travado, dualView }:
                       {itens.map(l => (
                         <div key={l.id} ref={l.id === novoId ? focarNovo : undefined}
                              className={cn(COLS, 'group px-3 py-1 transition-colors duration-700 hover:bg-muted/30', l.id === novoId && 'bg-primary/10')}>
-                          <input type="date" value={l.vencimento} onChange={e => form.updLanc(field, l.id, 'vencimento', e.target.value)} onBlur={e => reordenar(e.target.value ? e.target.value.slice(0, 4) : undefined)} className={cell} />
+                          <input type="date" disabled={consulta} value={l.vencimento} onChange={e => form.updLanc(field, l.id, 'vencimento', e.target.value)} onBlur={e => reordenar(e.target.value ? e.target.value.slice(0, 4) : undefined)} className={cell} />
                           {/* "≈" = valor provisório: o próximo reajuste ainda vai reprecificar esta parcela */}
                           <div className="relative">
-                            <MoneyField value={l.valorPrevisto} moedaCode={moedaCode} bare onChange={x => form.updLanc(field, l.id, 'valorPrevisto', x)} />
+                            <MoneyField ro={consulta} value={l.valorPrevisto} moedaCode={moedaCode} bare onChange={x => form.updLanc(field, l.id, 'valorPrevisto', x)} />
                             {provisoria(l) && (
                               <span title={`Valor provisório: será atualizado no reajuste de ${fmtMesAnoBR(comp(proximaDataReajusteContrato(v)))}`}
                                     className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 select-none text-[11px] font-semibold text-amber-600 dark:text-amber-500">≈</span>
@@ -1200,11 +1208,11 @@ export function LancamentosFields({ form, field, moedaCode, travado, dualView }:
                             /* LEGADO (edição/detalhe): todas as 11 colunas numa linha só, como era antes. */
                             <>
                               <div className={cn(blocoRealizado, 'py-1 -my-1')}>
-                                <input type="date" value={l.data} title={`Data do ${rotulo === 'pago' ? 'pagamento' : 'recebimento'} (preencher baixa a parcela pelo valor previsto)`}
+                                <input type="date" disabled={consulta} value={l.data} title={`Data do ${rotulo === 'pago' ? 'pagamento' : 'recebimento'} (preencher baixa a parcela pelo valor previsto)`}
                                        onChange={e => form.patchLanc(field, l.id, { data: e.target.value, ...(e.target.value && !lancPago(l) ? { valorPago: l.valorPrevisto } : {}) })}
                                        className={cn(cell, !lancPago(l) && 'border-transparent bg-transparent opacity-40 hover:opacity-100 hover:border-input focus:opacity-100 focus:border-input')} />
                                 <div className="relative">
-                                  <MoneyField value={l.valorPago} moedaCode={moedaCode} bare vazio={!lancPago(l)} onChange={x => form.updLanc(field, l.id, 'valorPago', x)} />
+                                  <MoneyField ro={consulta} value={l.valorPago} moedaCode={moedaCode} bare vazio={!lancPago(l)} onChange={x => form.updLanc(field, l.id, 'valorPago', x)} />
                                   {desvioDe(l) !== 0 && (
                                     <span title={`${rotulo === 'pago' ? 'Pago' : 'Recebido'} a ${desvioDe(l) > 0 ? 'mais' : 'menos'} que o previsto`}
                                           className={cn('pointer-events-none absolute -bottom-1 right-1 select-none text-[9px] font-semibold tabular-nums',
@@ -1221,28 +1229,28 @@ export function LancamentosFields({ form, field, moedaCode, travado, dualView }:
                                   ) : l.comprovante_key ? (
                                     <span className="flex items-center gap-1">
                                       <button type="button" onClick={() => void abrirComprovante(l)} title={isPreviewable(l.comprovante_nome) ? `Abrir: ${l.comprovante_nome}` : `Baixar: ${l.comprovante_nome} (formato sem visualização)`} className="text-emerald-600 transition-colors hover:text-emerald-700 dark:text-emerald-400"><Eye className="h-3.5 w-3.5" /></button>
-                                      <button type="button" onClick={() => pedirArquivo(l.id)} title={`Substituir comprovante (atual: ${l.comprovante_nome})`} className="text-muted-foreground/60 transition-colors hover:text-primary"><Upload className="h-3 w-3" /></button>
-                                      <button type="button" onClick={() => removerComprovante(l)} title="Remover comprovante desta parcela" className="text-muted-foreground/60 transition-colors hover:text-destructive"><X className="h-3 w-3" /></button>
+                                      <button type="button" hidden={consulta} onClick={() => pedirArquivo(l.id)} title={`Substituir comprovante (atual: ${l.comprovante_nome})`} className="text-muted-foreground/60 transition-colors hover:text-primary"><Upload className="h-3 w-3" /></button>
+                                      <button type="button" hidden={consulta} onClick={() => removerComprovante(l)} title="Remover comprovante desta parcela" className="text-muted-foreground/60 transition-colors hover:text-destructive"><X className="h-3 w-3" /></button>
                                     </span>
                                   ) : (
-                                    <button type="button" onClick={() => pedirArquivo(l.id)} title="Anexar comprovante do pagamento" className="text-muted-foreground/40 transition-colors hover:text-primary"><Paperclip className="h-3.5 w-3.5" /></button>
+                                    <button type="button" hidden={consulta} onClick={() => pedirArquivo(l.id)} title="Anexar comprovante do pagamento" className="text-muted-foreground/40 transition-colors hover:text-primary"><Paperclip className="h-3.5 w-3.5" /></button>
                                   )}
                                 </div>
                               </div>
                               <div className="flex justify-center">
-                                <input type="checkbox" checked={l.reajustavel !== false} disabled={lancPago(l)} onChange={e => form.patchLanc(field, l.id, { reajustavel: e.target.checked })}
+                                <input type="checkbox" checked={l.reajustavel !== false} disabled={consulta || lancPago(l)} onChange={e => form.patchLanc(field, l.id, { reajustavel: e.target.checked })}
                                   title={lancPago(l) ? `Parcela ${rotulo} — o reajuste não reprecifica parcela baixada. Estorne para alterar.` : l.reajustavel !== false ? 'O reajuste alcança esta parcela' : 'Esta parcela não é reajustada'}
                                   className={cn('h-3.5 w-3.5 accent-primary', lancPago(l) ? 'cursor-not-allowed opacity-40' : 'cursor-pointer')} />
                               </div>
-                              <select value={l.forma} onChange={e => form.updLanc(field, l.id, 'forma', e.target.value)} className={cell}>
+                              <select disabled={consulta} value={l.forma} onChange={e => form.updLanc(field, l.id, 'forma', e.target.value)} className={cell}>
                                 <option value="">Forma...</option>
                                 {l.forma && !formas.active.some(f => f.id === l.forma) && <option value={l.forma}>{labelOf(formas.entries, l.forma)}</option>}
                                 {formas.active.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
                               </select>
-                              <input value={l.documento} onChange={e => form.updLanc(field, l.id, 'documento', e.target.value)} placeholder="NF 1234" className={cell} />
-                              <button type="button" onClick={() => (lancPago(l) ? reabrir(l) : marcarPago(l))} title={lancPago(l) ? 'Reabrir (voltar a A vencer)' : `Marcar como ${rotulo}`} className={cn('inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-80', statusInfo(l).cls)}>{statusInfo(l).label}</button>
-                              <input value={l.observacao} onChange={e => form.updLanc(field, l.id, 'observacao', e.target.value)} placeholder="—" className={cn(cell, 'text-muted-foreground')} />
-                              {travado ? <span /> : <button type="button" onClick={() => form.remLanc(field, l.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>}
+                              <input disabled={consulta} value={l.documento} onChange={e => form.updLanc(field, l.id, 'documento', e.target.value)} placeholder="NF 1234" className={cell} />
+                              <button type="button" disabled={consulta} onClick={() => (lancPago(l) ? reabrir(l) : marcarPago(l))} title={lancPago(l) ? 'Reabrir (voltar a A vencer)' : `Marcar como ${rotulo}`} className={cn('inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-80', statusInfo(l).cls)}>{statusInfo(l).label}</button>
+                              <input disabled={consulta} value={l.observacao} onChange={e => form.updLanc(field, l.id, 'observacao', e.target.value)} placeholder="—" className={cn(cell, 'text-muted-foreground')} />
+                              {travado || consulta ? <span /> : <button type="button" onClick={() => form.remLanc(field, l.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>}
                             </>
                           ) : modoBaixas ? (
                             <>
@@ -1252,11 +1260,11 @@ export function LancamentosFields({ form, field, moedaCode, travado, dualView }:
                                   que se pagou zero. Continuam editáveis ao clicar. */}
                               <div className={cn(blocoRealizado, 'py-1 -my-1')}>
                                 {/* informar a data também baixa a parcela: o pago assume o previsto */}
-                                <input type="date" value={l.data} title={`Data do ${rotulo === 'pago' ? 'pagamento' : 'recebimento'} (preencher baixa a parcela pelo valor previsto)`}
+                                <input type="date" disabled={consulta} value={l.data} title={`Data do ${rotulo === 'pago' ? 'pagamento' : 'recebimento'} (preencher baixa a parcela pelo valor previsto)`}
                                        onChange={e => form.patchLanc(field, l.id, { data: e.target.value, ...(e.target.value && !lancPago(l) ? { valorPago: l.valorPrevisto } : {}) })}
                                        className={cn(cell, !lancPago(l) && 'border-transparent bg-transparent opacity-40 hover:opacity-100 hover:border-input focus:opacity-100 focus:border-input')} />
                                 <div className="relative">
-                                  <MoneyField value={l.valorPago} moedaCode={moedaCode} bare vazio={!lancPago(l)} onChange={x => form.updLanc(field, l.id, 'valorPago', x)} />
+                                  <MoneyField ro={consulta} value={l.valorPago} moedaCode={moedaCode} bare vazio={!lancPago(l)} onChange={x => form.updLanc(field, l.id, 'valorPago', x)} />
                                   {desvioDe(l) !== 0 && (
                                     <span title={`${rotulo === 'pago' ? 'Pago' : 'Recebido'} a ${desvioDe(l) > 0 ? 'mais' : 'menos'} que o previsto`}
                                           className={cn('pointer-events-none absolute -bottom-1 right-1 select-none text-[9px] font-semibold tabular-nums',
@@ -1282,18 +1290,18 @@ export function LancamentosFields({ form, field, moedaCode, travado, dualView }:
                                         className="text-emerald-600 transition-colors hover:text-emerald-700 dark:text-emerald-400">
                                         <Eye className="h-3.5 w-3.5" />
                                       </button>
-                                      <button type="button" onClick={() => pedirArquivo(l.id)}
+                                      <button type="button" hidden={consulta} onClick={() => pedirArquivo(l.id)}
                                         title={`Substituir comprovante (atual: ${l.comprovante_nome})`}
                                         className="text-muted-foreground/60 transition-colors hover:text-primary">
                                         <Upload className="h-3 w-3" />
                                       </button>
-                                      <button type="button" onClick={() => removerComprovante(l)} title="Remover comprovante desta parcela"
+                                      <button type="button" hidden={consulta} onClick={() => removerComprovante(l)} title="Remover comprovante desta parcela"
                                         className="text-muted-foreground/60 transition-colors hover:text-destructive">
                                         <X className="h-3 w-3" />
                                       </button>
                                     </span>
                                   ) : (
-                                    <button type="button" onClick={() => pedirArquivo(l.id)} title="Anexar comprovante do pagamento"
+                                    <button type="button" hidden={consulta} onClick={() => pedirArquivo(l.id)} title="Anexar comprovante do pagamento"
                                       className="text-muted-foreground/40 transition-colors hover:text-primary">
                                       <Paperclip className="h-3.5 w-3.5" />
                                     </button>
@@ -1301,9 +1309,9 @@ export function LancamentosFields({ form, field, moedaCode, travado, dualView }:
                                 </div>
                               </div>
                               {/* Status = ação de baixar / reabrir a parcela */}
-                              <button type="button" onClick={() => (lancPago(l) ? reabrir(l) : marcarPago(l))} title={lancPago(l) ? 'Reabrir (voltar a A vencer)' : `Marcar como ${rotulo}`} className={cn('inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-80', statusInfo(l).cls)}>{statusInfo(l).label}</button>
+                              <button type="button" disabled={consulta} onClick={() => (lancPago(l) ? reabrir(l) : marcarPago(l))} title={lancPago(l) ? 'Reabrir (voltar a A vencer)' : `Marcar como ${rotulo}`} className={cn('inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-80', statusInfo(l).cls)}>{statusInfo(l).label}</button>
                               {/* travado: registra baixa/comprovante, mas EXCLUIR exige abrir para revisão */}
-                              {travado ? <span /> : <button type="button" onClick={() => form.remLanc(field, l.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>}
+                              {travado || consulta ? <span /> : <button type="button" onClick={() => form.remLanc(field, l.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>}
                             </>
                           ) : (
                             <>
@@ -1322,15 +1330,15 @@ export function LancamentosFields({ form, field, moedaCode, travado, dualView }:
                                   className={cn('h-3.5 w-3.5 accent-primary',
                                     lancPago(l) ? 'cursor-not-allowed opacity-40' : 'cursor-pointer')} />
                               </div>
-                              <select value={l.forma} onChange={e => form.updLanc(field, l.id, 'forma', e.target.value)} className={cell}>
+                              <select disabled={consulta} value={l.forma} onChange={e => form.updLanc(field, l.id, 'forma', e.target.value)} className={cell}>
                                 <option value="">Forma...</option>
                                 {l.forma && !formas.active.some(f => f.id === l.forma) && <option value={l.forma}>{labelOf(formas.entries, l.forma)}</option>}
                                 {formas.active.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
                               </select>
-                              <input value={l.documento} onChange={e => form.updLanc(field, l.id, 'documento', e.target.value)} placeholder="NF 1234" className={cell} />
-                              <input value={l.observacao} onChange={e => form.updLanc(field, l.id, 'observacao', e.target.value)} placeholder="—" className={cn(cell, 'text-muted-foreground')} />
+                              <input disabled={consulta} value={l.documento} onChange={e => form.updLanc(field, l.id, 'documento', e.target.value)} placeholder="NF 1234" className={cell} />
+                              <input disabled={consulta} value={l.observacao} onChange={e => form.updLanc(field, l.id, 'observacao', e.target.value)} placeholder="—" className={cn(cell, 'text-muted-foreground')} />
                               {/* travado: registra baixa/comprovante, mas EXCLUIR exige abrir para revisão */}
-                              {travado ? <span /> : <button type="button" onClick={() => form.remLanc(field, l.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>}
+                              {travado || consulta ? <span /> : <button type="button" onClick={() => form.remLanc(field, l.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>}
                             </>
                           )}
                         </div>
@@ -1393,7 +1401,9 @@ export function LancamentosFields({ form, field, moedaCode, travado, dualView }:
 /** Reajustes: um card recolhível por índice (padrão dos aditivos). Cada card reúne o cadastro
  *  (índice · data base · periodicidade) e o histórico de reajustes aplicados daquele índice.
  *  Um índice só pode ser usado uma vez. O histórico é operável mesmo com o contrato travado. */
-export function ReajustesFields({ form, ro }: { form: ContractForm; ro?: boolean }) {
+export function ReajustesFields({ form, ro, consulta }: { form: ContractForm; ro?: boolean
+  /** seção em CONSULTA pela tela: além do cadastro travado (ro), nem registra reajuste aplicado */
+  consulta?: boolean }) {
   const indices = useLookupTable(INDICES_KEY, INIT_INDICES)
   const v = form.values
   const [open, setOpen] = useState<Set<string>>(new Set())
@@ -1412,7 +1422,7 @@ export function ReajustesFields({ form, ro }: { form: ContractForm; ro?: boolean
         </p>
       )}
       {v.reajustes.map((r, idx) => (
-        <ReajusteCard key={r.id} r={r} idx={idx} form={form} indices={indices} ro={ro} open={open.has(r.id)} onToggle={() => toggle(r.id)} />
+        <ReajusteCard key={r.id} r={r} idx={idx} form={form} indices={indices} ro={ro} consulta={consulta} open={open.has(r.id)} onToggle={() => toggle(r.id)} />
       ))}
       {!ro && <button type="button" onClick={handleAdd} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar índice de reajuste</button>}
     </div>
@@ -1454,8 +1464,8 @@ function projetarBacklog(v: ContractFormValues, linha: CReajuste, serie: Record<
 
 /** Card recolhível de um índice de reajuste: cabeçalho-resumo (base, periodicidade, aplicados,
  *  último, próximo) + corpo com o cadastro e o histórico de reajustes aplicados daquele índice. */
-function ReajusteCard({ r, idx, form, indices, ro, open, onToggle }: {
-  r: CReajuste; idx: number; form: ContractForm; indices: ReturnType<typeof useLookupTable>; ro?: boolean; open: boolean; onToggle: () => void
+function ReajusteCard({ r, idx, form, indices, ro, consulta, open, onToggle }: {
+  r: CReajuste; idx: number; form: ContractForm; indices: ReturnType<typeof useLookupTable>; ro?: boolean; consulta?: boolean; open: boolean; onToggle: () => void
 }) {
   const v = form.values
   const cell = cn(inputCls, 'h-7')
@@ -1605,7 +1615,7 @@ function ReajusteCard({ r, idx, form, indices, ro, open, onToggle }: {
           )}
 
           {/* histórico de reajustes aplicados deste índice */}
-          <ReajusteRealizados form={form} indices={indices} linha={r} ro={ro} />
+          <ReajusteRealizados form={form} indices={indices} linha={r} ro={ro} consulta={consulta} />
         </div>
       )}
     </div>
@@ -1622,7 +1632,7 @@ const baseCurta = (b: string) => (b === 'parcela' ? 'Parcela' : 'Total')
  *  do reajuste (a próxima data segue derivada). Operável mesmo com o cadastro travado (como
  *  lançamentos), persistido pelo botão "Salvar". Base Valor total | Parcela com default inteligente;
  *  ao reajustar a PARCELA em prazo determinado, o novo total ACRESCENTA o stream: total + nova parcela × parcelas. */
-function ReajusteRealizados({ form, indices, linha, ro }: { form: ContractForm; indices: ReturnType<typeof useLookupTable>; linha: CReajuste; ro?: boolean }) {
+function ReajusteRealizados({ form, indices, linha, ro, consulta }: { form: ContractForm; indices: ReturnType<typeof useLookupTable>; linha: CReajuste; ro?: boolean; consulta?: boolean }) {
   const v = form.values
   const indiceVals = useIndiceValores()
   const [aberto, setAberto]             = useState(false)
@@ -1767,7 +1777,7 @@ function ReajusteRealizados({ form, indices, linha, ro }: { form: ContractForm; 
     <div className="space-y-2 pt-3 border-t border-border/60">
       <div className="flex items-center justify-between">
         <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Reajustes aplicados</p>
-        {!aberto && (
+        {!aberto && !consulta && (
           linha.indice
             ? <button type="button" onClick={abrir} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Registrar reajuste</button>
             : <span className="text-[10px] text-muted-foreground">Defina o índice para registrar</span>
@@ -2287,8 +2297,10 @@ export function PartesFields({ form, ro, onOpenSearch, onNewPartner, contractId 
    Cada aditivo altera, EM VIGOR, término/valor/objeto/partes; o original é preservado
    (ver terminoVigente/valorVigente/objetoVigente/partesVigentes). Sempre editável —
    adita-se um contrato já vigente. */
-export function AditivosFields({ form, onOpenCessaoSearch, onActivate, onRevise }: {
+export function AditivosFields({ form, ro = false, onOpenCessaoSearch, onActivate, onRevise }: {
   form: ContractForm
+  /** seção em consulta (tela/seção travada): nem cria, nem ativa, nem revisa aditivo */
+  ro?: boolean
   onOpenCessaoSearch: (aditivoId: string, cessaoId: string, origem: string) => void
   onActivate: (id: string) => void
   onRevise: (id: string) => void
@@ -2305,20 +2317,21 @@ export function AditivosFields({ form, onOpenCessaoSearch, onActivate, onRevise 
   return (
     <div className="space-y-2">
       {v.aditivos.length === 0 && <p className="text-xs text-muted-foreground">Nenhum aditivo. Adicione para prorrogar, reajustar, alterar escopo ou ceder o contrato — o valor/término vigente e o saldo se ajustam automaticamente.</p>}
-      {v.aditivos.map((a, idx) => <AditivoCard key={a.id} a={a} idx={idx} form={form} open={open.has(a.id)} onToggle={() => toggle(a.id)} onOpenCessaoSearch={onOpenCessaoSearch} onActivate={onActivate} onRevise={onRevise} />)}
-      <button type="button" onClick={handleAdd} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar aditivo</button>
+      {v.aditivos.map((a, idx) => <AditivoCard key={a.id} a={a} idx={idx} form={form} open={open.has(a.id)} onToggle={() => toggle(a.id)} ro={ro} onOpenCessaoSearch={onOpenCessaoSearch} onActivate={onActivate} onRevise={onRevise} />)}
+      {!ro && <button type="button" onClick={handleAdd} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Adicionar aditivo</button>}
     </div>
   )
 }
 
-function AditivoCard({ a, idx, form, open, onToggle, onOpenCessaoSearch, onActivate, onRevise }: {
-  a: CAditivo; idx: number; form: ContractForm; open: boolean; onToggle: () => void
+function AditivoCard({ a, idx, form, open, onToggle, ro, onOpenCessaoSearch, onActivate, onRevise }: {
+  a: CAditivo; idx: number; form: ContractForm; open: boolean; onToggle: () => void; ro: boolean
   onOpenCessaoSearch: (aditivoId: string, cessaoId: string, origem: string) => void
   onActivate: (id: string) => void
   onRevise: (id: string) => void
 }) {
   const v = form.values
-  const lock = a.situacao === 'ATIVO'   // ativo = travado (somente leitura)
+  /* ativo = travado (somente leitura); a seção em consulta trava TODOS — inclusive o rascunho */
+  const lock = ro || a.situacao === 'ATIVO'
   const tiposAditivo = useLookupTable(TIPOS_ADITIVO_KEY, INIT_TIPOS_ADITIVO)
   const objetos = useLookupTable(OBJETOS_KEY, INIT_OBJETOS)
   const papeis  = useLookupTable(PAPEIS_KEY, INIT_PAPEIS)
@@ -2469,8 +2482,8 @@ function AditivoCard({ a, idx, form, open, onToggle, onOpenCessaoSearch, onActiv
       <div className="p-3 space-y-3">
         {/* barra de ação do aditivo (no topo) */}
         <div className="flex items-center justify-between gap-2">
-          <span className={cn('text-[10px]', actErr ? 'text-red-500' : 'text-muted-foreground')}>{lock ? 'Aditivo ativo — aplicado ao contrato. Para corrigir, abra para revisão.' : (actErr || 'Rascunho — ative para aplicar as mudanças ao contrato.')}</span>
-          {lock ? (
+          <span className={cn('text-[10px]', actErr ? 'text-red-500' : 'text-muted-foreground')}>{ro ? 'Somente consulta nesta tela.' : lock ? 'Aditivo ativo — aplicado ao contrato. Para corrigir, abra para revisão.' : (actErr || 'Rascunho — ative para aplicar as mudanças ao contrato.')}</span>
+          {ro ? null : lock ? (
             <button type="button" onClick={() => onRevise(a.id)} className="inline-flex items-center h-7 shrink-0 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors">Abrir para revisão</button>
           ) : (
             <button type="button" onClick={ativar} className="inline-flex items-center h-7 shrink-0 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">Ativar aditivo</button>

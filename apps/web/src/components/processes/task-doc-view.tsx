@@ -14,6 +14,7 @@ import { ActivityHeader } from '@/components/processes/activity-header'
 import { ReturnTaskButton, type ReturnTarget } from '@/components/processes/return-task-button'
 import { DelegateTaskButton } from '@/components/processes/delegate-task-button'
 import { apiFetch, apiJson } from '@/lib/http'
+import { NoticeDialog } from '@/components/ui/confirm-dialog'
 import { screenIdVar, screenEntityFromVars, screenBloqueio } from '@/lib/screen-task'
 import { cn } from '@/lib/utils'
 import { kindMeta, dueInfo, DUE_CHIP, type Task, type TimelineTask, type InstanceContext } from '@/lib/tasks-ui'
@@ -35,6 +36,8 @@ export function TaskDocView({ task, onDone, onNotice }: {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /* Escolha sem caminho (PO, 04/10/2026): a conclusão foi RECUSADA — popup, não rodapé */
+  const [semCaminho, setSemCaminho] = useState<string | null>(null)
   const [returnTargets, setReturnTargets] = useState<ReturnTarget[] | null>(null)
   // id da entidade criada/editada por uma tarefa dirigida por Tela (para o "Avançar")
   const [entityId, setEntityId] = useState<string | null>(null)
@@ -84,6 +87,7 @@ export function TaskDocView({ task, onDone, onNotice }: {
       const res = await apiFetch(`/api/instances/tasks/${task.id}/complete`, { method: 'PATCH', body: JSON.stringify({ data }) })
       if (!res.ok) {
         const e = await res.json().catch(() => null)
+        if (e?.code === 'SEM_CAMINHO') { setSemCaminho(String(e.message)); return }
         setError(e?.message || 'Não foi possível avançar a tarefa.')
         return
       }
@@ -147,6 +151,8 @@ export function TaskDocView({ task, onDone, onNotice }: {
         papel={task.role}
         titulo={task.name || task.nodeId}
         instrucoes={step?.instructions}
+        executorNota={task.executorNota}
+        semExecutor={task.semExecutor}
         /* O PRAZO fica onde a decisão acontece. Ele estava na lista e sumia justamente
            na tela em que a pessoa decide se faz agora ou depois. */
         direita={prazo ? (
@@ -169,7 +175,7 @@ export function TaskDocView({ task, onDone, onNotice }: {
                 rodapé. Ficou uma só, ao lado do botão que ele desliga: é ali que a
                 pessoa descobre que não dá para concluir, e ali que precisa do motivo. */}
             {isScreen ? (
-              <WorkflowScreenTask key={task.id} step={step} entityId={entityId} onEntity={setEntityId} onEntityGone={() => setEntityId(null)} onCancel={onDone} />
+              <WorkflowScreenTask key={task.id} taskId={task.id} step={step} entityId={entityId} onEntity={setEntityId} onEntityGone={() => setEntityId(null)} onCancel={onDone} />
             ) : (
               // o botão "Avançar" (topo) submete este form via `form=FORM_ID`
               <DynamicForm key={task.id} step={step} stepIndex={0} totalSteps={1} submitting={submitting} onSubmit={complete} formId={FORM_ID} hideActions />
@@ -205,6 +211,11 @@ export function TaskDocView({ task, onDone, onNotice }: {
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}Concluir tarefa
         </Button>
       </div>
+      <NoticeDialog open={!!semCaminho} title="Esta atividade não pode ser concluída" onClose={() => setSemCaminho(null)}
+        message={<>
+          <span className="block">{semCaminho}</span>
+          <span className="mt-2 block text-muted-foreground">O processo ficou <span className="font-semibold text-foreground">parado nesta atividade</span> — ela continua com você, e o acompanhamento do processo mostra o problema. Quando o administrador ajustar as condições (ou os dados do contrato forem corrigidos), tente concluir de novo.</span>
+        </>} />
     </div>
   )
 }

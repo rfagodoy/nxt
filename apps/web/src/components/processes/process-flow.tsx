@@ -7,14 +7,15 @@ import {
   CircleDot, Loader2, UserSquare, AlertTriangle, Building2,
   GripVertical, ChevronUp, Redo2, Blocks, Rows3, Plus,
   Download, FileImage, FileText, ChevronDown, PanelRightClose, PanelRightOpen,
-  X, SlidersHorizontal, Undo2, Check, Info, Lock,
+  X, SlidersHorizontal, Undo2, Check, Info, Lock, Link2,
 } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import {
   generateBpmn, compileBpmn, validarDesenho, validarDecisoes, validarAtividades, validarTelasDasAtividades,
-  bloqueantes, avisos as avisosDe, blocosParaGrafo, grafoParaBlocos, novoFluxo, pendenciasDosBlocos, validarOrigemDoRegistro, listarEscolhas,
+  bloqueantes, avisos as avisosDe, blocosParaGrafo, grafoParaBlocos, novoFluxo, pendenciasDosBlocos, validarOrigemDoRegistro, validarExecutores, validarQuemInicia, listarEscolhas,
   acharItem, inserirItem, removerItem, atualizarItem, SUFIXO_REENCONTRO,
   type ProblemaAtivacao, type WfGraph, type WfNode, type WfEdge, type FluxoBlocos,
+  gruposDeVinculo, religarVinculos, listarAtividades as listarAtivs, type ItemAtividade,
 } from '@nxt/workflow-core'
 import type { StepFormSchema, ProcessFormSchema, EdgeConditionSpec } from '@nxt/types'
 import { CONNECTORS, findConnector, isRetiredConnector, isCompensable } from '@nxt/types'
@@ -34,7 +35,10 @@ import { apiFetch } from '@/lib/http'
 import { ProcessHistoryDrawer } from './process-history-drawer'
 import { WorkflowIdentity } from './workflow-identity'
 import { PendenciasPill, ZoomBar, ZOOM_MAX, ZOOM_MIN } from './flow-shared'
-import { BlocosTrilho, BlocoInspector, EscolhaConfigModal, comNomes, novoItem, type NovoItem, type Simulacao, type MetaAtividade } from './workflow-blocos'
+import { ExecutorDaVariavel } from './executor-da-variavel'
+import { EXECUTOR_CONTRATO_DO_PROCESSO, EXECUTOR_QUEM_INICIOU, nasceDeContrato, type QuemInicia } from '@nxt/types'
+import { QuemIniciaPill } from './quem-inicia'
+import { BlocosTrilho, BlocoInspector, comNomes, novoItem, type NovoItem, type Simulacao, type MetaAtividade } from './workflow-blocos'
 import { NoticeDialog } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
 
@@ -62,12 +66,16 @@ export interface FlowInitial {
   name: string
   description?: string | null
   kind?: string | null
+  /** ATIVO: gravar mudança devolve o workflow a rascunho (o "gravar ao sair" avisa) */
+  status?: string
   bpmnXml: string
   steps: StepFormSchema[]
   laneOrder?: string[]
   graph?: ProcessFormSchema['graph']
   /** Fonte da autoria desde o editor em blocos. Ausente = workflow anterior a ele. */
   blocos?: FluxoBlocos
+  /** quem pode iniciar (ausente = qualquer usuário) */
+  quemInicia?: QuemInicia
 }
 
 const SUBJECT_ENTITY: Record<string, string> = { CONTRATO: 'contrato', FORNECEDOR: 'parceiro' }
@@ -245,6 +253,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const [name, setName] = useState(initial?.name ?? '')
   const [description, setDescription] = useState(initial?.description ?? '')
   const [kind, setKind] = useState(initial?.kind ?? '')
+  const [quemInicia, setQuemInicia] = useState<QuemInicia | undefined>(initial?.quemInicia)
   /* A AUTORIA é o fluxo em blocos + a configuração de cada atividade. Nós e setas não
      são editados: são gerados disso — é o que impede as formas que travavam o motor. */
   const [fluxo, setFluxo] = useState<FluxoBlocos | null>(inicio.fluxo)
@@ -259,7 +268,6 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   /* Atividade em CONFIGURAÇÃO (modal). Separado da seleção: fechar o modal não
      deseleciona, e o painel lateral segue mostrando o resumo. */
   const [configId, setConfigId] = useState<string | null>(null)
-  const [escolhaId, setEscolhaId] = useState<string | null>(null)
   /* Vindo do aviso "sem campos" da escolha: abre a atividade já na seção Formulário e, ao
      fechar, devolve a pessoa para a escolha de onde ela saiu. */
   const [retornoEscolha, setRetornoEscolha] = useState<string | null>(null)
@@ -283,11 +291,30 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
   const papeis = useLookupTable(PAPEIS_KEY, INIT_PAPEIS)
   const { screens } = useScreens()
-  const resolvePapel = useCallback((id: string) => papeis.entries.find((p) => p.id === id)?.label, [papeis.entries])
+  const resolvePapel = useCallback((id: string) => id === EXECUTOR_QUEM_INICIOU
+    ? 'Quem iniciou o processo'
+    : papeis.entries.find((p) => p.id === id)?.label, [papeis.entries])
+
+  /* Atividade VINCULADA (PO, 04/10/2026): lê a configuração da raiz. `stepsEfetivos` é o
+     que o desenho, o grafo e a gravação enxergam — cada vinculada sai com o próprio stepId. */
+  const raizDe = useMemo(() => {
+    const m = new Map<string, string>()
+    if (fluxo) for (const a of listarAtivs(fluxo)) if (a.vinculoDe) m.set(a.id, a.vinculoDe)
+    return m
+  }, [fluxo])
+  const raizRef = useRef(raizDe)
+  raizRef.current = raizDe
+  const stepsEfetivos = useMemo(() => {
+    if (!raizDe.size) return steps
+    const out = { ...steps }
+    for (const [id, raiz] of raizDe) out[id] = { ...(steps[raiz] ?? passoVazio(id, 'userTask')), stepId: id }
+    return out
+  }, [steps, raizDe])
+  const vinculos = useMemo(() => (fluxo ? gruposDeVinculo(fluxo) : new Map<string, string[]>()), [fluxo])
 
   const { nodes, edges } = useMemo(
-    () => (fluxo ? grafoDosBlocos(fluxo, steps) : inicio.legado ?? { nodes: [] as ENode[], edges: [] as EEdge[] }),
-    [fluxo, steps, inicio.legado],
+    () => (fluxo ? grafoDosBlocos(fluxo, stepsEfetivos) : inicio.legado ?? { nodes: [] as ENode[], edges: [] as EEdge[] }),
+    [fluxo, stepsEfetivos, inicio.legado],
   )
 
   /* Nomes das entidades que hospedam os papéis (unidade, empresa, parceiro…) — o cartão
@@ -318,6 +345,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     const vnodes = nodes.map((n) => ({ id: n.id, type: n.type, name: isActivity(n.type) ? (n.step?.stepName || '') : n.name }))
     const vedges = edges.map((e) => ({ from: e.from, to: e.to, condition: e.condition, isDefault: e.isDefault }))
     const tarefas = nodes.filter((n) => n.type === 'userTask')
+    /* Aditivo e Encerramento nascem de um contrato: `contratoId` existe desde a partida. */
+    const iniciais = nasceDeContrato(kind) ? ['contratoId'] : []
     const dasAtividades = [
       ...validarAtividades(tarefas.map((n) => ({
         stepId: n.id, stepName: n.step?.stepName, executor: n.step?.executor,
@@ -337,7 +366,24 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         ...(fluxo ? listarEscolhas(fluxo) : [])
           .filter((e) => e.caminhos.some((c) => /\bcontrato\./.test(c.condition ?? '')))
           .map((e) => ({ stepId: e.id, stepName: e.pergunta, tipoItem: 'escolha' as const, screenSubject: 'CONTRATO' })),
-      ]),
+      ], iniciais),
+      /* Executor "Da variável" pelo contrato do processo — a MESMA regra da API na ativação. */
+      ...validarExecutores(vedges,
+        nodes.filter((n) => isActivity(n.type)).map((n) => ({
+          stepId: n.id, stepName: n.step?.stepName, executor: n.type === 'userTask' ? n.step?.executor : undefined,
+          screenRef: n.step?.screenRef, screenSubject: n.step?.screenSubject, entityMode: n.step?.entityMode,
+          produz: n.type === 'serviceTask' ? findConnector(n.step?.connector)?.outputs : undefined,
+        })),
+        papeis.entries.map((p) => ({ id: p.id, label: p.label, origem: p.origem, referencia: referenciaDoPapelEntry(p) })),
+        iniciais),
+      /* Quem pode iniciar + aviso de 1ª atividade "Quem iniciou" com início aberto — a mesma regra da API. */
+      ...validarQuemInicia(quemInicia,
+        papeis.entries.map((p) => ({ id: p.id, label: p.label, origem: p.origem, referencia: referenciaDoPapelEntry(p) })),
+        { kind, primeiraAtividade: (() => {
+          const ini = nodes.find((n) => n.type === 'start')
+          const prim = ini && nodes.find((n) => n.id === edges.find((e) => e.from === ini.id)?.to)
+          return prim?.type === 'userTask' ? { stepId: prim.id, stepName: prim.step?.stepName, executor: prim.step?.executor } : null
+        })() }),
     ]
     if (!fluxo) return [...validarDesenho(vnodes, vedges), ...validarDecisoes(vnodes, vedges), ...dasAtividades]
     /* Em blocos a forma já nasce ligada e com "caso contrário": do desenho sobra o que só
@@ -348,7 +394,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       ...validarDesenho(vnodes, vedges).filter((p) => !p.nodeId?.endsWith(SUFIXO_REENCONTRO)),
       ...dasAtividades,
     ]
-  }, [fluxo, nodes, edges, screens])
+  }, [fluxo, nodes, edges, screens, kind, papeis.entries, quemInicia])
 
   /* Clicar é o gesto de "quero configurar isto": atividade e escolha abrem o modal onde a
      configuração mora; o "ao mesmo tempo" só tem nome, editado no painel. Pontos de
@@ -358,7 +404,6 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     const it = alvo && fluxo ? acharItem(fluxo, alvo) : undefined
     setSelectedId(alvo)
     setConfigId(it?.kind === 'atividade' ? alvo : null)
-    setEscolhaId(it?.kind === 'escolha' ? alvo : null)
   }, [fluxo])
 
   const focarPendencia = useCallback((p: ProblemaAtivacao) => {
@@ -417,14 +462,37 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const mudarFluxo = useCallback((fn: (f: FluxoBlocos) => FluxoBlocos) => {
     setFluxo((f) => (f ? fn(f) : f))
   }, [])
-  const patchStep = useCallback((id: string, patch: Partial<StepFormSchema>) => {
+  const patchStep = useCallback((idAlvo: string, patch: Partial<StepFormSchema>) => {
+    const id = raizRef.current.get(idAlvo) ?? idAlvo
     setSteps((prev) => ({ ...prev, [id]: { ...(prev[id] ?? passoVazio(id, 'userTask')), ...patch } }))
   }, [])
   // Troca o TIPO da atividade (Tarefa ↔ Ação automática): o tipo mora no BLOCO (é ele que
   // gera o nó) e no passo (stepType) — os dois mudam juntos.
-  const changeNodeType = useCallback((id: string, t: 'userTask' | 'serviceTask') => {
-    setFluxo((f) => (f ? atualizarItem(f, id, { tipo: t }) : f))
+  const changeNodeType = useCallback((idAlvo: string, t: 'userTask' | 'serviceTask') => {
+    const id = raizRef.current.get(idAlvo) ?? idAlvo
+    // o grupo vinculado inteiro muda junto (é a mesma atividade em vários lugares)
+    const grupo = [id, ...[...raizRef.current.entries()].filter(([, r]) => r === id).map(([v]) => v)]
+    setFluxo((f) => (f ? grupo.reduce((g, gid) => atualizarItem(g, gid, { tipo: t }), f) : f))
     setSteps((prev) => ({ ...prev, [id]: { ...(prev[id] ?? passoVazio(id, t)), stepType: t } }))
+  }, [])
+  /** Repete aqui uma atividade já configurada — mesma configuração, vinculada. */
+  const inserirVinculada = useCallback((ref: string, indice: number, origemId: string) => {
+    const raiz = raizRef.current.get(origemId) ?? origemId
+    setFluxo((f) => {
+      if (!f) return f
+      const origem = listarAtivs(f).find((a) => a.id === raiz)
+      if (!origem) return f
+      const item = { ...novoItem(origem.tipo), vinculoDe: raiz } as ItemAtividade
+      setSelectedId(item.id)
+      return inserirItem(f, ref, indice, item)
+    })
+  }, [])
+  /** Desfaz o vínculo: a atividade passa a ter configuração própria (cópia da atual). */
+  const desvincular = useCallback((id: string) => {
+    const raiz = raizRef.current.get(id)
+    if (!raiz) return
+    setSteps((prev) => ({ ...prev, [id]: { ...(prev[raiz] ?? passoVazio(id, 'userTask')), stepId: id } }))
+    setFluxo((f) => (f ? atualizarItem(f, id, { vinculoDe: undefined } as Partial<ItemAtividade>) : f))
   }, [])
 
   /* Inserir já abre o que precisa ser preenchido: a atividade nasce sem nome e a escolha
@@ -435,16 +503,25 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     setFluxo((f) => (f ? inserirItem(f, ref, indice, item) : f))
     setSelectedId(item.id)
     setConfigId(item.kind === 'atividade' ? item.id : null)
-    setEscolhaId(item.kind === 'escolha' ? item.id : null)
   }, [])
 
   /* Remover um bloco leva junto o que mora dentro dele. Os passos das atividades ficam no
      mapa (o desfazer os traz de volta inteiros); a gravação só leva os que existem. */
   const remover = useCallback((id: string) => {
-    setFluxo((f) => (f ? removerItem(f, id) : f))
+    setFluxo((f) => {
+      if (!f) return f
+      const { fluxo: g, promovidas } = religarVinculos(removerItem(f, id))
+      if (promovidas.length) {
+        setSteps((prev) => {
+          const out = { ...prev }
+          for (const p of promovidas) out[p.para] = { ...(prev[p.de] ?? passoVazio(p.para, 'userTask')), stepId: p.para }
+          return out
+        })
+      }
+      return g
+    })
     setSelectedId((cur) => (cur === id ? null : cur))
     setConfigId((cur) => (cur === id ? null : cur))
-    setEscolhaId((cur) => (cur === id ? null : cur))
   }, [])
 
   /* Registra um retrato quando a autoria para de mudar. A espera COALESCE o que é uma
@@ -468,7 +545,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     aplicandoHistorico.current = true
     setFluxo(r.fluxo); setSteps(r.steps); setLaneOrder(r.laneOrder)
     setHIndice(i)
-    setConfigId(null); setEscolhaId(null)
+    setConfigId(null)
   }, [historia])
 
   const podeDesfazer = hIndice > 0
@@ -493,6 +570,23 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     return () => window.removeEventListener('keydown', onKey)
   }, [desfazer, refazer])
 
+  /* ── Gravar ao sair (pedido do PO, 04/10/2026) ─────────────────────────────────
+     Quem sai do editor sem salvar não perde o trabalho: navegação dentro do sistema grava
+     na desmontagem; fechar a aba tenta gravar com `keepalive` (o navegador limita o corpo
+     — acima disso, aparece o "sair sem salvar?" padrão). Workflow ATIVO volta a rascunho
+     ao gravar mudança, e a barra avisa ANTES. A gravação que apagaria grande parte do
+     desenho (409) não é feita sozinha: ela existe para pedir confirmação. */
+  const assinatura = useMemo(
+    () => (fluxo ? JSON.stringify({ name, description, kind, quemInicia, fluxo: comNomes(fluxo, steps), steps, laneOrder }) : ''),
+    [name, description, kind, quemInicia, fluxo, steps, laneOrder],
+  )
+  const assinaturaRef = useRef(assinatura)
+  assinaturaRef.current = assinatura
+  /** o que está gravado no servidor (a assinatura da abertura, depois a da última gravação) */
+  const limpoRef = useRef<string>(assinatura)
+  const sujo = !somenteLeitura && assinatura !== limpoRef.current
+  const ativoNoServidor = initial?.status === 'ACTIVE'
+
   /* Gravação que apagaria grande parte do desenho: a API recusa com 409 e diz quanto
      seria removido. Só reenviamos com `confirmarReducao` depois que a pessoa confirmar. */
   const [reducao, setReducao] = useState<{ msg: string; acao: 'rascunho' | 'ativar' } | null>(null)
@@ -500,8 +594,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
      fechar o aviso, senão o dialog morreria junto da tela. */
   const [aviso, setAviso] = useState<{ msg: string; titulo?: string; aoFechar?: () => void } | null>(null)
 
-  const persist = useCallback(async (confirmarReducao?: boolean): Promise<string> => {
+  const persist = useCallback(async (confirmarReducao?: boolean, auto?: { keepalive?: boolean }): Promise<string> => {
     if (!fluxo) throw new Error('Workflow do editor antigo: aberto só para leitura.')
+    const assinaturaGravada = assinaturaRef.current
     const bpmnXml = generateBpmn(buildWfGraph(nodes, edges))
     const stepsVivos = nodes.filter((n) => isActivity(n.type) && n.step).map((n) => ({ ...n.step!, stepId: n.id, stepName: n.step!.stepName, stepType: n.type as 'userTask' | 'serviceTask' }))
     // grafo GERADO (a API valida e compila por ele; telas de leitura o desenham)
@@ -511,23 +606,55 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     }
     const formSchema: ProcessFormSchema = {
       steps: stepsVivos, graph,
-      blocos: comNomes(fluxo, steps),
+      blocos: comNomes(fluxo, stepsEfetivos),
       laneOrder: laneOrder.length ? laneOrder : undefined,
+      quemInicia,
     }
-    const body = JSON.stringify({ name: name.trim(), description: description.trim() || undefined, bpmnXml, formSchema, kind: kind || undefined, ...(confirmarReducao ? { confirmarReducao: true } : {}) })
+    /* gravação automática de um workflow novo sem nome: não perde o trabalho */
+    const nome = name.trim() || (auto ? 'Rascunho sem nome' : '')
+    const body = JSON.stringify({ name: nome, description: description.trim() || undefined, bpmnXml, formSchema, kind: kind || undefined, ...(confirmarReducao ? { confirmarReducao: true } : {}) })
+    const keepalive = !!auto?.keepalive
     if (editing) {
-      const res = await apiFetch(`/api/processes/${initial!.id}`, { method: 'PATCH', body })
+      const res = await apiFetch(`/api/processes/${initial!.id}`, { method: 'PATCH', body, keepalive })
       if (res.status === 409) {
         const e = await res.json().catch(() => null)
         throw new ReducaoDestrutiva(e?.message ?? 'Esta gravação removeria grande parte do workflow.')
       }
       if (!res.ok) throw new Error('Erro ao salvar')
+      limpoRef.current = assinaturaGravada
       return initial!.id
     }
-    const res = await apiFetch(`/api/processes`, { method: 'POST', body })
+    const res = await apiFetch(`/api/processes`, { method: 'POST', body, keepalive })
     if (!res.ok) throw new Error('Erro ao salvar')
+    limpoRef.current = assinaturaGravada
     return (await res.json()).id as string
-  }, [editing, initial, name, description, kind, fluxo, steps, nodes, edges, laneOrder])
+  }, [editing, initial, name, description, kind, quemInicia, fluxo, stepsEfetivos, nodes, edges, laneOrder])
+
+  const persistRef = useRef(persist)
+  persistRef.current = persist
+  /* "sujo" lido NA HORA (não o da última renderização): logo depois de um Salvar a tela pode
+     sair antes de se redesenhar — e gravaria de novo (num workflow novo, uma CÓPIA). */
+  const somenteLeituraRef = useRef(somenteLeitura)
+  const gravandoSozinho = useRef(false)
+  const gravarAoSair = useCallback((keepalive: boolean) => {
+    if (somenteLeituraRef.current || gravandoSozinho.current || assinaturaRef.current === limpoRef.current) return false
+    gravandoSozinho.current = true
+    void persistRef.current(undefined, { keepalive }).catch(() => { /* 409 destrutiva ou rede: fica o que estava */ })
+    return true
+  }, [])
+  useEffect(() => {
+    const LIMITE_KEEPALIVE = 60_000 // o navegador recusa keepalive acima de ~64 KB
+    const aoFechar = (e: BeforeUnloadEvent) => {
+      if (somenteLeituraRef.current || assinaturaRef.current === limpoRef.current) return
+      if (assinaturaRef.current.length * 2 > LIMITE_KEEPALIVE) { e.preventDefault(); e.returnValue = ''; return }
+      gravarAoSair(true) // fechando a aba: só o keepalive sobrevive à página
+    }
+    window.addEventListener('beforeunload', aoFechar)
+    return () => {
+      window.removeEventListener('beforeunload', aoFechar)
+      gravarAoSair(false) // saiu da tela por dentro do sistema (menu, outra aba): a página segue viva
+    }
+  }, [gravarAoSair])
 
   const handleSaveDraft = useCallback(async (confirmarReducao?: boolean) => {
     if (!name.trim()) { setAviso({ msg: 'Dê um nome ao workflow antes de salvar.' }); return }
@@ -575,13 +702,13 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         const meta = metaDaAtividade(n, resolvePapel, resolveEntidade).map((m) => m.text)
         return { ...base, name: n.step?.stepName || 'Sem nome', typeLabel: n.type === 'serviceTask' ? 'Ação automática' : 'Tarefa', meta }
       }
-      if (n.type === 'exclusiveGateway' || n.type === 'parallelGateway') return { ...base, name: n.name, isFork: !!n.name }
+      if (n.type === 'exclusiveGateway' || n.type === 'parallelGateway' || n.type === 'inclusiveGateway') return { ...base, name: n.name, isFork: !!n.name }
       return { ...base, name: n.name }
     })
     const eedges: ExportEdge[] = edges.filter((e) => layout.nodes[e.from] && layout.nodes[e.to]).map((e) => {
       const a = layout.nodes[e.from], b = layout.nodes[e.to]
       const from = nodeById[e.from]
-      const variant: ExportEdge['variant'] = from?.type === 'exclusiveGateway' ? 'exclusive' : from?.type === 'parallelGateway' ? 'parallel' : 'normal'
+      const variant: ExportEdge['variant'] = from?.type === 'exclusiveGateway' || from?.type === 'inclusiveGateway' ? 'exclusive' : from?.type === 'parallelGateway' ? 'parallel' : 'normal'
       // MESMA geometria da tela, senão o arquivo sai diferente do que se vê.
       const g = edgeGeometry(a, b, Object.entries(layout.nodes).filter(([id]) => id !== e.from && id !== e.to).map(([, p]) => p))
       return {
@@ -614,12 +741,12 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       if (e.key !== 'Delete' && e.key !== 'Backspace') return
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
-      if (!selectedId || !fluxo || configId || escolhaId) return
+      if (!selectedId || !fluxo || configId) return
       if (acharItem(fluxo, selectedId)) { e.preventDefault(); remover(selectedId) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [selectedId, fluxo, configId, escolhaId, remover])
+  }, [selectedId, fluxo, configId, remover])
 
   return (
     /* O editor é um cartão que ocupa a área toda, com cantos da mesma família das ilhas. */
@@ -660,6 +787,12 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
               <Redo2 className="h-4 w-4" />
             </button>
           </div>
+          {sujo && (
+            <span className={cn('mr-1 text-[11px]', ativoNoServidor ? 'font-medium text-amber-800 dark:text-amber-300' : 'text-muted-foreground')}
+              title={ativoNoServidor ? 'O workflow ativo sai do "Novo processo" até ser reativado. Processos em andamento não são afetados.' : undefined}>
+              {ativoNoServidor ? 'Alterações não salvas — ao sair, gravam e o workflow volta a rascunho' : 'Alterações não salvas — gravam sozinhas ao sair'}
+            </span>
+          )}
           {/* só faz sentido no que já foi salvo: workflow novo ainda não tem histórico */}
           {editing && <ProcessHistoryDrawer processId={initial!.id} />}
           <ExportMenu exporting={exporting} disabled={saving || activating} onExport={handleExport} />
@@ -709,11 +842,24 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
             description={description} onDescription={setDescription}
             kind={kind} onKind={setKind}
             kinds={WORKFLOW_KINDS}
+            extra={<QuemIniciaPill value={quemInicia} onChange={setQuemInicia} papeis={papeis.entries} kind={kind} />}
+            resumo={(() => {
+              const atv = nodes.filter((n) => isActivity(n.type)).length
+              const esc = fluxo ? listarEscolhas(fluxo).length : 0
+              const par = nodes.filter((n) => n.type === 'parallelGateway' && !n.id.endsWith(SUFIXO_REENCONTRO)).length
+              return [`${atv} ${atv === 1 ? 'atividade' : 'atividades'}`, ...(esc ? [`${esc} ${esc === 1 ? 'escolha' : 'escolhas'}`] : []), ...(par ? [`${par} ao mesmo tempo`] : [])].join(' · ')
+            })()}
             autoFocus={!editing}
           />
           {vista === 'blocos' && fluxo ? (
-            <BlocosTrilho fluxo={fluxo} steps={steps} selectedId={selectedId} simulacao={simulacao} metaDe={metaDe}
-              onAbrir={abrir} onInserir={inserir} onRemover={remover} onFluxo={mudarFluxo}
+            <BlocosTrilho fluxo={fluxo} steps={stepsEfetivos} selectedId={selectedId} simulacao={simulacao} metaDe={metaDe}
+              onAbrir={abrir} onInserir={inserir} onInserirVinculada={inserirVinculada} onRemover={remover} onFluxo={mudarFluxo}
+              screens={screens} onSimulacao={setSimulacao}
+              onConfigurarAtividade={(id) => {
+                /* conserto de "caminho sem campos": abre a atividade na seção Formulário e,
+                   ao fechar, volta a seleção para a escolha */
+                setRetornoEscolha(selectedId); setSelectedId(id); setConfigSecao('formulario'); setConfigId(id)
+              }}
               pendencias={pendencias} pendAberto={pendAberto} onTogglePend={() => setPendAberto((v) => !v)} onFocar={focarPendencia} />
           ) : (
             <FlowCanvas canvasRef={canvasRef} nodes={nodes} edges={edges} layout={layout} selectedId={selectedId} onSelect={abrir}
@@ -736,7 +882,6 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
               onRemove={fluxo ? () => remover(selected.id) : undefined} />
           ) : selectedBloco ? (
             <BlocoInspector key={selectedBloco.id} bloco={selectedBloco} nomeDe={nomeDe}
-              onConfigure={() => setEscolhaId(selectedBloco.id)}
               onRenomear={(nome) => mudarFluxo((f) => atualizarItem(f, selectedBloco.id, { nome }))}
               onRemove={() => remover(selectedBloco.id)} />
           ) : (
@@ -768,15 +913,6 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         </div>
       </div>
 
-      {escolhaId && fluxo && (
-        <EscolhaConfigModal key={escolhaId} fluxo={fluxo} blocoId={escolhaId} nodes={nodes} screens={screens}
-          onFluxo={mudarFluxo} onSimulacao={setSimulacao}
-          onRemove={() => remover(escolhaId)} onClose={() => setEscolhaId(null)}
-          onConfigurarAtividade={(id) => {
-            setRetornoEscolha(escolhaId); setEscolhaId(null)
-            setSelectedId(id); setConfigSecao('formulario'); setConfigId(id)
-          }} />
-      )}
       {/* Configuração da atividade: modal amplo (a coluna de 320px não comporta o
           formulário — ver o comentário em ActivityConfigModal). */}
       {configNode && configNode.step && fluxo && (
@@ -784,10 +920,16 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
           secaoInicial={configSecao}
           onPatchStep={(p) => patchStep(configNode.id, p)}
           onChangeType={(t) => changeNodeType(configNode.id, t)}
+          vinculo={(() => {
+            const raiz = raizDe.get(configNode.id) ?? configNode.id
+            const outros = (vinculos.get(raiz) ?? []).length
+            if (!outros) return undefined
+            return { lugares: outros + 1, ehCopia: raizDe.has(configNode.id), desvincular: () => desvincular(configNode.id) }
+          })()}
           onRemove={() => { remover(configNode.id); setRetornoEscolha(null); setConfigSecao(undefined) }}
           onClose={() => {
             setConfigId(null); setConfigSecao(undefined)
-            if (retornoEscolha) { setSelectedId(retornoEscolha); setEscolhaId(retornoEscolha); setRetornoEscolha(null) }
+            if (retornoEscolha) { setSelectedId(retornoEscolha); setRetornoEscolha(null) }
           }} />
       )}
     </div>
@@ -986,7 +1128,7 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, res
   }, [pendencias])
   const edgeColor = (e: EEdge) => {
     const f = nodeById[e.from]
-    if (f?.type === 'exclusiveGateway') return '#7c3aed'
+    if (f?.type === 'exclusiveGateway' || f?.type === 'inclusiveGateway') return '#7c3aed'
     if (f?.type === 'parallelGateway') return '#e11d68'
     return 'hsl(var(--muted-foreground) / 0.5)'
   }
@@ -1191,8 +1333,8 @@ function FlowNodeView({ node, selected, onClick, resolvePapel, resolveEntidade, 
       </div>
     )
   }
-  if (node.type === 'exclusiveGateway' || node.type === 'parallelGateway') {
-    const isExcl = node.type === 'exclusiveGateway'
+  if (node.type === 'exclusiveGateway' || node.type === 'parallelGateway' || node.type === 'inclusiveGateway') {
+    const isExcl = node.type !== 'parallelGateway'
     const tone = isExcl ? 'text-violet-600 dark:text-violet-400' : 'text-rose-600 dark:text-rose-400'
     const m = 9.5 // meio-braço do marcador interno
     return (
@@ -1271,7 +1413,11 @@ function metaDaAtividade(
     linhas.push({ kind: 'exec', text: papel ?? 'Sem executor' })
     const ex = step?.executor
     if (ex?.papelId) {
-      if (ex.mode === 'VARIAVEL' && ex.entityVar) {
+      if (ex.mode === 'VARIAVEL' && ex.stakeholder) {
+        linhas.push({ kind: 'entidade', text: ex.stakeholder === EXECUTOR_CONTRATO_DO_PROCESSO
+          ? 'do contrato do processo'
+          : `da ${resolvePapel(ex.stakeholder) ?? 'parte'} do contrato` })
+      } else if (ex.mode === 'VARIAVEL' && ex.entityVar) {
         linhas.push({ kind: 'entidade', text: `${entityKindLabel(ex.entityType)} da variável ${ex.entityVar}` })
       } else if (ex.entityId) {
         linhas.push({ kind: 'entidade', text: resolveEntidade(ex.entityType, ex.entityId) ?? `${entityKindLabel(ex.entityType)}…` })
@@ -1373,8 +1519,10 @@ function predecessorasDe(edges: EEdge[], alvo: string): Set<string> {
   return preds
 }
 
-function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep, onChangeType, onRemove, onClose, secaoInicial }: {
+function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep, onChangeType, onRemove, onClose, secaoInicial, vinculo }: {
   node: ENode; nodes: ENode[]; edges: EEdge[]; screens: Screens; papeis: Papeis
+  /** a mesma configuração vale em vários lugares do fluxo (atividade vinculada) */
+  vinculo?: { lugares: number; ehCopia: boolean; desvincular: () => void }
   onPatchStep: (patch: Partial<StepFormSchema>) => void; onChangeType: (t: 'userTask' | 'serviceTask') => void; onRemove: () => void
   onClose: () => void
   /** Seção em que o modal abre (ex.: 'formulario', vindo do aviso da escolha). */
@@ -1425,6 +1573,8 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
   const executor = step.executor
   const papelSel = executor?.papelId ? papeis.entries.find((p) => p.id === executor.papelId) : undefined
   const execOrigem = papelSel?.origem
+  /** executor "Quem iniciou o processo" (PO, 04/10/2026) */
+  const porIniciador = executor?.papelId === EXECUTOR_QUEM_INICIOU
   const pickPapel = (papelId: string) => {
     if (!papelId) return
     const p = papeis.entries.find((pp) => pp.id === papelId)
@@ -1548,7 +1698,7 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
      navegação lateral esconde a informação que a coluna única ao menos mostrava. */
   const resumo: Record<string, string> = {
     identificacao: step.stepName || 'sem nome',
-    executor: papelSel?.label ?? 'sem papel',
+    executor: executor?.papelId === EXECUTOR_QUEM_INICIOU ? 'Quem iniciou o processo' : papelSel?.label ?? 'sem papel',
     formulario: step.screenRef ? `${ENTITY_MODE_LABEL[step.entityMode ?? 'CREATE']} ${entityWord}${extras.length ? ` · ${extras.length + 1} telas` : ''}` : 'sem tela',
     prazo: dueText(step) ?? 'sem prazo',
     acao: findConnector(step.connector)?.label ?? 'nenhuma',
@@ -1587,6 +1737,18 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
           </div>
         </div>
 
+        {vinculo && (
+          <div className="flex shrink-0 items-center gap-2 border-b bg-primary/5 px-5 py-2 text-xs">
+            <Link2 className="h-3.5 w-3.5 shrink-0 text-primary" />
+            <span className="min-w-0 flex-1">
+              Configuração <span className="font-semibold">compartilhada em {vinculo.lugares} lugares</span> do fluxo — o que você mudar aqui vale para todos.
+            </span>
+            {vinculo.ehCopia && (
+              <button type="button" onClick={vinculo.desvincular}
+                className="shrink-0 rounded-md border bg-card px-2 py-1 text-[11.5px] font-semibold hover:bg-muted">Tornar independente</button>
+            )}
+          </div>
+        )}
         <div className="flex flex-1 min-h-0">
           {/* Navegação de seções */}
           <nav className="w-48 shrink-0 border-r bg-muted/10 p-2 space-y-0.5 overflow-y-auto rolagem-visivel">
@@ -1625,6 +1787,29 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
 
             {sec === 'executor' && type === 'userTask' && (
               <GSection title="Quem executa" description="O papel resolve as pessoas na hora da execução — a tarefa cai na caixa de quem ocupa o papel na entidade escolhida.">
+                <GField label="Quem recebe a tarefa" wide>
+                  <div role="radiogroup" className="flex gap-1 text-xs max-w-md">
+                    {([['papel', 'Por papel'], ['iniciador', 'Quem iniciou o processo']] as const).map(([m, t]) => {
+                      const on = m === 'iniciador' ? porIniciador : !porIniciador
+                      return (
+                        <button key={m} type="button" role="radio" aria-checked={on}
+                          onClick={() => m === 'iniciador'
+                            ? onPatchStep({ executor: { papelId: EXECUTOR_QUEM_INICIOU, entityType: 'ORG', mode: 'FIXA' } })
+                            : porIniciador && onPatchStep({ executor: undefined })}
+                          className={cn('flex-1 rounded-md px-2 py-1.5 border transition-colors', on ? 'bg-primary text-primary-foreground border-primary font-semibold' : 'hover:bg-muted text-muted-foreground')}>
+                          {t}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </GField>
+                {porIniciador ? (
+                  <p className="col-span-full max-w-xl text-xs leading-relaxed text-muted-foreground">
+                    A tarefa vai para a pessoa que clicou em “+ Novo processo”. Na primeira atividade, ela abre na hora,
+                    como aba; mais adiante, cai na caixa de tarefas dela (ex.: “o solicitante toma ciência da aprovação”).
+                    Se essa pessoa estiver inativa quando a tarefa nascer, ela vai para os administradores, com aviso.
+                  </p>
+                ) : (<>
                 <GField label="Executor (papel)" required hint={papeisPessoa.length === 0 ? 'Nenhum papel de pessoa cadastrado. Crie em Configurações → Papéis (referência “Pessoa”).' : undefined}>
                   <Select value={executor?.papelId ?? ''} onValueChange={pickPapel}>
                     <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Selecione o executor" /></SelectTrigger>
@@ -1645,18 +1830,22 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
                         ))}
                       </div>
                     </GField>
-                    <GField label={executor.mode === 'FIXA' ? entityKindLabel(execOrigem) : 'Variável com o id'}>
+                    <GField wide label={executor.mode === 'FIXA' ? entityKindLabel(execOrigem) : execOrigem === ORIGEM.PARCEIRO ? 'Variável com o id' : 'A que estiver no contrato do processo como…'}>
                       {executor.mode === 'FIXA' ? (
-                        <EntitySelect entityType={execOrigem as EntityKind} value={executor.entityId} onChange={(id) => setExec({ entityId: id, entityVar: undefined })} placeholder={`Selecionar ${entityKindLabel(execOrigem)}…`} />
+                        <EntitySelect entityType={execOrigem as EntityKind} value={executor.entityId} onChange={(id) => setExec({ entityId: id, entityVar: undefined, stakeholder: undefined })} placeholder={`Selecionar ${entityKindLabel(execOrigem)}…`} />
                       ) : (
-                        <Select value={executor.entityVar || 'none'} onValueChange={(v) => setExec({ entityVar: v === 'none' ? undefined : v, entityId: undefined })}>
-                          <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Variável com o id…" /></SelectTrigger>
-                          <SelectContent><SelectItem value="none">— escolha a variável —</SelectItem>{availableVars.map((v) => <SelectItem key={v.name} value={v.name} className="text-xs">{v.label}</SelectItem>)}</SelectContent>
-                        </Select>
+                        <ExecutorDaVariavel
+                          executor={executor}
+                          papelLabel={papelSel?.label ?? 'o papel'}
+                          papeis={papeis.entries}
+                          variaveisTecnicas={availableVars}
+                          onChange={setExec}
+                        />
                       )}
                     </GField>
                   </>
                 )}
+                </>)}
               </GSection>
             )}
 
@@ -1941,7 +2130,9 @@ function ActivitySummaryPanel({ node, papeis, onConfigure, onRemove }: {
   const type = node.type as 'userTask' | 'serviceTask'
   const meta = type === 'serviceTask' ? { label: 'Ação automática', tone: STEP_TONE.serviceTask, Icon: Zap } : { label: 'Tarefa do usuário', tone: STEP_TONE.userTask, Icon: UserSquare }
   const entityWord = SUBJECT_ENTITY[step.screenSubject ?? ''] ?? 'entidade'
-  const papel = step.executor?.papelId ? papeis.entries.find((p) => p.id === step.executor!.papelId)?.label : undefined
+  const papel = step.executor?.papelId === EXECUTOR_QUEM_INICIOU
+    ? 'Quem iniciou o processo'
+    : step.executor?.papelId ? papeis.entries.find((p) => p.id === step.executor!.papelId)?.label : undefined
 
   const linhas: Array<{ label: string; valor: string }> = type === 'userTask'
     ? [
