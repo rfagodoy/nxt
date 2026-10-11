@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSession } from '@/lib/session-context'
 import {
-  FileText, Users, Loader2, Plus, ListChecks,
+  FileText, Users, Loader2, Plus, ListChecks, CalendarClock, PieChart as PieIcon, AlertTriangle,
 } from 'lucide-react'
 import { ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { cn } from '@/lib/utils'
@@ -39,6 +39,21 @@ interface Summary {
   }
   activity:  { id: string; kind: 'partner' | 'contract'; title: string; detail: string; user: string | null; at: string }[]
   attentionCount: number
+  /** opção C (PO, 11/10/2026): vencimentos por mês e concentração por parceiro */
+  carteira?: {
+    vencimentos: {
+      meses: { mes: string; qtd: number; valor: number }[]
+      prox90: { qtd: number; valor: number }
+      vencidos: { qtd: number; valor: number }
+    }
+    concentracao: {
+      total: number
+      parceiros: { id: string; nome: string; valor: number; pct: number }[]
+      outros: { qtd: number; valor: number; pct: number }
+      top3Pct: number
+      semParceiro: number
+    }
+  }
 }
 
 /* ─────────────────────────── helpers ─────────────────────────────────────── */
@@ -171,7 +186,7 @@ export default function DashboardPage() {
     /* Duas faixas finas — saudação e estado da caixa de trabalho — e os gráficos
        recebendo TODA a altura restante. O Dashboard é o painel de gestão: os gráficos
        são o conteúdo, não um rodapé. Abaixo de lg o layout volta a fluir. */
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:h-full lg:min-h-[520px] lg:[grid-template-rows:auto_auto_minmax(0,1fr)]">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:h-full lg:min-h-[760px] lg:[grid-template-rows:auto_auto_minmax(0,1fr)_minmax(0,1fr)]">
 
       {/* ── Hero ──
           Faixa fina de largura total. Ele entrega saudação e três atalhos; ocupar
@@ -285,6 +300,14 @@ export default function DashboardPage() {
               { nome: 'sem conclusão', valor: data?.instances.semConclusao ?? 0 },
             ]}
           />
+        </div>
+
+        {/* ── Vencimentos e concentração (opção C dos mockups, PO 11/10/2026) ──
+            O NÚMERO vem primeiro — é ele que responde a pergunta; o gráfico pequeno só
+            mostra a forma. Dois cartões de mesmo peso, metade da largura cada. */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:col-span-2 lg:col-span-4 lg:min-h-0">
+          <CartaoVencimentos dados={data?.carteira?.vencimentos} onClick={() => router.push('/modules/contratos')} />
+          <CartaoConcentracao dados={data?.carteira?.concentracao} onClick={() => router.push('/modules/parceiros')} />
         </div>
 
     </div>
@@ -496,6 +519,126 @@ function MedidorSaude({ icon, label, emDia, atrasados, rodape, onClick }: {
             </p>
           )}
         </div>
+      )}
+    </Tile>
+  )
+}
+
+/* ─────────────────────────── vencimentos e concentração ───────────────────── */
+
+const BRL_CURTO = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', notation: 'compact', maximumFractionDigits: 1 })
+const MES_CURTO = (ym: string) => {
+  const [a, m] = ym.split('-').map(Number)
+  const nome = new Date(a, m - 1, 1).toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')
+  return m === 1 ? `${nome} ${String(a).slice(2)}` : nome
+}
+/* Uma cor só (Esmeralda), validada no claro e no escuro (validador dataviz: o primário
+   do tema escuro, mais claro, sai da faixa — por isso o tom fixo). Os 3 primeiros meses
+   (≈ 90 dias) vão mais fortes e o texto diz isso: a cor nunca carrega sozinha. */
+const BARRA_FORTE = 'bg-[#159d62] dark:bg-[#1fa565]'
+const BARRA_FRACA = 'bg-[#159d62]/40 dark:bg-[#1fa565]/45'
+
+function CabecalhoCartao({ icon, label }: { icon: React.ReactNode; label: string }) {
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">{icon}</span>
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+    </div>
+  )
+}
+
+/** Vencimentos: quanto vence nos próximos 90 dias (o número), a forma dos 12 meses
+ *  (barras por VALOR) e os já vencidos à parte, com ícone + texto. */
+function CartaoVencimentos({ dados, onClick }: { dados?: NonNullable<Summary['carteira']>['vencimentos']; onClick: () => void }) {
+  const meses = dados?.meses ?? []
+  const maior = Math.max(1, ...meses.map((m) => m.valor))
+  const vazio = !dados || (meses.every((m) => m.qtd === 0) && dados.vencidos.qtd === 0)
+  return (
+    <Tile onClick={onClick} highlight className="flex flex-col gap-2 lg:min-h-0">
+      <CabecalhoCartao icon={<CalendarClock className="h-4 w-4" />} label="Vencimentos" />
+      {vazio || !dados ? (
+        <p className="flex flex-1 items-center justify-center text-[11px] text-muted-foreground">Nenhum contrato vigente vence nos próximos 12 meses.</p>
+      ) : (<>
+        <div className="shrink-0">
+          <p className="text-2xl font-bold leading-none tabular-nums">{BRL_CURTO.format(dados.prox90.valor)}</p>
+          <p className="mt-1 text-[11.5px] text-muted-foreground">
+            vencem nos próximos 90 dias (barras em destaque) · <span className="font-semibold text-foreground">{dados.prox90.qtd} contrato{dados.prox90.qtd === 1 ? '' : 's'}</span>
+          </p>
+        </div>
+        <div className="flex min-h-[64px] flex-1 flex-col">
+          <div className="flex flex-1 items-end gap-1 border-b border-foreground/15" role="img"
+            aria-label={`Valor que vence por mês: ${meses.map((m) => `${MES_CURTO(m.mes)} ${BRL_CURTO.format(m.valor)}`).join(', ')}`}>
+            {meses.map((m, i) => (
+              <div key={m.mes} className="flex h-full flex-1 items-end" title={`${MES_CURTO(m.mes)}: ${m.qtd} contrato${m.qtd === 1 ? '' : 's'} · ${BRL_CURTO.format(m.valor)}`}>
+                <div className={cn('w-full rounded-t-[3px]', i < 3 ? BARRA_FORTE : BARRA_FRACA)}
+                  style={{ height: m.valor > 0 ? `${Math.max(4, (m.valor / maior) * 100)}%` : '0' }} />
+              </div>
+            ))}
+          </div>
+          <div className="mt-1 flex gap-1">
+            {meses.map((m) => <span key={m.mes} className="flex-1 truncate text-center text-[9.5px] text-muted-foreground">{MES_CURTO(m.mes)}</span>)}
+          </div>
+        </div>
+        {dados.vencidos.qtd > 0 && (
+          <p className="flex shrink-0 items-center gap-1.5 text-[11.5px] text-[hsl(25_90%_27%)] dark:text-orange-300">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            <span><span className="font-semibold">{dados.vencidos.qtd} já vencido{dados.vencidos.qtd === 1 ? '' : 's'}</span> sem renovação · {BRL_CURTO.format(dados.vencidos.valor)}</span>
+          </p>
+        )}
+      </>)}
+    </Tile>
+  )
+}
+
+/** Concentração: quanto da carteira está nos maiores parceiros (o número), a barra de
+ *  100% em três grupos (o "outros" com TEXTURA, não só cor) e os três maiores nomeados. */
+function CartaoConcentracao({ dados, onClick }: { dados?: NonNullable<Summary['carteira']>['concentracao']; onClick: () => void }) {
+  if (!dados || dados.total === 0) return (
+    <Tile onClick={onClick} highlight className="flex flex-col gap-2 lg:min-h-0">
+      <CabecalhoCartao icon={<PieIcon className="h-4 w-4" />} label="Concentração por parceiro" />
+      <p className="flex flex-1 items-center justify-center text-center text-[11px] text-muted-foreground">Nenhum contrato em mãos tem parceiro como contraparte.</p>
+    </Tile>
+  )
+  const n = Math.min(3, dados.parceiros.length)
+  const grupoMeio = dados.parceiros.slice(3).reduce((s, p) => s + p.pct, 0)
+  const pctFmt = (v: number) => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`
+  const quem = n === 1 ? 'no maior parceiro' : `nos ${n} maiores parceiros`
+  const valorTop = dados.parceiros.slice(0, 3).reduce((s, p) => s + p.valor, 0)
+  const grupos = [
+    { chave: 'top', pct: dados.top3Pct, rotulo: n === 1 ? 'maior' : `${n} maiores`, cls: 'bg-[#0f7a4c] dark:bg-[#1fa565]' },
+    { chave: 'meio', pct: grupoMeio, rotulo: '4º–5º', cls: BARRA_FRACA },
+    { chave: 'outros', pct: dados.outros.pct, rotulo: `outros ${dados.outros.qtd}`, cls: 'bg-[repeating-linear-gradient(135deg,hsl(var(--foreground)/0.22)_0_3px,hsl(var(--foreground)/0.07)_3px_7px)]' },
+  ].filter((g) => g.pct > 0)
+  return (
+    <Tile onClick={onClick} highlight className="flex flex-col gap-2 lg:min-h-0">
+      <CabecalhoCartao icon={<PieIcon className="h-4 w-4" />} label="Concentração por parceiro" />
+      <div className="shrink-0">
+        <p className="text-2xl font-bold leading-none tabular-nums">{pctFmt(dados.top3Pct)}</p>
+        <p className="mt-1 text-[11.5px] text-muted-foreground">
+          da carteira está <span className="font-semibold text-foreground">{quem}</span> · {BRL_CURTO.format(valorTop)} de {BRL_CURTO.format(dados.total)}
+        </p>
+      </div>
+      <div className="shrink-0">
+        <div className="flex h-4 gap-0.5 overflow-hidden rounded" role="img"
+          aria-label={`Participação na carteira: ${grupos.map((g) => `${g.rotulo} ${pctFmt(g.pct)}`).join(', ')}`}>
+          {grupos.map((g) => <div key={g.chave} className={g.cls} style={{ width: `${g.pct}%` }} />)}
+        </div>
+        <div className="mt-1 flex gap-0.5 text-[10px] text-muted-foreground">
+          {grupos.map((g) => <span key={g.chave} className="truncate" style={{ width: `${g.pct}%`, minWidth: '3.5rem' }}><span className="font-semibold text-foreground">{g.rotulo}</span></span>)}
+        </div>
+      </div>
+      <ol className="flex min-h-0 flex-1 flex-col gap-0.5 text-[11.5px]">
+        {dados.parceiros.slice(0, 3).map((p, i) => (
+          <li key={p.id} className="flex items-baseline gap-2">
+            <span className="min-w-0 flex-1 truncate" title={p.nome}><span className="text-muted-foreground">{i + 1} ·</span> {p.nome}</span>
+            <span className="shrink-0 tabular-nums"><span className="font-semibold">{pctFmt(p.pct)}</span> · {BRL_CURTO.format(p.valor)}</span>
+          </li>
+        ))}
+      </ol>
+      {dados.semParceiro > 0 && (
+        <p className="shrink-0 text-[10.5px] text-muted-foreground">
+          {dados.semParceiro} contrato{dados.semParceiro === 1 ? '' : 's'} sem parceiro externo {dados.semParceiro === 1 ? 'fica' : 'ficam'} fora desta conta.
+        </p>
       )}
     </Tile>
   )
