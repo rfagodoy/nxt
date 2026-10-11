@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
-import { effectiveSituacao, terminoVigente, todayISO, valorVigente, type CoreContract } from '@nxt/contracts-core'
+import { contractFromApi, effectiveSituacao, partesVigentes, terminoVigente, todayISO, valorVigente, type CoreContract } from '@nxt/contracts-core'
+import { concentracaoPorParceiro, vencimentosPorMes } from './dashboard-carteira'
 import { PrismaService } from '../prisma.service'
 import { InstancesService } from '../instances/instances.service'
 
@@ -72,6 +73,8 @@ export class DashboardService {
           /* `valorVigente` soma os deltas dos reajustes e o valorPeriodo das renovações —
              sem estes campos o dashboard mostrava o valor ORIGINAL do contrato. */
           aditivos: true, renovacoes: true, reajustesRealizados: true,
+          /* partes: a contraparte EXTERNA da concentração por parceiro */
+          partes: true,
         },
       }),
       this.prisma.partner.findMany({
@@ -143,6 +146,19 @@ export class DashboardService {
     }
     const contractSeries = buildSeries(carteira.map(({ c }) => c.createdAt))
 
+    /* ── Vencimentos por mês e concentração por parceiro (opção C, PO 11/10/2026) ──
+       Contraparte = 1ª parte VIGENTE que é parceiro (cessões por aditivo aplicadas). */
+    const itensCarteira = carteira.map(({ c, d }) => {
+      const externa = partesVigentes(contractFromApi(c as unknown as Record<string, unknown>)).find((p) => p.ref_tipo === 'PARCEIRO' && p.ref_id)
+      return {
+        situacao: d.situacao, termino: c.prazoIndeterminado ? '' : (d.termino ?? ''), valor: d.valor,
+        contraparte: externa ? { id: externa.ref_id, nome: externa.nome } : null,
+        id: c.id, numero: c.numero, titulo: c.titulo,
+      }
+    })
+    const vencimentos = vencimentosPorMes(itensCarteira, todayStr)
+    const concentracao = concentracaoPorParceiro(itensCarteira)
+
     const expiring = carteira
       .filter(({ c, d }) => d.termino && !c.prazoIndeterminado && d.situacao === 'VIGENTE')
       .map(({ c, d }) => {
@@ -203,6 +219,7 @@ export class DashboardService {
         deltaPct:     contractSeries.deltaPct,
         expiring,
       },
+      carteira: { vencimentos, concentracao },
       partners: {
         total:    partners.length,
         byStatus: partnersByStatus,
