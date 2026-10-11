@@ -4,7 +4,7 @@ import { CreateProcessDto } from './dto/create-process.dto'
 import { UpdateProcessDto } from './dto/update-process.dto'
 import { ProcessFormSchema, isCompensable, findConnector, nasceDeContrato, EXECUTOR_QUEM_INICIOU } from '@nxt/types'
 import {
-  compileBpmn, CompileError, type WfGraph, validarDesenho, validarDecisoes, validarAtividades, validarTelasDasAtividades, validarExecutores, validarQuemInicia, formatarProblemas, bloqueantes,
+  compileBpmn, CompileError, type WfGraph, validarDesenho, validarDecisoes, validarAtividades, validarTelasDasAtividades, validarExecutores, validarExecutoresFixos, validarQuemInicia, formatarProblemas, bloqueantes,
   type ProblemaAtivacao, resumoDeInicio, type EtapaPrevia,
   lerFluxoBlocos, blocosParaGrafo, grafoParaBlocos, grafoParaMotor, generateBpmn, pendenciasDosBlocos, SUFIXO_REENCONTRO,
 } from '@nxt/workflow-core'
@@ -288,6 +288,26 @@ export class ProcessesService {
     return null
   }
 
+  /** Quantas pessoas ATIVAS ocupam hoje o papel de cada executor fixo (e onde) — para a
+   *  ativação recusar papel vago. Usuário desativado não conta: tarefa para ele ninguém faz. */
+  private async ocupacaoDosExecutores(
+    organizationId: string,
+    steps: Array<{ stepId?: string; executor?: { papelId?: string; entityType?: string; mode?: string; entityId?: string } | null }>,
+  ): Promise<Map<string, { pessoas: number; onde: string }>> {
+    const ocupacao = new Map<string, { pessoas: number; onde: string }>()
+    for (const s of steps) {
+      const ex = s.executor
+      if (!s.stepId || !ex?.papelId || ex.papelId.startsWith('@') || ex.mode === 'VARIAVEL') continue
+      const org = ex.entityType === 'ORG'
+      if (!org && !ex.entityId) continue
+      const ids = await this.roleAssignments.resolveUsers(organizationId, ex.papelId, ex.entityType ?? 'ORG', org ? undefined : ex.entityId)
+      const pessoas = ids.length ? await this.prisma.user.count({ where: { organizationId, id: { in: ids }, status: 'ATIVO' } }) : 0
+      const onde = org ? 'toda a organização' : (await this.nomeDaEntidade(ex.entityType ?? '', ex.entityId, organizationId)) ?? 'a entidade escolhida'
+      ocupacao.set(s.stepId, { pessoas, onde })
+    }
+    return ocupacao
+  }
+
   /** Nome da tela que a pessoa preenche na atividade (o id sozinho não diz nada). */
   private async nomeDaTela(formRef: string | undefined, organizationId: string): Promise<string | null> {
     if (!formRef) return null
@@ -391,6 +411,14 @@ export class ProcessesService {
         })),
         await this.roleAssignments.catalogoDePapeis(organizationId),
         nasceDeContrato(process.kind) ? ['contratoId'] : [],
+      ))
+      /* Executor FIXO precisa de alguém ATIVO no papel (PO, 11/10/2026) — senão a tarefa
+         nascia aberta a qualquer usuário. */
+      const stepsHumanos = (formSchema.steps ?? []).filter((st) => nosDoEditor.find((n) => n.id === st.stepId)?.type === 'userTask')
+      problemas.push(...validarExecutoresFixos(
+        stepsHumanos,
+        await this.roleAssignments.catalogoDePapeis(organizationId),
+        await this.ocupacaoDosExecutores(organizationId, stepsHumanos),
       ))
       /* Quem pode iniciar (PO, 04/10/2026) — e o aviso de 1ª atividade "Quem iniciou" com
          qualquer usuário podendo iniciar. A 1ª atividade = o que sai direto do início. */

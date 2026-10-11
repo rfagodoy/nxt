@@ -54,7 +54,10 @@ export function TaskDocView({ task, onDone, onNotice }: {
         if (cancel) return
         const fs = ctx?.instance?.processDefinition?.formSchema
         const found = fs?.steps?.find((s) => s.stepId === task.nodeId)
-        const vars = ctx?.state?.variables ?? {}
+        /* O que ESTA tarefa já gravou (contrato salvo e ainda não concluído) vale por
+           cima das variáveis: sem isso, reabrir a aba mostrava o formulário vazio. */
+        const salvo = ctx?.pendingTasks?.find((t) => t.id === task.id)?.data ?? {}
+        const vars = { ...(ctx?.state?.variables ?? {}), ...salvo }
         setTimeline(ctx?.instance?.tasks ?? [])
         setStep(found ?? { stepId: task.nodeId, stepName: task.name || task.nodeId, fields: [] })
         /* Recupera o id da entidade-alvo da variável do processo → "Avançar" liberado
@@ -68,7 +71,7 @@ export function TaskDocView({ task, onDone, onNotice }: {
       }
     })()
     return () => { cancel = true }
-  }, [task.instanceId, task.nodeId, task.name])
+  }, [task.id, task.instanceId, task.nodeId, task.name])
 
   // alvos de devolução (decide se o "Retroceder" aparece — item 4)
   useEffect(() => {
@@ -110,6 +113,14 @@ export function TaskDocView({ task, onDone, onNotice }: {
   // "Avançar" para tarefa dirigida por Tela: leva o id da entidade. Exige a entidade
   // salva (decisão do PO) — sem id, o processo seguiria sem referência à entidade.
   const advanceScreen = () => { if (entityId) void complete({ [idVar]: entityId }) }
+
+  /* A Tela gravou o registro: o vínculo vai para a tarefa no servidor na hora, para
+     sobreviver a fechar a aba ou a uma conclusão recusada. Falha aqui não trava a
+     pessoa — o id segue na memória e o "Concluir" o leva de qualquer jeito. */
+  const vincularEntidade = (id: string) => {
+    setEntityId(id)
+    void apiFetch(`/api/instances/tasks/${task.id}/entity`, { method: 'PATCH', body: JSON.stringify({ entityId: id }) }).catch(() => null)
+  }
 
   const km = kindMeta(task.instance?.processDefinition?.kind)
   const hasReturn = (returnTargets?.length ?? 0) > 0
@@ -175,7 +186,7 @@ export function TaskDocView({ task, onDone, onNotice }: {
                 rodapé. Ficou uma só, ao lado do botão que ele desliga: é ali que a
                 pessoa descobre que não dá para concluir, e ali que precisa do motivo. */}
             {isScreen ? (
-              <WorkflowScreenTask key={task.id} taskId={task.id} step={step} entityId={entityId} onEntity={setEntityId} onEntityGone={() => setEntityId(null)} onCancel={onDone} />
+              <WorkflowScreenTask key={task.id} taskId={task.id} step={step} entityId={entityId} onEntity={vincularEntidade}onEntityGone={() => setEntityId(null)} onCancel={onDone} />
             ) : (
               // o botão "Avançar" (topo) submete este form via `form=FORM_ID`
               <DynamicForm key={task.id} step={step} stepIndex={0} totalSteps={1} submitting={submitting} onSubmit={complete} formId={FORM_ID} hideActions />

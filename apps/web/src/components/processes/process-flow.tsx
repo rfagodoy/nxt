@@ -12,7 +12,7 @@ import {
 import { createPortal } from 'react-dom'
 import {
   generateBpmn, compileBpmn, validarDesenho, validarDecisoes, validarAtividades, validarTelasDasAtividades,
-  bloqueantes, avisos as avisosDe, blocosParaGrafo, grafoParaBlocos, novoFluxo, pendenciasDosBlocos, validarOrigemDoRegistro, validarExecutores, validarQuemInicia, listarEscolhas,
+  bloqueantes, avisos as avisosDe, blocosParaGrafo, grafoParaBlocos, novoFluxo, pendenciasDosBlocos, validarOrigemDoRegistro, validarExecutores, validarExecutoresFixos, validarQuemInicia, listarEscolhas,
   acharItem, inserirItem, removerItem, atualizarItem, SUFIXO_REENCONTRO,
   type ProblemaAtivacao, type WfGraph, type WfNode, type WfEdge, type FluxoBlocos,
   gruposDeVinculo, religarVinculos, listarAtividades as listarAtivs, type ItemAtividade,
@@ -376,6 +376,12 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         })),
         papeis.entries.map((p) => ({ id: p.id, label: p.label, origem: p.origem, referencia: referenciaDoPapelEntry(p) })),
         iniciais),
+      /* Papel de unidade sem a unidade — a mesma regra da API. Papel VAGO só a API sabe
+         (precisa de quem ocupa o papel hoje): aparece na recusa do "Ativar". */
+      ...validarExecutoresFixos(
+        nodes.filter((n) => n.type === 'userTask').map((n) => ({ stepId: n.id, stepName: n.step?.stepName, executor: n.step?.executor })),
+        papeis.entries.map((p) => ({ id: p.id, label: p.label, origem: p.origem, referencia: referenciaDoPapelEntry(p) })),
+        new Map()),
       /* Quem pode iniciar + aviso de 1ª atividade "Quem iniciou" com início aberto — a mesma regra da API. */
       ...validarQuemInicia(quemInicia,
         papeis.entries.map((p) => ({ id: p.id, label: p.label, origem: p.origem, referencia: referenciaDoPapelEntry(p) })),

@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger'
 import { InstancesService } from './instances.service'
 import { StartInstanceDto } from './dto/start-instance.dto'
 import { CompleteTaskDto } from './dto/complete-task.dto'
+import { LinkTaskEntityDto } from './dto/link-task-entity.dto'
 import { ReturnTaskDto } from './dto/return-task.dto'
 import { AssignTaskDto } from './dto/assign-task.dto'
 import { CancelInstanceDto } from './dto/cancel-instance.dto'
@@ -78,6 +79,20 @@ export class InstancesController {
     @CurrentUser() actor: CurrentUserData,
   ) {
     return this.instancesService.completeTask(taskId, dto, organizationId, actor)
+  }
+
+  /* A Tela gravou a entidade: o vínculo fica na TAREFA desde já, não só na memória da aba.
+     Sem isto, fechar a aba antes de concluir (ou ter a conclusão recusada) e reabrir
+     mostrava o formulário vazio — e o segundo "Salvar" criava um contrato duplicado. */
+  @Patch('tasks/:taskId/entity')
+  @ApiOperation({ summary: 'Vincula à tarefa a entidade gravada pela Tela (antes de concluir)' })
+  linkTaskEntity(
+    @Param('taskId') taskId: string,
+    @Body() dto: LinkTaskEntityDto,
+    @CurrentOrg() organizationId: string,
+    @CurrentUser() actor: CurrentUserData,
+  ) {
+    return this.instancesService.linkTaskEntity(taskId, dto.entityId, organizationId, actor)
   }
 
   // Rotas de DEVOLUÇÃO — ficam sob `tasks/`, antes da param `:id`, para não colidir.

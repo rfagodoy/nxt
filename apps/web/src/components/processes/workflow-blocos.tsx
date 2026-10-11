@@ -712,7 +712,7 @@ function BlocoEscolhaView({ bloco }: { bloco: BlocoEscolha }) {
         <span {...alca} className="cursor-grab text-muted-foreground/70 hover:text-foreground"><GripVertical className="h-3.5 w-3.5" /></span>
         <GatewayGlyph kind="exclusive" className="h-4 w-4 shrink-0 text-violet-600 dark:text-violet-400" />
         <div className="min-w-0">
-          <span className="block text-[9.5px] font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300">Escolher um caminho</span>
+          <span className="block text-[9.5px] font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300">{todos ? 'Escolher caminhos' : 'Escolher um caminho'}</span>
           <input value={bloco.pergunta ?? ''} placeholder="Qual é a pergunta?" aria-label="Pergunta da escolha"
             onClick={(e) => e.stopPropagation()}
             onChange={(e) => { const pergunta = e.target.value; t.onFluxo((f) => atualizarItem(f, bloco.id, { pergunta })) }}
@@ -721,7 +721,7 @@ function BlocoEscolhaView({ bloco }: { bloco: BlocoEscolha }) {
         <div className="flex items-center gap-1.5 pl-2 text-[11px] text-muted-foreground" onClick={(e) => e.stopPropagation()}>
           <span>Se mais de um servir:</span>
           <Select value={todos ? 'todos' : 'primeiro'} onValueChange={(v) => t.onFluxo((f) => atualizarItem(f, bloco.id, { modo: v as ModoEscolha }))}>
-            <SelectTrigger className="h-6 w-[150px] text-[11px]" aria-label="Quando mais de um filtro servir"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-6 w-[175px] whitespace-nowrap text-[11px]" aria-label="Quando mais de um filtro servir"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="todos" className="text-xs">todos, ao mesmo tempo</SelectItem>
               <SelectItem value="primeiro" className="text-xs">só o primeiro (de cima)</SelectItem>
@@ -885,7 +885,7 @@ export function BlocoInspector({ bloco, nomeDe, onRenomear, onRemove }: {
       <div className="flex shrink-0 items-center justify-between border-b px-4 py-3">
         <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold',
           escolha ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400')}>
-          <GatewayGlyph kind={escolha ? 'exclusive' : 'parallel'} className="h-3 w-3" />{escolha ? 'Escolher um caminho' : 'Fazer ao mesmo tempo'}
+          <GatewayGlyph kind={escolha ? 'exclusive' : 'parallel'} className="h-3 w-3" />{escolha ? (bloco.kind === 'escolha' && modoDaEscolha(bloco) === 'todos' ? 'Escolher caminhos' : 'Escolher um caminho') : 'Fazer ao mesmo tempo'}
         </span>
         <button onClick={onRemove} title="Remover o bloco" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
           <Trash2 className="h-3.5 w-3.5" />
@@ -1000,7 +1000,7 @@ function BlocoResumo({ bloco }: { bloco: BlocoEscolha | BlocoParalelo }) {
       <span className="flex items-center gap-1.5">
         <GatewayGlyph kind={escolha ? 'exclusive' : 'parallel'} className={cn('h-3.5 w-3.5 shrink-0', escolha ? 'text-violet-600 dark:text-violet-400' : 'text-rose-600 dark:text-rose-400')} />
         <span className={cn('text-[9.5px] font-bold uppercase tracking-wider', escolha ? 'text-violet-700 dark:text-violet-300' : 'text-rose-700 dark:text-rose-300')}>
-          {escolha ? 'Escolher um caminho' : 'Ao mesmo tempo'}
+          {escolha ? (bloco.kind === 'escolha' && modoDaEscolha(bloco) === 'todos' ? 'Escolher caminhos' : 'Escolher um caminho') : 'Ao mesmo tempo'}
         </span>
         <ChevronDown className={cn('ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', !aberto && '-rotate-90')} aria-hidden />
       </span>
