@@ -21,7 +21,26 @@ let caiu = false
 /** Evento local que a área de trabalho dispara ao salvar um documento. */
 export const EVENTO_ATUALIZAR = 'nxt:workspace:refresh'
 
+/* Aba ESCONDIDA solta a conexão (11/10/2026). Em HTTP/1.1 o navegador só abre 6
+   conexões por servidor, somando TODAS as abas — e cada aba segurava uma SSE para
+   sempre. Com 6 abas do Nxt abertas, nenhuma requisição saía mais: navegação, login e
+   cliques ficavam na fila (parecia aba congelada). Em produção com HTTPS o Nginx fala
+   HTTP/2 e não sofre disso; acesso por HTTP simples (dev, IP interno) sofria. Ao voltar
+   a ficar visível, reconecta — e `useAoVivo` já recarrega nesse momento. */
+let soltaAoEsconder = false
+function vigiarVisibilidade() {
+  if (soltaAoEsconder || typeof document === 'undefined') return
+  soltaAoEsconder = true
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      if (fonte) { fonte.close(); fonte = null; caiu = false }
+    } else if (ouvintes.size > 0) conectar()
+  })
+}
+
 function conectar() {
+  vigiarVisibilidade()
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
   if (fonte || typeof window === 'undefined' || typeof EventSource === 'undefined') return
   fonte = new EventSource('/bff/api/realtime/eventos')
   fonte.addEventListener('mudanca', () => ouvintes.forEach(o => o()))
