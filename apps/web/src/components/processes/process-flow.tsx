@@ -45,6 +45,9 @@ import { cn } from '@/lib/utils'
 /** Preferência de painel recolhido (por usuário desta máquina). */
 const PANEL_KEY = 'nxt:workflow:panel-collapsed'
 
+/** "unidade" → "Unidade": o mesmo nome serve de rótulo e de meio de frase. */
+const maiuscula = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+
 export const WORKFLOW_KINDS = [
   { value: 'CONTRATO', label: 'Contrato' },
   { value: 'ADITIVO', label: 'Aditivo' },
@@ -793,10 +796,15 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
               <Redo2 className="h-4 w-4" />
             </button>
           </div>
+          {/* Frase CURTA: a longa disputava espaço com a trilha "Workflows / nome", que
+              encolhia até "V". O detalhe fica no title. */}
           {sujo && (
-            <span className={cn('mr-1 text-[11px]', ativoNoServidor ? 'font-medium text-amber-800 dark:text-amber-300' : 'text-muted-foreground')}
-              title={ativoNoServidor ? 'O workflow ativo sai do "Novo processo" até ser reativado. Processos em andamento não são afetados.' : undefined}>
-              {ativoNoServidor ? 'Alterações não salvas — ao sair, gravam e o workflow volta a rascunho' : 'Alterações não salvas — gravam sozinhas ao sair'}
+            <span className={cn('mr-1 inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px]', ativoNoServidor ? 'font-medium text-amber-800 dark:text-amber-300' : 'text-muted-foreground')}
+              title={ativoNoServidor
+                ? 'Alterações não salvas. Ao sair, gravam sozinhas e o workflow volta a rascunho — sai do "Novo processo" até ser reativado. Processos em andamento não são afetados.'
+                : 'Alterações não salvas. Gravam sozinhas ao sair.'}>
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+              {ativoNoServidor ? 'Não salvo · volta a rascunho' : 'Não salvo'}
             </span>
           )}
           {/* só faz sentido no que já foi salvo: workflow novo ainda não tem histórico */}
@@ -1836,7 +1844,7 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
                         ))}
                       </div>
                     </GField>
-                    <GField wide label={executor.mode === 'FIXA' ? entityKindLabel(execOrigem) : execOrigem === ORIGEM.PARCEIRO ? 'Variável com o id' : 'A que estiver no contrato do processo como…'}>
+                    <GField wide label={executor.mode === 'FIXA' ? maiuscula(entityKindLabel(execOrigem)) : execOrigem === ORIGEM.PARCEIRO ? 'Variável com o id' : 'A que estiver no contrato do processo como…'}>
                       {executor.mode === 'FIXA' ? (
                         <EntitySelect entityType={execOrigem as EntityKind} value={executor.entityId} onChange={(id) => setExec({ entityId: id, entityVar: undefined, stakeholder: undefined })} placeholder={`Selecionar ${entityKindLabel(execOrigem)}…`} />
                       ) : (

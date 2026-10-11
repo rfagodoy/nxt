@@ -60,7 +60,7 @@ export function CampoPicker({ campos, value, onChange, ariaLabel }: {
           onClick={(e) => e.stopPropagation()}>
           <div className="relative border-b p-2">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <input autoFocus value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar campo…" aria-label="Buscar campo"
+            <input autoFocus data-autofocus value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar campo…" aria-label="Buscar campo"
               onKeyDown={(e) => { if (e.key === 'Enter' && primeiro) { e.preventDefault(); escolher(primeiro.key) } }}
               className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-2 text-xs outline-none focus:ring-1 focus:ring-ring" />
           </div>
