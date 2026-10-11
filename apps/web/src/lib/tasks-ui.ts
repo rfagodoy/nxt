@@ -46,6 +46,8 @@ export interface TimelineTask { id: string; nodeId: string; name?: string | null
 export interface InstanceContext {
   instance: { processDefinition: { name: string; formSchema: ProcessFormSchema }; tasks?: TimelineTask[] }
   state?: { variables?: Record<string, unknown> }
+  /** `data` guarda o que a tarefa já gravou antes de concluir (ex.: id do contrato salvo). */
+  pendingTasks?: { id: string; data?: Record<string, unknown> | null }[]
 }
 
 export type Grp = 'crit' | 'warn' | 'week'

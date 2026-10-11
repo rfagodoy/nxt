@@ -13,6 +13,15 @@ import { canActOnTask } from './task-access'
 import { formSchemaDaInstancia } from '../processes/definicao-congelada'
 import { ResolvedorDeExecutor, type ExecutorResolvido } from './executor-resolver'
 import { nasceDeContrato, VAR_INICIADO_POR } from '@nxt/types'
+import { screenIdVar } from '@nxt/screens-core'
+
+/** `WorkflowTask.data` é JSON numa coluna texto (SQL Server): o PrismaService já devolve
+ *  objeto, mas o tipo gerado diz string — aceita os dois. */
+function dadosDaTarefa(raw: unknown): Record<string, unknown> {
+  if (raw && typeof raw === 'object') return raw as Record<string, unknown>
+  if (typeof raw === 'string' && raw) { try { const o = JSON.parse(raw); if (o && typeof o === 'object') return o } catch { /* texto solto */ } }
+  return {}
+}
 import { RegrasDeInicio, parteForaDaRestricao, restricaoDaInstancia } from './regras-de-inicio'
 import { montarVariavelContrato, type ContratoParaVars } from './contract-vars'
 import { resolveContractId, resolvePartnerId, aditivoFromVars, applyInputMap } from './connector-helpers'
@@ -304,6 +313,35 @@ export class InstancesService {
     return (r?.restricoes ?? []).map((x) => ({ ...x, papel: r!.rotulo(x.papelId), parte: r!.rotulo(x.stakeholder) }))
   }
 
+  // ── Vínculo da entidade gravada pela Tela, ANTES de concluir ──────────────────
+  /** A atividade de Tela grava o contrato/parceiro e só manda o id ao CONCLUIR. Até lá o
+   *  id vivia só na memória da aba: fechar a aba (ou ter a conclusão recusada por escolha
+   *  sem caminho) e reabrir mostrava o formulário vazio, e o novo "Salvar" criava um
+   *  contrato DUPLICADO. Aqui o id vai para `task.data`, que a tela relê ao abrir. */
+  async linkTaskEntity(taskId: string, entityId: string, organizationId: string, actor?: CurrentUserData) {
+    const task = await this.prisma.workflowTask.findFirst({
+      where: { id: taskId, instance: { processDefinition: { organizationId } } },
+      include: { instance: { include: { processDefinition: true } } },
+    })
+    if (!task) throw new NotFoundException('Tarefa não encontrada')
+    if (task.status !== 'PENDING') throw new BadRequestException('Tarefa já concluída ou cancelada')
+    const roleKeys = await this.roles.roleKeysForUser(organizationId, actor?.sub ?? '')
+    if (!canActOnTask(task, actor?.sub ?? '', roleKeys, this.isAdmin(actor))) {
+      throw new ForbiddenException('Você não é o executor desta tarefa')
+    }
+    const fs = await formSchemaDaInstancia(this.prisma, task.instance)
+    const step = (fs?.steps ?? []).find((s) => s.stepId === task.nodeId)
+    if (!step?.screenRef) throw new BadRequestException('Esta atividade não é dirigida por uma Tela')
+    const idVar = screenIdVar(step)
+    const existe = idVar === 'contratoId'
+      ? await this.prisma.contract.findFirst({ where: { id: entityId, organizationId }, select: { id: true } })
+      : await this.prisma.partner.findFirst({ where: { id: entityId, organizationId }, select: { id: true } })
+    if (!existe) throw new NotFoundException(idVar === 'contratoId' ? 'Contrato não encontrado' : 'Parceiro não encontrado')
+    const data = { ...dadosDaTarefa(task.data), [idVar]: entityId }
+    await this.prisma.workflowTask.updateMany({ where: { id: task.id, status: 'PENDING' }, data: { data: data as never } })
+    return { ok: true, [idVar]: entityId }
+  }
+
   // ── Conclusão de uma tarefa (userTask) ───────────────────────────────────────
   async completeTask(taskId: string, dto: CompleteTaskDto, organizationId: string, actor?: CurrentUserData) {
     const task = await this.prisma.workflowTask.findFirst({
@@ -367,6 +405,12 @@ export class InstancesService {
       completeToken(graph, prevState, task.tokenId, dadosComContrato, runtime)
     } catch (e) {
       if (e instanceof WfSemCaminho) {
+        /* A tarefa fica com a pessoa, mas o que ela já gravou (o id do contrato) não pode
+           se perder com a recusa: reabrir a tarefa tem que mostrar o mesmo registro. */
+        await this.prisma.workflowTask.updateMany({
+          where: { id: task.id, status: 'PENDING' },
+          data: { data: { ...dadosDaTarefa(task.data), ...data } as never },
+        })
         await this.prisma.workflowEvent.create({
           data: {
             instanceId: task.instanceId,

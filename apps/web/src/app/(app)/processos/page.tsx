@@ -90,10 +90,16 @@ const COLS: Col[] = [
   },
   { key: 'iniciadoPor', label: 'Iniciado por', text: (i) => i.startedBy || '—', node: (i) => <span className="text-muted-foreground">{i.startedBy || '—'}</span> },
   {
-    key: 'situacao', label: 'Situação', text: (i) => STATUS[i.status]?.label ?? i.status,
-    node: (i) => { const st = STATUS[i.status] ?? STATUS.RUNNING; return (
+    /* "Parado" mora AQUI: a coluna de etapa vem escondida por padrão, e ali o processo
+       parado numa escolha sem caminho ficava igual a um "Em andamento" qualquer. */
+    key: 'situacao', label: 'Situação', text: (i) => i.status === 'RUNNING' && i.bloqueio ? 'Parado' : STATUS[i.status]?.label ?? i.status,
+    node: (i) => i.status === 'RUNNING' && i.bloqueio ? (
+      <span title={i.bloqueio.mensagem} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-amber-500/15 text-amber-700 dark:text-amber-300">
+        <AlertTriangle className="h-3 w-3" />Parado
+      </span>
+    ) : (() => { const st = STATUS[i.status] ?? STATUS.RUNNING; return (
       <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium', st.cls)}><st.icon className="h-3 w-3" />{st.label}</span>
-    ) },
+    ) })(),
   },
 ]
 /* v2: a disposição padrão das colunas mudou (Nº · Processo · Início · Data prevista ·

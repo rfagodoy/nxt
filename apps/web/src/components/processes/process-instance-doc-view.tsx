@@ -186,9 +186,16 @@ export function ProcessInstanceDocView({ inst: instAoAbrir }: { inst: Inst }) {
             </h2>
             <p className="text-[11.5px] text-muted-foreground mt-0.5">Iniciado por {inst.startedBy || '—'} em {fmt(inst.startedAt)}</p>
           </div>
-          <span className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium shrink-0', st.cls)}>
-            <st.icon className="h-3 w-3" />{st.label}
-          </span>
+          {/* o selo não pode dizer "Em andamento" ao lado da faixa "Processo parado" */}
+          {inst.status === 'RUNNING' && inst.bloqueio ? (
+            <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium shrink-0 bg-amber-500/15 text-amber-700 dark:text-amber-300">
+              <AlertTriangle className="h-3 w-3" />Parado
+            </span>
+          ) : (
+            <span className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium shrink-0', st.cls)}>
+              <st.icon className="h-3 w-3" />{st.label}
+            </span>
+          )}
         </div>
         {inst.bloqueio && (
           /* PARADO numa escolha sem caminho: dizer onde, por quê e o que fazer */
