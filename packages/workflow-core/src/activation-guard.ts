@@ -17,6 +17,7 @@ export interface ProblemaAtivacao {
     | 'decisao-sem-padrao' | 'decisao-multipadrao'
     | 'atividade-incompleta' | 'tela-so-consulta' | 'registro-sem-origem'
     | 'executor-sem-stakeholder' | 'executor-incompativel' | 'executor-sem-contrato'
+    | 'executor-sem-entidade' | 'executor-vago'
     | 'quem-inicia-vazio' | 'quem-inicia-invalido' | 'iniciador-sem-regra'
     | ProblemaBloco['tipo']
   /** `erro` impede a ativação; `aviso` é informação — o desenho é legítimo, mas o
@@ -503,6 +504,9 @@ const AGREGADO: Record<ProblemaAtivacao['tipo'], { plural: string; instrucao: st
   'executor-sem-stakeholder': { plural: 'atividades buscam o executor "da variável" sem dizer o stakeholder', instrucao: 'Em cada uma, escolha a parte do contrato em Quem executa.' },
   'executor-incompativel': { plural: 'atividades combinam papel e stakeholder que nunca achariam ninguém', instrucao: 'Em cada uma, escolha outro stakeholder em Quem executa.' },
   'executor-sem-contrato': { plural: 'atividades procuram o executor num contrato que o processo ainda não tem', instrucao: 'Coloque antes delas uma atividade que crie o contrato — ou use um workflow de Aditivo ou Encerramento.' },
+  'executor-sem-entidade': { plural: 'atividades têm papel de unidade/empresa sem dizer qual', instrucao: 'Em cada uma, escolha a unidade (ou empresa) em Quem executa.' },
+  // cada frase diz papel E lugar — agrupar apagaria onde atribuir
+  'executor-vago': null,
   'quem-inicia-vazio': null,
   'quem-inicia-invalido': null,
   // aviso: nunca entra na mensagem de recusa
@@ -540,3 +544,40 @@ export function formatarProblemas(entrada: ProblemaAtivacao[]): string {
   }
   return `O workflow ainda não pode ser ativado. Ajuste os pontos abaixo e tente de novo:\n${blocos.map((b) => `• ${b}`).join('\n')}`
 }
+
+/**
+ * Executor FIXO precisa de alguém de verdade (PO, 11/10/2026). Antes, papel de unidade sem a
+ * unidade escolhida, ou papel que ninguém ocupa ali, fazia a tarefa nascer ABERTA — qualquer
+ * usuário concluía. Agora a ativação recusa e diz onde atribuir. `ocupacao` vem da API (quem
+ * ocupa o papel naquela entidade hoje); passo sem entrada nela não é conferido.
+ * Executor "Da variável", "Quem iniciou" e papel da organização inteira ficam fora: os dois
+ * primeiros têm regra própria, e o último é conferido pela mesma `ocupacao` com `onde`.
+ */
+export function validarExecutoresFixos(
+  steps: Array<{ stepId?: string; stepName?: string; executor?: { papelId?: string; entityType?: string; mode?: string; entityId?: string } | null }>,
+  papeis: readonly PapelDoCatalogo[],
+  ocupacao: ReadonlyMap<string, { pessoas: number; onde: string }>,
+): ProblemaAtivacao[] {
+  const problemas: ProblemaAtivacao[] = []
+  for (const s of steps) {
+    const ex = s.executor
+    if (!s.stepId || !ex?.papelId || ex.papelId.startsWith('@') || ex.mode === 'VARIAVEL') continue
+    const nome = s.stepName?.trim()
+    const quem = nome ? `A atividade "${nome}"` : 'Uma atividade'
+    const rotulo = nome ? `"${nome}"` : '(sem nome)'
+    const papel = papeis.find((p) => p.id === ex.papelId)?.label ?? 'o papel escolhido'
+    if (ex.entityType !== 'ORG' && !ex.entityId) {
+      problemas.push({ tipo: 'executor-sem-entidade', nodeId: s.stepId, rotulo,
+        mensagem: `${quem} é de ${papel}, mas não diz em qual ${ENTIDADE_PT[ex.entityType ?? ''] ?? 'entidade'}. Escolha em Quem executa.` })
+      continue
+    }
+    const o = ocupacao.get(s.stepId)
+    if (o && o.pessoas === 0) {
+      problemas.push({ tipo: 'executor-vago', nodeId: s.stepId, rotulo,
+        mensagem: `${quem} é de ${papel} em ${o.onde}, mas ninguém ocupa esse papel lá. Atribua alguém em Estrutura organizacional (ou no cadastro) antes de ativar.` })
+    }
+  }
+  return problemas
+}
+
+const ENTIDADE_PT: Record<string, string> = { UNIDADE: 'unidade', EMPRESA: 'empresa do grupo', PARCEIRO: 'parceiro', CONTRATO: 'contrato' }

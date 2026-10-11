@@ -111,3 +111,25 @@ describe('validação e leitura', () => {
     expect(lerFluxoBlocos(JSON.parse(JSON.stringify(fluxo([], { modo: 'alguns' } as never))))).toBeNull()
   })
 })
+
+/* "Nenhum parecer → segue" (PO, 11/10/2026): em vez de parar, um caminho COM filtro e SEM
+   atividades leva direto ao reencontro. É assim que o desenho diz "se nenhum servir, segue". */
+describe('escolha "todos" com caminho vazio de filtro próprio', () => {
+  const f = fluxo()
+  const escolha = f.itens[1] as Extract<FluxoBlocos['itens'][number], { kind: 'escolha' }>
+  escolha.caminhos.push({ id: 'c_nenhum', condition: 'valor <= 100000 && maoDeObra != true', itens: [], fim: { tipo: 'segue' } })
+  const g = grafo(f)
+
+  it('o desenho é aceito', () => {
+    expect(validarBlocos(f).filter((p) => p.severidade !== 'aviso')).toEqual([])
+  })
+  it('nenhum parecer necessário → vai direto para "Assinar"', () => {
+    expect(ondeEsta(ateAEscolha(g, { valor: 50000, maoDeObra: false }))).toEqual(['assinar'])
+  })
+  it('com parecer → o caminho vazio não acende e o processo espera o parecer', () => {
+    let s = ateAEscolha(g, { valor: 50000, maoDeObra: true })
+    expect(ondeEsta(s)).toEqual(['juridico'])
+    s = concluir(g, s, 'juridico')
+    expect(ondeEsta(s)).toEqual(['assinar'])
+  })
+})
