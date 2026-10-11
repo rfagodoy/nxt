@@ -50,6 +50,17 @@ export function FloatingMenu({ anchor, onClose, align = 'start', matchWidth, cla
 
   useLayoutEffect(() => { posicionar() }, [posicionar])
 
+  /* O menu nasce INVISÍVEL até medir a posição — e o navegador não foca elemento
+     invisível, então o `autoFocus` do React se perdia (a busca da lista abria sem
+     cursor e o que se digitava ia para lugar nenhum). Foca ao aparecer: marque o campo
+     com `data-autofocus`. */
+  const visivel = !!pos
+  useEffect(() => {
+    if (!visivel) return
+    const alvo = ref.current?.querySelector<HTMLElement>('[data-autofocus]')
+    if (alvo && !ref.current?.contains(document.activeElement)) alvo.focus()
+  }, [visivel])
+
   useEffect(() => {
     const fora = (e: PointerEvent) => {
       const alvo = e.target as Node

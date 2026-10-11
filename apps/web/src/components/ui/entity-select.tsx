@@ -127,7 +127,7 @@ export function EntitySelect({ entityType, value, onChange, placeholder = 'Selec
         <FloatingMenu anchor={wrapRef} onClose={() => setOpen(false)} matchWidth className="glass min-w-[16rem] rounded-xl text-popover-foreground">
             <div className="flex items-center gap-1.5 border-b px-2.5 py-1.5">
               <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-              <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar…"
+              <input autoFocus data-autofocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar…"
                 className="w-full bg-transparent text-xs focus-visible:outline-none placeholder:text-muted-foreground" />
             </div>
             <div className="max-h-56 overflow-auto py-1">

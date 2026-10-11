@@ -1236,10 +1236,10 @@ export class InstancesService {
       const { c, p } = porTarefa[i]
       const contrato = c ? porContrato.get(c) : undefined
       if (contrato) {
-        const partes = Array.isArray(contrato.partes) ? contrato.partes : []
-        const nomes = partes
-          .map((x) => (x && typeof x === 'object' ? String((x as { nome?: string }).nome ?? '') : ''))
-          .filter(Boolean)
+        /* Contraparte = o lado EXTERNO (parte que é parceiro). A 1ª parte costuma ser a
+           própria empresa ou uma unidade — mostrar isso no cartão não dizia nada. */
+        const partes = (Array.isArray(contrato.partes) ? contrato.partes : []) as Array<{ nome?: string; ref_tipo?: string } | null>
+        const externa = partes.find((x) => x?.ref_tipo === 'PARCEIRO' && x.nome)?.nome
         return {
           ...t,
           assunto: {
@@ -1249,7 +1249,7 @@ export class InstancesService {
                número que a pessoa reconhece no contrato de hoje. */
             valor: valorVigente(contrato as never),
             moeda: contrato.moeda ?? 'BRL',
-            contraparte: nomes[0] ?? undefined,
+            contraparte: externa ?? undefined,
           },
         }
       }

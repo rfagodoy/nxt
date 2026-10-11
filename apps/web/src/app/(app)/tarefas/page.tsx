@@ -160,8 +160,13 @@ export default function TarefasPage() {
                       {/* Sobre o que é a tarefa: sem isto, duas tarefas do mesmo prazo
                           chegam com o mesmo peso — a de R$ 4 mil e a de R$ 400 mil. */}
                       {t.assunto && (
+                        /* Sempre o mesmo formato: "número — título", e a contraparte externa
+                           depois, quando houver (antes alternava entre um e outro). */
                         <p className="mb-1 text-[10.5px] leading-snug text-foreground/80 break-words" title={t.assunto.titulo}>
-                          {t.assunto.contraparte ?? t.assunto.titulo}
+                          {t.assunto.titulo}
+                          {t.assunto.contraparte && t.assunto.contraparte !== t.assunto.titulo && (
+                            <span className="text-muted-foreground"> · {t.assunto.contraparte}</span>
+                          )}
                           {valorCurto(t.assunto.valor, t.assunto.moeda) && (
                             <span className="ml-1.5 font-semibold tabular-nums">{valorCurto(t.assunto.valor, t.assunto.moeda)}</span>
                           )}

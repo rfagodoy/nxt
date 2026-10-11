@@ -48,6 +48,8 @@ export interface InstanceContext {
   state?: { variables?: Record<string, unknown> }
   /** `data` guarda o que a tarefa já gravou antes de concluir (ex.: id do contrato salvo). */
   pendingTasks?: { id: string; data?: Record<string, unknown> | null }[]
+  /** grafo CONGELADO da instância — de onde sai a próxima etapa pelo desenho */
+  graph?: GrafoMinimo | null
 }
 
 export type Grp = 'crit' | 'warn' | 'week'
@@ -127,4 +129,29 @@ export function agruparPassos(timeline: TimelineTask[], currentTaskId: string): 
     if (t.id === currentTaskId) p.situacao = 'current'
   }
   return [...porNode.values()]
+}
+
+/** Grafo congelado da instância, só o que a próxima etapa precisa. */
+interface GrafoMinimo {
+  nodes: Record<string, { type: string; name?: string }>
+  edges: Array<{ from: string; to: string }>
+}
+
+/** Próxima ATIVIDADE pelo desenho, a partir da atual. Segue a saída única e atravessa
+ *  reencontros (junção com uma só saída); numa bifurcação ou no fim, não promete nada.
+ *  Antes era "a tarefa seguinte da lista do processo" — com frentes em paralelo, isso
+ *  apontava para uma tarefa de OUTRO caminho que só tinha nascido junto. */
+export function proximaPeloDesenho(grafo: GrafoMinimo | null | undefined, nodeId: string): string | null {
+  if (!grafo?.nodes || !grafo.edges) return null
+  let atual = nodeId
+  for (let passos = 0; passos < 50; passos++) {
+    const saidas = grafo.edges.filter((e) => e.from === atual)
+    if (saidas.length !== 1) return null
+    const prox = grafo.nodes[saidas[0].to]
+    if (!prox) return null
+    if (prox.type === 'userTask' || prox.type === 'serviceTask') return prox.name?.trim() || null
+    if (prox.type === 'end') return null
+    atual = saidas[0].to
+  }
+  return null
 }

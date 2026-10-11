@@ -70,7 +70,7 @@ export function UserSelect({
             <div className="flex items-center gap-1.5 border-b px-2.5 py-1.5">
               <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
               <input
-                autoFocus value={q} onChange={(e) => setQ(e.target.value)}
+                autoFocus data-autofocus value={q} onChange={(e) => setQ(e.target.value)}
                 placeholder="Buscar por nome ou e-mail..."
                 className="w-full bg-transparent text-xs focus-visible:outline-none placeholder:text-muted-foreground"
               />

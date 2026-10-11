@@ -17,7 +17,7 @@ import { apiFetch, apiJson } from '@/lib/http'
 import { NoticeDialog } from '@/components/ui/confirm-dialog'
 import { screenIdVar, screenEntityFromVars, screenBloqueio } from '@/lib/screen-task'
 import { cn } from '@/lib/utils'
-import { kindMeta, dueInfo, DUE_CHIP, type Task, type TimelineTask, type InstanceContext } from '@/lib/tasks-ui'
+import { kindMeta, dueInfo, DUE_CHIP, proximaPeloDesenho, type Task, type TimelineTask, type InstanceContext } from '@/lib/tasks-ui'
 import type { StepFormSchema } from '@nxt/types'
 
 const FORM_ID = 'task-advance-form'
@@ -33,6 +33,7 @@ export function TaskDocView({ task, onDone, onNotice }: {
 }) {
   const [step, setStep] = useState<StepFormSchema | null>(null)
   const [timeline, setTimeline] = useState<TimelineTask[]>([])
+  const [grafo, setGrafo] = useState<InstanceContext['graph']>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -59,6 +60,7 @@ export function TaskDocView({ task, onDone, onNotice }: {
         const salvo = ctx?.pendingTasks?.find((t) => t.id === task.id)?.data ?? {}
         const vars = { ...(ctx?.state?.variables ?? {}), ...salvo }
         setTimeline(ctx?.instance?.tasks ?? [])
+        setGrafo(ctx?.graph ?? null)
         setStep(found ?? { stepId: task.nodeId, stepName: task.name || task.nodeId, fields: [] })
         /* Recupera o id da entidade-alvo da variável do processo → "Avançar" liberado
            (regra em screen-task.ts, compartilhada com o runner do "Novo processo"). */
@@ -98,9 +100,15 @@ export function TaskDocView({ task, onDone, onNotice }: {
       if (result?.errored) {
         onNotice?.(`A etapa automática falhou e o processo foi interrompido: ${result.errored}`, 'aviso')
       } else {
+        /* Diz o que ACONTECEU, não o que o desenho prevê: com frentes em paralelo, concluir
+           pode só deixar o processo esperando as outras — "seguiu para" seria mentira. */
         const numero = task.instance?.numero != null ? `#${task.instance.numero}` : 'O processo'
+        const pendentes: Array<{ name?: string | null }> = Array.isArray(result?.tasks) ? result.tasks : []
         onNotice?.(
-          proxima ? `Tarefa concluída — ${numero} seguiu para ${proxima}.` : `Tarefa concluída — ${numero} avançou.`,
+          result?.completed ? `Tarefa concluída — ${numero} foi concluído.`
+            : proxima && pendentes.some((t) => t.name === proxima) ? `Tarefa concluída — ${numero} seguiu para ${proxima}.`
+            : pendentes.length ? `Tarefa concluída — ${numero} avançou e aguarda as outras frentes.`
+            : `Tarefa concluída — ${numero} avançou.`,
           'sucesso',
         )
       }
@@ -135,13 +143,10 @@ export function TaskDocView({ task, onDone, onNotice }: {
     return { label: info.label, cls: DUE_CHIP[info.grp] }
   })() : null
 
-  /* Próxima etapa pelo desenho do processo: a linha do tempo já traz as etapas em
-     ordem, então a seguinte à atual é o destino provável. É informação, não promessa —
-     um gateway pode desviar, e por isso o texto diz "vai para", não "irá para". */
-  const proxima = (() => {
-    const i = timeline.findIndex((t) => t.id === task.id)
-    return i >= 0 && i + 1 < timeline.length ? (timeline[i + 1].name || null) : null
-  })()
+  /* Próxima etapa pelo DESENHO (grafo congelado da instância), não pela lista de tarefas:
+     com frentes em paralelo, a "seguinte da lista" era uma tarefa de outro caminho. É
+     informação, não promessa — por isso "vai para"; numa bifurcação, nada é dito. */
+  const proxima = proximaPeloDesenho(grafo, task.nodeId)
 
   return (
     /* A atividade vive dentro de um cartão com borda e fundo próprios, não solta sobre
