@@ -526,13 +526,17 @@ function BotaoIcone({ title, onClick, perigo, children }: { title: string; onCli
    "Se [condição] então [atividades] e depois [segue]". A condição abre num balão
    ancorado nela mesma; a pergunta, o modo e o "se nenhum servir" estão no bloco. */
 
-/** Campos que o filtro de um caminho pode usar: os da TELA das atividades dele. */
+/** Campos que o filtro de um caminho pode usar: os da TELA das atividades dele. Caminho
+ *  SEM atividade ("nenhum parecer → segue", PO 11/10/2026) testa o mesmo que os irmãos —
+ *  é o "nenhum dos outros" —, então usa as telas das atividades dos outros caminhos. */
 function useCamposDoCaminho() {
   const t = useTrilho()
-  return (c: { itens: ItemFluxo[] }) => camposDasTelasDasAtividades(
-    atividadesDentro(c.itens).map((a) => t.steps[a.id]).filter((s): s is StepFormSchema => !!s),
-    t.screens,
-  )
+  return (c: { id?: string; itens: ItemFluxo[] }, bloco?: BlocoEscolha) => {
+    const proprias = atividadesDentro(c.itens)
+    const fonte = proprias.length || !bloco ? proprias
+      : bloco.caminhos.filter((x) => x.id !== c.id).flatMap((x) => atividadesDentro(x.itens))
+    return camposDasTelasDasAtividades(fonte.map((a) => t.steps[a.id]).filter((s): s is StepFormSchema => !!s), t.screens)
+  }
 }
 
 /** Por que ESTE caminho não tem campo para filtrar — e o conserto a um clique. */
@@ -546,7 +550,7 @@ function SemCampos({ caminho }: { caminho: CaminhoCondicional }) {
         <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <span>
           {tarefas.length === 0
-            ? <>O filtro usa os campos da <span className="font-semibold">tela da atividade deste caminho</span>, e ele ainda não tem atividade. Insira uma atividade com tela de contrato neste caminho, pelo <span className="font-semibold">+</span>.</>
+            ? <>Este caminho não tem atividade, então o filtro usa os campos das telas dos <span className="font-semibold">outros caminhos</span> desta escolha — e nenhum deles tem tela de contrato. Insira uma atividade com tela de contrato, pelo <span className="font-semibold">+</span>.</>
             : semTela.length > 0
               ? <>O filtro usa os campos da <span className="font-semibold">tela da atividade deste caminho</span>, e {semTela.length === 1 ? 'ela está' : 'elas estão'} <span className="font-semibold">sem tela</span>.</>
               : <>As atividades deste caminho não usam tela de <span className="font-semibold">contrato</span> — o filtro só testa campos do contrato.</>}
@@ -609,7 +613,7 @@ function CondicaoNaFrase({ bloco, caminho, indice }: { bloco: BlocoEscolha; cami
 
           <div className="space-y-4 px-4 py-4">
             <CondBuilder edge={{ condition: caminho.condition, conditionSpec: caminho.conditionSpec as EdgeConditionSpec | undefined, label: caminho.rotulo }}
-              campos={camposDe(caminho)} semCampos={<SemCampos caminho={caminho} />}
+              campos={camposDe(caminho, bloco)} semCampos={<SemCampos caminho={caminho} />}
               onSet={(p) => t.onFluxo((f) => atualizarCaminho(f, caminho.id, {
                 ...('condition' in p ? { condition: p.condition } : {}),
                 ...('conditionSpec' in p ? { conditionSpec: p.conditionSpec } : {}),
@@ -642,7 +646,7 @@ function TestarEscolha({ bloco }: { bloco: BlocoEscolha }) {
   const campos = useMemo(() => {
     const usados = new Set(bloco.caminhos.flatMap((c) => (c.conditionSpec?.rules ?? []).map((r) => r.campo).filter(Boolean)))
     const m = new Map<string, CampoDisponivel>()
-    for (const c of bloco.caminhos) for (const cp of camposDe(c)) if (usados.has(cp.key) && !m.has(cp.key)) m.set(cp.key, cp)
+    for (const c of bloco.caminhos) for (const cp of camposDe(c, bloco)) if (usados.has(cp.key) && !m.has(cp.key)) m.set(cp.key, cp)
     return [...m.values()]
   }, [bloco]) // eslint-disable-line react-hooks/exhaustive-deps
   const todos = modoDaEscolha(bloco) === 'todos'
