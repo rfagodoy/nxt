@@ -45,6 +45,7 @@ interface Summary {
       meses: { mes: string; qtd: number; valor: number }[]
       prox90: { qtd: number; valor: number }
       vencidos: { qtd: number; valor: number }
+      proximos: { id: string; numero: string; titulo: string; termino: string; valor: number; contraparte: string | null }[]
     }
     concentracao: {
       total: number
@@ -124,6 +125,14 @@ function Tile({ className, children, onClick, highlight }: { className?: string;
   )
 }
 
+const ABAS = [
+  { id: 'geral', rotulo: 'Visão geral' },
+  { id: 'vencimentos', rotulo: 'Vencimentos' },
+  { id: 'concentracao', rotulo: 'Concentração por parceiro' },
+] as const
+type AbaId = (typeof ABAS)[number]['id']
+const ABA_KEY = 'nxt:dashboard:aba'
+
 /* ─────────────────────────── página ──────────────────────────────────────── */
 export default function DashboardPage() {
   const router = useRouter()
@@ -177,138 +186,138 @@ export default function DashboardPage() {
     return primeira ? dueInfo(primeira.dueAt).label : ''
   })()
 
+  /* Aba ativa, lembrada neste navegador (preferência de visualização, não dado). */
+  const [aba, setAba] = useState<AbaId>('geral')
+  useEffect(() => {
+    try { const v = localStorage.getItem(ABA_KEY) as AbaId | null; if (v && ABAS.some((a) => a.id === v)) setAba(v) } catch { /* sem storage */ }
+  }, [])
+  const escolherAba = (id: AbaId) => { setAba(id); try { localStorage.setItem(ABA_KEY, id) } catch { /* sem storage */ } }
+
   if (loading) return <DashboardSkeleton />
 
   const c = data?.contracts
   const p = data?.partners
 
   return (
-    /* Duas faixas finas — saudação e estado da caixa de trabalho — e os gráficos
-       recebendo TODA a altura restante. O Dashboard é o painel de gestão: os gráficos
-       são o conteúdo, não um rodapé. Abaixo de lg o layout volta a fluir. */
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:h-full lg:min-h-[760px] lg:[grid-template-rows:auto_auto_minmax(0,1fr)_minmax(0,1fr)]">
+    /* Opção B dos mockups (PO, 11/10/2026): a tela empilhava sete blocos e nenhum
+       gráfico tinha espaço. Agora: cabeçalho FIXO (saudação, resumo das tarefas e os
+       atalhos de criação — sempre à mão ao rolar) e ABAS, cada uma com a altura toda. */
+    <div className="flex min-h-full flex-col gap-3 lg:h-full">
 
-      {/* ── Hero ──
-          Faixa fina de largura total. Ele entrega saudação e três atalhos; ocupar
-          metade da primeira dobra para isso era espaço tirado do único bloco
-          ACIONÁVEL da tela. */}
-        <div className="relative overflow-hidden rounded-xl px-5 py-3.5 text-white shadow-sm lg:col-span-4
-                        bg-gradient-to-r from-[hsl(156_42%_11%)] to-[hsl(150_44%_6%)]">
-          <div className="pointer-events-none absolute -right-8 -top-16 h-40 w-40 rounded-full bg-primary/20 blur-2xl" />
-          <div className="relative flex flex-wrap items-center gap-x-4 gap-y-2">
-            <div className="min-w-0 flex-1">
-              <p className="text-[10.5px] font-medium uppercase tracking-widest text-white/60">{todayLabel()}</p>
-              <h1 className="text-base font-semibold tracking-tight leading-tight">
-                {greeting()}{firstName ? `, ${firstName}` : ''} 👋
-              </h1>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button onClick={() => ws.open({ id: 'contract:new', kind: 'contract', mode: 'new', label: 'Novo contrato' })}
-                className="inline-flex items-center gap-1.5 rounded-md bg-white px-3 py-1.5 text-xs font-semibold text-primary shadow-sm hover:bg-white/90 transition-colors">
-                <Plus className="h-3.5 w-3.5" />Novo contrato
-              </button>
-              <button onClick={() => ws.open({ id: 'partner:new', kind: 'partner', mode: 'new', label: 'Novo parceiro' })}
-                className="inline-flex items-center gap-1.5 rounded-md bg-white/15 px-3 py-1.5 text-xs font-medium text-white ring-1 ring-inset ring-white/25 hover:bg-white/25 transition-colors">
-                <Plus className="h-3.5 w-3.5" />Novo parceiro
-              </button>
-              <StartProcessButton variant="hero" />
-            </div>
+      <header className="sticky top-0 z-20 shrink-0 overflow-hidden rounded-xl px-5 py-3 text-white shadow-md
+                         bg-gradient-to-r from-[hsl(156_42%_11%)] to-[hsl(150_44%_6%)]">
+        <div className="pointer-events-none absolute -right-8 -top-16 h-40 w-40 rounded-full bg-primary/20 blur-2xl" />
+        <div className="relative flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="min-w-0 flex-1">
+            <p className="text-[10.5px] font-medium uppercase tracking-widest text-white/60">{todayLabel()}</p>
+            <h1 className="text-base font-semibold tracking-tight leading-tight">
+              {greeting()}{firstName ? `, ${firstName}` : ''} 👋
+            </h1>
+          </div>
+          {/* O resumo da caixa de trabalho mora no cabeçalho: era uma faixa inteira só
+              para dizer quantas tarefas esperam. O detalhe continua em /tarefas. */}
+          <button type="button" onClick={() => router.push('/tarefas')}
+            title={minhasTarefas.length ? (atrasadas > 0 ? `A mais antiga: ${maisUrgente}` : `A mais próxima ${maisUrgente}`) : 'Abrir a caixa de tarefas'}
+            className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs text-white ring-1 ring-inset ring-white/15 transition-colors hover:bg-white/20">
+            <ListChecks className="h-3.5 w-3.5" />
+            {minhasTarefas.length === 0 ? <span>Nenhuma tarefa aguardando</span> : (
+              <span>
+                <span className="font-semibold">{minhasTarefas.length} tarefa{minhasTarefas.length > 1 ? 's' : ''}</span>
+                {atrasadas > 0 && <> · <span className="font-semibold text-orange-300">{atrasadas} vencida{atrasadas > 1 ? 's' : ''}</span></>}
+              </span>
+            )}
+          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={() => ws.open({ id: 'contract:new', kind: 'contract', mode: 'new', label: 'Novo contrato' })}
+              className="inline-flex items-center gap-1.5 rounded-md bg-white px-3 py-1.5 text-xs font-semibold text-primary shadow-sm hover:bg-white/90 transition-colors">
+              <Plus className="h-3.5 w-3.5" />Novo contrato
+            </button>
+            <button onClick={() => ws.open({ id: 'partner:new', kind: 'partner', mode: 'new', label: 'Novo parceiro' })}
+              className="inline-flex items-center gap-1.5 rounded-md bg-white/15 px-3 py-1.5 text-xs font-medium text-white ring-1 ring-inset ring-white/25 hover:bg-white/25 transition-colors">
+              <Plus className="h-3.5 w-3.5" />Novo parceiro
+            </button>
+            <StartProcessButton variant="hero" />
           </div>
         </div>
+      </header>
 
-        {/* ── Faixa de trabalho ──
-            O Dashboard é painel de GESTÃO; a caixa de trabalho é a tela de Tarefas.
-            Aqui fica só o gatilho: quantas esperam e quantas já venceram, com o
-            caminho para lá. Uma linha em vez de doze — a lista inteira aqui
-            duplicaria /tarefas, e duas telas para a mesma pergunta significam que
-            nenhuma delas é a fonte. */}
-        <button
-          type="button"
-          onClick={() => router.push('/tarefas')}
-          className="group flex items-center gap-3 rounded-xl border bg-card px-4 py-2.5 text-left shadow-sm transition-colors hover:border-primary/40 hover:bg-muted/40 sm:col-span-2 lg:col-span-4"
-        >
-          <span className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-            atrasadas > 0 ? 'bg-red-500/10 text-red-600 dark:text-red-400' : 'bg-primary/10 text-primary')}>
-            <ListChecks className="h-4 w-4" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-semibold tracking-tight">
-              {minhasTarefas.length === 0
-                ? 'Nenhuma tarefa aguardando você'
-                : `${minhasTarefas.length} tarefa${minhasTarefas.length > 1 ? 's' : ''} na sua caixa`}
-            </span>
-            <span className="block text-[11px] text-muted-foreground">
-              {minhasTarefas.length === 0 ? 'Tudo em dia por aqui.'
-                : atrasadas > 0 ? `${atrasadas} já ${atrasadas > 1 ? 'venceram' : 'venceu'} · a mais antiga: ${maisUrgente}`
-                : `A mais próxima ${maisUrgente}`}
-            </span>
-          </span>
-          {minhasTarefas.length > 0 && (
-            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-colors group-hover:bg-primary/90">
-              Abrir tarefas
-            </span>
-          )}
-        </button>
+      <div role="tablist" aria-label="Painéis do dashboard" className="vidro flex shrink-0 gap-1 self-start rounded-lg bg-[var(--vidro-cartao)] p-1">
+        {ABAS.map((a) => {
+          const vencidos = a.id === 'vencimentos' ? data?.carteira?.vencimentos.vencidos.qtd ?? 0 : 0
+          return (
+            <button key={a.id} type="button" role="tab" aria-selected={aba === a.id} onClick={() => escolherAba(a.id)}
+              className={cn('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition-colors',
+                aba === a.id ? 'bg-card font-semibold text-foreground shadow-sm' : 'font-medium text-muted-foreground hover:text-foreground')}>
+              {a.rotulo}
+              {vencidos > 0 && (
+                <span className="rounded-full bg-orange-500/15 px-1.5 py-px text-[10.5px] font-semibold text-[hsl(25_90%_27%)] dark:text-orange-300">
+                  {vencidos} vencido{vencidos > 1 ? 's' : ''}
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </div>
 
-        {/* ── Composição da carteira ──
-            Três cards de mesmo peso, abaixo de "Seu trabalho" e visivelmente menores:
-            eles respondem "como está a carteira?", que é pergunta de acompanhamento,
-            não de ação. Cada um mostra o TOTAL grande e a composição em rosca — o
-            número sozinho não diz se 128 contratos são saúde ou problema. */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:col-span-2 lg:col-span-4 lg:min-h-0">
-          <Composicao
-            icon={<FileText className="h-4 w-4" />}
-            label="Contratos"
-            hint="Contratos cancelados não entram na carteira — por isso este total pode ser menor que o da listagem."
-            tipo="barras"
-            total={c?.total ?? 0}
-            onClick={() => router.push('/modules/contratos')}
-            ctaVazio={{ rotulo: 'Cadastrar contrato', acao: () => ws.open({ id: 'contract:new', kind: 'contract', mode: 'new', label: 'Novo contrato' }) }}
-            fatias={[
-              { nome: 'Vigentes',    valor: c?.byStatus.VIGENTE ?? 0,     cor: COR_FATIA.emDia      },
-              { nome: 'Vencidos',    valor: c?.byStatus.VENCIDO ?? 0,     cor: COR_FATIA.vencido    },
-              { nome: 'Em cadastro', valor: c?.byStatus.EM_CADASTRO ?? 0, cor: COR_FATIA.emCadastro },
-              { nome: 'Encerrados',  valor: c?.byStatus.ENCERRADO ?? 0,   cor: COR_FATIA.encerrado  },
-              { nome: 'Rescindidos', valor: c?.byStatus.RESCINDIDO ?? 0,  cor: COR_FATIA.rompido    },
-              /* Sem "Cancelados": o cancelado nunca chegou a valer e por decisão do PO
-                 (28/07) não entra na carteira — nem no Total, nem na composição. Ele
-                 continua na listagem de Contratos, que é onde se procura um registro. */
-            ]}
-          />
-          <Composicao
-            icon={<Users className="h-4 w-4" />}
-            label="Parceiros"
-            total={p?.total ?? 0}
-            onClick={() => router.push('/modules/parceiros')}
-            ctaVazio={{ rotulo: 'Cadastrar parceiro', acao: () => ws.open({ id: 'partner:new', kind: 'partner', mode: 'new', label: 'Novo parceiro' }) }}
-            fatias={[
-              { nome: 'Ativos',        valor: p?.byStatus.ATIVO ?? 0,             cor: COR_FATIA.emDia      },
-              { nome: 'Em cadastro',   valor: p?.byStatus.EM_CADASTRAMENTO ?? 0,  cor: COR_FATIA.emCadastro },
-              { nome: 'Inativos',      valor: p?.byStatus.INATIVO ?? 0,           cor: COR_FATIA.encerrado  },
-            ]}
-          />
-          <MedidorSaude
-            icon={<Loader2 className="h-4 w-4" />}
-            label="Processos"
-            emDia={data?.instances.emAndamentoNoPrazo ?? 0}
-            atrasados={data?.instances.emAndamentoAtrasadas ?? 0}
-            onClick={() => router.push('/processos')}
-            rodape={[
-              { nome: 'concluídos', valor: data?.instances.concluidas ?? 0 },
-              { nome: 'com erro',   valor: data?.instances.comErro ?? 0, alerta: true },
-              { nome: 'cancelados', valor: data?.instances.canceladas ?? 0 },
-              { nome: 'sem conclusão', valor: data?.instances.semConclusao ?? 0 },
-            ]}
-          />
-        </div>
-
-        {/* ── Vencimentos e concentração (opção C dos mockups, PO 11/10/2026) ──
-            O NÚMERO vem primeiro — é ele que responde a pergunta; o gráfico pequeno só
-            mostra a forma. Dois cartões de mesmo peso, metade da largura cada. */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:col-span-2 lg:col-span-4 lg:min-h-0">
-          <CartaoVencimentos dados={data?.carteira?.vencimentos} onClick={() => router.push('/modules/contratos')} />
-          <CartaoConcentracao dados={data?.carteira?.concentracao} onClick={() => router.push('/modules/parceiros')} />
-        </div>
+      <div role="tabpanel" className="flex min-h-[420px] flex-1 flex-col lg:min-h-0">
+        {aba === 'geral' && (
+          /* Composição da carteira: o TOTAL grande e a repartição — o número sozinho não
+             diz se 128 contratos são saúde ou problema. Agora com a altura da aba. */
+          <div className="grid flex-1 grid-cols-1 gap-3 sm:grid-cols-3 lg:min-h-0">
+            <Composicao
+              icon={<FileText className="h-4 w-4" />}
+              label="Contratos"
+              hint="Contratos cancelados não entram na carteira — por isso este total pode ser menor que o da listagem."
+              tipo="barras"
+              total={c?.total ?? 0}
+              onClick={() => router.push('/modules/contratos')}
+              ctaVazio={{ rotulo: 'Cadastrar contrato', acao: () => ws.open({ id: 'contract:new', kind: 'contract', mode: 'new', label: 'Novo contrato' }) }}
+              fatias={[
+                { nome: 'Vigentes',    valor: c?.byStatus.VIGENTE ?? 0,     cor: COR_FATIA.emDia      },
+                { nome: 'Vencidos',    valor: c?.byStatus.VENCIDO ?? 0,     cor: COR_FATIA.vencido    },
+                { nome: 'Em cadastro', valor: c?.byStatus.EM_CADASTRO ?? 0, cor: COR_FATIA.emCadastro },
+                { nome: 'Encerrados',  valor: c?.byStatus.ENCERRADO ?? 0,   cor: COR_FATIA.encerrado  },
+                { nome: 'Rescindidos', valor: c?.byStatus.RESCINDIDO ?? 0,  cor: COR_FATIA.rompido    },
+                /* Sem "Cancelados": o cancelado nunca chegou a valer e por decisão do PO
+                   (28/07) não entra na carteira — nem no Total, nem na composição. Ele
+                   continua na listagem de Contratos, que é onde se procura um registro. */
+              ]}
+            />
+            <Composicao
+              icon={<Users className="h-4 w-4" />}
+              label="Parceiros"
+              total={p?.total ?? 0}
+              onClick={() => router.push('/modules/parceiros')}
+              ctaVazio={{ rotulo: 'Cadastrar parceiro', acao: () => ws.open({ id: 'partner:new', kind: 'partner', mode: 'new', label: 'Novo parceiro' }) }}
+              fatias={[
+                { nome: 'Ativos',        valor: p?.byStatus.ATIVO ?? 0,             cor: COR_FATIA.emDia      },
+                { nome: 'Em cadastro',   valor: p?.byStatus.EM_CADASTRAMENTO ?? 0,  cor: COR_FATIA.emCadastro },
+                { nome: 'Inativos',      valor: p?.byStatus.INATIVO ?? 0,           cor: COR_FATIA.encerrado  },
+              ]}
+            />
+            <MedidorSaude
+              icon={<Loader2 className="h-4 w-4" />}
+              label="Processos"
+              emDia={data?.instances.emAndamentoNoPrazo ?? 0}
+              atrasados={data?.instances.emAndamentoAtrasadas ?? 0}
+              onClick={() => router.push('/processos')}
+              rodape={[
+                { nome: 'concluídos', valor: data?.instances.concluidas ?? 0 },
+                { nome: 'com erro',   valor: data?.instances.comErro ?? 0, alerta: true },
+                { nome: 'cancelados', valor: data?.instances.canceladas ?? 0 },
+                { nome: 'sem conclusão', valor: data?.instances.semConclusao ?? 0 },
+              ]}
+            />
+          </div>
+        )}
+        {aba === 'vencimentos' && (
+          <CartaoVencimentos dados={data?.carteira?.vencimentos}
+            onAbrirContrato={(e) => ws.open({ id: `contract:${e.id}`, kind: 'contract', mode: 'detail', label: e.numero, data: { id: e.id, numero: e.numero, titulo: e.titulo, tipo: '', parte_principal: e.contraparte ?? '', inicio: '', termino: e.termino, valor_total: e.valor, situacao: 'VIGENTE', documento: '', papel: '', data_assinatura: '', moeda: '', valor_parcela: 0, condicao_pagamento: '' } })} />
+        )}
+        {aba === 'concentracao' && (
+          <CartaoConcentracao dados={data?.carteira?.concentracao} />
+        )}
+      </div>
 
     </div>
   )
@@ -537,6 +546,8 @@ const MES_CURTO = (ym: string) => {
    (≈ 90 dias) vão mais fortes e o texto diz isso: a cor nunca carrega sozinha. */
 const BARRA_FORTE = 'bg-[#159d62] dark:bg-[#1fa565]'
 const BARRA_FRACA = 'bg-[#159d62]/40 dark:bg-[#1fa565]/45'
+/* "outros" com TEXTURA listrada: distingue-se por forma, não só por tom */
+const TEXTURA_OUTROS = 'bg-[repeating-linear-gradient(135deg,hsl(var(--foreground)/0.22)_0_3px,hsl(var(--foreground)/0.07)_3px_7px)]'
 
 function CabecalhoCartao({ icon, label }: { icon: React.ReactNode; label: string }) {
   return (
@@ -549,52 +560,75 @@ function CabecalhoCartao({ icon, label }: { icon: React.ReactNode; label: string
 
 /** Vencimentos: quanto vence nos próximos 90 dias (o número), a forma dos 12 meses
  *  (barras por VALOR) e os já vencidos à parte, com ícone + texto. */
-function CartaoVencimentos({ dados, onClick }: { dados?: NonNullable<Summary['carteira']>['vencimentos']; onClick: () => void }) {
+function CartaoVencimentos({ dados, onAbrirContrato }: {
+  dados?: NonNullable<Summary['carteira']>['vencimentos']
+  onAbrirContrato: (c: NonNullable<Summary['carteira']>['vencimentos']['proximos'][number]) => void
+}) {
   const meses = dados?.meses ?? []
   const maior = Math.max(1, ...meses.map((m) => m.valor))
   const vazio = !dados || (meses.every((m) => m.qtd === 0) && dados.vencidos.qtd === 0)
+  const dataCurta = (iso: string) => iso.slice(8, 10) + '/' + iso.slice(5, 7)
   return (
-    <Tile onClick={onClick} highlight className="flex flex-col gap-2 lg:min-h-0">
+    <Tile className="flex flex-1 flex-col gap-3 lg:min-h-0">
       <CabecalhoCartao icon={<CalendarClock className="h-4 w-4" />} label="Vencimentos" />
       {vazio || !dados ? (
         <p className="flex flex-1 items-center justify-center text-[11px] text-muted-foreground">Nenhum contrato vigente vence nos próximos 12 meses.</p>
-      ) : (<>
-        <div className="shrink-0">
-          <p className="text-2xl font-bold leading-none tabular-nums">{BRL_CURTO.format(dados.prox90.valor)}</p>
-          <p className="mt-1 text-[11.5px] text-muted-foreground">
-            vencem nos próximos 90 dias (barras em destaque) · <span className="font-semibold text-foreground">{dados.prox90.qtd} contrato{dados.prox90.qtd === 1 ? '' : 's'}</span>
-          </p>
-        </div>
-        <div className="flex min-h-[64px] flex-1 flex-col">
-          <div className="flex flex-1 items-end gap-1 border-b border-foreground/15" role="img"
-            aria-label={`Valor que vence por mês: ${meses.map((m) => `${MES_CURTO(m.mes)} ${BRL_CURTO.format(m.valor)}`).join(', ')}`}>
-            {meses.map((m, i) => (
-              <div key={m.mes} className="flex h-full flex-1 items-end" title={`${MES_CURTO(m.mes)}: ${m.qtd} contrato${m.qtd === 1 ? '' : 's'} · ${BRL_CURTO.format(m.valor)}`}>
-                <div className={cn('w-full rounded-t-[3px]', i < 3 ? BARRA_FORTE : BARRA_FRACA)}
-                  style={{ height: m.valor > 0 ? `${Math.max(4, (m.valor / maior) * 100)}%` : '0' }} />
-              </div>
+      ) : (
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="flex min-h-[260px] flex-col gap-2">
+            <div className="shrink-0">
+              <p className="text-2xl font-bold leading-none tabular-nums">{BRL_CURTO.format(dados.prox90.valor)}</p>
+              <p className="mt-1 text-[11.5px] text-muted-foreground">
+                vencem nos próximos 90 dias (barras em destaque) · <span className="font-semibold text-foreground">{dados.prox90.qtd} contrato{dados.prox90.qtd === 1 ? '' : 's'}</span>
+              </p>
+            </div>
+            <div className="flex min-h-0 flex-1 items-end gap-1.5 border-b border-foreground/15" role="img"
+              aria-label={`Valor que vence por mês: ${meses.map((m) => `${MES_CURTO(m.mes)} ${BRL_CURTO.format(m.valor)}`).join(', ')}`}>
+              {meses.map((m, i) => (
+                <div key={m.mes} className="flex h-full flex-1 flex-col items-center justify-end gap-1" title={`${MES_CURTO(m.mes)}: ${m.qtd} contrato${m.qtd === 1 ? '' : 's'} · ${BRL_CURTO.format(m.valor)}`}>
+                  {m.valor > 0 && <span className="text-[10.5px] font-semibold tabular-nums">{BRL_CURTO.format(m.valor)}</span>}
+                  <div className={cn('w-full max-w-[56px] rounded-t-[3px]', i < 3 ? BARRA_FORTE : BARRA_FRACA)}
+                    style={{ height: m.valor > 0 ? `${Math.max(4, (m.valor / maior) * 85)}%` : '0' }} />
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-1.5">
+              {meses.map((m) => <span key={m.mes} className="flex-1 truncate text-center text-[11px] text-muted-foreground">{MES_CURTO(m.mes)}</span>)}
+            </div>
+            {dados.vencidos.qtd > 0 && (
+              <p className="flex shrink-0 items-center gap-1.5 text-[11.5px] text-[hsl(25_90%_27%)] dark:text-orange-300">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                <span><span className="font-semibold">{dados.vencidos.qtd} já vencido{dados.vencidos.qtd === 1 ? '' : 's'}</span> sem renovação · {BRL_CURTO.format(dados.vencidos.valor)}</span>
+              </p>
+            )}
+          </div>
+          {/* A lista transforma o gráfico em ação: cada linha abre o contrato. */}
+          <aside className="flex min-h-0 flex-col gap-1 lg:border-l lg:pl-5">
+            <p className="text-xs font-semibold">Vencem primeiro</p>
+            {dados.proximos.length === 0 ? <p className="text-[11px] text-muted-foreground">Nenhum nos próximos 12 meses.</p> : dados.proximos.map((e) => (
+              <button key={e.id} type="button" onClick={() => onAbrirContrato(e)}
+                className="grid grid-cols-[38px_minmax(0,1fr)_auto] items-baseline gap-2 rounded px-1.5 py-1.5 text-left text-[11.5px] hover:bg-muted">
+                <span className="font-mono text-[10.5px] text-muted-foreground">{dataCurta(e.termino)}</span>
+                <span className="min-w-0">
+                  <span className="block truncate font-semibold">{e.numero}</span>
+                  <span className="block truncate text-[10.5px] text-muted-foreground">{e.contraparte ?? e.titulo}</span>
+                </span>
+                <span className="font-semibold tabular-nums">{BRL_CURTO.format(e.valor)}</span>
+              </button>
             ))}
-          </div>
-          <div className="mt-1 flex gap-1">
-            {meses.map((m) => <span key={m.mes} className="flex-1 truncate text-center text-[9.5px] text-muted-foreground">{MES_CURTO(m.mes)}</span>)}
-          </div>
+          </aside>
         </div>
-        {dados.vencidos.qtd > 0 && (
-          <p className="flex shrink-0 items-center gap-1.5 text-[11.5px] text-[hsl(25_90%_27%)] dark:text-orange-300">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-            <span><span className="font-semibold">{dados.vencidos.qtd} já vencido{dados.vencidos.qtd === 1 ? '' : 's'}</span> sem renovação · {BRL_CURTO.format(dados.vencidos.valor)}</span>
-          </p>
-        )}
-      </>)}
+      )}
     </Tile>
   )
 }
 
 /** Concentração: quanto da carteira está nos maiores parceiros (o número), a barra de
- *  100% em três grupos (o "outros" com TEXTURA, não só cor) e os três maiores nomeados. */
-function CartaoConcentracao({ dados, onClick }: { dados?: NonNullable<Summary['carteira']>['concentracao']; onClick: () => void }) {
+ *  100% em três grupos (o "outros" com TEXTURA, não só cor) e, ao lado, o ranking com uma
+ *  barra por parceiro — proporcional ao MAIOR, para comparar um com o outro. */
+function CartaoConcentracao({ dados }: { dados?: NonNullable<Summary['carteira']>['concentracao'] }) {
   if (!dados || dados.total === 0) return (
-    <Tile onClick={onClick} highlight className="flex flex-col gap-2 lg:min-h-0">
+    <Tile className="flex flex-1 flex-col gap-2 lg:min-h-0">
       <CabecalhoCartao icon={<PieIcon className="h-4 w-4" />} label="Concentração por parceiro" />
       <p className="flex flex-1 items-center justify-center text-center text-[11px] text-muted-foreground">Nenhum contrato em mãos tem parceiro como contraparte.</p>
     </Tile>
@@ -604,42 +638,62 @@ function CartaoConcentracao({ dados, onClick }: { dados?: NonNullable<Summary['c
   const pctFmt = (v: number) => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`
   const quem = n === 1 ? 'no maior parceiro' : `nos ${n} maiores parceiros`
   const valorTop = dados.parceiros.slice(0, 3).reduce((s, p) => s + p.valor, 0)
+  const maiorParceiro = Math.max(1, ...dados.parceiros.map((p) => p.valor))
   const grupos = [
     { chave: 'top', pct: dados.top3Pct, rotulo: n === 1 ? 'maior' : `${n} maiores`, cls: 'bg-[#0f7a4c] dark:bg-[#1fa565]' },
     { chave: 'meio', pct: grupoMeio, rotulo: '4º–5º', cls: BARRA_FRACA },
-    { chave: 'outros', pct: dados.outros.pct, rotulo: `outros ${dados.outros.qtd}`, cls: 'bg-[repeating-linear-gradient(135deg,hsl(var(--foreground)/0.22)_0_3px,hsl(var(--foreground)/0.07)_3px_7px)]' },
+    { chave: 'outros', pct: dados.outros.pct, rotulo: `outros ${dados.outros.qtd}`, cls: TEXTURA_OUTROS },
   ].filter((g) => g.pct > 0)
   return (
-    <Tile onClick={onClick} highlight className="flex flex-col gap-2 lg:min-h-0">
+    <Tile className="flex flex-1 flex-col gap-3 lg:min-h-0">
       <CabecalhoCartao icon={<PieIcon className="h-4 w-4" />} label="Concentração por parceiro" />
-      <div className="shrink-0">
-        <p className="text-2xl font-bold leading-none tabular-nums">{pctFmt(dados.top3Pct)}</p>
-        <p className="mt-1 text-[11.5px] text-muted-foreground">
-          da carteira está <span className="font-semibold text-foreground">{quem}</span> · {BRL_CURTO.format(valorTop)} de {BRL_CURTO.format(dados.total)}
-        </p>
-      </div>
-      <div className="shrink-0">
-        <div className="flex h-4 gap-0.5 overflow-hidden rounded" role="img"
-          aria-label={`Participação na carteira: ${grupos.map((g) => `${g.rotulo} ${pctFmt(g.pct)}`).join(', ')}`}>
-          {grupos.map((g) => <div key={g.chave} className={g.cls} style={{ width: `${g.pct}%` }} />)}
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-8 lg:grid-cols-2">
+        <div className="flex flex-col gap-4">
+          <div>
+            <p className="text-3xl font-bold leading-none tabular-nums">{pctFmt(dados.top3Pct)}</p>
+            <p className="mt-1.5 text-[12px] text-muted-foreground">
+              da carteira está <span className="font-semibold text-foreground">{quem}</span> · {BRL_CURTO.format(valorTop)} de {BRL_CURTO.format(dados.total)}
+            </p>
+          </div>
+          <div>
+            <div className="flex h-5 gap-0.5 overflow-hidden rounded" role="img"
+              aria-label={`Participação na carteira: ${grupos.map((g) => `${g.rotulo} ${pctFmt(g.pct)}`).join(', ')}`}>
+              {grupos.map((g) => <div key={g.chave} className={g.cls} style={{ width: `${g.pct}%` }} />)}
+            </div>
+            <div className="mt-1 flex gap-0.5 text-[10.5px]">
+              {grupos.map((g) => (
+                <span key={g.chave} className="truncate" style={{ width: `${g.pct}%`, minWidth: '4rem' }}>
+                  <span className="font-semibold">{g.rotulo}</span> <span className="text-muted-foreground">{pctFmt(g.pct)}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+          {dados.semParceiro > 0 && (
+            <p className="text-[11px] text-muted-foreground">
+              {dados.semParceiro} contrato{dados.semParceiro === 1 ? '' : 's'} sem parceiro externo {dados.semParceiro === 1 ? 'fica' : 'ficam'} fora desta conta.
+            </p>
+          )}
         </div>
-        <div className="mt-1 flex gap-0.5 text-[10px] text-muted-foreground">
-          {grupos.map((g) => <span key={g.chave} className="truncate" style={{ width: `${g.pct}%`, minWidth: '3.5rem' }}><span className="font-semibold text-foreground">{g.rotulo}</span></span>)}
-        </div>
+        <ol className="flex min-h-0 flex-col gap-2.5 lg:border-l lg:pl-8" aria-label="Maiores parceiros por valor vigente">
+          {dados.parceiros.map((p, i) => (
+            <li key={p.id} className="flex flex-col gap-1 text-[12px]">
+              <div className="flex items-baseline gap-2">
+                <span className="min-w-0 flex-1 truncate" title={p.nome}><span className="text-muted-foreground">{i + 1} ·</span> {p.nome}</span>
+                <span className="shrink-0 tabular-nums"><span className="font-semibold">{pctFmt(p.pct)}</span> · {BRL_CURTO.format(p.valor)}</span>
+              </div>
+              <div className="h-2 rounded bg-foreground/[0.06]">
+                <div className={cn('h-2 rounded', i < 3 ? 'bg-[#0f7a4c] dark:bg-[#1fa565]' : BARRA_FRACA)} style={{ width: `${(p.valor / maiorParceiro) * 100}%` }} />
+              </div>
+            </li>
+          ))}
+          {dados.outros.qtd > 0 && (
+            <li className="flex items-baseline gap-2 border-t pt-2 text-[12px] text-muted-foreground">
+              <span className="min-w-0 flex-1">outros {dados.outros.qtd} parceiro{dados.outros.qtd === 1 ? '' : 's'}</span>
+              <span className="shrink-0 tabular-nums"><span className="font-semibold text-foreground">{pctFmt(dados.outros.pct)}</span> · {BRL_CURTO.format(dados.outros.valor)}</span>
+            </li>
+          )}
+        </ol>
       </div>
-      <ol className="flex min-h-0 flex-1 flex-col gap-0.5 text-[11.5px]">
-        {dados.parceiros.slice(0, 3).map((p, i) => (
-          <li key={p.id} className="flex items-baseline gap-2">
-            <span className="min-w-0 flex-1 truncate" title={p.nome}><span className="text-muted-foreground">{i + 1} ·</span> {p.nome}</span>
-            <span className="shrink-0 tabular-nums"><span className="font-semibold">{pctFmt(p.pct)}</span> · {BRL_CURTO.format(p.valor)}</span>
-          </li>
-        ))}
-      </ol>
-      {dados.semParceiro > 0 && (
-        <p className="shrink-0 text-[10.5px] text-muted-foreground">
-          {dados.semParceiro} contrato{dados.semParceiro === 1 ? '' : 's'} sem parceiro externo {dados.semParceiro === 1 ? 'fica' : 'ficam'} fora desta conta.
-        </p>
-      )}
     </Tile>
   )
 }

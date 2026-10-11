@@ -36,6 +36,20 @@ describe('vencimentosPorMes', () => {
   })
 })
 
+describe('vencimentosPorMes · lista dos próximos', () => {
+  it('ordena por data, só dentro dos 12 meses, e respeita o limite', () => {
+    const v = vencimentosPorMes([
+      it_({ id: 'b', numero: 'B', termino: '2026-12-01', valor: 1 }),
+      it_({ id: 'a', numero: 'A', termino: '2026-10-20', valor: 1, contraparte: { id: 'p', nome: 'ACME' } }),
+      it_({ id: 'longe', numero: 'L', termino: '2028-01-01', valor: 1 }),
+      it_({ id: 'venc', numero: 'V', situacao: 'VENCIDO', termino: '2026-01-01', valor: 1 }),
+      it_({ id: 'c', numero: 'C', termino: '2027-01-05', valor: 1 }),
+    ], HOJE, 2)
+    expect(v.proximos.map((x) => x.id)).toEqual(['a', 'b'])
+    expect(v.proximos[0].contraparte).toBe('ACME')
+  })
+})
+
 describe('concentracaoPorParceiro', () => {
   const p = (id: string) => ({ id, nome: `Parceiro ${id}` })
   it('soma por contraparte, ordena, top 5 + outros, percentuais sobre o total', () => {

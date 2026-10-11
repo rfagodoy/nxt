@@ -11,6 +11,10 @@ export interface ItemCarteira {
   valor: number
   /** contraparte EXTERNA (parte que é parceiro), já com cessões aplicadas */
   contraparte: { id: string; nome: string } | null
+  /** identificação, para a lista "vencem primeiro" */
+  id?: string
+  numero?: string
+  titulo?: string
 }
 
 export interface MesVencimento { mes: string; qtd: number; valor: number }
@@ -22,6 +26,8 @@ export interface Vencimentos {
   prox90: { qtd: number; valor: number }
   /** término passou e não foi renovado/encerrado (situação derivada VENCIDO) */
   vencidos: { qtd: number; valor: number }
+  /** os próximos a vencer dentro dos 12 meses, por data (lista que leva ao contrato) */
+  proximos: Array<{ id: string; numero: string; titulo: string; termino: string; valor: number; contraparte: string | null }>
 }
 
 const chaveMes = (iso: string) => iso.slice(0, 7)
@@ -29,7 +35,7 @@ const chaveMes = (iso: string) => iso.slice(0, 7)
 /** Agrupa os VIGENTES pelo mês de término, 12 meses a partir do mês de `hoje`. Indeterminado
  *  não tem vencimento; VENCIDO vai para o próprio balde; os demais (em cadastro, encerrado,
  *  cancelado) não estão "em mãos". */
-export function vencimentosPorMes(itens: ItemCarteira[], hoje: string): Vencimentos {
+export function vencimentosPorMes(itens: ItemCarteira[], hoje: string, limiteLista = 8): Vencimentos {
   const [a, m] = hoje.split('-').map(Number)
   const meses: MesVencimento[] = Array.from({ length: 12 }, (_, i) => {
     const d = new Date(Date.UTC(a, m - 1 + i, 1))
@@ -39,14 +45,19 @@ export function vencimentosPorMes(itens: ItemCarteira[], hoje: string): Vencimen
   const limite90 = new Date(new Date(hoje + 'T00:00:00Z').getTime() + 90 * DAY).toISOString().slice(0, 10)
   const prox90 = { qtd: 0, valor: 0 }
   const vencidos = { qtd: 0, valor: 0 }
+  const proximos: Vencimentos['proximos'] = []
   for (const it of itens) {
     if (it.situacao === 'VENCIDO') { vencidos.qtd++; vencidos.valor += it.valor; continue }
     if (it.situacao !== 'VIGENTE' || !it.termino || it.termino < hoje) continue
     const balde = porMes.get(chaveMes(it.termino))
-    if (balde) { balde.qtd++; balde.valor += it.valor }
+    if (balde) {
+      balde.qtd++; balde.valor += it.valor
+      if (it.id) proximos.push({ id: it.id, numero: it.numero ?? '', titulo: it.titulo ?? '', termino: it.termino, valor: it.valor, contraparte: it.contraparte?.nome ?? null })
+    }
     if (it.termino <= limite90) { prox90.qtd++; prox90.valor += it.valor }
   }
-  return { meses, prox90, vencidos }
+  proximos.sort((x, y) => (x.termino < y.termino ? -1 : x.termino > y.termino ? 1 : y.valor - x.valor))
+  return { meses, prox90, vencidos, proximos: proximos.slice(0, limiteLista) }
 }
 
 export interface Concentracao {

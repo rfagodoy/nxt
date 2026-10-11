@@ -153,6 +153,7 @@ export class DashboardService {
       return {
         situacao: d.situacao, termino: c.prazoIndeterminado ? '' : (d.termino ?? ''), valor: d.valor,
         contraparte: externa ? { id: externa.ref_id, nome: externa.nome } : null,
+        id: c.id, numero: c.numero, titulo: c.titulo,
       }
     })
     const vencimentos = vencimentosPorMes(itensCarteira, todayStr)
