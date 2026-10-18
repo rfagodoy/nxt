@@ -8,6 +8,8 @@ import {
   FolderInput, CornerDownRight, AlertTriangle, Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useDensidade, type Densidade } from '@/lib/densidade'
+import { DensidadeSelect } from '@/components/list/densidade-select'
 import { apiFetch } from '@/lib/http'
 import { useAoVivo } from '@/lib/realtime'
 import { ResponsaveisSection } from '@/components/responsaveis/responsaveis-section'
@@ -364,7 +366,7 @@ function UnitRow({ row, flatMode, typeMap, onToggle, onAddChild, onEdit, onMove,
   const view = unitTypeView(typeMap, u.natureza)
   const hasKids = (u.childrenCount ?? 0) > 0
   return (
-    <div className={cn('group relative h-[30px] px-3 text-xs hover:bg-muted/60 border-b border-border/40', ROW_GRID)}>
+    <div className={cn('group relative h-full px-[var(--lista-px)] text-[length:var(--lista-fonte)] hover:bg-muted/60 border-b border-border/40', ROW_GRID)}>
       <span className="font-mono text-[10px] text-muted-foreground truncate">{u.codigo || '—'}</span>
       <div className="flex items-center gap-1 min-w-0" style={{ paddingLeft: flatMode ? 0 : depth * 16 }}>
         {flatMode ? (
@@ -392,10 +394,14 @@ function UnitRow({ row, flatMode, typeMap, onToggle, onAddChild, onEdit, onMove,
 
 /* ─── organograma (tabela hierárquica, lazy + virtualizada + busca) ─── */
 
-const ROW_H = 30
+/* A lista é VIRTUALIZADA: a altura da linha precisa existir em JS (não só no CSS) para
+   calcular quais linhas desenhar — por isso segue a densidade aqui, além das variáveis. */
+const ALTURA_LINHA: Record<Densidade, number> = { compacta: 30, media: 38, alta: 46 }
 const VIEWPORT = 460
 
 function OrgChart({ companyId, onChanged }: { companyId: string; onChanged: () => void }) {
+  const { densidade } = useDensidade()
+  const ROW_H = ALTURA_LINHA[densidade]
   const [cache,    setCache]    = useState<Record<string, Unit[]>>({})
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [loading,  setLoading]  = useState(true)
@@ -526,7 +532,7 @@ function OrgChart({ companyId, onChanged }: { companyId: string; onChanged: () =
           onScroll={e => setScrollTop(e.currentTarget.scrollTop)}>
           <div style={{ height: total * ROW_H, position: 'relative' }}>
             {slice.map((row, i) => (
-              <div key={row.unit.id} style={{ position: 'absolute', top: (start + i) * ROW_H, left: 0, right: 0 }}>
+              <div key={row.unit.id} style={{ position: 'absolute', top: (start + i) * ROW_H, left: 0, right: 0, height: ROW_H }}>
                 <UnitRow row={row} flatMode={inSearch} typeMap={typeMap} onToggle={toggle}
                   onAddChild={u => openNewUnit(u)} onEdit={u => openEditUnit(u)} onMove={u => setMoving(u)} onRemove={removeUnit} />
               </div>
@@ -542,7 +548,10 @@ function OrgChart({ companyId, onChanged }: { companyId: string; onChanged: () =
             <span key={k} className="inline-flex items-center gap-1.5 text-[10px] text-muted-foreground"><span className={cn('h-2 w-2 rounded-full', c.dot)} />{c.label}</span>
           ))}
         </div>
-        <span className="text-[10px] text-muted-foreground">{inSearch ? `${total} resultado(s)` : `${total} unidade(s) visível(is)`}</span>
+        <span className="flex items-center gap-3">
+          <span className="text-[10px] text-muted-foreground">{inSearch ? `${total} resultado(s)` : `${total} unidade(s) visível(is)`}</span>
+          <DensidadeSelect />
+        </span>
       </div>
 
       {moving && (

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { FileText, Users, Calendar, Banknote, TrendingUp, TrendingDown, RefreshCw, Paperclip, FilePlus2, Clock, Eye } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { DensidadeSelect } from '@/components/list/densidade-select'
 import { apiFetch, motivoDoErro, cabecalhosDaTarefa, type OrigemDaTarefa } from '@/lib/http'
 import { faltantesContrato, rotuloDeSecao, SECOES_CONTRATO, type AcaoSalvar } from '@/lib/campos-obrigatorios'
 import { AvisoCamposFaltantes } from '@/components/forms/aviso-campos-faltantes'
@@ -58,7 +59,7 @@ export { SIT_CLS, SIT_LABEL, SIT_DOT_CLS }
 /* painel de aba: só renderiza quando a aba está ativa */
 export function DSection({ active, children }: { active: boolean; children: React.ReactNode }) {
   if (!active) return null
-  return <div className="rounded-xl border bg-card p-4 space-y-3 shadow-sm">{children}</div>
+  return <div className="rounded-xl border bg-card p-[var(--secao-pad)] space-y-[var(--form-gap)] shadow-sm">{children}</div>
 }
 
 /* ══════════════════════════════════════════════════════════════ */
@@ -478,6 +479,9 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
         <DSection active={tab === 'historico'}><ContractHistory contractId={row.id} reloadKey={auditVersion} /></DSection>
         </>)}
       </form>
+
+      {/* densidade da tela: a MESMA preferência das listas (vale para o sistema todo) */}
+      <div className="shrink-0 flex justify-end pt-2"><DensidadeSelect /></div>
 
       {searchModal && (
         <EntitySearchModal

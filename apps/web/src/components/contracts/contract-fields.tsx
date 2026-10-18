@@ -92,15 +92,15 @@ export type ContractForm = ReturnType<typeof useContractForm>
 /* ─── estilos + primitivos controlados (com modo leitura) ── */
 
 /* primitivos idênticos aos do cadastro de Parceiros (padrão único de campo do sistema) */
-const inputCls  = 'flex h-8 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
-const areaCls   = 'flex w-full rounded-md border border-input bg-background px-3 py-2 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none'
-const readCls   = 'flex min-h-[1.5rem] w-full items-center bg-transparent px-0 text-[13px] font-medium text-foreground'
-const readArea  = 'block w-full bg-transparent px-0 py-0 text-[13px] font-medium text-foreground whitespace-pre-wrap'
+const inputCls  = 'flex h-[var(--campo-altura)] w-full rounded-md border border-input bg-background px-3 text-[length:var(--campo-fonte)] shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
+const areaCls   = 'flex w-full rounded-md border border-input bg-background px-3 py-2 text-[length:var(--campo-fonte)] shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none'
+const readCls   = 'flex min-h-[var(--leitura-altura)] w-full items-center bg-transparent px-0 text-[length:var(--leitura-fonte)] font-medium text-foreground'
+const readArea  = 'block w-full bg-transparent px-0 py-0 text-[length:var(--leitura-fonte)] font-medium text-foreground whitespace-pre-wrap'
 
 export function Field({ label, required, span2, children }: { label: string; required?: boolean; span2?: boolean; children: React.ReactNode }) {
   return (
     <div className={cn('space-y-0.5', span2 && 'col-span-2')}>
-      <label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}{required && <span className="text-red-500 ml-1">*</span>}</label>
+      <label className="block text-[length:var(--rotulo-fonte)] font-semibold uppercase tracking-wide text-muted-foreground">{label}{required && <span className="text-red-500 ml-1">*</span>}</label>
       {children}
     </div>
   )
@@ -298,7 +298,7 @@ export function IdentificacaoFields({ form, ro, autoNumero = false, numeroPrevie
   const addObjeto = (id: string) => { if (id && !v.objeto.includes(id)) form.set('objeto', [...v.objeto, id]) }
 
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid grid-cols-2 gap-[var(--form-gap)]">
       {/* Natureza vem primeiro: é o "modo" que define o que o resto do formulário exibe */}
       {isVisible('natureza') && <Field label="Natureza do contrato" span2><Segmented value={v.natureza} onChange={x => form.set('natureza', x)} ro={lk('natureza')} options={NATUREZAS} /></Field>}
       {isVisible('numero') && (autoNumero ? (
@@ -511,7 +511,7 @@ export function VigenciaFields({ form, ro, isVisible = showAll, isLocked = lockN
   const money = (n: number | string) => `${v.moeda ? v.moeda + ' ' : ''}${(Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid grid-cols-2 gap-[var(--form-gap)]">
       {/* Ordem: Início → Prazo indeterminado → Término → Ao término (a âncora vem antes do modificador) */}
       {isVisible('inicio') && <Field label="Início da vigência" required><Txt type="date" value={v.inicioVigencia} onChange={x => form.set('inicioVigencia', x)} ro={lk('inicio')} /></Field>}
       {isVisible('prazo_indeterminado') && <Field label="Prazo indeterminado">
@@ -665,7 +665,7 @@ export function ValoresFields({ form, ro, isVisible = showAll, isLocked = lockNo
   const totalRecebido = somaLancamentosPagos(v.recebimentos)
   const valorTotalNum = valorVigente(v)            // valor VIGENTE (original + aditivos) — usado no topo e no saldo
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid grid-cols-2 gap-[var(--form-gap)]">
       {/* Ordem: (1) moeda + condição — descritores de topo; (2) os dois VALORES colados
           (vigentes na leitura); (3) forma + quantidade — como paga e em quantas. A quantidade
           é condicional e fica por último, então nunca separa os dois valores. */}
@@ -2068,7 +2068,7 @@ function DocumentoCard({ doc, idx, ro, form, open, onToggle, onCollapse }: { doc
 
         {/* Arquivo: chip elegante quando anexado; dropzone tracejada quando vazio */}
         <div className="space-y-1">
-          <label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Arquivo</label>
+          <label className="block text-[length:var(--rotulo-fonte)] font-semibold uppercase tracking-wide text-muted-foreground">Arquivo</label>
           {doc.arquivo_key ? (
             <div className="flex items-center gap-3 rounded-lg border bg-muted/20 px-3 py-2.5">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><FileText className="h-4 w-4" /></div>
@@ -2489,7 +2489,7 @@ function AditivoCard({ a, idx, form, open, onToggle, ro, onOpenCessaoSearch, onA
             <button type="button" onClick={ativar} className="inline-flex items-center h-7 shrink-0 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">Ativar aditivo</button>
           )}
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-[var(--form-gap)]">
           <Field label="Número"><Txt value={a.numero} onChange={x => form.patchAditivo(a.id, { numero: x })} ro={lock} placeholder="1" /></Field>
           <Field label="Data de assinatura" required><Txt type="date" value={a.data} onChange={x => form.patchAditivo(a.id, { data: x })} ro={lock} /></Field>
         </div>
@@ -2619,7 +2619,7 @@ function AditivoCard({ a, idx, form, open, onToggle, ro, onOpenCessaoSearch, onA
             )}
 
             {a.alteraTermino && (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-[var(--form-gap)]">
                 <Field label="Início da prorrogação"><span className={readCls}>{fmtBR(inicioProrrog)}</span></Field>
                 <Field label="Novo término"><Txt type="date" value={a.novoTermino} onChange={x => form.patchAditivo(a.id, { novoTermino: x })} ro={lock} /></Field>
               </div>
@@ -2627,7 +2627,7 @@ function AditivoCard({ a, idx, form, open, onToggle, ro, onOpenCessaoSearch, onA
 
             {a.alteraValor && (
               <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-[var(--form-gap)]">
                   <Field label="Acréscimo ao valor total"><MoneyField value={a.novoValor} moedaCode={v.moeda} onChange={x => form.patchAditivo(a.id, { novoValor: x })} ro={lock} /></Field>
                   <Field label="Nova parcela"><MoneyField value={a.novaParcela} moedaCode={v.moeda} onChange={x => form.patchAditivo(a.id, { novaParcela: x })} ro={lock} /></Field>
                   {/* renegociação: condição e complemento são opcionais — em branco, mantém o vigente */}

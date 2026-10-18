@@ -12,6 +12,14 @@
   --lista-indicador: 1.875rem;
   --cartao-pad: 0.5rem;
   --cartao-gap: 0.25rem;
+  /* cadastros (consulta e edição) — Compacta = o formulário de sempre */
+  --campo-altura: 2rem;
+  --campo-fonte: 0.75rem;
+  --leitura-fonte: 0.8125rem;
+  --leitura-altura: 1.5rem;
+  --rotulo-fonte: 0.625rem;
+  --form-gap: 0.75rem;
+  --secao-pad: 1rem;
 }
 :root[data-densidade="media"] {
   --lista-linha: 2.5rem;
@@ -21,6 +29,14 @@
   --lista-indicador: 2.125rem;
   --cartao-pad: 0.75rem;
   --cartao-gap: 0.5rem;
+  /* cadastros (consulta e edição) — Compacta = o formulário de sempre */
+  --campo-altura: 2.25rem;
+  --campo-fonte: 0.8125rem;
+  --leitura-fonte: 0.875rem;
+  --leitura-altura: 1.75rem;
+  --rotulo-fonte: 0.6875rem;
+  --form-gap: 1rem;
+  --secao-pad: 1.25rem;
 }
 :root[data-densidade="alta"] {
   --lista-linha: 3.125rem;
@@ -30,6 +46,14 @@
   --lista-indicador: 2.5rem;
   --cartao-pad: 1rem;
   --cartao-gap: 0.75rem;
+  /* cadastros (consulta e edição) — Compacta = o formulário de sempre */
+  --campo-altura: 2.5rem;
+  --campo-fonte: 0.875rem;
+  --leitura-fonte: 0.9375rem;
+  --leitura-altura: 2rem;
+  --rotulo-fonte: 0.75rem;
+  --form-gap: 1.25rem;
+  --secao-pad: 1.5rem;
 }
 
 @layer base {

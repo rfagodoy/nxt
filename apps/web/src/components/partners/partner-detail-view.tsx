@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Building2, Phone, MapPin, CreditCard, Users, Briefcase, Clock, Plus, X, SlidersHorizontal, CheckCircle2, RotateCcw, Pencil, Ban, UserCog, Eye, type LucideIcon } from 'lucide-react'
 import { ResponsaveisSection } from '@/components/responsaveis/responsaveis-section'
 import { cn } from '@/lib/utils'
+import { DensidadeSelect } from '@/components/list/densidade-select'
 import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
 import { apiFetch, motivoDoErro, cabecalhosDaTarefa, type OrigemDaTarefa } from '@/lib/http'
 import { faltantesParceiro, rotuloDeSecao, SECOES_PARCEIRO, type AcaoSalvar } from '@/lib/campos-obrigatorios'
@@ -136,7 +137,7 @@ interface AuditEntry  { id: string; createdAt: string; user: string; event: stri
 /* ── painel de aba: só renderiza quando a aba está ativa (o título é a própria sub-aba) ── */
 function DSection({ active, children }: { active: boolean; children: React.ReactNode }) {
   if (!active) return null
-  return <div className="rounded-xl border bg-card p-4 space-y-3 shadow-sm">{children}</div>
+  return <div className="rounded-xl border bg-card p-[var(--secao-pad)] space-y-[var(--form-gap)] shadow-sm">{children}</div>
 }
 
 export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, screen, readOnly: readOnlyProp, lockedFields, origem }: {
@@ -671,6 +672,9 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
         </DSection>
 
       </form>
+
+      {/* densidade da tela: a MESMA preferência das listas (vale para o sistema todo) */}
+      <div className="shrink-0 flex justify-end pt-2"><DensidadeSelect /></div>
     </div>
   )
 }

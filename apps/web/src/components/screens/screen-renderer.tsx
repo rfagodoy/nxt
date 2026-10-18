@@ -6,8 +6,8 @@ import { cn } from '@/lib/utils'
 import type { Screen, ScreenField } from '@/lib/screen-types'
 import { fieldLocked, lockCtx } from '@/lib/screen-locks'
 
-const inputCls = 'flex h-7 w-full rounded-md border border-input bg-background px-2.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
-const readCls  = 'text-xs text-foreground/90 py-1'
+const inputCls = 'flex h-[var(--campo-altura)] w-full rounded-md border border-input bg-background px-2.5 text-[length:var(--campo-fonte)] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
+const readCls  = 'text-[length:var(--campo-fonte)] text-foreground/90 py-1'
 
 interface Props {
   screen: Screen

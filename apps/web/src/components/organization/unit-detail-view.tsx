@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Building2, UserCog, ChevronDown, CornerDownRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { DensidadeSelect } from '@/components/list/densidade-select'
 import { apiFetch, motivoDoErro } from '@/lib/http'
 import { getLogUser } from '@/hooks/use-partner-logs'
 import { useLookupTable } from '@/hooks/use-lookup-table'
@@ -15,14 +16,14 @@ export interface Unit {
   groupCompanyId?: string; childrenCount?: number
 }
 
-const inputCls = 'flex h-8 w-full rounded-md border border-input bg-background px-2.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
+const inputCls = 'flex h-[var(--campo-altura)] w-full rounded-md border border-input bg-background px-2.5 text-[length:var(--campo-fonte)] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
 const STATUS = [{ value: 'ATIVA', label: 'Ativa' }, { value: 'INATIVA', label: 'Inativa' }]
 const alnum15 = (v: string) => v.replace(/[^A-Za-z0-9]/g, '').slice(0, 15)
 
 function Field({ label, required, span2, children }: { label: string; required?: boolean; span2?: boolean; children: React.ReactNode }) {
   return (
     <div className={cn('space-y-0.5', span2 && 'col-span-2')}>
-      <label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}{required && <span className="text-red-500 ml-1">*</span>}</label>
+      <label className="block text-[length:var(--rotulo-fonte)] font-semibold uppercase tracking-wide text-muted-foreground">{label}{required && <span className="text-red-500 ml-1">*</span>}</label>
       {children}
     </div>
   )
@@ -41,7 +42,7 @@ function Section({ icon: Icon, title, isOpen, onToggle, hasError, children }: {
         <h3 className={cn('text-xs font-semibold flex-1 text-left', hasError && 'text-red-500')}>{title}</h3>
         <ChevronDown className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform duration-200', isOpen && 'rotate-180')} />
       </button>
-      {isOpen && <div className="p-4 space-y-3">{children}</div>}
+      {isOpen && <div className="p-[var(--secao-pad)] space-y-[var(--form-gap)]">{children}</div>}
     </div>
   )
 }
@@ -122,7 +123,7 @@ export function UnitDetailView({ mode, unit, companyId, parentId, parentName, on
 
   // conteúdo das seções (reaproveitado por accordion e por abas)
   const dadosFields = (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid grid-cols-2 gap-[var(--form-gap)]">
       <Field label="Nome" required span2><input value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome da unidade" className={inputCls} autoFocus /></Field>
       <Field label="Código"><input value={codigo ?? ''} onChange={e => setCodigo(alnum15(e.target.value))} maxLength={15} placeholder="Alfanum. (até 15)" className={cn(inputCls, 'font-mono uppercase')} /></Field>
       <Field label="Tipo de unidade">
@@ -190,9 +191,11 @@ export function UnitDetailView({ mode, unit, companyId, parentId, parentName, on
               </button>
             ))}
           </div>
-          <div className="rounded-xl border bg-card p-4 shadow-sm">
+          <div className="rounded-xl border bg-card p-[var(--secao-pad)] shadow-sm">
             {tab === 'dados' ? dadosFields : partesContent}
           </div>
+          {/* densidade da tela: a MESMA preferência das listas (vale para o sistema todo) */}
+      <div className="shrink-0 flex justify-end pt-2"><DensidadeSelect /></div>
         </>
       )}
     </div>

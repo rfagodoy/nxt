@@ -211,13 +211,13 @@ const never:  VisFn = () => false
 
 /* ─── estilos + primitivos controlados (com modo leitura) ── */
 
-const inputCls = 'flex h-8 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
-const readCls  = 'flex min-h-[1.5rem] w-full items-center bg-transparent px-0 text-[13px] font-medium text-foreground'
+const inputCls = 'flex h-[var(--campo-altura)] w-full rounded-md border border-input bg-background px-3 text-[length:var(--campo-fonte)] shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
+const readCls  = 'flex min-h-[var(--leitura-altura)] w-full items-center bg-transparent px-0 text-[length:var(--leitura-fonte)] font-medium text-foreground'
 
 export function Field({ label, required, span2, hint, children }: { label: string; required?: boolean; span2?: boolean; hint?: string; children: React.ReactNode }) {
   return (
     <div className={cn('space-y-0.5', span2 && 'col-span-2')}>
-      <label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}{required && <span className="text-red-500 ml-1">*</span>}</label>
+      <label className="block text-[length:var(--rotulo-fonte)] font-semibold uppercase tracking-wide text-muted-foreground">{label}{required && <span className="text-red-500 ml-1">*</span>}</label>
       {children}
       {hint && <p className="text-[10px] text-muted-foreground normal-case">{hint}</p>}
     </div>
@@ -272,7 +272,7 @@ export function ItemCard({ index, total, label, onRemove, ro, children }: { inde
         </div>
         {total > 1 && !ro && <button type="button" onClick={onRemove} className="text-muted-foreground hover:text-destructive transition-colors" title={`Remover ${label.toLowerCase()}`}><Trash2 className="h-3.5 w-3.5" /></button>}
       </div>
-      <div className="p-3 grid grid-cols-2 gap-3">{children}</div>
+      <div className="p-3 grid grid-cols-2 gap-[var(--form-gap)]">{children}</div>
     </div>
   )
 }
@@ -323,7 +323,7 @@ export function CustomFieldInput({ field }: { field: CustomField }) {
 export function CustomFieldsGrid({ fields }: { fields: CustomField[] }) {
   if (!fields.length) return null
   return (
-    <div className="grid grid-cols-2 gap-3 pt-1">
+    <div className="grid grid-cols-2 gap-[var(--form-gap)] pt-1">
       {fields.map(f => <CustomFieldInput key={f.id} field={f} />)}
     </div>
   )
@@ -460,7 +460,7 @@ export function IdentificacaoFields({ form, ro, isVisible = always, isLocked = n
 
   return (
     <>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-[var(--form-gap)]">
         {/* Razão Social / Nome Completo: campo-título em largura total (mais importante e mais longo) */}
         {isVisible('razao_social') && (
           <Field label={isPJ ? 'Razão Social' : 'Nome Completo'} required span2>

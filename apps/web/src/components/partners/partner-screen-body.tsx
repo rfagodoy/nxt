@@ -42,7 +42,7 @@ export function PartnerSectionBody({ section, form, ro, criando, screenValues, o
     <>
       {native()}
       {customFields.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 pt-1">
+        <div className="grid grid-cols-2 gap-[var(--form-gap)] pt-1">
           {customFields.map(f => (
             <div key={f.id} className={f.type === 'textarea' ? 'col-span-2' : ''}>
               <Field label={f.label} required={f.required && !ro && !f.locked}>
