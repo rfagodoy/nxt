@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
-import { Plus, ArrowUp, ArrowDown, ChevronsUpDown, Settings2 } from 'lucide-react'
+import { Plus, ArrowUp, ArrowDown, ChevronsUpDown, Settings2, Filter } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { useAoVivo } from '@/lib/realtime'
@@ -23,6 +23,7 @@ import type { ScreenField } from '@/lib/screen-types'
 import { type Row, SIT_CLS, SIT_LABEL, BRL, fmtDate } from '@/components/contracts/contract-detail-view'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { fieldValueKey } from '@/lib/screen-types'
+import { useDensidade } from '@/lib/densidade'
 
 
 
@@ -38,6 +39,22 @@ const COLUMNS = [
 ]
 
 const COL_ORDER_KEY = 'nxt:columns:contratos'
+/* liga/desliga da linha de filtro sob o cabeçalho — preferência PESSOAL (escopo do token) */
+const FILTRO_COLUNA_KEY = 'nxt:me:lista:filtro-coluna:contratos'
+
+/* Indicadores = filtros de um clique pela situação EFETIVA (o servidor filtra igual conta). */
+const INDICADORES: { label: string; situacao: string | null; cls: string }[] = [
+  { label: 'Total',       situacao: null,          cls: 'text-foreground' },
+  { label: 'Vigentes',    situacao: 'VIGENTE',     cls: 'text-emerald-600 dark:text-emerald-400' },
+  { label: 'Em cadastro', situacao: 'EM_CADASTRO', cls: 'text-blue-600 dark:text-blue-400' },
+  { label: 'Vencidos',    situacao: 'VENCIDO',     cls: 'text-amber-600 dark:text-amber-400' },
+  { label: 'Encerrados',  situacao: 'ENCERRADO',   cls: 'text-muted-foreground' },
+  { label: 'Rescindidos', situacao: 'RESCINDIDO',  cls: 'text-red-600 dark:text-red-400' },
+  { label: 'Cancelados',  situacao: 'CANCELADO',   cls: 'text-muted-foreground' },
+]
+
+/* célula da grade: espaçamento e altura vêm da DENSIDADE do usuário (globals.css) */
+const CEL = 'px-[var(--lista-px)] h-[var(--lista-linha)]'
 
 interface SortState { col: string; dir: 'asc' | 'desc' }
 
@@ -175,6 +192,34 @@ export default function ContratosPage() {
   const [page,         setPage]         = useState(1)
   const [pageSize,     setPageSize]     = useState(25)
   const [showFields,   setShowFields]   = useState(false)
+  const [situacaoFiltro, setSituacaoFiltro] = useState<string | null>(null)
+  /* filtro na coluna: o que se digita (imediato) e o que vai ao servidor (com espera) */
+  const [colFiltros,     setColFiltros]     = useState<Record<string, string>>({})
+  const [colFiltrosDeb,  setColFiltrosDeb]  = useState<Record<string, string>>({})
+  const colDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const [filtroColuna, setFiltroColunaState] = useState(false)
+  useEffect(() => {
+    setFiltroColunaState(cacheRead<boolean>(FILTRO_COLUNA_KEY, false))
+    void pullSetting<boolean>(FILTRO_COLUNA_KEY).then(v => { if (typeof v === 'boolean') setFiltroColunaState(v) })
+  }, [])
+  const alternarFiltroColuna = () => {
+    const v = !filtroColuna
+    setFiltroColunaState(v)
+    pushSetting(FILTRO_COLUNA_KEY, v)
+    // desligar a linha também solta o recorte — filtro escondido confunde
+    if (!v) { setColFiltros({}); setColFiltrosDeb({}) }
+  }
+  const mudarFiltroColuna = (col: string, value: string) => {
+    const next = { ...colFiltros, [col]: value }
+    setColFiltros(next)
+    clearTimeout(colDebounceRef.current)
+    colDebounceRef.current = setTimeout(() => setColFiltrosDeb(next), 300)
+  }
+  const columnFilters = useMemo(
+    () => Object.entries(colFiltrosDeb).filter(([, v]) => v.trim()).map(([col, value]) => ({ col, value })),
+    [colFiltrosDeb],
+  )
+  const { densidade } = useDensidade()
 
   /* ── query server-side (mesmo desenho do módulo Parceiros) ── */
   const queryServer = useCallback(async () => {
@@ -189,6 +234,8 @@ export default function ContratosPage() {
           sort:    sort ?? undefined,
           filters: filters.filter(f => f.value.trim()).map(({ col, op, value }) => ({ col, op, value })),
           logic,
+          situacao: situacaoFiltro ?? undefined,
+          columnFilters,
         }),
       })
       if (reqId !== reqIdRef.current) return
@@ -201,7 +248,7 @@ export default function ContratosPage() {
         setErroCarga(false)
       } else setErroCarga(true)
     } catch { if (reqId === reqIdRef.current) setErroCarga(true) }
-  }, [page, pageSize, debouncedSearch, sort, filters, logic])
+  }, [page, pageSize, debouncedSearch, sort, filters, logic, situacaoFiltro, columnFilters])
   useEffect(() => { void queryServer() }, [queryServer])
 
   /* ── área de trabalho global (abas no shell, sobrevivem à navegação) ── */
@@ -214,7 +261,7 @@ export default function ContratosPage() {
      datas renova/encerra um contrato. */
   useAoVivo(() => { void queryServer() })
 
-  useEffect(() => { setPage(1) }, [debouncedSearch, filters, sort, logic, pageSize])
+  useEffect(() => { setPage(1) }, [debouncedSearch, filters, sort, logic, pageSize, situacaoFiltro, columnFilters])
 
   const selectView = (id: string | null) => {
     setActiveViewId(id)
@@ -262,6 +309,8 @@ export default function ContratosPage() {
           sort:    sort ?? undefined,
           filters: filters.filter(f => f.value.trim()).map(({ col, op, value }) => ({ col, op, value })),
           logic,
+          situacao: situacaoFiltro ?? undefined,
+          columnFilters,
         }),
       })
       if (!res.ok) return
@@ -305,11 +354,11 @@ export default function ContratosPage() {
       : ''
     switch (key) {
       case 'numero':
-        return <td key={key} className={cn('px-3 py-1 font-medium font-mono whitespace-nowrap', sticky)}><button type="button" onClick={() => openContract(row)} className="hover:text-primary hover:underline text-left">{row.numero}</button></td>
+        return <td key={key} className={cn(CEL, 'font-medium font-mono whitespace-nowrap', sticky)}><button type="button" onClick={(e) => { e.stopPropagation(); openContract(row) }} className="hover:text-primary hover:underline text-left">{row.numero}</button></td>
       case 'titulo':
-        return <td key={key} className={cn('px-3 py-1 font-medium max-w-[200px] truncate', sticky)}>{row.titulo}</td>
+        return <td key={key} className={cn(CEL, 'font-medium max-w-[200px] truncate', sticky)}>{row.titulo}</td>
       case 'tipo':
-        return <td key={key} className={cn('px-3 py-1 text-muted-foreground whitespace-nowrap', sticky)}>{row.tipo}</td>
+        return <td key={key} className={cn(CEL, 'text-muted-foreground whitespace-nowrap', sticky)}>{row.tipo}</td>
       case 'parte_principal': {
         /* grid de 3 colunas: selo (uniforme) | nome (flexível) | documento (alinhado na própria coluna) */
         const linha = (label: string, badgeCls: string, nome?: string, doc?: string) => nome ? (
@@ -322,22 +371,29 @@ export default function ContratosPage() {
         const ctn = linha('Contratante', 'bg-slate-500/10 text-slate-600 dark:text-slate-400', row.contratante_nome, row.contratante_doc)
         const ctd = linha('Contratada',  'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', row.contratada_nome, row.contratada_doc)
         return (
-          <td key={key} className={cn('px-3 py-1 text-xs', sticky)}>
-            {ctn || ctd
-              ? <div className="grid grid-cols-[auto_1fr_auto] items-center gap-x-2 gap-y-1">{ctn}{ctd}</div>
+          <td key={key} className={cn(CEL, densidade === 'compacta' ? 'py-0' : 'py-1', sticky)}>
+            {densidade === 'compacta' && (row.contratada_nome || row.contratante_nome) ? (
+              /* Compacta: duas linhas não cabem — a contratada vai na frente e a contratante segue */
+              <div className="flex min-w-0 max-w-[420px] items-center gap-1.5 whitespace-nowrap">
+                {row.contratada_nome && <span className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">Contratada</span>}
+                <span className="truncate font-medium text-foreground">{row.contratada_nome || row.contratante_nome}</span>
+                {row.contratada_nome && row.contratante_nome && <span className="truncate text-muted-foreground">· {row.contratante_nome}</span>}
+              </div>
+            ) : ctn || ctd
+              ? <div className="grid grid-cols-[auto_minmax(11rem,1fr)_auto] items-center gap-x-2 gap-y-1">{ctn}{ctd}</div>
               : <span className="text-muted-foreground">{row.parte_principal || '—'}</span>}
           </td>
         )
       }
       case 'inicio':
-        return <td key={key} className={cn('px-3 py-1 text-muted-foreground tabular-nums whitespace-nowrap', sticky)}>{fmtDate(row.inicio)}</td>
+        return <td key={key} className={cn(CEL, 'text-muted-foreground tabular-nums whitespace-nowrap', sticky)}>{fmtDate(row.inicio)}</td>
       case 'termino':
-        return <td key={key} className={cn('px-3 py-1 text-muted-foreground tabular-nums whitespace-nowrap', sticky)}>{fmtDate(row.termino)}</td>
+        return <td key={key} className={cn(CEL, 'text-muted-foreground tabular-nums whitespace-nowrap', sticky)}>{fmtDate(row.termino)}</td>
       case 'valor_total':
-        return <td key={key} className={cn('px-3 py-1 text-right tabular-nums whitespace-nowrap', sticky)}>{BRL.format(row.valor_total)}</td>
+        return <td key={key} className={cn(CEL, 'text-right tabular-nums whitespace-nowrap', sticky)}>{BRL.format(row.valor_total)}</td>
       case 'situacao': {
         const s = effectiveSituacao(row.situacao, row.termino)
-        return <td key={key} className={cn('px-3 py-1 whitespace-nowrap', sticky)}><span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium ${SIT_CLS[s]}`}>{SIT_LABEL[s]}</span></td>
+        return <td key={key} className={cn(CEL, 'whitespace-nowrap', sticky)}><span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium ${SIT_CLS[s]}`}>{SIT_LABEL[s]}</span></td>
       }
       default: {
         const v = (row as unknown as Record<string, unknown>)[key]
@@ -345,7 +401,7 @@ export default function ContratosPage() {
         if (key === 'valor_parcela')        display = v ? BRL.format(Number(v)) : '—'
         else if (key === 'data_assinatura') display = fmtDate((v as string) || null)
         else if (key === 'papel')           display = v ? (v as string) : '—'
-        return <td key={key} className={cn('px-3 py-1 text-muted-foreground whitespace-nowrap',
+        return <td key={key} className={cn(CEL, 'text-muted-foreground whitespace-nowrap',
           (key === 'valor_parcela' || key === 'data_assinatura') && 'tabular-nums', key === 'valor_parcela' && 'text-right', sticky)}>{display}</td>
       }
     }
@@ -383,22 +439,24 @@ export default function ContratosPage() {
       {/* cards de resumo — as categorias precisam FECHAR com o Total: enquanto
           "Cancelados" faltava aqui, um contrato cancelado entrava no Total e em
           nenhuma coluna, e a conta simplesmente não batia na tela. */}
-      <div className="grid grid-cols-4 lg:grid-cols-7 gap-2">
-        {[
-          /* Contagem pela situação EFETIVA, agora vinda do servidor (stats.byEffective). */
-          { label: 'Total',       value: totalAll,                                    cls: 'text-foreground'  },
-          { label: 'Vigentes',    value: serverStats.byEffective.VIGENTE ?? 0,        cls: 'text-emerald-600 dark:text-emerald-400' },
-          { label: 'Em cadastro', value: serverStats.byEffective.EM_CADASTRO ?? 0,    cls: 'text-blue-600 dark:text-blue-400'       },
-          { label: 'Vencidos',    value: serverStats.byEffective.VENCIDO ?? 0,        cls: 'text-amber-600 dark:text-amber-400'     },
-          { label: 'Encerrados',  value: serverStats.byEffective.ENCERRADO ?? 0,      cls: 'text-muted-foreground'                  },
-          { label: 'Rescindidos', value: serverStats.byEffective.RESCINDIDO ?? 0,     cls: 'text-red-600 dark:text-red-400'         },
-          { label: 'Cancelados',  value: serverStats.byEffective.CANCELADO ?? 0,      cls: 'text-muted-foreground'                  },
-        ].map(({ label, value, cls }) => (
-          <div key={label} className="vidro rounded-xl bg-[var(--vidro-cartao)] px-3 py-2 flex items-center justify-between">
-            <p className="text-[11px] text-muted-foreground">{label}</p>
-            <p className={`text-sm font-bold tabular-nums ${cls}`}>{value}</p>
-          </div>
-        ))}
+      <div role="group" aria-label="Filtrar por situação" className="grid grid-cols-4 lg:grid-cols-7 gap-2">
+        {INDICADORES.map(({ label, situacao, cls }) => {
+          /* Contagem pela situação EFETIVA (stats.byEffective) — e um clique filtra por ela.
+             Selecionado = fundo escuro + "✓ filtrando" escrito (cor nunca sozinha). */
+          const value = situacao ? serverStats.byEffective[situacao] ?? 0 : totalAll
+          const on = situacao === situacaoFiltro
+          return (
+            <button key={label} type="button" aria-pressed={on}
+              onClick={() => setSituacaoFiltro(situacao === situacaoFiltro ? null : situacao)}
+              className={cn('rounded-xl px-3 flex items-center justify-between gap-2 text-left transition-colors min-h-[var(--lista-indicador)]',
+                on ? 'bg-foreground text-background' : 'vidro bg-[var(--vidro-cartao)] hover:bg-card')}>
+              <span className={cn('text-[11px]', on ? 'text-background/80' : 'text-muted-foreground')}>
+                {label}{on && situacao && <span className="ml-1.5 font-semibold text-background">✓ filtrando</span>}
+              </span>
+              <span className={cn('text-sm font-bold tabular-nums', on ? 'text-background' : cls)}>{value}</span>
+            </button>
+          )
+        })}
       </div>
 
       {/* toolbar */}
@@ -415,10 +473,18 @@ export default function ContratosPage() {
         onSelectView={selectView} onSaveView={handleSaveView} onDeleteView={handleDeleteView}
         onExport={() => { void handleExport() }} exportDisabled={totalFiltered === 0}
         configSlot={
+          <>
+          <button type="button" onClick={alternarFiltroColuna} aria-pressed={filtroColuna}
+            title="Mostrar uma linha de filtro embaixo do título de cada coluna"
+            className={cn('inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium transition-colors',
+              filtroColuna ? 'border-foreground bg-foreground text-background' : 'text-muted-foreground hover:text-foreground hover:bg-muted')}>
+            <Filter className="h-3.5 w-3.5" />Filtro na coluna{filtroColuna && <span className="text-[10px] font-semibold">· ligado</span>}
+          </button>
           <button onClick={() => setShowFields(true)}
             className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
             <Settings2 className="h-3.5 w-3.5" />Configurações
           </button>
+          </>
         }
         filteredCount={totalFiltered} totalCount={totalAll}
       />
@@ -426,7 +492,7 @@ export default function ContratosPage() {
       {/* tabela */}
       <div className="rounded-xl border bg-card shadow-sm flex-1 min-h-0 flex flex-col">
         <div className="overflow-auto flex-1 min-h-0">
-        <table className="min-w-full text-xs">
+        <table className="min-w-full text-[length:var(--lista-fonte)]">
           <thead className="sticky top-0 z-20">
             <tr className="border-b">
               {orderedColumns.map((col, idx) => (
@@ -437,7 +503,7 @@ export default function ContratosPage() {
                   onDrop={() => { handleDrop(idx); clearDrag() }}
                   onDragEnd={clearDrag}
                   className={cn(
-                    'text-left px-3 py-1.5 font-medium text-muted-foreground select-none cursor-grab active:cursor-grabbing transition-all whitespace-nowrap bg-muted',
+                    'text-left px-[var(--lista-px)] h-[var(--lista-cab)] font-medium text-muted-foreground select-none cursor-grab active:cursor-grabbing transition-all whitespace-nowrap bg-muted',
                     col.key === 'valor_total' && 'text-right',
                     idx === 0 && 'sticky left-0 z-20 bg-muted',
                     dragFrom === idx && 'opacity-40',
@@ -449,6 +515,19 @@ export default function ContratosPage() {
                 </th>
               ))}
             </tr>
+            {filtroColuna && (
+              /* filtro na coluna: "contém" sobre o que a célula MOSTRA (data dd/mm/aaaa,
+                 valor com milhar) — sempre somado em E aos Filtros avançados */
+              <tr className="border-b">
+                {orderedColumns.map((col, idx) => (
+                  <th key={col.key} className={cn('bg-muted px-[var(--lista-px)] pb-1.5 pt-0 font-normal', idx === 0 && 'sticky left-0 z-20')}>
+                    <input value={colFiltros[col.key] ?? ''} onChange={e => mudarFiltroColuna(col.key, e.target.value)}
+                      aria-label={`Filtrar ${col.label}`} placeholder="contém…"
+                      className="h-6 w-full min-w-[80px] rounded border border-input bg-background px-1.5 text-[11px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+                  </th>
+                ))}
+              </tr>
+            )}
           </thead>
           <tbody>
             {pageRows.length === 0 ? (
@@ -460,7 +539,8 @@ export default function ContratosPage() {
               </td></tr>
               )
             ) : pageRows.map(r => (
-              <tr key={r.id} className="group/row border-b last:border-0 hover:bg-muted/30 transition-colors">
+              <tr key={r.id} onClick={() => openContract(r)} title="Abrir o contrato"
+                className="group/row border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer">
                 {orderedColumns.map((col, colIdx) => renderCell(r, col.key, colIdx))}
               </tr>
             ))}
@@ -468,7 +548,7 @@ export default function ContratosPage() {
         </table>
         </div>
 
-        <TablePagination page={page} pageSize={pageSize} total={totalFiltered} onPage={setPage} onPageSize={setPageSize} />
+        <TablePagination page={page} pageSize={pageSize} total={totalFiltered} onPage={setPage} onPageSize={setPageSize} rotulo={['contrato', 'contratos']} />
       </div>
     </div>
 

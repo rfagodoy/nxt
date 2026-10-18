@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { applyQuery, computeStats, opMatch, rowText, type ListRow } from './list-query'
+import { applyQuery, colunaContem, computeStats, formasVisiveis, opMatch, rowText, type ListRow } from './list-query'
 import type { CustomFieldMeta } from '../partners/custom-field-query'
 
 const base: Omit<ListRow, 'id' | 'numero' | 'titulo' | 'situacao' | 'termino' | 'valor_total'> = {
@@ -85,5 +85,38 @@ describe('computeStats', () => {
     expect(s.byEffective.VIGENTE).toBe(1)
     expect(s.byEffective.VENCIDO).toBe(1)
     expect(s.byEffective.CANCELADO).toBe(1)
+  })
+})
+
+describe('filtro por situação (indicador clicado) e filtro na coluna', () => {
+  const rows = [
+    row({ id: 'a', numero: 'CCT_0001', titulo: 'Aluguel', valor_total: 120000, situacao: 'VIGENTE', termino: '2099-01-01', inicio: '2026-03-15' }),
+    row({ id: 'b', numero: 'CCT_0002', titulo: 'Energia', valor_total: 1500, situacao: 'VIGENTE', termino: '2020-01-01' }), // efetivo: VENCIDO
+    row({ id: 'c', numero: 'CCT_0003', titulo: 'Suporte', valor_total: 900, situacao: 'CANCELADO' }),
+  ]
+
+  it('situação filtra pela EFETIVA — VENCIDO acha o vigente com término passado', () => {
+    expect(applyQuery(rows, { ...semCustom, situacao: 'VENCIDO' }).map((r) => r.id)).toEqual(['b'])
+    expect(applyQuery(rows, { ...semCustom, situacao: 'VIGENTE' }).map((r) => r.id)).toEqual(['a'])
+  })
+
+  it('a coluna casa com o que a pessoa VÊ: data dd/mm/aaaa e valor com milhar', () => {
+    expect(applyQuery(rows, { ...semCustom, columnFilters: [{ col: 'inicio', value: '15/03' }] }).map((r) => r.id)).toEqual(['a'])
+    expect(applyQuery(rows, { ...semCustom, columnFilters: [{ col: 'valor_total', value: '120.000' }] }).map((r) => r.id)).toEqual(['a'])
+    expect(applyQuery(rows, { ...semCustom, columnFilters: [{ col: 'situacao', value: 'vencid' }] }).map((r) => r.id)).toEqual(['b'])
+  })
+
+  it('filtro na coluna soma em E mesmo com condições avançadas em OU', () => {
+    const out = applyQuery(rows, {
+      ...semCustom, logic: 'OR',
+      filters: [{ col: 'titulo', op: 'eq', value: 'Aluguel' }, { col: 'titulo', op: 'eq', value: 'Energia' }],
+      columnFilters: [{ col: 'numero', value: '0002' }],
+    })
+    expect(out.map((r) => r.id)).toEqual(['b'])
+  })
+
+  it('campo vazio não filtra; formas visíveis incluem a original', () => {
+    expect(colunaContem('qualquer', '  ')).toBe(true)
+    expect(formasVisiveis('2026-03-15')).toEqual(['2026-03-15', '15/03/2026'])
   })
 })

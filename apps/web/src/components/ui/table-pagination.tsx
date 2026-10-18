@@ -2,6 +2,7 @@
 
 import { ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { DensidadeSelect } from '@/components/list/densidade-select'
 
 export const PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 200, 500]
 
@@ -16,20 +17,55 @@ export function pageWindow(current: number, total: number): (number | '...')[] {
   return pages
 }
 
-/** Rodapé de paginação PADRÃO (linhas por página · N–M de T · navegação). Fonte única. */
-export function TablePagination({ page, pageSize, total, onPage, onPageSize, pageSizeOptions = PAGE_SIZE_OPTIONS }: {
+/** Rodapé de paginação PADRÃO (linhas por página · N–M de T · navegação). Fonte única.
+ *  Com `rotulo` (ex.: "contratos"), vira o rodapé da lista em estilo planilha: contagem e
+ *  a caixa de DENSIDADE à esquerda, linhas por página e navegação à direita. */
+export function TablePagination({ page, pageSize, total, onPage, onPageSize, pageSizeOptions = PAGE_SIZE_OPTIONS, rotulo }: {
   page: number
   pageSize: number
   total: number
   onPage: (p: number) => void
   onPageSize: (s: number) => void
   pageSizeOptions?: number[]
+  /** [singular, plural] — ex.: ['contrato', 'contratos'] */
+  rotulo?: readonly [string, string]
 }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const safePage = Math.min(page, totalPages)
   const first = (safePage - 1) * pageSize + 1
   const last = Math.min(safePage * pageSize, total)
   const navBtn = 'flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors'
+  const linhasPorPagina = (
+    <select value={pageSize} onChange={(e) => onPageSize(Number(e.target.value))} aria-label="Linhas por página"
+      className="h-6 rounded border border-input bg-background px-1.5 text-[11px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+      {pageSizeOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+    </select>
+  )
+  const navegacao = (
+    <div className="flex items-center gap-0.5">
+      <button aria-label="Primeira página" onClick={() => onPage(1)} disabled={safePage === 1} className={navBtn}><ChevronsLeft className="h-3.5 w-3.5" /></button>
+      <button aria-label="Página anterior" onClick={() => onPage(Math.max(1, safePage - 1))} disabled={safePage === 1} className={navBtn}><ChevronLeft className="h-3.5 w-3.5" /></button>
+      {pageWindow(safePage, totalPages).map((p, i) =>
+        p === '...' ? <span key={`e${i}`} className="flex h-6 w-6 items-center justify-center text-[11px] text-muted-foreground">…</span>
+        : <button key={p} onClick={() => onPage(p)} className={cn('flex h-6 w-6 items-center justify-center rounded text-[11px] font-medium transition-colors', safePage === p ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>{p}</button>
+      )}
+      <button aria-label="Próxima página" onClick={() => onPage(Math.min(totalPages, safePage + 1))} disabled={safePage === totalPages} className={navBtn}><ChevronRight className="h-3.5 w-3.5" /></button>
+      <button aria-label="Última página" onClick={() => onPage(totalPages)} disabled={safePage === totalPages} className={navBtn}><ChevronsRight className="h-3.5 w-3.5" /></button>
+    </div>
+  )
+
+  if (rotulo) {
+    return (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t px-3 py-1.5 bg-muted/20 text-[11px] text-muted-foreground">
+        <span className="font-semibold text-foreground tabular-nums">{total} {total === 1 ? rotulo[0] : rotulo[1]}</span>
+        <span className="tabular-nums">exibindo {total === 0 ? '0' : `${first}–${last}`}</span>
+        <DensidadeSelect />
+        <span className="ml-auto flex items-center gap-1.5">Linhas por página {linhasPorPagina}</span>
+        {navegacao}
+      </div>
+    )
+  }
+
   return (
     <div className="flex items-center justify-between border-t px-3 py-2 bg-muted/20">
       <div className="flex items-center gap-2">

@@ -54,4 +54,16 @@ export class QueryContractsDto {
   @IsOptional()
   @IsIn(['AND', 'OR'])
   logic?: 'AND' | 'OR'
+
+  /** Situação EFETIVA exata (indicador clicado na lista). */
+  @IsOptional()
+  @IsIn(['EM_CADASTRO', 'VIGENTE', 'VENCIDO', 'ENCERRADO', 'RESCINDIDO', 'CANCELADO'])
+  situacao?: string
+
+  /** Filtro na coluna: "contém", sempre em E. O `op` é ignorado. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ContractFilterItemDto)
+  columnFilters?: ContractFilterItemDto[]
 }
