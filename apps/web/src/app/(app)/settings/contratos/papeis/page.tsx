@@ -6,6 +6,7 @@ import {
   ArrowUp, ArrowDown, ChevronsUpDown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { DENS_CEL, DENS_CAB } from '@/lib/densidade'
 import { exportExcel } from '@/lib/export-excel'
 import { useLookupTable, type LookupEntry } from '@/hooks/use-lookup-table'
 import { SettingsTableShell, type StatusFilter } from '@/components/settings/settings-table-shell'
@@ -132,8 +133,8 @@ export default function PapeisPage() {
     d: Draft; set: (d: Draft) => void; err: string; onOk: () => void; onCancel: () => void; idx: string
   }) => (
     <tr className="border-b bg-primary/5 align-top">
-      <td className="px-4 py-1.5 text-muted-foreground">{idx}</td>
-      <td className="px-3 py-1.5">
+      <td className={cn(DENS_CEL, 'text-muted-foreground')}>{idx}</td>
+      <td className={DENS_CEL}>
         <div className="space-y-1">
           <input value={d.label} onChange={e => set({ ...d, label: e.target.value })}
             onKeyDown={e => { if (e.key === 'Enter') onOk(); if (e.key === 'Escape') onCancel() }}
@@ -141,19 +142,19 @@ export default function PapeisPage() {
           {err && <p className="text-[11px] text-red-500">{err}</p>}
         </div>
       </td>
-      <td className="px-3 py-1.5">
+      <td className={DENS_CEL}>
         <select value={d.referencia} onChange={e => set(withRef(d, e.target.value))} className={inputCls}>
           {REF_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </td>
-      <td className="px-3 py-1.5">
+      <td className={DENS_CEL}>
         <label className="block text-[10px] text-muted-foreground mb-0.5">{origemFieldLabel(d.referencia)}</label>
         <select value={d.origem} onChange={e => set({ ...d, origem: e.target.value })} className={inputCls}>
           {origemOptionsFor(d.referencia).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </td>
       <td />
-      <td className="px-3 py-1.5">
+      <td className={DENS_CEL}>
         <div className="flex items-center justify-end gap-1">
           <button type="button" onClick={onOk} title="Confirmar" className="flex h-6 w-6 items-center justify-center rounded text-primary hover:bg-primary/10 transition-colors"><Check className="h-3.5 w-3.5" /></button>
           <button type="button" onClick={onCancel} title="Cancelar" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted transition-colors"><X className="h-3.5 w-3.5" /></button>
@@ -182,11 +183,11 @@ export default function PapeisPage() {
     >
       <thead className="sticky top-0 z-10 [&_th]:bg-muted">
         <tr className="border-b">
-          <th className="text-left px-4 py-1.5 font-medium text-muted-foreground w-8">#</th>
+          <th className={cn('text-left font-medium text-muted-foreground w-8', DENS_CAB)}>#</th>
           <ThSort col="label" label="Nome" />
           <ThSort col="referencia" label="Referência" className="w-32" />
           <ThSort col="origem" label="Origem" className="w-64" />
-          <th className="text-center px-3 py-1.5 font-medium text-muted-foreground w-20">Ativo</th>
+          <th className={cn('text-center font-medium text-muted-foreground w-20', DENS_CAB)}>Ativo</th>
           <th className="w-20" />
         </tr>
       </thead>
@@ -202,9 +203,9 @@ export default function PapeisPage() {
             <DraftRow key={entry.id} d={editDraft} set={setEditDraft} err={editErr} onOk={saveEdit} onCancel={() => setEditingId(null)} idx={String(idx + 1)} />
           ) : (
             <tr key={entry.id} className={cn('border-b last:border-0 hover:bg-muted/30 transition-colors group/row', !entry.active && 'opacity-50')}>
-              <td className="px-4 py-1 text-muted-foreground tabular-nums">{idx + 1}</td>
-              <td className="px-3 py-1 font-medium">{entry.label}</td>
-              <td className="px-3 py-1">
+              <td className={cn(DENS_CEL, 'text-muted-foreground tabular-nums')}>{idx + 1}</td>
+              <td className={cn(DENS_CEL, 'font-medium')}>{entry.label}</td>
+              <td className={DENS_CEL}>
                 <span className={cn('inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium',
                   referenciaDoPapelEntry(entry) === REFERENCIA.PESSOA
                     ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400'
@@ -212,13 +213,13 @@ export default function PapeisPage() {
                   {refLabel(referenciaDoPapelEntry(entry))}
                 </span>
               </td>
-              <td className="px-3 py-1 text-muted-foreground">{origemLabel(entry.origem)}</td>
-              <td className="px-3 py-1 text-center">
+              <td className={cn(DENS_CEL, 'text-muted-foreground')}>{origemLabel(entry.origem)}</td>
+              <td className={cn(DENS_CEL, 'text-center')}>
                 <button type="button" onClick={() => toggle(entry.id)} title={entry.active ? 'Desativar' : 'Ativar'} className="inline-flex items-center justify-center transition-colors">
                   {entry.active ? <ToggleRight className="h-5 w-5 text-primary" /> : <ToggleLeft className="h-5 w-5 text-muted-foreground" />}
                 </button>
               </td>
-              <td className="px-3 py-1">
+              <td className={DENS_CEL}>
                 <div className="flex items-center justify-end gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
                   <button type="button" onClick={() => startEdit(entry)} title="Editar" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"><Pencil className="h-3.5 w-3.5" /></button>
                   <button type="button" onClick={() => remove(entry.id)} title="Excluir" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>

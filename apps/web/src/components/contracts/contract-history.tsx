@@ -7,6 +7,7 @@ import {
   SlidersHorizontal, X, UserCog, type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
 import { apiFetch } from '@/lib/http'
 
 /* espelha o ContractAuditLog do backend */
@@ -165,15 +166,15 @@ export function ContractHistory({ contractId, reloadKey }: { contractId: string;
 
       {/* tabela */}
       <div className="rounded-lg border overflow-hidden">
-        <table className="w-full text-xs">
+        <table className={cn('w-full', DENS_TABELA)}>
           <thead className="sticky top-0 z-10">
             <tr className="border-b bg-[hsl(240_5%_97%)] dark:bg-[hsl(240_21%_15%)]">
-              <th className="px-3 py-1.5 text-left font-medium text-muted-foreground whitespace-nowrap">Evento</th>
-              <th className="px-3 py-1.5 text-left font-medium text-muted-foreground whitespace-nowrap">Data / Hora</th>
-              <th className="px-3 py-1.5 text-left font-medium text-muted-foreground whitespace-nowrap">Usuário</th>
-              <th className="px-3 py-1.5 text-left font-medium text-muted-foreground whitespace-nowrap">Campo</th>
-              <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Valor anterior</th>
-              <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Novo valor</th>
+              <th className={cn('text-left font-medium text-muted-foreground whitespace-nowrap', DENS_CAB)}>Evento</th>
+              <th className={cn('text-left font-medium text-muted-foreground whitespace-nowrap', DENS_CAB)}>Data / Hora</th>
+              <th className={cn('text-left font-medium text-muted-foreground whitespace-nowrap', DENS_CAB)}>Usuário</th>
+              <th className={cn('text-left font-medium text-muted-foreground whitespace-nowrap', DENS_CAB)}>Campo</th>
+              <th className={cn('text-left font-medium text-muted-foreground', DENS_CAB)}>Valor anterior</th>
+              <th className={cn('text-left font-medium text-muted-foreground', DENS_CAB)}>Novo valor</th>
             </tr>
           </thead>
           <tbody>
@@ -181,17 +182,17 @@ export function ContractHistory({ contractId, reloadKey }: { contractId: string;
               <tr><td colSpan={6} className="px-4 py-6 text-center text-xs text-muted-foreground">Nenhum evento com os filtros aplicados.</td></tr>
             ) : filtered.map(r => (
               <tr key={r.key} className="border-b last:border-0 align-top hover:bg-muted/20 transition-colors">
-                <td className="px-3 py-1.5 whitespace-nowrap">
+                <td className={cn(DENS_CEL, 'py-1.5 whitespace-nowrap')}>
                   <span className="inline-flex items-center gap-1.5">
                     <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center rounded-full', DOT_CLS[r.color])}><r.Icon className="h-3 w-3" /></span>
                     <span className="font-medium">{r.eventLabel}</span>
                   </span>
                 </td>
-                <td className="px-3 py-1.5 whitespace-nowrap tabular-nums text-muted-foreground">{fmtTs(r.ts)}</td>
-                <td className="px-3 py-1.5 whitespace-nowrap text-muted-foreground">{r.user}</td>
-                <td className="px-3 py-1.5 whitespace-nowrap">{r.label}</td>
-                <td className="px-3 py-1.5 text-muted-foreground/60 line-through">{r.before}</td>
-                <td className="px-3 py-1.5">
+                <td className={cn(DENS_CEL, 'py-1.5 whitespace-nowrap tabular-nums text-muted-foreground')}>{fmtTs(r.ts)}</td>
+                <td className={cn(DENS_CEL, 'py-1.5 whitespace-nowrap text-muted-foreground')}>{r.user}</td>
+                <td className={cn(DENS_CEL, 'py-1.5 whitespace-nowrap')}>{r.label}</td>
+                <td className={cn(DENS_CEL, 'py-1.5 text-muted-foreground/60 line-through')}>{r.before}</td>
+                <td className={cn(DENS_CEL, 'py-1.5')}>
                   <span className="font-medium">{r.after}</span>
                   {r.motivo && <span className="mt-0.5 block text-[11px] italic text-muted-foreground">motivo: {r.motivo}</span>}
                 </td>

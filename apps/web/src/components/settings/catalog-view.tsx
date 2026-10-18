@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, type ElementType } from 'react'
 import { ToggleLeft, ToggleRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { DENS_CEL, DENS_CAB } from '@/lib/densidade'
 import { apiJson } from '@/lib/http'
 import { exportExcel } from '@/lib/export-excel'
 import { useCatalogInactive } from '@/hooks/use-catalogs'
@@ -106,10 +107,10 @@ export function CatalogViewPage({ title, description, icon: Icon, endpoint, inat
     >
       <thead className="sticky top-0 z-10 [&_th]:bg-muted">
         <tr className="border-b">
-          <th className="text-left px-4 py-1.5 font-medium text-muted-foreground w-8">#</th>
-          <th className="text-left px-3 py-1.5 font-medium text-muted-foreground w-32">{codeLabel}</th>
-          <th className="text-left px-3 py-1.5 font-medium text-muted-foreground">Descrição</th>
-          <th className="text-center px-3 py-1.5 font-medium text-muted-foreground w-20">Ativo</th>
+          <th className={cn('text-left font-medium text-muted-foreground w-8', DENS_CAB)}>#</th>
+          <th className={cn('text-left font-medium text-muted-foreground w-32', DENS_CAB)}>{codeLabel}</th>
+          <th className={cn('text-left font-medium text-muted-foreground', DENS_CAB)}>Descrição</th>
+          <th className={cn('text-center font-medium text-muted-foreground w-20', DENS_CAB)}>Ativo</th>
         </tr>
       </thead>
       <tbody>
@@ -119,10 +120,10 @@ export function CatalogViewPage({ title, description, icon: Icon, endpoint, inat
           <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">Nenhum resultado para a busca/filtro.</td></tr>
         ) : displayed.map((r, idx) => (
           <tr key={r.code} className={cn('border-b last:border-0 hover:bg-muted/30 transition-colors', !isActive(r.code) && 'opacity-50')}>
-            <td className="px-4 py-1 text-muted-foreground tabular-nums">{idx + 1}</td>
-            <td className="px-3 py-1 font-mono text-muted-foreground whitespace-nowrap">{r.code}</td>
-            <td className="px-3 py-1 font-medium">{r.descricao}</td>
-            <td className="px-3 py-1 text-center">
+            <td className={cn(DENS_CEL, 'text-muted-foreground tabular-nums')}>{idx + 1}</td>
+            <td className={cn(DENS_CEL, 'font-mono text-muted-foreground whitespace-nowrap')}>{r.code}</td>
+            <td className={cn(DENS_CEL, 'font-medium')}>{r.descricao}</td>
+            <td className={cn(DENS_CEL, 'text-center')}>
               <button type="button" onClick={() => toggle(r.code)} title={isActive(r.code) ? 'Desativar' : 'Ativar'}
                 className="inline-flex items-center justify-center transition-colors">
                 {isActive(r.code) ? <ToggleRight className="h-5 w-5 text-primary" /> : <ToggleLeft className="h-5 w-5 text-muted-foreground" />}

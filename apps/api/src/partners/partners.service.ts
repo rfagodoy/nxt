@@ -527,11 +527,17 @@ export class PartnersService {
     const page     = Math.max(1, dto.page ?? 1)
     const pageSize = Math.min(Math.max(1, dto.pageSize ?? 50), 10000)
 
+    /* Filtro na coluna = "contém" em cada coluna preenchida, sempre em E — passa pelos
+       MESMOS tradutores dos Filtros avançados (nativos, JSON e personalizados). */
+    const colFilters: FilterItem[] = (dto.columnFilters ?? [])
+      .filter((f) => f.col && f.value?.trim())
+      .map((f) => ({ col: f.col, op: 'contains', value: f.value }))
+
     /* carrega os campos custom só quando o request os referencia (filtro/sort/busca) */
     const referencesCustom =
       !!dto.search?.trim() ||
       (!!dto.sort && !SORT_FIELD[dto.sort.col]) ||
-      (dto.filters ?? []).some((f) => f.value?.trim() && !NATIVE_COLS.has(f.col))
+      [...(dto.filters ?? []), ...colFilters].some((f) => f.value?.trim() && !NATIVE_COLS.has(f.col))
     const customFields = referencesCustom
       ? await this.loadPartnerCustomFields(organizationId)
       : new Map<string, CustomFieldMeta>()
@@ -548,10 +554,23 @@ export class PartnersService {
       ? await this.resolveCustomSearchIds(organizationId, dto.search.trim(), customFields)
       : []
 
-    const where = buildWhere(
+    const base = buildWhere(
       organizationId, dto.search, dto.filters, dto.logic,
       [...jsonConditions, ...customFilterConds], searchCustomIds,
     )
+    const extras: object[] = []
+    if (colFilters.length) {
+      const [colJson, colCustom] = await Promise.all([
+        Promise.all(colFilters.map((f) => this.resolveJsonFilter(organizationId, f)))
+          .then((cs) => cs.filter((c): c is object => c !== null)),
+        Promise.all(colFilters.filter((f) => customFields.has(f.col))
+          .map((f) => this.resolveCustomFilter(organizationId, f, customFields.get(f.col)!)))
+          .then((cs) => cs.filter((c): c is object => c !== null)),
+      ])
+      extras.push(buildWhere(organizationId, undefined, colFilters, 'AND', [...colJson, ...colCustom]))
+    }
+    if (dto.status) extras.push({ status: dto.status })
+    const where = extras.length ? { AND: [base, ...extras] } : base
     const stats = await this.computeStats(organizationId)
 
     /* ordenação por campo custom: não há coluna no Partner → carrega ids filtrados,

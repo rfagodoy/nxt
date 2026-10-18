@@ -70,3 +70,32 @@ export function matchOp(cell: string, op: string, val: string): boolean {
     default:            return true
   }
 }
+
+/* ─── Filtro NA COLUNA (padrão planilha) — espelho de apps/api/src/contracts/list-query.ts ── */
+
+/** Formas em que a célula aparece na tela: o filtro casa com o que a pessoa VÊ — data ISO
+ *  também como dd/mm/aaaa, número também com milhar e vírgula pt-BR. */
+export function formasVisiveis(texto: string): string[] {
+  const formas = [texto]
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(texto)
+  if (iso) formas.push(`${iso[3]}/${iso[2]}/${iso[1]}`)
+  if (/^-?\d+(\.\d+)?$/.test(texto.trim())) {
+    formas.push(Number(texto).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
+  }
+  return formas
+}
+
+/** "contém" do filtro na coluna; campo vazio não filtra. */
+export function colunaContem(texto: string, valor: string): boolean {
+  const v = norm(valor)
+  return !v || formasVisiveis(texto).some((f) => norm(f).includes(v))
+}
+
+/** Aplica o filtro na coluna (sempre E) a uma lista filtrada no navegador. */
+export function aplicarFiltroColuna<T>(rows: T[], cols: FilterCol<T>[], ativos: { col: string; value: string }[]): T[] {
+  if (!ativos.length) return rows
+  return rows.filter((row) => ativos.every((f) => {
+    const c = cols.find((x) => x.key === f.col)
+    return c ? colunaContem(c.get(row), f.value) : true
+  }))
+}

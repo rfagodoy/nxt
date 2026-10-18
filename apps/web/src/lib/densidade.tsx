@@ -57,3 +57,9 @@ export function DensidadeProvider({ children }: { children: React.ReactNode }) {
 }
 
 export const useDensidade = () => useContext(Ctx)
+
+/* Classes das listas — lêem as variáveis `--lista-*` (globals.css). Uma lista nova usa
+   estas três e já segue a densidade escolhida pelo usuário. */
+export const DENS_TABELA = 'text-[length:var(--lista-fonte)]'
+export const DENS_CAB = 'px-[var(--lista-px)] h-[var(--lista-cab)]'
+export const DENS_CEL = 'px-[var(--lista-px)] h-[var(--lista-linha)]'

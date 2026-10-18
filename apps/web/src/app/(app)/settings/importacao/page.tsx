@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { apiFetch, apiJson } from '@/lib/http'
 import { cn } from '@/lib/utils'
+import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
 import { useSession } from '@/lib/session-context'
 import { exportExcel } from '@/lib/export-excel'
 
@@ -343,26 +344,26 @@ export default function ImportacaoPage() {
 
               {/* linhas com problema primeiro: é o que exige ação */}
               <div className="flex-1 overflow-y-auto">
-                <table className="w-full text-xs">
+                <table className={cn('w-full', DENS_TABELA)}>
                   <thead className="sticky top-0 bg-card border-b">
                     <tr className="text-left text-muted-foreground">
-                      <th className="px-3 py-1.5 font-medium w-16">Linha</th>
-                      <th className="px-3 py-1.5 font-medium w-24">Ação</th>
-                      <th className="px-3 py-1.5 font-medium">Registro</th>
-                      <th className="px-3 py-1.5 font-medium">Observação</th>
+                      <th className={cn('font-medium w-16', DENS_CAB)}>Linha</th>
+                      <th className={cn('font-medium w-24', DENS_CAB)}>Ação</th>
+                      <th className={cn('font-medium', DENS_CAB)}>Registro</th>
+                      <th className={cn('font-medium', DENS_CAB)}>Observação</th>
                     </tr>
                   </thead>
                   <tbody>
                     {[...problemas, ...(resultado.linhas ?? []).filter((l) => l.acao !== 'ERRO')].map((l) => (
                       <tr key={l.linha} className="border-b last:border-0 align-top">
-                        <td className="px-3 py-1 tabular-nums text-muted-foreground">{l.linha}</td>
-                        <td className="px-3 py-1">
+                        <td className={cn(DENS_CEL, 'py-1 tabular-nums text-muted-foreground')}>{l.linha}</td>
+                        <td className={cn(DENS_CEL, 'py-1')}>
                           <span className={`inline-flex rounded px-1.5 py-0.5 text-[11px] font-medium ${ACAO_CLS[l.acao]}`}>
                             {ACAO_LABEL[l.acao]}
                           </span>
                         </td>
-                        <td className="px-3 py-1">{l.identificacao}</td>
-                        <td className="px-3 py-1 text-muted-foreground">
+                        <td className={cn(DENS_CEL, 'py-1')}>{l.identificacao}</td>
+                        <td className={cn(DENS_CEL, 'py-1 text-muted-foreground')}>
                           {l.problemas.length > 0
                             ? l.problemas.map((p, i) => (
                                 <span key={i} className="block text-red-700 dark:text-red-400">

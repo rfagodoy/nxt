@@ -13,7 +13,11 @@ import { useViews } from '@/hooks/use-views'
 import { exportExcel } from '@/lib/export-excel'
 import { TablePagination } from '@/components/ui/table-pagination'
 import { ListToolbar } from '@/components/list/list-toolbar'
-import { type FilterRow, matchOp, norm } from '@/lib/list-filter'
+import { type FilterRow, matchOp, norm, colunaContem } from '@/lib/list-filter'
+import { useRouter } from 'next/navigation'
+import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
+import { Indicadores } from '@/components/list/indicadores'
+import { useFiltroColuna, BotaoFiltroColuna, LinhaFiltroColuna } from '@/components/list/filtro-coluna'
 import { ConfirmDialog, NoticeDialog } from '@/components/ui/confirm-dialog'
 
 interface ProcessRow {
@@ -146,16 +150,24 @@ export default function WorkflowsPage() {
     archived: all.filter((p) => p.status === 'ARCHIVED').length,
   }), [all])
 
+  /* indicador clicado = filtro de um clique pelo status; filtro na coluna = "contém" em E */
+  const [statusFiltro, setStatusFiltro] = useState<string | null>(null)
+  const filtroCol = useFiltroColuna('workflows')
+  useEffect(() => { setPage(1) }, [statusFiltro, filtroCol.ativos])
+  const router = useRouter()
+
   const filtered = useMemo(() => {
     const q = norm(search)
     const active = filters.filter((f) => f.value.trim())
     return all.filter((p) => {
+      if (statusFiltro && p.status !== statusFiltro) return false
+      if (filtroCol.ativos.length && !filtroCol.ativos.every((f) => { const c = COLS.find((x) => x.key === f.col); return c ? colunaContem(c.text(p), f.value) : true })) return false
       if (q && !COLS.some((c) => norm(c.text(p)).includes(q))) return false
       if (!active.length) return true
       const res = active.map((f) => { const col = COLS.find((c) => c.key === f.col); return col ? matchOp(col.text(p), f.op, f.value) : true })
       return logic === 'AND' ? res.every(Boolean) : res.some(Boolean)
     })
-  }, [all, search, filters, logic])
+  }, [all, search, filters, logic, statusFiltro, filtroCol.ativos])
 
   const sorted = useMemo(() => {
     if (!sort) return filtered
@@ -191,6 +203,8 @@ export default function WorkflowsPage() {
   }
 
   const configSlot = (
+    <>
+    <BotaoFiltroColuna ligado={filtroCol.ligado} onClick={filtroCol.alternar} />
     <div ref={configRef} className="relative">
       <button onClick={() => setShowConfig((v) => !v)} className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
         <Settings2 className="h-3.5 w-3.5" />Configurações
@@ -208,6 +222,7 @@ export default function WorkflowsPage() {
         </div>
       )}
     </div>
+    </>
   )
 
   return (
@@ -234,20 +249,13 @@ export default function WorkflowsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-        {[
-          { label: 'Total', value: stats.total, cls: 'text-foreground' },
-          { label: 'Ativos', value: stats.active, cls: 'text-emerald-600 dark:text-emerald-400' },
-          { label: 'Inativos', value: stats.inactive, cls: 'text-slate-500 dark:text-slate-400' },
-          { label: 'Rascunhos', value: stats.draft, cls: 'text-muted-foreground' },
-          { label: 'Arquivados', value: stats.archived, cls: 'text-amber-600 dark:text-amber-400' },
-        ].map(({ label, value, cls }) => (
-          <div key={label} className="vidro rounded-xl bg-[var(--vidro-cartao)] px-3 py-2 flex items-center justify-between">
-            <p className="text-[11px] text-muted-foreground">{label}</p>
-            <p className={cn('text-sm font-bold tabular-nums', cls)}>{value}</p>
-          </div>
-        ))}
-      </div>
+      <Indicadores className="grid-cols-2 sm:grid-cols-3 lg:grid-cols-5" ativo={statusFiltro} onSelect={setStatusFiltro} itens={[
+        { label: 'Total', valor: stats.total, cls: 'text-foreground', filtro: null },
+        { label: 'Ativos', valor: stats.active, cls: 'text-emerald-600 dark:text-emerald-400', filtro: 'ACTIVE' },
+        { label: 'Inativos', valor: stats.inactive, cls: 'text-slate-500 dark:text-slate-400', filtro: 'INACTIVE' },
+        { label: 'Rascunhos', valor: stats.draft, cls: 'text-muted-foreground', filtro: 'DRAFT' },
+        { label: 'Arquivados', valor: stats.archived, cls: 'text-amber-600 dark:text-amber-400', filtro: 'ARCHIVED' },
+      ]} />
 
       <ListToolbar
         search={search} onSearch={setSearch}
@@ -261,11 +269,11 @@ export default function WorkflowsPage() {
 
       <div className="rounded-xl border bg-card shadow-sm">
         <div className="overflow-auto max-h-[calc(100vh-19rem)]">
-          <table className="min-w-full text-xs">
+          <table className={cn('min-w-full', DENS_TABELA)}>
             <thead className="sticky top-0 z-20">
               <tr className="border-b">
                 {visibleCols.map((col) => (
-                  <th key={col.key} className={cn('text-left px-3 py-1.5 font-medium text-muted-foreground select-none whitespace-nowrap bg-muted', col.align === 'right' && 'text-right')}>
+                  <th key={col.key} className={cn('text-left ' + DENS_CAB + ' font-medium text-muted-foreground select-none whitespace-nowrap bg-muted', col.align === 'right' && 'text-right')}>
                     <button onClick={() => handleSort(col.key)} className="group inline-flex items-center hover:text-foreground transition-colors">
                       {col.label}
                       {!sort || sort.col !== col.key
@@ -276,6 +284,9 @@ export default function WorkflowsPage() {
                 ))}
                 <th className="text-right px-3 py-1.5 font-medium text-muted-foreground bg-muted whitespace-nowrap">Ações</th>
               </tr>
+              {filtroCol.ligado && (
+                <LinhaFiltroColuna colunas={visibleCols} valores={filtroCol.valores} onChange={filtroCol.mudar} sobra={1} />
+              )}
             </thead>
             <tbody>
               {rows === null ? (
@@ -283,11 +294,13 @@ export default function WorkflowsPage() {
               ) : pageRows.length === 0 ? (
                 <tr><td colSpan={visibleCols.length + 1} className="px-3 py-8 text-center text-xs text-muted-foreground">{all.length === 0 ? 'Nenhum workflow criado.' : 'Nenhum workflow encontrado.'}</td></tr>
               ) : pageRows.map((p) => (
-                <tr key={p.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                <tr key={p.id} onClick={() => router.push(`/workflows/${p.id}/edit`)} title="Abrir no editor"
+                  className="border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer">
                   {visibleCols.map((col) => (
-                    <td key={col.key} className={cn('px-3 py-2 align-top', col.align === 'right' && 'text-right')}>{col.node(p)}</td>
+                    <td key={col.key} className={cn(DENS_CEL, 'py-1.5 align-middle', col.align === 'right' && 'text-right')}>{col.node(p)}</td>
                   ))}
-                  <td className="px-3 py-2 align-top">
+                  {/* ações não abrem o editor: o clique fica na célula */}
+                  <td className={cn(DENS_CEL, 'py-1.5 align-middle cursor-default')} onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1.5">
                       {p.status === 'DRAFT' && (
                         <Button size="sm" variant="outline" disabled={busy === p.id} onClick={() => activate(p.id)}>
@@ -317,7 +330,7 @@ export default function WorkflowsPage() {
             </tbody>
           </table>
         </div>
-        <TablePagination page={page} pageSize={pageSize} total={sorted.length} onPage={setPage} onPageSize={setPageSize} />
+        <TablePagination page={page} pageSize={pageSize} total={sorted.length} onPage={setPage} onPageSize={setPageSize} rotulo={['workflow', 'workflows']} />
       </div>
 
       <ConfirmDialog open={!!excluindo} tone="danger" title="Excluir workflow" confirmLabel="Excluir"

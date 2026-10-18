@@ -14,8 +14,11 @@ import { useWorkspace } from '@/contexts/workspace-context'
 import { exportExcel } from '@/lib/export-excel'
 import { TablePagination } from '@/components/ui/table-pagination'
 import { ListToolbar } from '@/components/list/list-toolbar'
+import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
+import { Indicadores } from '@/components/list/indicadores'
+import { useFiltroColuna, BotaoFiltroColuna, LinhaFiltroColuna } from '@/components/list/filtro-coluna'
 import { LoadErrorRow } from '@/components/list/load-error'
-import { type FilterRow, matchOp, norm } from '@/lib/list-filter'
+import { type FilterRow, matchOp, norm, colunaContem } from '@/lib/list-filter'
 import { STATUS, fmt, humanDuration, pontualidadeLabel, type Inst } from '@/lib/processos-ui'
 
 interface SortState { col: string; dir: 'asc' | 'desc' }
@@ -161,6 +164,8 @@ export default function ProcessosPage() {
   /* Filtro rápido por situação, acionado pelos cards de resumo. Separado dos
      `filters` avançados de propósito: é um atalho de um clique, não uma regra salva. */
   const [statusFiltro, setStatusFiltro] = useState<string | null>(null)
+  const filtroCol = useFiltroColuna('processos')
+  useEffect(() => { setPage(1) }, [statusFiltro, filtroCol.ativos])
   const all = useMemo(() => rows ?? [], [rows])
   const stats = useMemo(() => ({
     total: all.length,
@@ -180,13 +185,15 @@ export default function ProcessosPage() {
     const q = norm(search)
     const active = filters.filter((f) => f.value.trim())
     return all.filter((i) => {
-      if (statusFiltro && i.status !== statusFiltro) return false
+      /* "ATRASADO" não é status: é o processo vencido no prazo (qualquer situação) */
+      if (statusFiltro === 'ATRASADO' ? !i.processOverdue : statusFiltro && i.status !== statusFiltro) return false
+      if (filtroCol.ativos.length && !filtroCol.ativos.every((f) => { const c = COLS.find((x) => x.key === f.col); return c ? colunaContem(c.text(i), f.value) : true })) return false
       if (q && !COLS.some((c) => norm(c.text(i)).includes(q))) return false
       if (!active.length) return true
       const res = active.map((f) => { const col = COLS.find((c) => c.key === f.col); return col ? matchOp(col.text(i), f.op, f.value) : true })
       return logic === 'AND' ? res.every(Boolean) : res.some(Boolean)
     })
-  }, [all, search, filters, logic, statusFiltro])
+  }, [all, search, filters, logic, statusFiltro, filtroCol.ativos])
 
   const sorted = useMemo(() => {
     if (!sort) return filtered
@@ -221,6 +228,8 @@ export default function ProcessosPage() {
   }
 
   const configSlot = (
+    <>
+    <BotaoFiltroColuna ligado={filtroCol.ligado} onClick={filtroCol.alternar} />
     <div ref={configRef} className="relative">
       <button onClick={() => setShowConfig((v) => !v)} className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
         <Settings2 className="h-3.5 w-3.5" />Configurações
@@ -238,6 +247,7 @@ export default function ProcessosPage() {
         </div>
       )}
     </div>
+    </>
   )
 
   return (
@@ -253,34 +263,15 @@ export default function ProcessosPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
-        {[
-          { label: 'Total', value: stats.total, cls: 'text-foreground', filtro: null },
-          { label: 'Em andamento', value: stats.running, cls: 'text-sky-600 dark:text-sky-400', filtro: 'RUNNING' },
-          { label: 'Concluídos', value: stats.completed, cls: 'text-emerald-600 dark:text-emerald-400', filtro: 'COMPLETED' },
-          { label: 'Atrasados', value: stats.overdue, cls: 'text-amber-600 dark:text-amber-400', filtro: null },
-          { label: 'Com erro', value: stats.errored, cls: 'text-red-600 dark:text-red-400', filtro: 'ERROR' },
-          { label: 'Sem conclusão', value: stats.semConclusao, cls: 'text-amber-600 dark:text-amber-400', filtro: 'ENDED_INCOMPLETE' },
-        ].map(({ label, value, cls, filtro }) => (
-          /* Clicar filtra: o card responde "quantos?" e a próxima pergunta é sempre
-             "quais?". Sem isso, o número vira um beco. */
-          <button
-            key={label}
-            type="button"
-            onClick={() => setStatusFiltro((atual) => (filtro && atual === filtro ? null : filtro))}
-            disabled={!filtro}
-            className={cn(
-              'vidro rounded-xl bg-[var(--vidro-cartao)] px-3 py-2 flex items-center justify-between text-left transition-colors',
-              filtro ? 'hover:bg-muted/60 cursor-pointer' : 'cursor-default',
-              filtro && statusFiltro === filtro && 'border-primary bg-primary/5',
-              label === 'Com erro' && value > 0 && 'border-red-300 dark:border-red-900',
-            )}
-          >
-            <p className="text-[11px] text-muted-foreground">{label}</p>
-            <p className={cn('text-sm font-bold tabular-nums', cls)}>{value}</p>
-          </button>
-        ))}
-      </div>
+      {/* Clicar filtra: o card responde "quantos?" e a próxima pergunta é sempre "quais?". */}
+      <Indicadores className="grid-cols-2 sm:grid-cols-6" ativo={statusFiltro} onSelect={setStatusFiltro} itens={[
+        { label: 'Total', valor: stats.total, cls: 'text-foreground', filtro: null },
+        { label: 'Em andamento', valor: stats.running, cls: 'text-sky-600 dark:text-sky-400', filtro: 'RUNNING' },
+        { label: 'Concluídos', valor: stats.completed, cls: 'text-emerald-600 dark:text-emerald-400', filtro: 'COMPLETED' },
+        { label: 'Atrasados', valor: stats.overdue, cls: 'text-amber-600 dark:text-amber-400', filtro: 'ATRASADO' },
+        { label: 'Com erro', valor: stats.errored, cls: 'text-red-600 dark:text-red-400', filtro: 'ERROR', alerta: stats.errored > 0 },
+        { label: 'Sem conclusão', valor: stats.semConclusao, cls: 'text-amber-600 dark:text-amber-400', filtro: 'ENDED_INCOMPLETE' },
+      ]} />
 
       <ListToolbar
         search={search} onSearch={setSearch}
@@ -294,11 +285,11 @@ export default function ProcessosPage() {
 
       <div className="rounded-xl border bg-card shadow-sm flex-1 min-h-0 flex flex-col">
         <div className="overflow-auto flex-1 min-h-0">
-          <table className="min-w-full text-xs">
+          <table className={cn('min-w-full', DENS_TABELA)}>
             <thead className="sticky top-0 z-20">
               <tr className="border-b">
                 {visibleCols.map((col) => (
-                  <th key={col.key} className={cn('text-left px-3 py-1.5 font-medium text-muted-foreground select-none whitespace-nowrap bg-muted', col.align === 'right' && 'text-right')}>
+                  <th key={col.key} className={cn('text-left ' + DENS_CAB + ' font-medium text-muted-foreground select-none whitespace-nowrap bg-muted', col.align === 'right' && 'text-right')}>
                     <button onClick={() => handleSort(col.key)} className="group inline-flex items-center hover:text-foreground transition-colors">
                       {col.label}
                       {!sort || sort.col !== col.key
@@ -311,6 +302,9 @@ export default function ProcessosPage() {
                     ordena, não exporta) e não deve aparecer em "Colunas visíveis". */}
                 <th className="w-0 px-3 py-1.5 bg-muted" />
               </tr>
+              {filtroCol.ligado && (
+                <LinhaFiltroColuna colunas={visibleCols} valores={filtroCol.valores} onChange={filtroCol.mudar} sobra={1} />
+              )}
             </thead>
             <tbody>
               {rows === null ? (
@@ -326,9 +320,9 @@ export default function ProcessosPage() {
               ) : pageRows.map((i) => (
                 <tr key={i.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => openDetail(i)}>
                   {visibleCols.map((col) => (
-                    <td key={col.key} className={cn('px-3 py-2 align-top', col.align === 'right' && 'text-right')}>{col.node(i)}</td>
+                    <td key={col.key} className={cn(DENS_CEL, 'py-1.5 align-middle', col.align === 'right' && 'text-right')}>{col.node(i)}</td>
                   ))}
-                  <td className="px-3 py-2 align-top whitespace-nowrap">
+                  <td className={cn(DENS_CEL, 'py-1.5 align-middle whitespace-nowrap')}>
                     {(i.status === 'RUNNING' || i.status === 'ERROR') && (
                       <CancelInstanceButton instanceId={i.id} processName={i.processName} onCancelled={load} compact />
                     )}
@@ -342,7 +336,7 @@ export default function ProcessosPage() {
             </tbody>
           </table>
         </div>
-        <TablePagination page={page} pageSize={pageSize} total={sorted.length} onPage={setPage} onPageSize={setPageSize} />
+        <TablePagination page={page} pageSize={pageSize} total={sorted.length} onPage={setPage} onPageSize={setPageSize} rotulo={['processo', 'processos']} />
       </div>
     </div>
   )
