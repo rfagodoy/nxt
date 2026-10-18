@@ -297,10 +297,10 @@ export default function WorkflowsPage() {
                 <tr key={p.id} onClick={() => router.push(`/workflows/${p.id}/edit`)} title="Abrir no editor"
                   className="border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer">
                   {visibleCols.map((col) => (
-                    <td key={col.key} className={cn(DENS_CEL, 'py-1.5 align-middle', col.align === 'right' && 'text-right')}>{col.node(p)}</td>
+                    <td key={col.key} className={cn(DENS_CEL, 'align-middle', col.align === 'right' && 'text-right')}>{col.node(p)}</td>
                   ))}
                   {/* ações não abrem o editor: o clique fica na célula */}
-                  <td className={cn(DENS_CEL, 'py-1.5 align-middle cursor-default')} onClick={(e) => e.stopPropagation()}>
+                  <td className={cn(DENS_CEL, 'align-middle cursor-default')} onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1.5">
                       {p.status === 'DRAFT' && (
                         <Button size="sm" variant="outline" disabled={busy === p.id} onClick={() => activate(p.id)}>

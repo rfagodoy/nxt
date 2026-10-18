@@ -272,21 +272,21 @@ export default function RelatoriosPage() {
             <tbody>
               {linhas.map((l) => (
                 <tr key={l.id} className="border-b last:border-0 hover:bg-muted/40">
-                  <td className={cn(DENS_CEL, 'py-1 whitespace-nowrap font-medium')}>{l.numero}</td>
-                  <td className={cn(DENS_CEL, 'py-1')}>{l.titulo}</td>
-                  <td className={cn(DENS_CEL, 'py-1 text-muted-foreground')}>{l.parceiros || '—'}</td>
-                  <td className={cn(DENS_CEL, 'py-1 whitespace-nowrap')}>
+                  <td className={cn(DENS_CEL, 'whitespace-nowrap font-medium')}>{l.numero}</td>
+                  <td className={DENS_CEL}>{l.titulo}</td>
+                  <td className={cn(DENS_CEL, 'text-muted-foreground')}>{l.parceiros || '—'}</td>
+                  <td className={cn(DENS_CEL, 'whitespace-nowrap')}>
                     <span className={`inline-flex rounded px-1.5 py-0.5 text-[11px] font-medium ${SIT_CLS[l.situacao] ?? ''}`}>
                       {SIT_LABEL[l.situacao] ?? l.situacao}
                     </span>
                   </td>
-                  <td className={cn(DENS_CEL, 'py-1 whitespace-nowrap')}>
+                  <td className={cn(DENS_CEL, 'whitespace-nowrap')}>
                     {l.prazoIndeterminado ? <span className="text-muted-foreground">Indeterminado</span> : fmtData(l.terminoVigencia)}
                     {l.diasParaTerminar !== null && l.diasParaTerminar >= 0 && l.diasParaTerminar <= 30 && (
                       <span className="ml-1 text-[10.5px] text-amber-600 dark:text-amber-400">em {l.diasParaTerminar}d</span>
                     )}
                   </td>
-                  <td className={cn(DENS_CEL, 'py-1 text-right tabular-nums whitespace-nowrap')}>{BRL.format(l.valor)}</td>
+                  <td className={cn(DENS_CEL, 'text-right tabular-nums whitespace-nowrap')}>{BRL.format(l.valor)}</td>
                 </tr>
               ))}
             </tbody>

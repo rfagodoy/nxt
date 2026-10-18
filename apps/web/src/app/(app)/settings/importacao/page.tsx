@@ -356,14 +356,14 @@ export default function ImportacaoPage() {
                   <tbody>
                     {[...problemas, ...(resultado.linhas ?? []).filter((l) => l.acao !== 'ERRO')].map((l) => (
                       <tr key={l.linha} className="border-b last:border-0 align-top">
-                        <td className={cn(DENS_CEL, 'py-1 tabular-nums text-muted-foreground')}>{l.linha}</td>
-                        <td className={cn(DENS_CEL, 'py-1')}>
+                        <td className={cn(DENS_CEL, 'tabular-nums text-muted-foreground')}>{l.linha}</td>
+                        <td className={DENS_CEL}>
                           <span className={`inline-flex rounded px-1.5 py-0.5 text-[11px] font-medium ${ACAO_CLS[l.acao]}`}>
                             {ACAO_LABEL[l.acao]}
                           </span>
                         </td>
-                        <td className={cn(DENS_CEL, 'py-1')}>{l.identificacao}</td>
-                        <td className={cn(DENS_CEL, 'py-1 text-muted-foreground')}>
+                        <td className={DENS_CEL}>{l.identificacao}</td>
+                        <td className={cn(DENS_CEL, 'text-muted-foreground')}>
                           {l.problemas.length > 0
                             ? l.problemas.map((p, i) => (
                                 <span key={i} className="block text-red-700 dark:text-red-400">

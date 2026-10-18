@@ -396,7 +396,7 @@ function UnitRow({ row, flatMode, typeMap, onToggle, onAddChild, onEdit, onMove,
 
 /* A lista é VIRTUALIZADA: a altura da linha precisa existir em JS (não só no CSS) para
    calcular quais linhas desenhar — por isso segue a densidade aqui, além das variáveis. */
-const ALTURA_LINHA: Record<Densidade, number> = { compacta: 30, media: 38, alta: 46 }
+const ALTURA_LINHA: Record<Densidade, number> = { compacta: 22, media: 26, alta: 36 }
 const VIEWPORT = 460
 
 function OrgChart({ companyId, onChanged }: { companyId: string; onChanged: () => void }) {

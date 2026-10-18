@@ -648,17 +648,17 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
                       <tr><td colSpan={6} className="px-4 py-6 text-center text-xs text-muted-foreground">Nenhum registro com os filtros aplicados.</td></tr>
                     ) : filteredAuditRows.map(r => (
                       <tr key={r.key} className="border-b last:border-0 hover:bg-muted/20 transition-colors align-top">
-                        <td className={cn(DENS_CEL, 'py-1 whitespace-nowrap')}>
+                        <td className={cn(DENS_CEL, 'whitespace-nowrap')}>
                           <span className="inline-flex items-center gap-1.5">
                             <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center rounded-full', DOT_CLS[r.color])}><r.Icon className="h-3 w-3" /></span>
                             <span className="font-medium">{r.eventLabel}</span>
                           </span>
                         </td>
-                        <td className={cn(DENS_CEL, 'py-1 text-muted-foreground tabular-nums whitespace-nowrap')}>{fmtAuditTs(r.ts)}</td>
-                        <td className={cn(DENS_CEL, 'py-1 text-muted-foreground whitespace-nowrap')}>{r.user}</td>
-                        <td className={cn(DENS_CEL, 'py-1 font-medium whitespace-nowrap')}>{r.label}</td>
-                        <td className={cn(DENS_CEL, 'py-1 text-muted-foreground line-through')}>{r.before}</td>
-                        <td className={cn(DENS_CEL, 'py-1')}>
+                        <td className={cn(DENS_CEL, 'text-muted-foreground tabular-nums whitespace-nowrap')}>{fmtAuditTs(r.ts)}</td>
+                        <td className={cn(DENS_CEL, 'text-muted-foreground whitespace-nowrap')}>{r.user}</td>
+                        <td className={cn(DENS_CEL, 'font-medium whitespace-nowrap')}>{r.label}</td>
+                        <td className={cn(DENS_CEL, 'text-muted-foreground line-through')}>{r.before}</td>
+                        <td className={DENS_CEL}>
                           {r.after}
                           {r.motivo && <span className="block text-[11px] text-muted-foreground italic mt-0.5">motivo: {r.motivo}</span>}
                         </td>

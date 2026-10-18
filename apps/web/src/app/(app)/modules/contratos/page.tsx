@@ -345,9 +345,9 @@ export default function ContratosPage() {
         const ctn = linha('Contratante', 'bg-slate-500/10 text-slate-600 dark:text-slate-400', row.contratante_nome, row.contratante_doc)
         const ctd = linha('Contratada',  'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', row.contratada_nome, row.contratada_doc)
         return (
-          <td key={key} className={cn(CEL, densidade === 'compacta' ? 'py-0' : 'py-1', sticky)}>
-            {densidade === 'compacta' && (row.contratada_nome || row.contratante_nome) ? (
-              /* Compacta: duas linhas não cabem — a contratada vai na frente e a contratante segue */
+          <td key={key} className={cn(CEL, sticky)}>
+            {densidade !== 'alta' && (row.contratada_nome || row.contratante_nome) ? (
+              /* Compacta e Média: duas linhas não cabem — a contratada vai na frente e a contratante segue */
               <div className="flex min-w-0 max-w-[420px] items-center gap-1.5 whitespace-nowrap">
                 {row.contratada_nome && <span className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">Contratada</span>}
                 <span className="truncate font-medium text-foreground">{row.contratada_nome || row.contratante_nome}</span>

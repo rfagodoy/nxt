@@ -266,9 +266,9 @@ export default function UsuariosPage() {
               ) : pageRows.map((u) => (
                 <tr key={u.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => openEdit(u)}>
                   {visibleCols.map((col) => (
-                    <td key={col.key} className={cn(DENS_CEL, 'py-1 align-middle', col.align === 'right' && 'text-right')}>{col.node(u)}</td>
+                    <td key={col.key} className={cn(DENS_CEL, 'align-middle', col.align === 'right' && 'text-right')}>{col.node(u)}</td>
                   ))}
-                  <td className={cn(DENS_CEL, 'py-1 text-right')} onClick={(e) => e.stopPropagation()}>
+                  <td className={cn(DENS_CEL, 'text-right')} onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-1">
                       <Button variant="ghost" size="sm" onClick={() => openEdit(u)} title="Editar"><Pencil className="h-3.5 w-3.5" /></Button>
                       <Button variant="ghost" size="sm" onClick={() => openPassword(u)} title="Resetar senha"><KeyRound className="h-3.5 w-3.5" /></Button>

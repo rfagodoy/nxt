@@ -2,58 +2,65 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Densidade da tela (preferência do usuário — lib/densidade.tsx). As listas leem estas
-   variáveis; Compacta é a densidade que o sistema sempre teve (linha ~28px, texto 12px). */
+/* Densidade da tela (preferência do usuário — lib/densidade.tsx). Régua do Conexos (PO, 18/10):
+   linha da lista 20 / 24 / 36px. Cadastro COERENTE com a lista: o valor fica um degrau acima da
+   letra da tabela e o bloco rótulo+valor tem ~1,75 linha. */
 :root, :root[data-densidade="compacta"] {
-  --lista-linha: 1.75rem;
+  --lista-linha: 1.25rem;
+  --lista-cab: 1.75rem;
+  --lista-fonte: 0.6875rem;
+  --lista-px: 0.375rem;
+  --lista-py: 0;
+  --lista-lh: 1rem;
+  --lista-indicador: 1.75rem;
+  --cartao-pad: 0.375rem;
+  --cartao-gap: 0.25rem;
+  /* cadastros (consulta e edição) */
+  --campo-altura: 1.75rem;
+  --campo-fonte: 0.75rem;
+  --leitura-fonte: 0.78125rem;
+  --leitura-altura: 1.125rem;
+  --rotulo-fonte: 0.6875rem;
+  --form-gap: 0.5rem;
+  --secao-pad: 0.625rem;
+}
+:root[data-densidade="media"] {
+  --lista-linha: 1.5rem;
   --lista-cab: 2rem;
   --lista-fonte: 0.75rem;
-  --lista-px: 0.75rem;
+  --lista-px: 0.5rem;
+  --lista-py: 0.125rem;
+  --lista-lh: 1rem;
   --lista-indicador: 1.875rem;
   --cartao-pad: 0.5rem;
-  --cartao-gap: 0.25rem;
-  /* cadastros (consulta e edição) — Compacta = o formulário de sempre */
+  --cartao-gap: 0.375rem;
+  /* cadastros (consulta e edição) */
   --campo-altura: 2rem;
   --campo-fonte: 0.75rem;
   --leitura-fonte: 0.8125rem;
-  --leitura-altura: 1.5rem;
-  --rotulo-fonte: 0.625rem;
-  --form-gap: 0.75rem;
-  --secao-pad: 1rem;
+  --leitura-altura: 1.25rem;
+  --rotulo-fonte: 0.6875rem;
+  --form-gap: 0.625rem;
+  --secao-pad: 0.75rem;
 }
-:root[data-densidade="media"] {
-  --lista-linha: 2.5rem;
-  --lista-cab: 2.375rem;
+:root[data-densidade="alta"] {
+  --lista-linha: 2.25rem;
+  --lista-cab: 2.25rem;
   --lista-fonte: 0.8125rem;
-  --lista-px: 0.875rem;
-  --lista-indicador: 2.125rem;
+  --lista-px: 0.75rem;
+  --lista-py: 0.375rem;
+  --lista-lh: 1.25rem;
+  --lista-indicador: 2.25rem;
   --cartao-pad: 0.75rem;
   --cartao-gap: 0.5rem;
-  /* cadastros (consulta e edição) — Compacta = o formulário de sempre */
+  /* cadastros (consulta e edição) */
   --campo-altura: 2.25rem;
   --campo-fonte: 0.8125rem;
   --leitura-fonte: 0.875rem;
-  --leitura-altura: 1.75rem;
-  --rotulo-fonte: 0.6875rem;
-  --form-gap: 1rem;
-  --secao-pad: 1.25rem;
-}
-:root[data-densidade="alta"] {
-  --lista-linha: 3.125rem;
-  --lista-cab: 2.75rem;
-  --lista-fonte: 0.875rem;
-  --lista-px: 1rem;
-  --lista-indicador: 2.5rem;
-  --cartao-pad: 1rem;
-  --cartao-gap: 0.75rem;
-  /* cadastros (consulta e edição) — Compacta = o formulário de sempre */
-  --campo-altura: 2.5rem;
-  --campo-fonte: 0.875rem;
-  --leitura-fonte: 0.9375rem;
-  --leitura-altura: 2rem;
+  --leitura-altura: 1.5rem;
   --rotulo-fonte: 0.75rem;
-  --form-gap: 1.25rem;
-  --secao-pad: 1.5rem;
+  --form-gap: 0.875rem;
+  --secao-pad: 1rem;
 }
 
 @layer base {

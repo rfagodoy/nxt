@@ -148,7 +148,7 @@ export default function TelasPage() {
               ) : shown.map(s => (
                 <tr key={s.id} onClick={() => router.push(`/settings/telas/${s.id}`)} title="Abrir a tela"
                   className="border-b last:border-0 hover:bg-muted/30 transition-colors group/row cursor-pointer">
-                  <td className={cn(DENS_CEL, 'py-1')}>
+                  <td className={DENS_CEL}>
                     {/* Fluxo de texto, não flex: a etiqueta é parte da frase e tem de seguir a
                         ÚLTIMA palavra do nome. Em flex com `items-center`, um nome que quebra em
                         duas linhas deixava a etiqueta boiando no meio da altura da linha. */}
@@ -159,11 +159,11 @@ export default function TelasPage() {
                     </span>
                     {s.description && <p className="text-[11px] text-muted-foreground truncate max-w-md">{s.description}</p>}
                   </td>
-                  <td className={cn(DENS_CEL, 'py-1')}><span className={cn('inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium', SUBJECT_CLS[s.subjectType])}>{SUBJECT_LABELS[s.subjectType]}</span></td>
-                  <td className={cn(DENS_CEL, 'py-1')}><span className={cn('inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium', STATUS_CLS[s.status])}>{STATUS_LABELS[s.status]}</span></td>
-                  <td className={cn(DENS_CEL, 'py-1 text-center')}>{s.isDefault ? <Star className="h-3.5 w-3.5 text-primary inline fill-primary" /> : <span className="text-muted-foreground">—</span>}</td>
-                  <td className={cn(DENS_CEL, 'py-1 text-center text-muted-foreground tabular-nums')}>{custom(s)} pers.</td>
-                  <td className={cn(DENS_CEL, 'py-1 cursor-default')} onClick={(e) => e.stopPropagation()}>
+                  <td className={DENS_CEL}><span className={cn('inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium', SUBJECT_CLS[s.subjectType])}>{SUBJECT_LABELS[s.subjectType]}</span></td>
+                  <td className={DENS_CEL}><span className={cn('inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium', STATUS_CLS[s.status])}>{STATUS_LABELS[s.status]}</span></td>
+                  <td className={cn(DENS_CEL, 'text-center')}>{s.isDefault ? <Star className="h-3.5 w-3.5 text-primary inline fill-primary" /> : <span className="text-muted-foreground">—</span>}</td>
+                  <td className={cn(DENS_CEL, 'text-center text-muted-foreground tabular-nums')}>{custom(s)} pers.</td>
+                  <td className={cn(DENS_CEL, 'cursor-default')} onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1">
                       <Link href={`/settings/telas/${s.id}`} title="Editar" className="h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted opacity-0 group-hover/row:opacity-100 transition-all"><Pencil className="h-3.5 w-3.5" /></Link>
                       <button onClick={() => void duplicar(s.id)} disabled={!!duplicando} title="Duplicar — cria um rascunho com as mesmas marcações"

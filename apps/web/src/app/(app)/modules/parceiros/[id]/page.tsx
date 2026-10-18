@@ -291,10 +291,10 @@ export default function ParceiroDetail() {
               <tbody>
                 {partner.socios.map((s, i) => (
                   <tr key={i} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
-                    <td className={cn(DENS_CEL, 'py-2 font-medium')}>{s.nome || '—'}</td>
-                    <td className={cn(DENS_CEL, 'py-2 font-mono text-muted-foreground')}>{s.documento || '—'}</td>
-                    <td className={cn(DENS_CEL, 'py-2')}>{s.participacao || '—'}</td>
-                    <td className={cn(DENS_CEL, 'py-2 text-muted-foreground')}>{s.cargo || '—'}</td>
+                    <td className={cn(DENS_CEL, 'font-medium')}>{s.nome || '—'}</td>
+                    <td className={cn(DENS_CEL, 'font-mono text-muted-foreground')}>{s.documento || '—'}</td>
+                    <td className={DENS_CEL}>{s.participacao || '—'}</td>
+                    <td className={cn(DENS_CEL, 'text-muted-foreground')}>{s.cargo || '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -333,11 +333,11 @@ export default function ParceiroDetail() {
               <tbody>
                 {[...logs].reverse().map(log => (
                   <tr key={log.id} className="border-b last:border-0 hover:bg-muted/20 transition-colors">
-                    <td className={cn(DENS_CEL, 'py-2.5 text-muted-foreground tabular-nums whitespace-nowrap align-top')}>
+                    <td className={cn(DENS_CEL, 'text-muted-foreground tabular-nums whitespace-nowrap align-top')}>
                       {formatLogDate(log.ts)}
                     </td>
-                    <td className={cn(DENS_CEL, 'py-2.5 text-muted-foreground align-top whitespace-nowrap')}>{log.user}</td>
-                    <td className={cn(DENS_CEL, 'py-2.5 align-top')}>
+                    <td className={cn(DENS_CEL, 'text-muted-foreground align-top whitespace-nowrap')}>{log.user}</td>
+                    <td className={cn(DENS_CEL, 'align-top')}>
                       <p className="leading-snug">{log.description}</p>
                       {log.changes && log.changes.length > 0 && (
                         <div className="mt-2 rounded border overflow-hidden">
@@ -352,9 +352,9 @@ export default function ParceiroDetail() {
                             <tbody>
                               {log.changes.map((c, i) => (
                                 <tr key={i} className="border-b last:border-0">
-                                  <td className={cn(DENS_CEL, 'py-1.5 font-medium')}>{c.label}</td>
-                                  <td className={cn(DENS_CEL, 'py-1.5 text-muted-foreground line-through')}>{c.before || '—'}</td>
-                                  <td className={cn(DENS_CEL, 'py-1.5')}>{c.after || '—'}</td>
+                                  <td className={cn(DENS_CEL, 'font-medium')}>{c.label}</td>
+                                  <td className={cn(DENS_CEL, 'text-muted-foreground line-through')}>{c.before || '—'}</td>
+                                  <td className={DENS_CEL}>{c.after || '—'}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -362,7 +362,7 @@ export default function ParceiroDetail() {
                         </div>
                       )}
                     </td>
-                    <td className={cn(DENS_CEL, 'py-2.5 align-top')}>
+                    <td className={cn(DENS_CEL, 'align-top')}>
                       <span className={cn('inline-flex items-center rounded px-2 py-0.5 text-[10px] font-semibold tracking-wide whitespace-nowrap', LOG_EVENT_CLS[log.event])}>
                         {LOG_EVENT_LABEL[log.event]}
                       </span>

@@ -182,17 +182,17 @@ export function ContractHistory({ contractId, reloadKey }: { contractId: string;
               <tr><td colSpan={6} className="px-4 py-6 text-center text-xs text-muted-foreground">Nenhum evento com os filtros aplicados.</td></tr>
             ) : filtered.map(r => (
               <tr key={r.key} className="border-b last:border-0 align-top hover:bg-muted/20 transition-colors">
-                <td className={cn(DENS_CEL, 'py-1.5 whitespace-nowrap')}>
+                <td className={cn(DENS_CEL, 'whitespace-nowrap')}>
                   <span className="inline-flex items-center gap-1.5">
                     <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center rounded-full', DOT_CLS[r.color])}><r.Icon className="h-3 w-3" /></span>
                     <span className="font-medium">{r.eventLabel}</span>
                   </span>
                 </td>
-                <td className={cn(DENS_CEL, 'py-1.5 whitespace-nowrap tabular-nums text-muted-foreground')}>{fmtTs(r.ts)}</td>
-                <td className={cn(DENS_CEL, 'py-1.5 whitespace-nowrap text-muted-foreground')}>{r.user}</td>
-                <td className={cn(DENS_CEL, 'py-1.5 whitespace-nowrap')}>{r.label}</td>
-                <td className={cn(DENS_CEL, 'py-1.5 text-muted-foreground/60 line-through')}>{r.before}</td>
-                <td className={cn(DENS_CEL, 'py-1.5')}>
+                <td className={cn(DENS_CEL, 'whitespace-nowrap tabular-nums text-muted-foreground')}>{fmtTs(r.ts)}</td>
+                <td className={cn(DENS_CEL, 'whitespace-nowrap text-muted-foreground')}>{r.user}</td>
+                <td className={cn(DENS_CEL, 'whitespace-nowrap')}>{r.label}</td>
+                <td className={cn(DENS_CEL, 'text-muted-foreground/60 line-through')}>{r.before}</td>
+                <td className={DENS_CEL}>
                   <span className="font-medium">{r.after}</span>
                   {r.motivo && <span className="mt-0.5 block text-[11px] italic text-muted-foreground">motivo: {r.motivo}</span>}
                 </td>

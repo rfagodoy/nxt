@@ -320,9 +320,9 @@ export default function ProcessosPage() {
               ) : pageRows.map((i) => (
                 <tr key={i.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => openDetail(i)}>
                   {visibleCols.map((col) => (
-                    <td key={col.key} className={cn(DENS_CEL, 'py-1.5 align-middle', col.align === 'right' && 'text-right')}>{col.node(i)}</td>
+                    <td key={col.key} className={cn(DENS_CEL, 'align-middle', col.align === 'right' && 'text-right')}>{col.node(i)}</td>
                   ))}
-                  <td className={cn(DENS_CEL, 'py-1.5 align-middle whitespace-nowrap')}>
+                  <td className={cn(DENS_CEL, 'align-middle whitespace-nowrap')}>
                     {(i.status === 'RUNNING' || i.status === 'ERROR') && (
                       <CancelInstanceButton instanceId={i.id} processName={i.processName} onCancelled={load} compact />
                     )}

@@ -122,7 +122,7 @@ export default function NotificacoesHistoricoPage() {
                   const Icon = TIPO_ICON[n.tipo] ?? Bell
                   return (
                     <tr key={n.id} className={cn('border-b last:border-0 hover:bg-muted/30 transition-colors', !n.read && 'bg-primary/[0.03]')}>
-                      <td className={cn(DENS_CEL, 'py-1.5 align-top whitespace-nowrap')}>
+                      <td className={cn(DENS_CEL, 'align-top whitespace-nowrap')}>
                         <span className="inline-flex items-center gap-1.5">
                           <span className={cn('flex h-5 w-5 items-center justify-center rounded-full', SEV_CLS[n.severidade] ?? SEV_CLS.INFO)}>
                             <Icon className="h-3 w-3" />
@@ -130,12 +130,12 @@ export default function NotificacoesHistoricoPage() {
                           {TIPO_LABEL[n.tipo] ?? n.tipo}
                         </span>
                       </td>
-                      <td className={cn(DENS_CEL, 'py-1.5 align-top')}>
+                      <td className={cn(DENS_CEL, 'align-top')}>
                         <p className={cn('text-xs', !n.read && 'font-semibold')}>{n.titulo}</p>
                         <p className="text-[11px] text-muted-foreground">{n.mensagem}</p>
                       </td>
-                      <td className={cn(DENS_CEL, 'py-1.5 align-top text-muted-foreground whitespace-nowrap')}>{fmt(n.createdAt)}</td>
-                      <td className={cn(DENS_CEL, 'py-1.5 align-top whitespace-nowrap')}>
+                      <td className={cn(DENS_CEL, 'align-top text-muted-foreground whitespace-nowrap')}>{fmt(n.createdAt)}</td>
+                      <td className={cn(DENS_CEL, 'align-top whitespace-nowrap')}>
                         {n.read
                           ? <span className="text-muted-foreground">lida</span>
                           : <span className="inline-flex items-center gap-1 text-primary font-medium"><span className="h-1.5 w-1.5 rounded-full bg-primary" />não lida</span>}
