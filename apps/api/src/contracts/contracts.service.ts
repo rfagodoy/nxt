@@ -451,7 +451,8 @@ export class ContractsService {
 
     const stats = computeStats(rows) // tiles contam a ORG inteira, não o recorte
     const filtered = applyQuery(rows, {
-      search: dto.search, filters: dto.filters, logic: dto.logic, sort: dto.sort ?? null,
+      search: dto.search, situacao: dto.situacao, columnFilters: dto.columnFilters,
+      filters: dto.filters, logic: dto.logic, sort: dto.sort ?? null,
       customMeta, customValues,
     })
     const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize)

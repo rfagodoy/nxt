@@ -37,6 +37,8 @@ export interface ListRow {
 }
 
 export interface FilterItem { col: string; op: string; value: string }
+/** Filtro NA COLUNA (linha de campos sob o cabeçalho): "contém", sempre somado em E. */
+export interface ColumnFilter { col: string; value: string }
 export interface SortSpec { col: string; dir: 'asc' | 'desc' }
 
 /* Rótulos das situações — vocabulário estável do produto (espelha SITUACOES do web).
@@ -70,6 +72,24 @@ export function rowText(r: ListRow, key: string): string {
     case 'objeto':          return (r.objeto ?? []).join(' ')
     default:                return String(r[key] ?? '')
   }
+}
+
+/** Formas em que a célula aparece na tela — o filtro na coluna casa com o que a pessoa
+ *  VÊ: data ISO também como dd/mm/aaaa, número também com milhar e vírgula pt-BR. */
+export function formasVisiveis(texto: string): string[] {
+  const formas = [texto]
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(texto)
+  if (iso) formas.push(`${iso[3]}/${iso[2]}/${iso[1]}`)
+  if (/^-?\d+(\.\d+)?$/.test(texto.trim())) {
+    formas.push(Number(texto).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
+  }
+  return formas
+}
+
+/** "contém" do filtro na coluna, sobre as formas visíveis da célula. */
+export function colunaContem(texto: string, valor: string): boolean {
+  const v = norm(valor)
+  return !v || formasVisiveis(texto).some((f) => norm(f).includes(v))
 }
 
 /** Valor de ORDENAÇÃO: numérico para colunas de dinheiro (lexical ordenaria "9" > "10"). */
@@ -131,6 +151,9 @@ export function applyQuery(
   rows: ListRow[],
   opts: {
     search?: string
+    /** situação EFETIVA exata (código) — os indicadores da lista viram filtro de um clique */
+    situacao?: string
+    columnFilters?: ColumnFilter[]
     filters?: FilterItem[]
     logic?: 'AND' | 'OR'
     sort?: SortSpec | null
@@ -157,6 +180,16 @@ export function applyQuery(
       return false
     })
   }
+
+  if (opts.situacao) {
+    const alvo = opts.situacao
+    out = out.filter((r) => effectiveSituacao(r.situacao, r.termino, todayISO()) === alvo)
+  }
+
+  /* Filtro na coluna soma em E com tudo — inclusive com condições avançadas em OU: são
+     duas ferramentas, e a da coluna é sempre um recorte a mais. */
+  const porColuna = (opts.columnFilters ?? []).filter((f) => f.col && f.value?.trim())
+  if (porColuna.length) out = out.filter((r) => porColuna.every((f) => colunaContem(text(r, f.col), f.value)))
 
   const active = (opts.filters ?? []).filter((f) => f.value?.trim())
   if (active.length) {

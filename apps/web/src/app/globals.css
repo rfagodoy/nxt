@@ -2,6 +2,30 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Densidade da tela (preferência do usuário — lib/densidade.tsx). As listas leem estas
+   variáveis; Compacta é a densidade que o sistema sempre teve (linha ~28px, texto 12px). */
+:root, :root[data-densidade="compacta"] {
+  --lista-linha: 1.75rem;
+  --lista-cab: 2rem;
+  --lista-fonte: 0.75rem;
+  --lista-px: 0.75rem;
+  --lista-indicador: 1.875rem;
+}
+:root[data-densidade="media"] {
+  --lista-linha: 2.5rem;
+  --lista-cab: 2.375rem;
+  --lista-fonte: 0.8125rem;
+  --lista-px: 0.875rem;
+  --lista-indicador: 2.125rem;
+}
+:root[data-densidade="alta"] {
+  --lista-linha: 3.125rem;
+  --lista-cab: 2.75rem;
+  --lista-fonte: 0.875rem;
+  --lista-px: 1rem;
+  --lista-indicador: 2.5rem;
+}
+
 @layer base {
   :root {
     /* página: "Mesa de Vidro" — Mist mais PROFUNDO (sage), pra o vidro branco e os
