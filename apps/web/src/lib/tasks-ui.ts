@@ -42,7 +42,7 @@ export function valorCurto(valor?: number, moeda = 'BRL'): string | null {
   return MOEDA_FMT.format(valor)
 }
 
-export interface TimelineTask { id: string; nodeId: string; name?: string | null; status: string; completedBy?: string | null }
+export interface TimelineTask { id: string; nodeId: string; name?: string | null; status: string; completedBy?: string | null; createdAt?: string | null }
 export interface InstanceContext {
   instance: { processDefinition: { name: string; formSchema: ProcessFormSchema }; tasks?: TimelineTask[] }
   state?: { variables?: Record<string, unknown> }
@@ -109,6 +109,8 @@ export interface PassoTrilha {
   completedBy?: string | null
   /** quantas vezes a etapa foi aberta — > 1 só acontece depois de uma devolução */
   passagens: number
+  /** quando a PRIMEIRA passagem nasceu — frentes em paralelo nascem no mesmo lote */
+  lote?: string | null
 }
 
 /** Agrupa as tarefas da instância por ETAPA do fluxo, na ordem em que apareceram.
@@ -120,7 +122,7 @@ export function agruparPassos(timeline: TimelineTask[], currentTaskId: string): 
   for (const t of timeline) {
     let p = porNode.get(t.nodeId)
     if (!p) {
-      p = { nodeId: t.nodeId, name: t.name || 'Etapa', situacao: 'pending', completedBy: null, passagens: 0 }
+      p = { nodeId: t.nodeId, name: t.name || 'Etapa', situacao: 'pending', completedBy: null, passagens: 0, lote: t.createdAt ?? null }
       porNode.set(t.nodeId, p)
     }
     p.passagens += 1
@@ -129,6 +131,20 @@ export function agruparPassos(timeline: TimelineTask[], currentTaskId: string): 
     if (t.id === currentTaskId) p.situacao = 'current'
   }
   return [...porNode.values()]
+}
+
+/** Etapas que nasceram JUNTAS (mesmo lote = frentes em paralelo) contam como UMA etapa da
+ *  trilha. Sem isso, quatro frentes abertas ao mesmo tempo apareciam como "etapa 2 de 4",
+ *  como se fossem uma fila. Só junta vizinhas na ordem de criação; sem `createdAt`, cada
+ *  etapa fica sozinha (como era). */
+export function agruparEtapas(passos: PassoTrilha[]): PassoTrilha[][] {
+  const grupos: PassoTrilha[][] = []
+  for (const p of passos) {
+    const ultimo = grupos[grupos.length - 1]
+    if (ultimo && p.lote && ultimo[0].lote === p.lote) ultimo.push(p)
+    else grupos.push([p])
+  }
+  return grupos
 }
 
 /** Grafo congelado da instância, só o que a próxima etapa precisa. */
