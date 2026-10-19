@@ -13,7 +13,7 @@
 import { useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { agruparPassos, type SituacaoPasso, type TimelineTask } from '@/lib/tasks-ui'
+import { agruparEtapas, agruparPassos, type PassoTrilha, type SituacaoPasso, type TimelineTask } from '@/lib/tasks-ui'
 
 /* FORMA, não cor. Antes a trilha era só uma fileira de bolinhas — concluído verde,
    pendente cinza — e esse é justamente o par que some para quem tem deuteranopia ou
@@ -42,8 +42,13 @@ export function ProcessTrail({ timeline, currentTaskId, className }: {
   const passos = agruparPassos(timeline, currentTaskId)
   if (passos.length < 2) return null
 
+  /* Frentes em paralelo nascem juntas e contam como UMA etapa: os pontos delas ficam
+     dentro de uma moldura (forma, não cor) e o texto diz quantas correm ao mesmo tempo. */
+  const grupos = agruparEtapas(passos)
   const atual = passos.find((p) => p.situacao === 'current')
-  const indice = passos.findIndex((p) => p.situacao === 'current')
+  const indice = grupos.findIndex((g) => g.some((p) => p.situacao === 'current'))
+  const outras = indice >= 0 ? grupos[indice].length - 1 : 0
+  const dica = (p: PassoTrilha) => `${p.name} · ${SITUACAO_TEXTO[p.situacao]}${p.completedBy ? ` · ${p.completedBy}` : ''}${p.passagens > 1 ? ` · ${p.passagens}ª vez` : ''}`
 
   return (
     <div className={cn('px-1 py-2 border-b', className)}>
@@ -58,17 +63,25 @@ export function ProcessTrail({ timeline, currentTaskId, className }: {
 
         {/* pontos: um por etapa, ligados por um traço. Altura fixa — não cresce com o processo. */}
         <span className="flex items-center gap-0 min-w-0 shrink">
-          {passos.map((p, i) => (
-            <span key={p.nodeId} className="flex items-center shrink-0" title={`${p.name} · ${SITUACAO_TEXTO[p.situacao]}${p.completedBy ? ` · ${p.completedBy}` : ''}${p.passagens > 1 ? ` · ${p.passagens}ª vez` : ''}`}>
-              {i > 0 && <span className={cn('h-px w-3', p.situacao === 'pending' ? 'bg-muted-foreground/25' : 'bg-primary/40')} />}
-              <span className={cn(PONTO_BASE, PONTO[p.situacao])} />
+          {grupos.map((g, i) => (
+            <span key={g[0].nodeId} className="flex items-center shrink-0">
+              {i > 0 && <span className={cn('h-px w-3', g.every((p) => p.situacao === 'pending') ? 'bg-muted-foreground/25' : 'bg-primary/40')} />}
+              {g.length === 1 ? (
+                <span title={dica(g[0])} className={cn(PONTO_BASE, PONTO[g[0].situacao])} />
+              ) : (
+                <span className="flex items-center gap-1 rounded-full border border-muted-foreground/40 px-1 py-0.5"
+                  title={`Ao mesmo tempo: ${g.map((p) => p.name).join(', ')}`}>
+                  {g.map((p) => <span key={p.nodeId} title={dica(p)} className={cn(PONTO_BASE, PONTO[p.situacao])} />)}
+                </span>
+              )}
             </span>
           ))}
         </span>
 
         {atual && (
           <span className="text-[11.5px] text-muted-foreground truncate">
-            etapa {indice + 1} de {passos.length}
+            {grupos.length > 1 && <>etapa {indice + 1} de {grupos.length}</>}
+            {outras > 0 && <>{grupos.length > 1 && ' · '}junto com mais {outras} {outras === 1 ? 'etapa' : 'etapas'}</>}
             {atual.passagens > 1 && <span className="text-amber-700 dark:text-amber-400 font-medium"> · {atual.passagens}ª vez</span>}
           </span>
         )}
@@ -78,18 +91,23 @@ export function ProcessTrail({ timeline, currentTaskId, className }: {
 
       {aberto && (
         <div className="flex flex-col gap-1.5 mt-2.5">
-          {passos.map((p) => (
-            <div key={p.nodeId} className="flex items-center gap-2.5">
-              <span className={cn(PONTO_BASE, PONTO[p.situacao])} />
-              <span className={cn('text-[12.5px]', p.situacao === 'current' ? 'font-semibold' : 'text-muted-foreground', p.situacao === 'pending' && 'text-muted-foreground/70')}>{p.name}</span>
-              {p.situacao === 'done' && p.completedBy && <span className="text-[11px] text-muted-foreground/70">· {p.completedBy}</span>}
-              {/* devolução: dizer que a etapa já passou por aqui antes evita refazer no automático */}
-              {p.passagens > 1 && (
-                <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
-                  {p.passagens}ª vez
-                </span>
-              )}
-              {p.situacao === 'current' && <span className="ml-auto text-[10px] uppercase tracking-wide text-primary font-semibold">sua vez</span>}
+          {grupos.map((g) => (
+            <div key={g[0].nodeId} className={cn('flex flex-col gap-1.5', g.length > 1 && 'border-l-2 border-muted-foreground/30 pl-2.5')}>
+              {g.length > 1 && <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70 font-semibold">ao mesmo tempo</span>}
+              {g.map((p) => (
+              <div key={p.nodeId} className="flex items-center gap-2.5">
+                <span className={cn(PONTO_BASE, PONTO[p.situacao])} />
+                <span className={cn('text-[12.5px]', p.situacao === 'current' ? 'font-semibold' : 'text-muted-foreground', p.situacao === 'pending' && 'text-muted-foreground/70')}>{p.name}</span>
+                {p.situacao === 'done' && p.completedBy && <span className="text-[11px] text-muted-foreground/70">· {p.completedBy}</span>}
+                {/* devolução: dizer que a etapa já passou por aqui antes evita refazer no automático */}
+                {p.passagens > 1 && (
+                  <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
+                    {p.passagens}ª vez
+                  </span>
+                )}
+                {p.situacao === 'current' && <span className="ml-auto text-[10px] uppercase tracking-wide text-primary font-semibold">sua vez</span>}
+              </div>
+              ))}
             </div>
           ))}
         </div>
