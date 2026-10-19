@@ -19,6 +19,7 @@ import { useCallback } from 'react'
 import { apiFetch } from '@/lib/http'
 import { useWorkspace } from '@/contexts/workspace-context'
 import type { Task } from '@/lib/tasks-ui'
+import { useSession } from '@/lib/session-context'
 
 /** O mínimo que se precisa saber do workflow para iniciá-lo e rotular a aba. */
 export interface ProcessoParaIniciar {
@@ -36,6 +37,10 @@ interface TarefaCriada {
   role?: string | null
   dueAt?: string | null
   createdAt?: string
+  assignee?: string | null
+  assignees?: string[] | null
+  executorNota?: string | null
+  semExecutor?: boolean
 }
 
 /** Resposta de POST /api/instances — o motor já roda até parar num ponto de espera. */
@@ -56,6 +61,8 @@ export type DesfechoInicio = { tom: 'erro' | 'ok'; msg: string } | null
  *  `contratoId` escolhido em "Qual contrato?" (a API confere que é desta organização). */
 export function useIniciarProcesso(): (proc: ProcessoParaIniciar, variables?: Record<string, unknown>) => Promise<DesfechoInicio> {
   const ws = useWorkspace()
+  const { data: session } = useSession()
+  const eu = session?.user.id
 
   return useCallback(async (proc: ProcessoParaIniciar, variables?: Record<string, unknown>): Promise<DesfechoInicio> => {
     const res = await apiFetch('/api/instances', {
@@ -74,7 +81,11 @@ export function useIniciarProcesso(): (proc: ProcessoParaIniciar, variables?: Re
     /* Nem todo início para numa atividade humana: o desenho pode ir direto ao fim, ou
        travar numa ação automática. Nesses casos não há aba para abrir — e ficar em
        silêncio faria parecer que o clique não funcionou. */
-    const primeira = data.tasks?.[0]
+    /* Abre a primeira atividade DE QUEM INICIOU. O início devolve todas as pendentes: com
+       frentes em paralelo ou executor pelo contrato, a primeira da lista pode ser de outra
+       pessoa — e abrir a aba dela deixava quem iniciou diante de uma tarefa que não é sua. */
+    const minha = (t: TarefaCriada) => t.assignee === eu || (t.assignees ?? []).includes(eu ?? '')
+    const primeira = eu ? data.tasks?.find(minha) : data.tasks?.[0]
     if (!primeira) {
       if (data.errored) return { tom: 'erro', msg: `${rotulo} parou com erro numa etapa automática. Veja em Processos.` }
       if (data.endedIncomplete) return { tom: 'erro', msg: `${rotulo} encerrou sem conclusão — nenhum caminho chegou ao fim.` }
@@ -91,6 +102,8 @@ export function useIniciarProcesso(): (proc: ProcessoParaIniciar, variables?: Re
       name: primeira.name,
       role: primeira.role,
       dueAt: primeira.dueAt,
+      executorNota: primeira.executorNota,
+      semExecutor: primeira.semExecutor,
       createdAt: primeira.createdAt ?? new Date().toISOString(),
       instance: { numero: numero ?? null, processDefinition: { name: proc.name, kind: proc.kind } },
     }
@@ -100,5 +113,5 @@ export function useIniciarProcesso(): (proc: ProcessoParaIniciar, variables?: Re
        mesmo evento que o host dispara ao concluir. */
     try { window.dispatchEvent(new CustomEvent('nxt:workspace:refresh')) } catch { /* SSR */ }
     return null
-  }, [ws])
+  }, [ws, eu])
 }

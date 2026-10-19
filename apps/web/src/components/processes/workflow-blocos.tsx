@@ -10,7 +10,7 @@
  */
 
 import { createContext, Fragment, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ArrowDown, ArrowUp, Building2, ChevronDown, ChevronsDownUp, ChevronsUpDown, Clock, CornerDownRight, GripVertical, Info, Link2, Play, Plus, SlidersHorizontal, Trash2, User, UserSquare, X, Zap } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, Building2, ChevronDown, ChevronsDownUp, ChevronsUpDown, Clock, CornerDownRight, GripVertical, Info, Link2, Map as MapIcon, Play, Plus, SlidersHorizontal, Trash2, User, UserSquare, X, Zap } from 'lucide-react'
 import {
   acharItem, adicionarCaminho, atualizarCaminho, atualizarItem, destinosDeVolta, gruposDeVinculo, listarAtividades, modoDaEscolha, moverCaminho, moverItem, removerCaminho, senaoParaCaminho, temSenaoAntigo,
   type BlocoEscolha, type ModoEscolha, type BlocoParalelo, type CaminhoCondicional, type FimCaminho, type FluxoBlocos,
@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils'
 /* ─── modelo ─────────────────────────────────────────────────────────────────── */
 
 const PREF_EXPANDIR = 'nxt:workflow:expandir-tudo'
+const PREF_MAPA = 'nxt:workflow:mapa-recolhido'
 
 const novoId = (prefixo: string) => `${prefixo}_${Math.random().toString(36).slice(2, 9)}`
 
@@ -154,6 +155,12 @@ export function BlocosTrilho({ pendencias, pendAberto, onTogglePend, onFocar, ..
   const [expandirTudo, setExpandirTudoState] = useState(false)
   useEffect(() => { try { setExpandirTudoState(localStorage.getItem(PREF_EXPANDIR) === '1') } catch { /* sem storage */ } }, [])
   const setExpandirTudo = (v: boolean) => { setExpandirTudoState(v); try { localStorage.setItem(PREF_EXPANDIR, v ? '1' : '0') } catch { /* sem storage */ } }
+  /* Mapa do fluxo: recolhível (fica por cima do canto do desenho); aberto, o desenho ganha
+     folga à direita para nada ficar preso embaixo dele. */
+  const [mapaRecolhido, setMapaRecolhidoState] = useState(false)
+  useEffect(() => { try { setMapaRecolhidoState(localStorage.getItem(PREF_MAPA) === '1') } catch { /* sem storage */ } }, [])
+  const setMapaRecolhido = (v: boolean) => { setMapaRecolhidoState(v); try { localStorage.setItem(PREF_MAPA, v ? '1' : '0') } catch { /* sem storage */ } }
+  const [mapaVisivel, setMapaVisivel] = useState(false)
   const [abertosBrutos, setAbertos] = useState<string[]>([])
   const abertos = useMemo(() => abertosBrutos.filter((id) => { const b = acharItem(props.fluxo, id); return !!b && b.kind !== 'atividade' }), [abertosBrutos, props.fluxo])
   const alternarBloco = (id: string) => {
@@ -225,7 +232,8 @@ export function BlocosTrilho({ pendencias, pendAberto, onTogglePend, onFocar, ..
           className="absolute right-3 top-3 z-10 inline-flex h-8 items-center gap-1.5 rounded-lg border bg-card/95 px-2.5 text-[11.5px] font-semibold shadow-sm backdrop-blur hover:bg-muted">
           {expandirTudo ? <><ChevronsDownUp className="h-3.5 w-3.5" />Recolher blocos</> : <><ChevronsUpDown className="h-3.5 w-3.5" />Expandir tudo</>}
         </button>
-        <Minimapa scrollRef={scrollRef} versao={`${abertos.join(',')}|${expandirTudo}|${scale}|${props.fluxo.itens.length}`} />
+        <Minimapa scrollRef={scrollRef} versao={`${abertos.join(',')}|${expandirTudo}|${scale}|${props.fluxo.itens.length}`}
+          recolhido={mapaRecolhido} onRecolher={setMapaRecolhido} onVisivel={setMapaVisivel} />
         <PendenciasPill pendencias={pendencias} aberto={pendAberto} onToggle={onTogglePend} style={{ left: 12 }}
           onItem={(p) => { if (p.nodeId) irAte(p.nodeId); onFocar(p) }} />
         {props.fluxo.itens.length === 0 && (
@@ -242,7 +250,7 @@ export function BlocosTrilho({ pendencias, pendAberto, onTogglePend, onFocar, ..
           }}>
           <div className={cn('min-h-full min-w-full w-max flex', abertos.length && !expandirTudo ? 'items-start' : 'items-center')}>
             <div ref={medidaRef} className="w-max">
-              <div className="flex flex-col gap-6 px-8 pt-14 pb-24" style={{ zoom: scale }}>
+              <div className={cn('flex flex-col gap-6 px-8 pt-14 pb-24', mapaVisivel && !mapaRecolhido && 'pr-[248px] pb-56')} style={{ zoom: scale }}>
                 <div className="flex items-center">
                   <Evento fim={false} />
                   <Sequencia refId="raiz" itens={props.fluxo.itens} />
@@ -906,9 +914,17 @@ export function BlocoInspector({ bloco, nomeDe, onRenomear, onRemove }: {
                   <dd className="truncate text-[11px] font-medium">{resumoItens(c.itens, nomeDe)} · {textoFim(c.fim, nomeDe)}</dd>
                 </div>
               ))}
+              {/* Mesma regra do rodapé do bloco: sem Senão, nenhum filtro serviu = o processo para.
+                  Um Senão antigo ainda aparece, marcado como descontinuado. */}
               <div className="px-2.5 py-1.5">
                 <dt className="text-[10.5px] text-muted-foreground">Se nenhum servir</dt>
-                <dd className="truncate text-[11px] font-medium">{resumoItens(bloco.casoContrario.itens, nomeDe)} · {textoFim(bloco.casoContrario.fim, nomeDe)}</dd>
+                {temSenaoAntigo(bloco) ? (
+                  <dd className="text-[11px] font-medium text-amber-800 dark:text-amber-300">
+                    <AlertTriangle className="mr-1 inline h-3 w-3 align-[-2px]" />“Senão” antigo (descontinuado): {resumoItens(bloco.casoContrario.itens, nomeDe)} · {textoFim(bloco.casoContrario.fim, nomeDe)}
+                  </dd>
+                ) : (
+                  <dd className="text-[11px] font-medium">o processo para e avisa</dd>
+                )}
               </div>
             </dl>
             <p className="text-[11px] leading-snug text-muted-foreground">
@@ -1043,7 +1059,10 @@ function Gaveta({ id }: { id: string }) {
 
 /** Minimapa: o desenho inteiro em miniatura com a janela visível; clicar ou arrastar navega.
  *  Só aparece quando o desenho é maior que a tela. */
-function Minimapa({ scrollRef, versao }: { scrollRef: React.RefObject<HTMLDivElement | null>; versao: unknown }) {
+function Minimapa({ scrollRef, versao, recolhido, onRecolher, onVisivel }: {
+  scrollRef: React.RefObject<HTMLDivElement | null>; versao: unknown
+  recolhido: boolean; onRecolher: (v: boolean) => void; onVisivel: (v: boolean) => void
+}) {
   const [m, setM] = useState<{ W: number; H: number; vx: number; vy: number; vw: number; vh: number; itens: Array<{ x: number; y: number; w: number; h: number; tipo: string }> } | null>(null)
   const LARG = 200
   useEffect(() => {
@@ -1064,7 +1083,17 @@ function Minimapa({ scrollRef, versao }: { scrollRef: React.RefObject<HTMLDivEle
     if (el.firstElementChild) ro.observe(el.firstElementChild)
     return () => { el.removeEventListener('scroll', medir); ro.disconnect() }
   }, [scrollRef, versao])
-  if (!m || (m.W <= m.vw * 1.05 && m.H <= m.vh * 1.05)) return null
+  const visivel = !!m && (m.W > m.vw * 1.05 || m.H > m.vh * 1.05)
+  useEffect(() => { onVisivel(visivel) }, [visivel, onVisivel])
+  if (!m || !visivel) return null
+  if (recolhido) {
+    return (
+      <button type="button" onClick={() => onRecolher(false)} title="Mostrar o mapa do fluxo"
+        className="absolute bottom-16 right-3 z-10 inline-flex h-8 items-center gap-1.5 rounded-lg border bg-card/95 px-2.5 text-[11.5px] font-semibold shadow-sm backdrop-blur hover:bg-muted">
+        <MapIcon className="h-3.5 w-3.5" />Mapa
+      </button>
+    )
+  }
   const s = LARG / m.W
   const alt = Math.max(40, Math.min(140, m.H * s))
   const sy = alt / m.H
@@ -1076,7 +1105,13 @@ function Minimapa({ scrollRef, versao }: { scrollRef: React.RefObject<HTMLDivEle
   }
   return (
     <div className="absolute bottom-16 right-3 z-10 rounded-xl border bg-card/95 p-2 shadow-lg backdrop-blur">
-      <p className="mb-1 text-[9.5px] font-bold uppercase tracking-wider text-muted-foreground">Mapa do fluxo</p>
+      <div className="mb-1 flex items-center justify-between">
+        <p className="text-[9.5px] font-bold uppercase tracking-wider text-muted-foreground">Mapa do fluxo</p>
+        <button type="button" onClick={() => onRecolher(true)} title="Recolher o mapa" aria-label="Recolher o mapa"
+          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground">
+          <X className="h-3 w-3" />
+        </button>
+      </div>
       <div role="slider" aria-label="Mapa do fluxo — arraste para navegar" aria-valuenow={Math.round(m.vx)} tabIndex={0}
         className="relative cursor-pointer overflow-hidden rounded-md bg-muted/50" style={{ width: LARG, height: alt }}
         onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); irPara(e) }}
