@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { agruparPassos, type TimelineTask } from './tasks-ui'
+import { agruparEtapas, agruparPassos, type TimelineTask } from './tasks-ui'
 
 const t = (id: string, nodeId: string, status: string, name: string, completedBy?: string): TimelineTask =>
   ({ id, nodeId, status, name, completedBy: completedBy ?? null })
@@ -64,5 +64,37 @@ describe('agruparPassos — trilha "Onde você está"', () => {
   it('etapa sem nome não quebra a trilha', () => {
     const passos = agruparPassos([{ id: '1', nodeId: 'x', status: 'PENDING' }], '1')
     expect(passos[0].name).toBe('Etapa')
+  })
+})
+
+describe('agruparEtapas — frentes em paralelo contam como uma etapa', () => {
+  it('junta as etapas nascidas no mesmo lote e mantém a ordem', () => {
+    const lote = '2026-10-18T22:06:16.122Z'
+    const passos = agruparPassos([
+      { id: '1', nodeId: 'a', status: 'DONE', createdAt: '2026-10-18T22:00:00.000Z' },
+      { id: '2', nodeId: 'b', status: 'PENDING', createdAt: lote },
+      { id: '3', nodeId: 'c', status: 'PENDING', createdAt: lote },
+      { id: '4', nodeId: 'd', status: 'PENDING', createdAt: lote },
+    ], '3')
+    const grupos = agruparEtapas(passos)
+    expect(grupos.map((g) => g.map((p) => p.nodeId))).toEqual([['a'], ['b', 'c', 'd']])
+  })
+
+  it('sem createdAt cada etapa fica sozinha (como era)', () => {
+    const grupos = agruparEtapas(agruparPassos([
+      { id: '1', nodeId: 'a', status: 'DONE' },
+      { id: '2', nodeId: 'b', status: 'PENDING' },
+    ], '2'))
+    expect(grupos).toHaveLength(2)
+  })
+
+  it('devolução não separa a etapa do lote da primeira passagem', () => {
+    const lote = '2026-10-18T22:06:16.122Z'
+    const grupos = agruparEtapas(agruparPassos([
+      { id: '1', nodeId: 'b', status: 'DONE', createdAt: lote },
+      { id: '2', nodeId: 'c', status: 'DONE', createdAt: lote },
+      { id: '3', nodeId: 'b', status: 'PENDING', createdAt: '2026-10-19T10:00:00.000Z' },
+    ], '3'))
+    expect(grupos.map((g) => g.map((p) => p.nodeId))).toEqual([['b', 'c']])
   })
 })
