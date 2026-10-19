@@ -12,6 +12,7 @@
   --lista-px: 0.375rem;
   --lista-py: 0;
   --lista-lh: 1rem;
+  --lista-acao: 1.125rem; /* botão de ação dentro da linha: cabe sem esticar */
   --lista-indicador: 1.75rem;
   --cartao-pad: 0.375rem;
   --cartao-gap: 0.25rem;
@@ -31,6 +32,7 @@
   --lista-px: 0.5rem;
   --lista-py: 0.125rem;
   --lista-lh: 1rem;
+  --lista-acao: 1.25rem; /* botão de ação dentro da linha: cabe sem esticar */
   --lista-indicador: 1.875rem;
   --cartao-pad: 0.5rem;
   --cartao-gap: 0.375rem;
@@ -50,6 +52,7 @@
   --lista-px: 0.75rem;
   --lista-py: 0.375rem;
   --lista-lh: 1.25rem;
+  --lista-acao: 1.5rem; /* botão de ação dentro da linha: cabe sem esticar */
   --lista-indicador: 2.25rem;
   --cartao-pad: 0.75rem;
   --cartao-gap: 0.5rem;
@@ -62,6 +65,13 @@
   --form-gap: 0.875rem;
   --secao-pad: 1rem;
 }
+
+/* Célula de duas linhas (nome + detalhe): duas linhas só na Alta. Na Compacta e na Média
+   a linha da lista não comporta — vira "nome · detalhe" numa linha, cortando o fim. */
+:root:not([data-densidade="alta"]) .celula-2l { display: flex; align-items: baseline; gap: 0.375rem; min-width: 0; white-space: nowrap; overflow: hidden; }
+:root:not([data-densidade="alta"]) .celula-2l > * { margin: 0; flex-shrink: 0; }
+:root:not([data-densidade="alta"]) .celula-2l > :nth-child(2) { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+:root:not([data-densidade="alta"]) .celula-2l > :nth-child(2)::before { content: "· "; }
 
 @layer base {
   :root {

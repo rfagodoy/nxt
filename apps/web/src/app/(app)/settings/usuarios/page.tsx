@@ -9,7 +9,6 @@ import { apiFetch } from '@/lib/http'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
@@ -23,6 +22,11 @@ import { type FilterRow, matchOp, norm, colunaContem } from '@/lib/list-filter'
 import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
 import { Indicadores } from '@/components/list/indicadores'
 import { useFiltroColuna, BotaoFiltroColuna, LinhaFiltroColuna } from '@/components/list/filtro-coluna'
+
+/* selo no mesmo padrão da Categoria/Status de Parceiros (fundo claro da cor, 11px) */
+/* botão de ação da linha: cabe na altura da linha da densidade (não a estica) */
+const ACAO = 'h-[var(--lista-acao)] w-7 px-0'
+const SELO = 'inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium'
 
 interface UserRow {
   id: string
@@ -50,11 +54,11 @@ const COLS: Col[] = [
   { key: 'email', label: 'E-mail', text: (u) => u.email, node: (u) => <span className="text-muted-foreground">{u.email}</span> },
   {
     key: 'papel', label: 'Papel', text: (u) => ROLE_LABEL[u.role] ?? u.role,
-    node: (u) => <Badge variant={u.role === 'admin' ? 'default' : 'secondary'}>{ROLE_LABEL[u.role] ?? u.role}</Badge>,
+    node: (u) => <span className={cn(SELO, u.role === 'admin' ? 'bg-primary/10 text-primary' : 'bg-slate-500/10 text-slate-600 dark:text-slate-400')}>{ROLE_LABEL[u.role] ?? u.role}</span>,
   },
   {
     key: 'situacao', label: 'Situação', text: (u) => (u.status === 'ATIVO' ? 'Ativo' : 'Inativo'),
-    node: (u) => <Badge variant={u.status === 'ATIVO' ? 'success' : 'outline'}>{u.status === 'ATIVO' ? 'Ativo' : 'Inativo'}</Badge>,
+    node: (u) => <span className={cn(SELO, u.status === 'ATIVO' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-muted text-muted-foreground')}>{u.status === 'ATIVO' ? 'Ativo' : 'Inativo'}</span>,
   },
   { key: 'ultimoAcesso', label: 'Último acesso', text: (u) => fmtDate(u.lastLoginAt), sortVal: (u) => (u.lastLoginAt ? new Date(u.lastLoginAt).getTime() : 0), node: (u) => <span className="text-muted-foreground whitespace-nowrap tabular-nums">{fmtDate(u.lastLoginAt)}</span> },
   { key: 'criadoEm', label: 'Criado em', text: (u) => fmtDate(u.createdAt), sortVal: (u) => new Date(u.createdAt).getTime(), node: (u) => <span className="text-muted-foreground whitespace-nowrap tabular-nums">{fmtDate(u.createdAt)}</span> },
@@ -270,11 +274,11 @@ export default function UsuariosPage() {
                   ))}
                   <td className={cn(DENS_CEL, 'text-right')} onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => openEdit(u)} title="Editar"><Pencil className="h-3.5 w-3.5" /></Button>
-                      <Button variant="ghost" size="sm" onClick={() => openPassword(u)} title="Resetar senha"><KeyRound className="h-3.5 w-3.5" /></Button>
+                      <Button variant="ghost" size="sm" className={ACAO} onClick={() => openEdit(u)} title="Editar"><Pencil className="h-3.5 w-3.5" /></Button>
+                      <Button variant="ghost" size="sm" className={ACAO} onClick={() => openPassword(u)} title="Resetar senha"><KeyRound className="h-3.5 w-3.5" /></Button>
                       {/* férias/afastamento/desligamento: o trabalho pendente precisa
                           de dono, senão o processo inteiro para junto com a pessoa */}
-                      <Button variant="ghost" size="sm" onClick={() => setTransfer(u)} title="Transferir tarefas pendentes"><ArrowRightLeft className="h-3.5 w-3.5" /></Button>
+                      <Button variant="ghost" size="sm" className={ACAO} onClick={() => setTransfer(u)} title="Transferir tarefas pendentes"><ArrowRightLeft className="h-3.5 w-3.5" /></Button>
                     </div>
                   </td>
                 </tr>

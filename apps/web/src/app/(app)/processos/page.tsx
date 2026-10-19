@@ -32,10 +32,10 @@ const COLS: Col[] = [
   {
     key: 'processo', label: 'Processo', text: (i) => `${i.processName} v${i.version}`, sortVal: (i) => norm(i.processName),
     node: (i) => (
-      <>
+      <div className="celula-2l">
         <p className="font-medium">{i.processName} <span className="text-[11px] text-muted-foreground font-normal">v{i.version}</span></p>
         <p className="text-[11px] text-muted-foreground">{i.doneSteps}/{i.totalSteps} etapa{i.totalSteps !== 1 ? 's' : ''}</p>
-      </>
+      </div>
     ),
   },
   { key: 'inicio', label: 'Início', text: (i) => fmt(i.startedAt), sortVal: (i) => new Date(i.startedAt).getTime(), node: (i) => <span className="text-muted-foreground whitespace-nowrap">{fmt(i.startedAt)}</span> },

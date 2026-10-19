@@ -47,15 +47,15 @@ const COLS: Col[] = [
   {
     key: 'processo', label: 'Workflow', text: (p) => p.name, sortVal: (p) => norm(p.name),
     node: (p) => (
-      <>
+      <div className="celula-2l">
         <Link href={`/workflows/${p.id}/edit`} className="font-medium hover:underline">{p.name}</Link>
         {p.description && <p className="text-[11px] text-muted-foreground truncate max-w-md">{p.description}</p>}
-      </>
+      </div>
     ),
   },
   {
     key: 'tipo', label: 'Tipo', text: (p) => (p.kind && KIND_LABEL[p.kind]) || '—',
-    node: (p) => (p.kind && KIND_LABEL[p.kind]) ? <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px]">{KIND_LABEL[p.kind]}</span> : <span className="text-muted-foreground">—</span>,
+    node: (p) => (p.kind && KIND_LABEL[p.kind]) ? <span className="inline-flex items-center rounded-full border px-2 py-px text-[11px]">{KIND_LABEL[p.kind]}</span> : <span className="text-muted-foreground">—</span>,
   },
   {
     key: 'situacao', label: 'Situação', text: (p) => STATUS[p.status]?.label ?? p.status,
@@ -303,24 +303,24 @@ export default function WorkflowsPage() {
                   <td className={cn(DENS_CEL, 'align-middle cursor-default')} onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1.5">
                       {p.status === 'DRAFT' && (
-                        <Button size="sm" variant="outline" disabled={busy === p.id} onClick={() => activate(p.id)}>
+                        <Button size="sm" variant="outline" className="h-[var(--lista-acao)]" disabled={busy === p.id} onClick={() => activate(p.id)}>
                           {busy === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}Ativar
                         </Button>
                       )}
                       {p.status === 'ACTIVE' && (
-                        <button onClick={() => setStatus(p.id, 'inactivate')} disabled={busy === p.id} className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs hover:bg-muted transition-colors disabled:opacity-50" title="Inativar — deixa de aparecer em Novo processo">
+                        <button onClick={() => setStatus(p.id, 'inactivate')} disabled={busy === p.id} className="inline-flex items-center gap-1 rounded-md border px-2.5 h-[var(--lista-acao)] text-xs hover:bg-muted transition-colors disabled:opacity-50" title="Inativar — deixa de aparecer em Novo processo">
                           <PowerOff className="h-3.5 w-3.5" />Inativar
                         </button>
                       )}
                       {p.status === 'INACTIVE' && (
-                        <button onClick={() => setStatus(p.id, 'reactivate')} disabled={busy === p.id} className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 transition-colors disabled:opacity-50" title="Reativar">
+                        <button onClick={() => setStatus(p.id, 'reactivate')} disabled={busy === p.id} className="inline-flex items-center gap-1 rounded-md border px-2.5 h-[var(--lista-acao)] text-xs text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 transition-colors disabled:opacity-50" title="Reativar">
                           <Power className="h-3.5 w-3.5" />Reativar
                         </button>
                       )}
-                      <Link href={`/workflows/${p.id}/edit`} className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs hover:bg-muted transition-colors" title="Abrir no editor">
+                      <Link href={`/workflows/${p.id}/edit`} className="inline-flex items-center gap-1 rounded-md border px-2.5 h-[var(--lista-acao)] text-xs hover:bg-muted transition-colors" title="Abrir no editor">
                         <Pencil className="h-3.5 w-3.5" />Editar
                       </Link>
-                      <button onClick={() => remove(p)} disabled={busy === p.id} className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50" title="Excluir (ou arquivar se houver execuções)">
+                      <button onClick={() => remove(p)} disabled={busy === p.id} className="inline-flex items-center gap-1 rounded-md border px-2.5 h-[var(--lista-acao)] text-xs text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50" title="Excluir (ou arquivar se houver execuções)">
                         <Trash2 className="h-3.5 w-3.5" />Excluir
                       </button>
                     </div>
