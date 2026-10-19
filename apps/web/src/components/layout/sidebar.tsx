@@ -108,9 +108,13 @@ export function Sidebar() {
   /* Menu filtrado por papel — ver nav-visibility.ts para a regra (e o porquê de a
      sessão carregando cair na visão de usuário comum). */
   const role = session?.user.role
-  const secoesVisiveis = useMemo(() => filtrarSecoesPorPapel(sections, role), [role])
+  const secoesPorPapel = useMemo(() => filtrarSecoesPorPapel(sections, role), [role])
+  /* Recolhido = só os ícones do dia a dia (Dashboard, Tarefas, Processos, Contratos,
+     Parceiros, Estrutura, Relatórios). Configurações e Instalação ficam para o menu
+     aberto — PO, 18/10/2026: uma coluna de 16 ícones sem nome não se lê. */
+  const secoesVisiveis = collapsed ? secoesPorPapel.filter((s) => !s.recolhivel) : secoesPorPapel
 
-  const { tabs, activeId } = useWorkspace()
+  const { tabs, activeId, setActive } = useWorkspace()
   const abaAtiva = activeId ? tabs.find((t) => t.id === activeId) : undefined
   const rotaAtual = abaAtiva ? ROTA_DO_TIPO[abaAtiva.kind] : pathname
   const isActive = (href: string) => rotaAtual.startsWith(href)
@@ -218,6 +222,9 @@ export function Sidebar() {
                   <Link
                     key={item.href}
                     href={item.href}
+                    /* mesma rota (ex.: Dashboard com um documento à frente) não dispara a
+                       navegação — o clique volta para a tela assim mesmo */
+                    onClick={() => setActive(null)}
                     title={collapsed ? item.label : undefined}
                     className={cn(
                       'flex items-center gap-2 rounded-md text-[12px] font-medium tracking-tight transition-colors',

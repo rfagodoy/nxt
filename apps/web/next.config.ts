@@ -1,6 +1,19 @@
 import type { NextConfig } from 'next'
+import { execSync } from 'node:child_process'
 
 const isProd = process.env.NODE_ENV === 'production'
+
+/* Versão mostrada no menu do usuário. NXT_VERSAO (instalador/CI) tem prioridade; senão a
+   tag do git (`v2026.10.12.1`, ou `v2026.10.12.1-3-gabc1234` fora de uma release); sem git,
+   a do package.json. Fica gravada no build. */
+function versao(): string {
+  if (process.env.NXT_VERSAO) return process.env.NXT_VERSAO
+  try {
+    return execSync('git describe --tags --always', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
+  } catch {
+    return process.env.npm_package_version ?? 'desconhecida'
+  }
+}
 
 // Content-Security-Policy. Bloqueia as classes que mais doem (clickjacking via
 // frame-ancestors, injeção de <base>, plugins/objetos, form-action externa),
@@ -43,6 +56,7 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   devIndicators: false,
+  env: { NEXT_PUBLIC_NXT_VERSAO: versao() },
   // Não anunciar o framework (remove o header X-Powered-By: Next.js).
   poweredByHeader: false,
   transpilePackages: ['@nxt/types', '@nxt/contracts-core', '@nxt/workflow-core', '@nxt/screens-core'],

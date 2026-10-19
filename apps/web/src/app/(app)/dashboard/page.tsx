@@ -13,6 +13,9 @@ import { useAoVivo } from '@/lib/realtime'
 import { dueInfo, type Task } from '@/lib/tasks-ui'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { StartProcessButton } from '@/components/processes/start-process-button'
+import { useFaixaVisivel } from '@/components/layout/workspace-bar'
+import { NotificationBell } from '@/components/layout/notification-bell'
+import { UserMenu } from '@/components/layout/user-menu'
 
 /* ─────────────────────────── tipos (espelham o DashboardService) ─────────── */
 interface Summary {
@@ -137,6 +140,8 @@ const ABA_KEY = 'nxt:dashboard:aba'
 export default function DashboardPage() {
   const router = useRouter()
   const ws = useWorkspace()
+  /* sem a faixa do topo (nenhuma aba aberta), o painel é o topo: leva sino e usuário */
+  const faixa = useFaixaVisivel()
   const { data: session } = useSession()
   const [data, setData] = useState<Summary | null>(null)
   const [minhasTarefas, setMinhasTarefas] = useState<Task[]>([])
@@ -204,10 +209,12 @@ export default function DashboardPage() {
        atalhos de criação — sempre à mão ao rolar) e ABAS, cada uma com a altura toda. */
     <div className="flex min-h-full flex-col gap-3 lg:h-full">
 
-      <header className="sticky top-0 z-20 shrink-0 overflow-hidden rounded-xl px-5 py-3 text-white shadow-md
+      {/* lg:h-14 = a MESMA altura da linha do logo no menu lateral, e os dois começam no
+          mesmo topo (pt-2 do shell = p-2 da ilha): logo e saudação na mesma linha. */}
+      <header className="sticky top-0 z-20 shrink-0 overflow-hidden rounded-xl px-5 py-2 text-white shadow-md lg:flex lg:h-14 lg:items-center lg:py-0
                          bg-gradient-to-r from-[hsl(156_42%_11%)] to-[hsl(150_44%_6%)]">
         <div className="pointer-events-none absolute -right-8 -top-16 h-40 w-40 rounded-full bg-primary/20 blur-2xl" />
-        <div className="relative flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="relative flex w-full flex-wrap items-center gap-x-4 gap-y-2">
           <div className="min-w-0 flex-1">
             <p className="text-[10.5px] font-medium uppercase tracking-widest text-white/60">{todayLabel()}</p>
             <h1 className="text-base font-semibold tracking-tight leading-tight">
@@ -238,6 +245,12 @@ export default function DashboardPage() {
             </button>
             <StartProcessButton variant="hero" />
           </div>
+          {!faixa && (
+            <div className="flex items-center gap-1 border-l border-white/15 pl-3">
+              <NotificationBell sobreEscuro />
+              <UserMenu sobreEscuro />
+            </div>
+          )}
         </div>
       </header>
 

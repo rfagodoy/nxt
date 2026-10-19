@@ -23,6 +23,16 @@ function dicaDaAba(t: WorkspaceTab): string {
   return typeof d?.titulo === 'string' && d.titulo.trim() ? `${t.label} · ${d.titulo}` : t.label
 }
 
+/* No Dashboard a faixa só aparece com documento aberto (PO, 18/10/2026): sem abas ela
+   seria só "☰ Dashboard" repetindo o menu — o painel de boas-vindas assume o topo,
+   alinhado ao logo, e leva sino e usuário. Com abas abertas ela volta, e a 1ª aba é o
+   caminho de volta ao painel. */
+export function useFaixaVisivel(): boolean {
+  const pathname = usePathname()
+  const { tabs } = useWorkspace()
+  return !pathname.startsWith('/dashboard') || tabs.length > 0
+}
+
 /* Faixa ÚNICA do topo (PO, 18/10/2026 — opção 1 do mockup): as abas SÃO o caminho.
    A 1ª aba é a lista da tela atual ("☰ Contratos", no lugar da antiga "Lista" sem nome);
    depois vêm os documentos abertos de qualquer módulo; à direita, sino e menu do usuário.
