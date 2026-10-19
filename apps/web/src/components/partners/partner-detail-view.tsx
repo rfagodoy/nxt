@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Building2, Phone, MapPin, CreditCard, Users, Briefcase, Clock, Plus, X, SlidersHorizontal, CheckCircle2, RotateCcw, Pencil, Ban, UserCog, Eye, type LucideIcon } from 'lucide-react'
 import { ResponsaveisSection } from '@/components/responsaveis/responsaveis-section'
 import { cn } from '@/lib/utils'
-import { DensidadeSelect } from '@/components/list/densidade-select'
 import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
 import { apiFetch, motivoDoErro, cabecalhosDaTarefa, type OrigemDaTarefa } from '@/lib/http'
 import { faltantesParceiro, rotuloDeSecao, SECOES_PARCEIRO, type AcaoSalvar } from '@/lib/campos-obrigatorios'
@@ -631,7 +630,7 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
               )}
 
               {/* tabela — rola junto com o conteúdo (cabeçalho da tabela fixa no topo da área rolável) */}
-              <div className="rounded-lg border">
+              <div className="rounded-lg border overflow-clip">
                 <table className={cn('w-full', DENS_TABELA)}>
                   <thead className="sticky top-0 z-10">
                     <tr className="border-b bg-[hsl(240_5%_97%)] dark:bg-[hsl(240_21%_15%)]">
@@ -673,8 +672,6 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
 
       </form>
 
-      {/* densidade da tela: a MESMA preferência das listas (vale para o sistema todo) */}
-      <div className="shrink-0 flex justify-end pt-2"><DensidadeSelect /></div>
     </div>
   )
 }

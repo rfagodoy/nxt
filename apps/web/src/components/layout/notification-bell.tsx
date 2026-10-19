@@ -55,7 +55,8 @@ export function NotificationBell({ className }: { className?: string }) {
   const [items, setItems] = useState<Notif[]>([])
   const [unread, setUnread] = useState(0)
   const [open, setOpen] = useState(false)
-  const [pos, setPos] = useState<{ left: number; bottom: number } | null>(null)
+  /* painel abre PARA BAIXO, alinhado à direita do sino (faixa do topo) */
+  const [pos, setPos] = useState<{ right: number; top: number } | null>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
 
@@ -87,7 +88,7 @@ export function NotificationBell({ className }: { className?: string }) {
     setOpen(o => {
       if (!o && btnRef.current) {
         const r = btnRef.current.getBoundingClientRect()
-        setPos({ left: r.right + 8, bottom: window.innerHeight - r.bottom })
+        setPos({ right: Math.max(8, window.innerWidth - r.right), top: r.bottom + 6 })
       }
       return !o
     })
@@ -136,18 +137,20 @@ export function NotificationBell({ className }: { className?: string }) {
 
   return (
     <div className="relative">
-      <button ref={btnRef} onClick={toggle} title="Notificações"
-        className={cn('relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-white/10 transition-colors', className)}>
+      {/* número ESCRITO ao lado do sino (não só uma bolinha colorida) */}
+      <button ref={btnRef} onClick={toggle} title="Notificações" aria-expanded={open}
+        aria-label={unread > 0 ? `Notificações: ${unread} não lida${unread === 1 ? '' : 's'}` : 'Notificações'}
+        className={cn('flex h-[30px] shrink-0 items-center gap-1 rounded-lg px-2 text-foreground/75 hover:text-foreground hover:bg-white/50 dark:hover:bg-white/[0.07] transition-colors', open && 'bg-muted text-foreground', className)}>
         <Bell className="h-4 w-4" />
         {unread > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">
-            {unread > 9 ? '9+' : unread}
+          <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-foreground px-1 text-[10px] font-bold tabular-nums text-background">
+            {unread > 99 ? '99+' : unread}
           </span>
         )}
       </button>
 
       {open && pos && createPortal(
-        <div ref={panelRef} style={{ position: 'fixed', left: pos.left, bottom: pos.bottom }}
+        <div ref={panelRef} style={{ position: 'fixed', right: pos.right, top: pos.top }}
           className="glass z-50 w-[360px] overflow-hidden rounded-xl text-popover-foreground">
           <div className="flex items-center justify-between border-b px-3 py-2">
             <span className="text-xs font-semibold">Notificações{unread > 0 && <span className="ml-1.5 text-muted-foreground">({unread})</span>}</span>

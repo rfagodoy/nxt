@@ -19,7 +19,6 @@ import {
 import { apiFetch, apiJson } from '@/lib/http'
 import { cn } from '@/lib/utils'
 import { SELO } from '@/components/list/selo'
-import { DensidadeSelect } from '@/components/list/densidade-select'
 import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
 import { useSession } from '@/lib/session-context'
 import { exportExcel } from '@/lib/export-excel'
@@ -379,10 +378,9 @@ export default function ImportacaoPage() {
                   </tbody>
                 </table>
               </div>
-              {/* rodapé: contagem + densidade (a mesma caixa das listas) */}
+              {/* rodapé: contagem (a densidade fica no menu do usuário) */}
               <div className="shrink-0 flex items-center gap-3 border-t px-3 py-1.5 bg-muted/20 text-[11px] text-muted-foreground">
                 <span className="font-semibold text-foreground tabular-nums">{(resultado.linhas ?? []).length} {(resultado.linhas ?? []).length === 1 ? 'linha' : 'linhas'}</span>
-                <DensidadeSelect />
               </div>
             </>
           )}

@@ -3,9 +3,8 @@
 import { useState, useEffect, type ElementType, type ReactNode } from 'react'
 import Link from 'next/link'
 import { ChevronLeft, Search, FileDown } from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { DENS_CAB, DENS_TABELA } from '@/lib/densidade'
-import { DensidadeSelect } from '@/components/list/densidade-select'
+import { cn } from '@/lib/utils'
+import { DENS_TABELA } from '@/lib/densidade'
 
 export type StatusFilter = 'all' | 'active' | 'inactive'
 
@@ -116,12 +115,9 @@ export function SettingsTableShell({
         </div>
       )}
 
-      {/* rodapé: contagem + densidade (tabelas auxiliares não paginam — rolam por dentro) */}
-      {mounted && (
-        <div className="flex items-center justify-center gap-3 text-[11px] text-muted-foreground">
-          {footer && <span>{footer}</span>}
-          <DensidadeSelect />
-        </div>
+      {/* rodapé: contagem (tabelas auxiliares não paginam — rolam por dentro) */}
+      {mounted && footer && (
+        <p className="text-center text-[11px] text-muted-foreground">{footer}</p>
       )}
     </div>
   )

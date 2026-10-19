@@ -7,7 +7,6 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
-import { DensidadeSelect } from '@/components/list/densidade-select'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { CancelInstanceButton } from '@/components/processes/cancel-instance-button'
@@ -154,7 +153,6 @@ export default function InstanciasErroPage() {
         {rows && rows.length > 0 && (
           <div className="flex items-center gap-3 border-t px-3 py-1.5 bg-muted/20 text-[11px] text-muted-foreground">
             <span className="font-semibold text-foreground tabular-nums">{rows.length} {rows.length === 1 ? 'instância' : 'instâncias'} com erro</span>
-            <DensidadeSelect />
           </div>
         )}
       </div>

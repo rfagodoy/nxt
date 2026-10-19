@@ -9,7 +9,6 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useDensidade, type Densidade } from '@/lib/densidade'
-import { DensidadeSelect } from '@/components/list/densidade-select'
 import { apiFetch } from '@/lib/http'
 import { useAoVivo } from '@/lib/realtime'
 import { ResponsaveisSection } from '@/components/responsaveis/responsaveis-section'
@@ -550,7 +549,6 @@ function OrgChart({ companyId, onChanged }: { companyId: string; onChanged: () =
         </div>
         <span className="flex items-center gap-3">
           <span className="text-[10px] text-muted-foreground">{inSearch ? `${total} resultado(s)` : `${total} unidade(s) visível(is)`}</span>
-          <DensidadeSelect />
         </span>
       </div>
 
