@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Building2, UserCog, ChevronDown, CornerDownRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { DensidadeSelect } from '@/components/list/densidade-select'
 import { apiFetch, motivoDoErro } from '@/lib/http'
 import { getLogUser } from '@/hooks/use-partner-logs'
 import { useLookupTable } from '@/hooks/use-lookup-table'
@@ -194,8 +193,6 @@ export function UnitDetailView({ mode, unit, companyId, parentId, parentName, on
           <div className="rounded-xl border bg-card p-[var(--secao-pad)] shadow-sm">
             {tab === 'dados' ? dadosFields : partesContent}
           </div>
-          {/* densidade da tela: a MESMA preferência das listas (vale para o sistema todo) */}
-      <div className="shrink-0 flex justify-end pt-2"><DensidadeSelect /></div>
         </>
       )}
     </div>

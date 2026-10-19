@@ -2,9 +2,13 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { X, FileText, Handshake, ListChecks, Activity, Building2, Eraser, ChevronLeft, ChevronRight, type LucideIcon } from 'lucide-react'
+import { usePathname } from 'next/navigation'
+import { X, FileText, Handshake, ListChecks, Activity, Building2, Eraser, ChevronLeft, ChevronRight, List, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useWorkspace, type WorkspaceKind } from '@/contexts/workspace-context'
+import { useWorkspace, type WorkspaceKind, type WorkspaceTab } from '@/contexts/workspace-context'
+import { itemDaRota } from './sidebar'
+import { NotificationBell } from './notification-bell'
+import { UserMenu } from './user-menu'
 
 /* Ícone da aba = o MESMO do item do menu de onde o documento vem. Antes tudo que não
    era contrato levava o ícone de pessoas — inclusive tarefa, processo e unidade. */
@@ -12,14 +16,25 @@ const ICONE_DA_ABA: Record<WorkspaceKind, LucideIcon> = {
   contract: FileText, partner: Handshake, task: ListChecks, 'process-instance': Activity, unit: Building2,
 }
 
-/* Faixa de abas GLOBAL do shell — documentos de qualquer módulo (contrato + parceiro + unidade) juntos.
-   Só existe com documento aberto: sem abas, não há barra nenhuma e o conteúdo começa no topo.
+/* Dica da aba: o rótulo é só o identificador (número do contrato, nome do parceiro) e
+   números parecidos se confundem — o título do documento vem junto no hover. */
+function dicaDaAba(t: WorkspaceTab): string {
+  const d = t.data as { titulo?: unknown } | undefined
+  return typeof d?.titulo === 'string' && d.titulo.trim() ? `${t.label} · ${d.titulo}` : t.label
+}
+
+/* Faixa ÚNICA do topo (PO, 18/10/2026 — opção 1 do mockup): as abas SÃO o caminho.
+   A 1ª aba é a lista da tela atual ("☰ Contratos", no lugar da antiga "Lista" sem nome);
+   depois vêm os documentos abertos de qualquer módulo; à direita, sino e menu do usuário.
+   Existe SEMPRE — mesmo sem documento aberto, é onde moram sino e usuário.
    É vidro CLARO (não a ilha escura do menu) para não ler como um segundo menu nem como cabeçalho.
    Recursos: ícone por tipo, indicador de não-salvo, aba ativa em pílula elevada,
    arrastar para reordenar, fechar (clique-do-meio / menu de contexto), limpar tudo,
    setas de rolagem + auto-scroll da aba ativa quando há muitas abas. */
 export function WorkspaceBar() {
   const { tabs, activeId, dirty, setActive, close, closeOthers, closeAll, reorder } = useWorkspace()
+  const pathname = usePathname()
+  const tela = itemDaRota(pathname)
   const [drag,    setDrag]    = useState<number | null>(null)
   const [overIdx, setOverIdx] = useState<number | null>(null)
   const [menu,    setMenu]    = useState<{ id: string; x: number; y: number } | null>(null)
@@ -70,8 +85,6 @@ export function WorkspaceBar() {
 
   const scrollBy = (dir: 'left' | 'right') => scrollRef.current?.scrollBy({ left: dir === 'left' ? -240 : 240, behavior: 'smooth' })
 
-  if (tabs.length === 0) return null
-
   const dirtyCount = tabs.filter(t => dirty[t.id]).length
   const tabBase   = 'group relative flex items-center gap-1.5 h-7 px-2.5 rounded-lg cursor-pointer whitespace-nowrap shrink-0 transition-colors select-none'
   /* aba ativa = pílula elevada (fundo + realce + sombra), não só cor */
@@ -82,12 +95,14 @@ export function WorkspaceBar() {
   return (
     <div className="vidro mb-3 ml-0.5 mr-2.5 flex h-[38px] shrink-0 items-center rounded-xl bg-[var(--vidro-controle)] px-[5px]">
 
-      {/* pseudo-aba Lista (fixa) → volta para a página roteada */}
-      <button type="button" onClick={() => setActive(null)}
+      {/* 1ª aba = a LISTA da tela atual, com o nome dela → volta para a página roteada */}
+      <button type="button" onClick={() => setActive(null)} aria-pressed={activeId === null}
+        title={`Lista de ${tela.label.toLowerCase()}`}
         className={cn(tabBase, 'font-medium', activeId === null ? cn(activeCls, 'text-primary') : idleCls)}>
-        <span className="text-xs">Lista</span>
+        <List className="h-3.5 w-3.5 shrink-0" />
+        <span className="text-xs">{tela.label}</span>
       </button>
-      <span className="mx-1 h-[18px] w-px shrink-0 bg-foreground/10" />
+      {tabs.length > 0 && <span className="mx-1 h-[18px] w-px shrink-0 bg-foreground/10" />}
 
       {/* seta esquerda */}
       <button type="button" aria-label="Rolar abas para a esquerda" onClick={() => scrollBy('left')}
@@ -113,7 +128,7 @@ export function WorkspaceBar() {
               onClick={() => setActive(t.id)}
               onAuxClick={e => { if (e.button === 1) { e.preventDefault(); askClose(t.id, e.clientX, e.clientY) } }}
               onContextMenu={e => { e.preventDefault(); setActive(t.id); setMenu({ id: t.id, x: e.clientX, y: e.clientY }) }}
-              title={t.label}
+              title={dicaDaAba(t)}
               className={cn(tabBase,
                 active ? activeCls : idleCls,
                 overIdx === i && drag !== null && drag !== i && 'ring-1 ring-primary/40')}>
@@ -137,13 +152,16 @@ export function WorkspaceBar() {
         <ChevronRight className="h-4 w-4" />
       </button>
 
-      {/* limpar área de trabalho (fixo à direita) */}
-      <div className="flex shrink-0 items-center pl-1.5">
-        <button type="button" title="Fechar todas as abas"
+      {/* à direita: limpar (com abas) · sino · menu do usuário */}
+      <div className="flex shrink-0 items-center gap-1 pl-1.5">
+        {tabs.length > 0 && <button type="button" title="Fechar todas as abas"
           onClick={e => setClearAt({ x: e.clientX, y: e.clientY })}
           className="inline-flex h-[26px] items-center gap-1.5 rounded-md border border-[var(--vidro-borda)] bg-[var(--vidro-controle)] px-2.5 text-xs font-medium text-muted-foreground shadow-[inset_0_1px_0_var(--vidro-spec)] hover:text-foreground hover:border-foreground/25 transition-colors">
           <Eraser className="h-3.5 w-3.5" />Limpar
-        </button>
+        </button>}
+        {tabs.length > 0 && <span className="mx-1 h-[18px] w-px shrink-0 bg-foreground/10" />}
+        <NotificationBell />
+        <UserMenu />
       </div>
 
       {/* menu de contexto (botão direito) — portado para o body (blur do vidro funciona) */}

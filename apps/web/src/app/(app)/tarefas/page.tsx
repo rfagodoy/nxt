@@ -8,7 +8,6 @@ import { LoadErrorBlock } from '@/components/list/load-error'
 import { apiJson } from '@/lib/http'
 import { useAoVivo } from '@/lib/realtime'
 import { Indicadores } from '@/components/list/indicadores'
-import { DensidadeSelect } from '@/components/list/densidade-select'
 import { cn } from '@/lib/utils'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { dueInfo, kindMeta, COLUMNS, DUE_CHIP, type Task, type Grp, valorCurto } from '@/lib/tasks-ui'
@@ -190,11 +189,10 @@ export default function TarefasPage() {
         </div>
       )}
 
-      {/* rodapé: contagem + densidade (a mesma caixa das listas) */}
+      {/* rodapé: contagem (a densidade fica no menu do usuário) */}
       {tasks !== null && tasks.length > 0 && (
         <div className="flex items-center gap-3 shrink-0 text-[11px] text-muted-foreground">
           <span className="font-semibold text-foreground tabular-nums">{tasks.length} {tasks.length === 1 ? 'tarefa' : 'tarefas'}</span>
-          <DensidadeSelect />
         </div>
       )}
     </div>

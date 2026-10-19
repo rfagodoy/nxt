@@ -10,7 +10,6 @@
  * de quem gere contrato é "o que esteve valendo neste intervalo".
  */
 
-import { DensidadeSelect } from '@/components/list/densidade-select'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FileBarChart, Loader2, Filter, Download, RotateCcw, ArrowUpDown } from 'lucide-react'
 import { apiFetch, apiJson } from '@/lib/http'
@@ -294,10 +293,9 @@ export default function RelatoriosPage() {
         )}
       </div>
 
-      {/* rodapé: contagem + densidade (a mesma caixa das listas) */}
+      {/* rodapé: contagem (a densidade fica no menu do usuário) */}
       <div className="shrink-0 flex items-center gap-3 text-[11px] text-muted-foreground">
         <span className="font-semibold text-foreground tabular-nums">{linhas.length} {linhas.length === 1 ? 'contrato' : 'contratos'}</span>
-        <DensidadeSelect />
       </div>
     </div>
   )

@@ -2,7 +2,6 @@
 
 import { ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { DensidadeSelect } from '@/components/list/densidade-select'
 
 export const PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 200, 500]
 
@@ -19,7 +18,8 @@ export function pageWindow(current: number, total: number): (number | '...')[] {
 
 /** Rodapé de paginação PADRÃO (linhas por página · N–M de T · navegação). Fonte única.
  *  Com `rotulo` (ex.: "contratos"), vira o rodapé da lista em estilo planilha: contagem e
- *  a caixa de DENSIDADE à esquerda, linhas por página e navegação à direita. */
+ *  a contagem à esquerda, linhas por página e navegação à direita (a densidade fica no
+ *  menu do usuário). */
 export function TablePagination({ page, pageSize, total, onPage, onPageSize, pageSizeOptions = PAGE_SIZE_OPTIONS, rotulo }: {
   page: number
   pageSize: number
@@ -59,7 +59,6 @@ export function TablePagination({ page, pageSize, total, onPage, onPageSize, pag
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t px-3 py-1.5 bg-muted/20 text-[11px] text-muted-foreground">
         <span className="font-semibold text-foreground tabular-nums">{total} {total === 1 ? rotulo[0] : rotulo[1]}</span>
         <span className="tabular-nums">exibindo {total === 0 ? '0' : `${first}–${last}`}</span>
-        <DensidadeSelect />
         <span className="ml-auto flex items-center gap-1.5">Linhas por página {linhasPorPagina}</span>
         {navegacao}
       </div>

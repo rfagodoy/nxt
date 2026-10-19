@@ -3,17 +3,15 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
-import { useSession, logout } from '@/lib/session-context'
+import { useSession } from '@/lib/session-context'
 import { filtrarSecoesPorPapel } from '@/lib/nav-visibility'
-import { useTheme } from 'next-themes'
 import {
   LayoutDashboard, GitBranch, PanelLeft, Activity,
-  Table2, Sun, Moon, LogOut, Users, KeyRound, BellRing, LayoutTemplate, ListChecks, CalendarDays, Mail, Upload, HeartPulse, FileBarChart, FileText, Handshake, Building2, ChevronRight } from 'lucide-react'
+  Table2, Users, BellRing, LayoutTemplate, ListChecks, CalendarDays, Mail, Upload, HeartPulse, FileBarChart, FileText, Handshake, Building2, ChevronRight, Bell } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSidebar } from '@/contexts/sidebar-context'
+import { useWorkspace, type WorkspaceKind } from '@/contexts/workspace-context'
 import { Logo } from './logo'
-import { ChangePasswordModal } from './change-password-modal'
-import { NotificationBell } from './notification-bell'
 
 interface NavItem    { href: string; label: string; icon?: React.ElementType; adminOnly?: boolean }
 interface NavSection {
@@ -73,6 +71,24 @@ const sections: NavSection[] = [
   },
 ]
 
+/* Tela de onde vem cada tipo de documento da área de trabalho: com um documento ATIVO,
+   o menu acende o módulo DELE (um parceiro aberto acende "Parceiros", mesmo que a lista
+   por trás seja a de Contratos). */
+export const ROTA_DO_TIPO: Record<WorkspaceKind, string> = {
+  contract: '/modules/contratos', partner: '/modules/parceiros', unit: '/modules/estrutura',
+  task: '/tarefas', 'process-instance': '/processos',
+}
+
+/** Nome e ícone da tela de uma rota (o item do menu de prefixo mais longo) — a 1ª aba da
+ *  faixa do topo usa isto para dizer de que lista se trata ("☰ Contratos"). */
+export function itemDaRota(pathname: string): { label: string; icon?: React.ElementType } {
+  const todos = sections.flatMap((s) => s.items)
+  const casa = todos.filter((i) => pathname.startsWith(i.href)).sort((a, b) => b.href.length - a.href.length)[0]
+  if (casa) return { label: casa.label, icon: casa.icon }
+  if (pathname.startsWith('/notificacoes')) return { label: 'Notificações', icon: Bell }
+  return { label: 'Início', icon: LayoutDashboard }
+}
+
 const ABERTAS_KEY = 'nxt:sidebar:secoes-abertas'
 
 /** Aparência ÚNICA do título de seção — recolhível ou não. */
@@ -94,7 +110,10 @@ export function Sidebar() {
   const role = session?.user.role
   const secoesVisiveis = useMemo(() => filtrarSecoesPorPapel(sections, role), [role])
 
-  const isActive = (href: string) => pathname.startsWith(href)
+  const { tabs, activeId } = useWorkspace()
+  const abaAtiva = activeId ? tabs.find((t) => t.id === activeId) : undefined
+  const rotaAtual = abaAtiva ? ROTA_DO_TIPO[abaAtiva.kind] : pathname
+  const isActive = (href: string) => rotaAtual.startsWith(href)
 
   /* Quais seções recolhíveis estão abertas. Começa vazio e a preferência é lida no
      efeito (padrão `mounted` da casa: ler localStorage na renderização quebraria a
@@ -219,86 +238,9 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Rodapé: usuário + tema + sair */}
-      <SidebarFooter collapsed={collapsed} />
+      {/* Sem rodapé: usuário, notificações, tema, densidade, senha e sair foram para a
+          faixa do topo (sino + menu do usuário) — PO, 18/10/2026. */}
     </aside>
-    </div>
-  )
-}
-
-/* ── Rodapé da sidebar: identidade do usuário, alternância de tema e logout ── */
-function SidebarFooter({ collapsed }: { collapsed: boolean }) {
-  const { data: session } = useSession()
-  const { theme, setTheme } = useTheme()
-  const [mounted, setMounted] = useState(false)
-  const [pwOpen, setPwOpen] = useState(false)
-  useEffect(() => setMounted(true), [])
-
-  const isDark = theme === 'dark'
-  const name   = session?.user?.name || session?.user?.email?.split('@')[0] || 'Usuário'
-  const email  = session?.user?.email ?? ''
-  const initials = name.split(' ').filter(Boolean).slice(0, 2).map(s => s[0]).join('').toUpperCase() || 'U'
-
-  const iconBtn = cn(
-    'flex items-center justify-center rounded-md text-sidebar-foreground/60 hover:text-sidebar-foreground transition-colors',
-    HOVER_ILHA,
-  )
-
-  const ThemeBtn = (
-    <button onClick={() => setTheme(isDark ? 'light' : 'dark')}
-      title={isDark ? 'Modo claro' : 'Modo escuro'}
-      className={cn(iconBtn, 'h-8 w-8 shrink-0')}>
-      {mounted ? (isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />) : <span className="h-4 w-4" />}
-    </button>
-  )
-  const PasswordBtn = (
-    <button onClick={() => setPwOpen(true)}
-      title="Alterar minha senha"
-      className={cn(iconBtn, 'h-8 w-8 shrink-0')}>
-      <KeyRound className="h-4 w-4" />
-    </button>
-  )
-  const LogoutBtn = (
-    <button onClick={() => void logout()}
-      title="Sair"
-      className={cn(iconBtn, 'h-8 w-8 shrink-0 hover:text-red-400')}>
-      <LogOut className="h-4 w-4" />
-    </button>
-  )
-  const Avatar = (
-    <span title={name}
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground ring-1 ring-white/10">
-      {initials}
-    </span>
-  )
-
-  return (
-    <div className="border-t border-white/[0.08] p-2">
-      {collapsed ? (
-        <div className="flex flex-col items-center gap-1">
-          {Avatar}<NotificationBell />{ThemeBtn}{PasswordBtn}{LogoutBtn}
-        </div>
-      ) : (
-        /* Duas linhas: os 4 botões de ícone na MESMA linha do nome deixavam ~24px para
-           ele — "Rafael Godoy" virava "Ra…" (auditoria 2026-08-21). Identidade em cima
-           com a largura toda; ações embaixo. */
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            {Avatar}
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-medium tracking-tight text-sidebar-foreground">{name}</p>
-              {email && <p className="truncate text-[10px] text-sidebar-muted">{email}</p>}
-            </div>
-          </div>
-          <div className="flex items-center justify-between px-0.5">
-            <NotificationBell />
-            {ThemeBtn}
-            {PasswordBtn}
-            {LogoutBtn}
-          </div>
-        </div>
-      )}
-      {pwOpen && <ChangePasswordModal onClose={() => setPwOpen(false)} />}
     </div>
   )
 }

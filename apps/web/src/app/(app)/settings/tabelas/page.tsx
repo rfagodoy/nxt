@@ -1,5 +1,4 @@
 import Link from 'next/link'
-import { DensidadeSelect } from '@/components/list/densidade-select'
 import { Globe, Tag, FileSearch, Coins, CreditCard, TrendingUp, UserCheck, Paperclip, Network, SlidersHorizontal, Scale, Briefcase, FilePlus2, Wallet } from 'lucide-react'
 
 const TABLES = [
@@ -134,8 +133,6 @@ export default function SettingsTabelas() {
         ))}
       </div>
 
-      {/* densidade: a mesma preferência das listas */}
-      <div className="flex justify-end"><DensidadeSelect /></div>
     </div>
   )
 }

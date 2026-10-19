@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Building2, Phone, MapPin, CreditCard, Users, Briefcase, Clock, Plus, X, SlidersHorizontal, CheckCircle2, RotateCcw, Pencil, Ban, UserCog, Eye, type LucideIcon } from 'lucide-react'
 import { ResponsaveisSection } from '@/components/responsaveis/responsaveis-section'
 import { cn } from '@/lib/utils'
-import { DensidadeSelect } from '@/components/list/densidade-select'
 import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
 import { apiFetch, motivoDoErro, cabecalhosDaTarefa, type OrigemDaTarefa } from '@/lib/http'
 import { faltantesParceiro, rotuloDeSecao, SECOES_PARCEIRO, type AcaoSalvar } from '@/lib/campos-obrigatorios'
@@ -673,8 +672,6 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
 
       </form>
 
-      {/* densidade da tela: a MESMA preferência das listas (vale para o sistema todo) */}
-      <div className="shrink-0 flex justify-end pt-2"><DensidadeSelect /></div>
     </div>
   )
 }

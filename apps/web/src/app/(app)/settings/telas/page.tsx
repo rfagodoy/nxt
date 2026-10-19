@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Plus, LayoutTemplate, Search, Pencil, Trash2, Check, X, Star, Lock, Copy } from 'lucide-react'
 import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
-import { DensidadeSelect } from '@/components/list/densidade-select'
 import { cn } from '@/lib/utils'
 import { SELO } from '@/components/list/selo'
 import { useScreens, deleteScreen, duplicateScreen, saveScreen } from '@/hooks/use-screens'
@@ -192,7 +191,6 @@ export default function TelasPage() {
           <div className="flex items-center gap-3 border-t px-3 py-1.5 bg-muted/20 text-[11px] text-muted-foreground">
             <span className="font-semibold text-foreground tabular-nums">{shown.length} tela{shown.length !== 1 ? 's' : ''}</span>
             {shown.length !== screens.length && <span className="tabular-nums">de {screens.length}</span>}
-            <DensidadeSelect />
           </div>
         )}
       </div>
