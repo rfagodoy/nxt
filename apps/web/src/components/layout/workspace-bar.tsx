@@ -3,10 +3,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { usePathname } from 'next/navigation'
-import { X, FileText, Handshake, ListChecks, Activity, Building2, Eraser, ChevronLeft, ChevronRight, List, LayoutDashboard, PanelLeft, Clock, type LucideIcon } from 'lucide-react'
+import { X, FileText, Handshake, ListChecks, Activity, Building2, Eraser, ChevronLeft, ChevronRight, List, LayoutDashboard, Clock, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useWorkspace, type WorkspaceKind, type WorkspaceTab } from '@/contexts/workspace-context'
-import { useSidebar } from '@/contexts/sidebar-context'
 import { itemDaRota } from './sidebar'
 import { NotificationBell } from './notification-bell'
 import { UserMenu } from './user-menu'
@@ -46,7 +45,7 @@ function Relogio() {
 
 /* Faixa ÚNICA do topo (PO, 18/10/2026 — opção 1 do mockup): as abas SÃO o caminho.
    Geometria do Conexos (opção B, 18/10): 40px, no MESMO topo e altura da linha do logo
-   do menu lateral; o botão de recolher o menu abre a faixa; data e hora à direita.
+   do menu lateral (o botão de recolher fica lá, ao lado do logo); data e hora à direita.
    A 1ª aba é a lista da tela atual ("☰ Contratos", no lugar da antiga "Lista" sem nome);
    depois vêm os documentos abertos de qualquer módulo; à direita, sino e menu do usuário.
    Existe SEMPRE — mesmo sem documento aberto, é onde moram sino e usuário.
@@ -59,7 +58,6 @@ export function WorkspaceBar() {
   const pathname = usePathname()
   const tela = itemDaRota(pathname)
   const IconeTela = pathname.startsWith('/dashboard') ? LayoutDashboard : List
-  const { collapsed, toggle } = useSidebar()
   const [drag,    setDrag]    = useState<number | null>(null)
   const [overIdx, setOverIdx] = useState<number | null>(null)
   const [menu,    setMenu]    = useState<{ id: string; x: number; y: number } | null>(null)
@@ -119,12 +117,6 @@ export function WorkspaceBar() {
 
   return (
     <div className="vidro mb-3 ml-0.5 mr-2.5 flex h-10 shrink-0 items-center rounded-xl bg-[var(--vidro-controle)] px-[5px]">
-
-      <button type="button" onClick={toggle} title={collapsed ? 'Expandir menu' : 'Recolher menu'} aria-label={collapsed ? 'Expandir menu' : 'Recolher menu'}
-        className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-white/50 hover:text-foreground dark:hover:bg-white/[0.07]">
-        <PanelLeft className="h-4 w-4" />
-      </button>
-      <span className="mx-1 h-[18px] w-px shrink-0 bg-foreground/10" />
 
       {/* 1ª aba = a LISTA da tela atual, com o nome dela → volta para a página roteada */}
       <button type="button" onClick={() => setActive(null)} aria-pressed={activeId === null}

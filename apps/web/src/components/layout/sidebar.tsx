@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSession } from '@/lib/session-context'
 import { filtrarSecoesPorPapel } from '@/lib/nav-visibility'
 import {
-  LayoutDashboard, GitBranch, Activity,
+  LayoutDashboard, GitBranch, PanelLeft, Activity,
   Table2, Users, BellRing, LayoutTemplate, ListChecks, CalendarDays, Mail, Upload, HeartPulse, FileBarChart, FileText, Handshake, Building2, ChevronRight, Bell } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSidebar } from '@/contexts/sidebar-context'
@@ -102,7 +102,7 @@ const ATIVO_ILHA = 'bg-white/[0.15] text-sidebar-active-fg shadow-[inset_0_1px_0
 
 export function Sidebar() {
   const pathname              = usePathname()
-  const { collapsed } = useSidebar()
+  const { collapsed, toggle } = useSidebar()
   const { data: session }     = useSession()
 
   /* Menu filtrado por papel — ver nav-visibility.ts para a regra (e o porquê de a
@@ -158,17 +158,28 @@ export function Sidebar() {
       'bg-[var(--vidro-lateral)] [--vidro-solido:hsl(var(--sidebar-bg))]',
     )}>
 
-      {/* Logo — h-10 = a altura da faixa do topo, e os dois começam no mesmo topo: logo e
-          abas na MESMA linha, como no Conexos (PO, 18/10/2026). O botão de recolher foi
-          para o começo da faixa; recolhido, fica só o símbolo. */}
+      {/* Logo + recolher — h-10 = a altura da faixa do topo, e os dois começam no mesmo
+          topo: logo e abas na MESMA linha, como no Conexos (PO, 18/10/2026). Recolhido não
+          cabem os dois: fica o botão de expandir. */}
       <div className={cn(
         'flex items-center border-b border-white/[0.08] h-10 shrink-0 px-3',
-        collapsed && 'justify-center px-0',
+        collapsed ? 'justify-center px-0' : 'justify-between gap-2',
       )}>
-        <Link href="/dashboard" onClick={() => setActive(null)} title="Dashboard" className="flex items-center gap-2 min-w-0">
-          <Logo variant="mark" className="h-7 w-7" />
-          {!collapsed && <span className="text-lg font-bold tracking-tight text-sidebar-foreground">Nxt</span>}
-        </Link>
+        {!collapsed && (
+          <Link href="/dashboard" onClick={() => setActive(null)} title="Dashboard" className="flex items-center gap-2 min-w-0">
+            <Logo variant="mark" className="h-7 w-7" />
+            <span className="text-lg font-bold tracking-tight text-sidebar-foreground">Nxt</span>
+          </Link>
+        )}
+        <button
+          type="button"
+          onClick={toggle}
+          title={collapsed ? 'Expandir menu' : 'Recolher menu'}
+          aria-label={collapsed ? 'Expandir menu' : 'Recolher menu'}
+          className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sidebar-muted hover:text-sidebar-foreground transition-colors', HOVER_ILHA)}
+        >
+          <PanelLeft className="h-[18px] w-[18px]" />
+        </button>
       </div>
 
       {/* Nav */}
