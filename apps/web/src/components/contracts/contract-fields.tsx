@@ -146,7 +146,7 @@ function Segmented({ value, onChange, ro, options }: { value: string; onChange: 
     <div className="inline-flex rounded-md border overflow-hidden">
       {options.map(o => (
         <button key={o.value} type="button" onClick={() => onChange(o.value)}
-          className={cn('px-4 h-7 text-xs font-medium transition-colors border-r last:border-r-0',
+          className={cn('px-4 h-[var(--campo-altura)] text-xs font-medium transition-colors border-r last:border-r-0',
             value === o.value ? 'bg-primary text-primary-foreground' : 'hover:bg-muted text-muted-foreground')}>
           {o.label}
         </button>
@@ -245,7 +245,7 @@ function MoneyField({ value, moedaCode, onChange, ro, bare, vazio }: { value: st
   if (bare) return (
     <input inputMode={emFormula ? 'text' : 'numeric'} value={shown} onChange={onInput} onKeyDown={onKeyDown} onBlur={() => aplicar(true)}
            title={dica} placeholder={vazio ? '' : '0,00'}
-           className={cn(inputCls, 'h-7', anel, emFormula ? 'text-left' : 'text-right tabular-nums', !emFormula && vazio && 'border-transparent bg-transparent hover:border-input focus:border-input')} />
+           className={cn(inputCls, 'h-[var(--campo-altura)]', anel, emFormula ? 'text-left' : 'text-right tabular-nums', !emFormula && vazio && 'border-transparent bg-transparent hover:border-input focus:border-input')} />
   )
   return (
     <div className="relative">
@@ -274,7 +274,7 @@ function HistBlock({ title, count, children }: { title: string; count: number; c
     <div className="col-span-2 rounded-lg border bg-muted/20 overflow-hidden">
       <button type="button" onClick={() => setOpen(o => !o)} className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left hover:bg-muted/30 transition-colors">
         <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</span>
+        <span className="text-[length:var(--rotulo-fonte)] font-semibold text-muted-foreground">{title}</span>
         <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{count}</span>
       </button>
       {open && <div className="px-2.5 pb-2.5 pt-0.5 space-y-1">{children}</div>}
@@ -326,12 +326,12 @@ export function IdentificacaoFields({ form, ro, autoNumero = false, numeroPrevie
             const diff = historicoObjeto(v)
             if (diff.length === 0) return <p className={readCls}>—</p>
             return diff.map((it, i) => (
-              <div key={it.value} className={cn('flex items-center gap-2 rounded-md border px-3 py-1.5',
+              <div key={it.value} className={cn('flex items-center gap-2 rounded-md border px-3 min-h-[var(--campo-altura)]',
                 it.status === 'removido'  ? 'border-red-200/70 bg-red-50/40 dark:border-red-900/40 dark:bg-red-950/20'
                 : it.status === 'acrescido' ? 'border-emerald-200/70 bg-emerald-50/40 dark:border-emerald-900/40 dark:bg-emerald-950/20'
                 : 'bg-muted/20')}>
                 <span className="text-[10px] font-medium text-muted-foreground w-4 shrink-0 text-right">{i + 1}.</span>
-                <span className={cn('text-xs', it.status === 'removido' && 'line-through text-muted-foreground')}>{labelOf(objetos.entries, it.value)}</span>
+                <span className={cn('text-[length:var(--leitura-fonte)]', it.status === 'removido' && 'line-through text-muted-foreground')}>{labelOf(objetos.entries, it.value)}</span>
                 {/* procedência inline, colada ao item (a cor da linha já dá o panorama) */}
                 {it.status !== 'original' && (
                   <span className={cn('text-[10px] font-medium', it.status === 'acrescido' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500')}>
@@ -343,8 +343,8 @@ export function IdentificacaoFields({ form, ro, autoNumero = false, numeroPrevie
           })() : (
             <>
               {v.objeto.map((id, i) => (
-                <div key={id} className="flex items-center justify-between rounded-md border bg-muted/20 px-3 py-1.5">
-                  <div className="flex items-center gap-2"><span className="text-[10px] font-medium text-muted-foreground w-4 shrink-0 text-right">{i + 1}.</span><span className="text-xs">{labelOf(objetos.entries, id)}</span></div>
+                <div key={id} className="flex items-center justify-between rounded-md border bg-muted/20 px-3 min-h-[var(--campo-altura)]">
+                  <div className="flex items-center gap-2"><span className="text-[10px] font-medium text-muted-foreground w-4 shrink-0 text-right">{i + 1}.</span><span className="text-[length:var(--leitura-fonte)]">{labelOf(objetos.entries, id)}</span></div>
                   <button type="button" onClick={() => form.set('objeto', v.objeto.filter(x => x !== id))} className="text-muted-foreground hover:text-destructive transition-colors ml-2"><Trash2 className="h-3 w-3" /></button>
                 </div>
               ))}
@@ -516,7 +516,7 @@ export function VigenciaFields({ form, ro, isVisible = showAll, isLocked = lockN
       {isVisible('inicio') && <Field label="Início da vigência" required><Txt type="date" value={v.inicioVigencia} onChange={x => form.set('inicioVigencia', x)} ro={lk('inicio')} /></Field>}
       {isVisible('prazo_indeterminado') && <Field label="Prazo indeterminado">
         {lk('prazo_indeterminado') ? <span className={readCls}>{v.prazoIndeterminado ? 'Sim' : 'Não'}</span> : (
-          <label className="flex items-center gap-2 h-7 cursor-pointer">
+          <label className="flex items-center gap-2 h-[var(--campo-altura)] cursor-pointer">
             <input type="checkbox" checked={v.prazoIndeterminado} onChange={e => form.set('prazoIndeterminado', e.target.checked)} className="h-3.5 w-3.5 rounded border-gray-300 accent-primary" />
             <span className="text-xs text-muted-foreground">Sem data de término</span>
           </label>
@@ -567,7 +567,7 @@ export function VigenciaFields({ form, ro, isVisible = showAll, isLocked = lockN
                 </p>
               </div>
               <button type="button" onClick={abrirRenovacao}
-                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-3 text-xs font-medium transition-colors hover:bg-muted">
+                className="inline-flex h-[var(--campo-altura)] shrink-0 items-center gap-1.5 rounded-md border px-3 text-xs font-medium transition-colors hover:bg-muted">
                 <RefreshCw className="h-3.5 w-3.5" />Renovar período
               </button>
             </div>
@@ -610,9 +610,9 @@ export function VigenciaFields({ form, ro, isVisible = showAll, isLocked = lockN
               )}
               {renovErr && <p className="text-[11px] font-medium text-red-600 dark:text-red-400">{renovErr}</p>}
               <div className="flex items-center justify-end gap-2">
-                <button type="button" onClick={() => setRenovOpen(false)} className="h-8 rounded-md px-3 text-xs font-medium text-muted-foreground hover:bg-muted">Cancelar</button>
+                <button type="button" onClick={() => setRenovOpen(false)} className="h-[var(--campo-altura)] rounded-md px-3 text-xs font-medium text-muted-foreground hover:bg-muted">Cancelar</button>
                 <button type="button" onClick={confirmarRenovacao} disabled={!previa}
-                  className="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed">
+                  className="h-[var(--campo-altura)] rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed">
                   Confirmar renovação
                 </button>
               </div>
@@ -646,7 +646,7 @@ function MoneyRead({ label, value, moedaCode, strong }: { label: string; value: 
   const display = value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   return (
     <Field label={label}>
-      <span className={cn('flex min-h-[1.25rem] items-center px-0 text-sm tabular-nums', strong ? 'font-semibold text-foreground' : 'font-medium text-foreground', value < 0 && 'text-red-600 dark:text-red-400')}>
+      <span className={cn('flex min-h-[1.25rem] items-center px-0 text-[length:var(--destaque-fonte)] tabular-nums', strong ? 'font-semibold text-foreground' : 'font-medium text-foreground', value < 0 && 'text-red-600 dark:text-red-400')}>
         {moedaCode ? `${moedaCode} ` : ''}{display}
       </span>
     </Field>
@@ -713,7 +713,7 @@ export function ValoresFields({ form, ro, isVisible = showAll, isLocked = lockNo
             <div className="space-y-2">
               {eventos.map((ev, i) => (
                 <div key={i} className="space-y-0.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">{ev.aditivo}{ev.data ? ` · ${fmtDataBR(ev.data)}` : ''}</p>
+                  <p className="text-[length:var(--rotulo-fonte)] font-semibold text-muted-foreground/80">{ev.aditivo}{ev.data ? ` · ${fmtDataBR(ev.data)}` : ''}</p>
                   {ev.mudancas.map((m, j) => (
                     <div key={j} className="flex items-baseline gap-3 text-xs">
                       <span className="w-28 shrink-0 text-muted-foreground">{m.campo}</span>
@@ -750,8 +750,8 @@ export function ValoresFields({ form, ro, isVisible = showAll, isLocked = lockNo
 function StatTile({ label, value, bar, danger, hint }: { label: string; value: string; bar?: number; danger?: boolean; hint?: string }) {
   return (
     <div className="rounded-lg border bg-card px-3 py-2 shadow-sm">
-      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground truncate">{label}</p>
-      <p className={cn('mt-0.5 text-sm font-semibold tabular-nums', danger && 'text-red-600 dark:text-red-400')}>{value}</p>
+      <p className="text-[length:var(--rotulo-fonte)] font-medium text-muted-foreground truncate">{label}</p>
+      <p className={cn('mt-0.5 text-[length:var(--destaque-fonte)] font-semibold tabular-nums', danger && 'text-red-600 dark:text-red-400')}>{value}</p>
       {hint && <p className="text-[10px] text-muted-foreground tabular-nums truncate" title={hint}>{hint}</p>}
       {bar != null && <div className="mt-1.5 h-1 rounded-full bg-muted overflow-hidden"><div className={cn('h-full rounded-full', bar >= 100 ? 'bg-red-500' : 'bg-primary')} style={{ width: `${Math.min(100, bar)}%` }} /></div>}
     </div>
@@ -1008,7 +1008,7 @@ export function LancamentosFields({ form, field, moedaCode, travado, consulta = 
       ? 'grid grid-cols-[9rem_7.5rem_9rem_7.5rem_4.25rem_minmax(5.5rem,1fr)_1.25rem] items-center gap-2'
       : 'grid grid-cols-[9rem_7.5rem_3rem_8rem_6rem_minmax(8rem,1fr)_1.25rem] items-center gap-2'
   const MINW = dualView ? 'min-w-[42rem]' : 'min-w-[75rem]'
-  const cell = cn(inputCls, 'h-7')
+  const cell = cn(inputCls, 'h-[var(--campo-altura)]')
   const desvioDe = (l: CLancamento) => lancDesvio(l)
   /* o bloco REALIZADO (só na visão Baixas) ganha fundo e bordas que descem por TODA a tabela:
      é isso que faz o agrupamento existir na linha, e não só no cabeçalho. `self-stretch` faz o
@@ -1074,7 +1074,7 @@ export function LancamentosFields({ form, field, moedaCode, travado, consulta = 
       {/* gerar em massa (painel) */}
       {gerarOpen && (
         <div className="rounded-md border bg-muted/20 p-3 space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Gerar cronograma de parcelas</p>
+          <p className="text-[length:var(--rotulo-fonte)] font-semibold text-muted-foreground">Gerar cronograma de parcelas</p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <label className="space-y-1">
               <span className="text-[10px] font-medium text-muted-foreground">Vencimento inicial</span>
@@ -1100,7 +1100,7 @@ export function LancamentosFields({ form, field, moedaCode, travado, consulta = 
           {gErr && <p className="text-xs text-destructive">{gErr}</p>}
           <div className="flex items-center justify-end gap-2">
             <button type="button" onClick={() => setGerarOpen(false)} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Cancelar</button>
-            <button type="button" onClick={gerar} className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">Gerar {parseInt(gQtd, 10) > 0 ? `${parseInt(gQtd, 10)} ` : ''}parcelas</button>
+            <button type="button" onClick={gerar} className="inline-flex items-center h-[var(--campo-altura)] rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">Gerar {parseInt(gQtd, 10) > 0 ? `${parseInt(gQtd, 10)} ` : ''}parcelas</button>
           </div>
         </div>
       )}
@@ -1119,7 +1119,7 @@ export function LancamentosFields({ form, field, moedaCode, travado, consulta = 
                 rótulos), altura fixa em ambos os modos p/ o subcabeçalho de ano grudar em top-8. */}
             <div className="sticky top-0 z-20 bg-card border-b">
               {/* faixa de grupo: pares simétricos "o que era × o que foi" (legado e Baixas) */}
-              <div className={cn(COLS, 'h-4 px-3 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/50')}>
+              <div className={cn(COLS, 'h-4 px-3 text-[length:var(--rotulo-fonte)] font-semibold text-muted-foreground/50')}>
                 <span className="col-span-2 text-center">Previsto</span>
                 {!dualView ? (
                   <>
@@ -1139,7 +1139,7 @@ export function LancamentosFields({ form, field, moedaCode, travado, consulta = 
                   <><span /><span /><span /><span /><span /></>
                 )}
               </div>
-              <div className={cn(COLS, 'h-4 px-3 text-[9px] font-medium uppercase tracking-wide text-muted-foreground/70')}>
+              <div className={cn(COLS, 'h-4 px-3 text-[length:var(--rotulo-fonte)] font-medium text-muted-foreground/70')}>
                 <span title="Data prevista de pagamento — é ela que produz o status Vencido">Data</span>
                 <span className="text-right pr-2" title="Valor contratado da parcela">Valor</span>
                 {!dualView ? (
@@ -1183,7 +1183,7 @@ export function LancamentosFields({ form, field, moedaCode, travado, consulta = 
                     role={semData ? undefined : 'button'}
                     onClick={semData ? undefined : () => toggleYear(ano)}
                     className={cn('sticky top-8 z-10 flex items-center justify-between px-3 py-1 bg-muted border-b border-border/40', !semData && 'cursor-pointer hover:bg-muted/80 transition-colors')}>
-                    <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    <span className="flex items-center gap-1.5 text-[length:var(--rotulo-fonte)] font-semibold text-muted-foreground">
                       {!semData && <ChevronDown className={cn('h-3 w-3 transition-transform', aberto && 'rotate-180')} />}
                       {semData ? 'Sem data' : ano}
                       <span className="font-normal normal-case">· {itens.length} lançamento{itens.length > 1 ? 's' : ''}</span>
@@ -1355,7 +1355,7 @@ export function LancamentosFields({ form, field, moedaCode, travado, consulta = 
           <div className={cn(COLS, MINW, 'sticky bottom-0 z-20 px-3 py-1.5 bg-muted border-t')}>
             {/* mesma ordem das colunas do modo atual: total previsto sob Previsto; na visão
                 Baixas, o total realizado sob Realizado; o desvio na última coluna livre. */}
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Total</span>
+            <span className="text-[length:var(--rotulo-fonte)] font-semibold text-muted-foreground">Total</span>
             <span className="text-xs font-semibold tabular-nums text-right pr-2">{money(total)}</span>
             {!dualView ? (
               <>
@@ -1468,7 +1468,7 @@ function ReajusteCard({ r, idx, form, indices, ro, consulta, open, onToggle }: {
   r: CReajuste; idx: number; form: ContractForm; indices: ReturnType<typeof useLookupTable>; ro?: boolean; consulta?: boolean; open: boolean; onToggle: () => void
 }) {
   const v = form.values
-  const cell = cn(inputCls, 'h-7')
+  const cell = cn(inputCls, 'h-[var(--campo-altura)]')
   const money = (n: number) => `${v.moeda ? v.moeda + ' ' : ''}${(Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   const indiceVals = useIndiceValores()
   /* ligar "Automática" fica PENDENTE até a confirmação: o select mostra a intenção,
@@ -1590,7 +1590,7 @@ function ReajusteCard({ r, idx, form, indices, ro, consulta, open, onToggle }: {
               </button>
               {verPassos && (
                 <div className="mt-2 max-h-48 overflow-y-auto rounded border border-amber-200 bg-background/60 dark:border-amber-900">
-                  <div className="grid grid-cols-[5.5rem_4rem_1fr] gap-2 border-b border-amber-200 px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground dark:border-amber-900">
+                  <div className="grid grid-cols-[5.5rem_4rem_1fr] gap-2 border-b border-amber-200 px-2 py-1 text-[length:var(--rotulo-fonte)] font-semibold text-muted-foreground dark:border-amber-900">
                     <span>Competência</span><span>%</span><span>Parcela</span>
                   </div>
                   {pendente.passos.map(s => (
@@ -1604,10 +1604,10 @@ function ReajusteCard({ r, idx, form, indices, ro, consulta, open, onToggle }: {
               )}
 
               <div className="mt-3 flex items-center gap-2">
-                <button type="button" onClick={confirmarAuto} className="h-7 rounded-md bg-amber-600 px-3 text-[11px] font-medium text-white transition-colors hover:bg-amber-700">
+                <button type="button" onClick={confirmarAuto} className="h-[var(--campo-altura)] rounded-md bg-amber-600 px-3 text-[11px] font-medium text-white transition-colors hover:bg-amber-700">
                   Entendi, ativar
                 </button>
-                <button type="button" onClick={() => setPendente(null)} className="h-7 rounded-md border border-amber-300 px-3 text-[11px] font-medium text-amber-900 transition-colors hover:bg-amber-100 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-950">
+                <button type="button" onClick={() => setPendente(null)} className="h-[var(--campo-altura)] rounded-md border border-amber-300 px-3 text-[11px] font-medium text-amber-900 transition-colors hover:bg-amber-100 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-950">
                   Cancelar
                 </button>
               </div>
@@ -1769,14 +1769,14 @@ function ReajusteRealizados({ form, indices, linha, ro, consulta }: { form: Cont
   const transicao = (r: CReajusteRealizado) => r.base === 'parcela'
     ? `${moedaFmt(r.parcelaAnterior)} → ${moedaFmt(r.parcelaNova)}`
     : `${moedaFmt(r.valorAnterior)} → ${moedaFmt(r.valorNovo)}`
-  const selCls  = cn(inputCls, 'h-7')
+  const selCls  = cn(inputCls, 'h-[var(--campo-altura)]')
   const readCls2 = cn(selCls, 'bg-muted/40 text-muted-foreground')
   const alvoCount = parcelasAlvo(v, competencia).length  // parcelas do cronograma que serão reprecificadas
 
   return (
     <div className="space-y-2 pt-3 border-t border-border/60">
       <div className="flex items-center justify-between">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Reajustes aplicados</p>
+        <p className="text-[length:var(--rotulo-fonte)] font-semibold text-muted-foreground">Reajustes aplicados</p>
         {!aberto && !consulta && (
           linha.indice
             ? <button type="button" onClick={abrir} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Plus className="h-3.5 w-3.5" />Registrar reajuste</button>
@@ -1788,7 +1788,7 @@ function ReajusteRealizados({ form, indices, linha, ro, consulta }: { form: Cont
         <p className="text-xs text-muted-foreground">Nenhum reajuste aplicado.</p>
       ) : realizados.length > 0 && (
         <div className="rounded-md border overflow-hidden">
-          <div className="grid grid-cols-[6.5rem_5rem_4.5rem_1fr_1.25rem] items-center gap-2 px-3 py-1.5 bg-muted/40 border-b text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <div className="grid grid-cols-[6.5rem_5rem_4.5rem_1fr_1.25rem] items-center gap-2 px-3 py-1.5 bg-muted/40 border-b text-[length:var(--rotulo-fonte)] font-semibold text-muted-foreground">
             <span>Competência</span><span>Percentual</span><span>Base</span><span>Ant. → novo</span><span />
           </div>
           <div className="divide-y divide-border/50">
@@ -1873,7 +1873,7 @@ function ReajusteRealizados({ form, indices, linha, ro, consulta }: { form: Cont
           {erro && <p className="text-xs text-destructive">{erro}</p>}
           <div className="flex items-center justify-end gap-2">
             <button type="button" onClick={() => setAberto(false)} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Cancelar</button>
-            <button type="button" onClick={registrar} className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">Registrar</button>
+            <button type="button" onClick={registrar} className="inline-flex items-center h-[var(--campo-altura)] rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">Registrar</button>
           </div>
         </div>
       )}
@@ -2079,17 +2079,17 @@ function DocumentoCard({ doc, idx, ro, form, open, onToggle, onCollapse }: { doc
               <div className="flex items-center gap-1 shrink-0">
                 {canPreview && (
                   <button type="button" onClick={handlePreview} disabled={busy === 'view'} title="Visualizar"
-                    className="inline-flex items-center gap-1.5 h-7 rounded-md border px-2.5 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-50">
+                    className="inline-flex items-center gap-1.5 h-[var(--campo-altura)] rounded-md border px-2.5 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-50">
                     {busy === 'view' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}<span className="hidden md:inline">Ver</span>
                   </button>
                 )}
                 <button type="button" onClick={handleDownload} disabled={busy === 'down'} title="Baixar"
-                  className="inline-flex items-center gap-1.5 h-7 rounded-md border px-2.5 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-50">
+                  className="inline-flex items-center gap-1.5 h-[var(--campo-altura)] rounded-md border px-2.5 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-50">
                   {busy === 'down' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}<span className="hidden md:inline">Baixar</span>
                 </button>
                 {!ro && (
                   <button type="button" onClick={handleRemoveFile} title="Remover arquivo"
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+                    className="inline-flex h-[var(--campo-altura)] w-[var(--campo-altura)] items-center justify-center rounded-md border text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
                     <X className="h-3.5 w-3.5" />
                   </button>
                 )}
@@ -2181,7 +2181,7 @@ export function PartesFields({ form, ro, onOpenSearch, onNewPartner, contractId 
 
   // Função (não componente) para não criar fronteira de remontagem no <select>.
   const papelSelect = (value: string, onChange: (v: string) => void) => (
-    <select value={value} onChange={e => onChange(e.target.value)} className={cn(inputCls, 'h-7')}>
+    <select value={value} onChange={e => onChange(e.target.value)} className={cn(inputCls, 'h-[var(--campo-altura)]')}>
       <option value="">Selecione...</option>
       {value && !papelOptions.some(pp => pp.id === value) && <option value={value}>{labelOf(papeis.entries, value)}</option>}
       {papeisEntidade.map(pp => <option key={pp.id} value={pp.id}>{pp.label}</option>)}
@@ -2195,7 +2195,7 @@ export function PartesFields({ form, ro, onOpenSearch, onNewPartner, contractId 
         <p className="text-xs text-muted-foreground">Nenhuma parte.</p>
       ) : (
         <div className="rounded-md border overflow-hidden">
-          <div className={cn(COLS, 'px-3 py-1.5 bg-muted/40 border-b text-[10px] font-semibold uppercase tracking-wide text-muted-foreground')}>
+          <div className={cn(COLS, 'px-3 py-1.5 bg-muted/40 border-b text-[length:var(--rotulo-fonte)] font-semibold text-muted-foreground')}>
             <span>Papel</span><span>Nome / Responsável</span><span>Documento</span><span />
           </div>
           <div className="divide-y divide-border/50">
@@ -2217,18 +2217,18 @@ export function PartesFields({ form, ro, onOpenSearch, onNewPartner, contractId 
               return (
                 <div key={p.id} className={cn(COLS, 'group px-3 py-1.5 hover:bg-muted/30', idx === 0 && 'border-l-2 border-l-primary/50')} title={idx === 0 ? 'Parte principal' : undefined}>
                   {ro ? (
-                    <span className="text-xs font-medium truncate">{labelOf(papeis.entries, p.papel) || '—'}</span>
+                    <span className="text-[length:var(--lista-fonte)] font-medium truncate">{labelOf(papeis.entries, p.papel) || '—'}</span>
                   ) : (
                     papelSelect(p.papel, val => onEntityPapel(p, val))
                   )}
                   {ro ? (
-                    <span className="text-xs truncate">{p.nome || '—'}</span>
+                    <span className="text-[length:var(--lista-fonte)] truncate">{p.nome || '—'}</span>
                   ) : (
                     <div className="flex gap-1 min-w-0">
                       <input readOnly value={p.nome} onClick={open}
                         placeholder={p.papel ? (isUnidade ? 'Selecionar unidade' : 'Selecionar empresa/parceiro') : 'Selecione o papel'}
-                        className={cn(inputCls, 'h-7', p.papel ? 'cursor-pointer' : 'opacity-60 cursor-not-allowed')} />
-                      <button type="button" disabled={!p.papel} title="Pesquisar" onClick={open} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"><Search className="h-3 w-3 text-muted-foreground" /></button>
+                        className={cn(inputCls, 'h-[var(--campo-altura)]', p.papel ? 'cursor-pointer' : 'opacity-60 cursor-not-allowed')} />
+                      <button type="button" disabled={!p.papel} title="Pesquisar" onClick={open} className="flex h-[var(--campo-altura)] w-[var(--campo-altura)] shrink-0 items-center justify-center rounded-md border hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"><Search className="h-3 w-3 text-muted-foreground" /></button>
                     </div>
                   )}
                   <span className="text-[11px] text-muted-foreground truncate">{p.documento || '—'}</span>
@@ -2484,9 +2484,9 @@ function AditivoCard({ a, idx, form, open, onToggle, ro, onOpenCessaoSearch, onA
         <div className="flex items-center justify-between gap-2">
           <span className={cn('text-[10px]', actErr ? 'text-red-500' : 'text-muted-foreground')}>{ro ? 'Somente consulta nesta tela.' : lock ? 'Aditivo ativo — aplicado ao contrato. Para corrigir, abra para revisão.' : (actErr || 'Rascunho — ative para aplicar as mudanças ao contrato.')}</span>
           {ro ? null : lock ? (
-            <button type="button" onClick={() => onRevise(a.id)} className="inline-flex items-center h-7 shrink-0 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors">Abrir para revisão</button>
+            <button type="button" onClick={() => onRevise(a.id)} className="inline-flex items-center h-[var(--campo-altura)] shrink-0 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors">Abrir para revisão</button>
           ) : (
-            <button type="button" onClick={ativar} className="inline-flex items-center h-7 shrink-0 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">Ativar aditivo</button>
+            <button type="button" onClick={ativar} className="inline-flex items-center h-[var(--campo-altura)] shrink-0 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">Ativar aditivo</button>
           )}
         </div>
         <div className="grid grid-cols-2 gap-[var(--form-gap)]">
@@ -2498,7 +2498,7 @@ function AditivoCard({ a, idx, form, open, onToggle, ro, onOpenCessaoSearch, onA
           {lock ? (
             <div className="flex flex-wrap gap-1.5">
               {a.tipos.length === 0 ? <span className={readCls}>—</span> : a.tipos.map(id => (
-                <span key={id} className="inline-flex items-center px-2.5 h-7 rounded-full bg-primary/10 text-primary text-[11px] font-medium">{labelOf(tiposAditivo.entries, id)}</span>
+                <span key={id} className="inline-flex items-center px-2.5 h-[var(--campo-altura)] rounded-full bg-primary/10 text-primary text-[11px] font-medium">{labelOf(tiposAditivo.entries, id)}</span>
               ))}
             </div>
           ) : (
@@ -2507,7 +2507,7 @@ function AditivoCard({ a, idx, form, open, onToggle, ro, onOpenCessaoSearch, onA
                 const on = a.tipos.includes(t.id)
                 return (
                   <button key={t.id} type="button" onClick={() => toggleTipo(t.id)}
-                    className={cn('px-2.5 h-7 rounded-full border text-[11px] font-medium transition-colors',
+                    className={cn('px-2.5 h-[var(--campo-altura)] rounded-full border text-[11px] font-medium transition-colors',
                       on ? 'bg-primary text-primary-foreground border-primary' : 'border-input text-muted-foreground hover:bg-muted')}>
                     {t.label}
                   </button>
@@ -2515,7 +2515,7 @@ function AditivoCard({ a, idx, form, open, onToggle, ro, onOpenCessaoSearch, onA
               })}
               {a.tipos.filter(id => !tiposAditivo.active.some(t => t.id === id)).map(id => (
                 <button key={id} type="button" onClick={() => toggleTipo(id)}
-                  className="inline-flex items-center gap-1 px-2.5 h-7 rounded-full border border-primary bg-primary text-primary-foreground text-[11px] font-medium">
+                  className="inline-flex items-center gap-1 px-2.5 h-[var(--campo-altura)] rounded-full border border-primary bg-primary text-primary-foreground text-[11px] font-medium">
                   {labelOf(tiposAditivo.entries, id)}<X className="h-3 w-3" />
                 </button>
               ))}
@@ -2539,13 +2539,13 @@ function AditivoCard({ a, idx, form, open, onToggle, ro, onOpenCessaoSearch, onA
               {a.arquivo_key ? (
                 <>
                   {canPreview && (
-                    <button type="button" onClick={handlePreview} disabled={busy === 'view'} title="Visualizar" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border hover:bg-muted disabled:opacity-50">{busy === 'view' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}</button>
+                    <button type="button" onClick={handlePreview} disabled={busy === 'view'} title="Visualizar" className="flex h-[var(--campo-altura)] w-[var(--campo-altura)] shrink-0 items-center justify-center rounded-md border hover:bg-muted disabled:opacity-50">{busy === 'view' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}</button>
                   )}
-                  <button type="button" onClick={download} disabled={busy === 'down'} title="Baixar" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border hover:bg-muted disabled:opacity-50">{busy === 'down' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}</button>
-                  <button type="button" onClick={() => form.patchAditivo(a.id, { arquivo_key: '', arquivo_nome: '' })} title="Remover" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:text-destructive"><X className="h-3.5 w-3.5" /></button>
+                  <button type="button" onClick={download} disabled={busy === 'down'} title="Baixar" className="flex h-[var(--campo-altura)] w-[var(--campo-altura)] shrink-0 items-center justify-center rounded-md border hover:bg-muted disabled:opacity-50">{busy === 'down' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}</button>
+                  <button type="button" onClick={() => form.patchAditivo(a.id, { arquivo_key: '', arquivo_nome: '' })} title="Remover" className="flex h-[var(--campo-altura)] w-[var(--campo-altura)] shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:text-destructive"><X className="h-3.5 w-3.5" /></button>
                 </>
               ) : (
-                <button type="button" onClick={() => fileRef.current?.click()} disabled={busy === 'up'} className="flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-3 text-xs font-medium hover:bg-muted disabled:opacity-50">{busy === 'up' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}Anexar</button>
+                <button type="button" onClick={() => fileRef.current?.click()} disabled={busy === 'up'} className="flex h-[var(--campo-altura)] shrink-0 items-center gap-1.5 rounded-md border px-3 text-xs font-medium hover:bg-muted disabled:opacity-50">{busy === 'up' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}Anexar</button>
               )}
               <input ref={fileRef} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void upload(f); e.target.value = '' }} />
             </div>
@@ -2608,7 +2608,7 @@ function AditivoCard({ a, idx, form, open, onToggle, ro, onOpenCessaoSearch, onA
                           <input readOnly value={c.nome} onClick={() => { if (c.parteId) onOpenCessaoSearch(a.id, c.id, origem) }}
                             placeholder={c.parteId ? 'Selecionar nova entidade (cessionária)' : 'Escolha a parte primeiro'}
                             className={cn(inputCls, 'flex-1', c.parteId ? 'cursor-pointer' : 'opacity-60 cursor-not-allowed')} />
-                          <button type="button" disabled={!c.parteId} onClick={() => onOpenCessaoSearch(a.id, c.id, origem)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border hover:bg-muted disabled:opacity-50"><Search className="h-3 w-3 text-muted-foreground" /></button>
+                          <button type="button" disabled={!c.parteId} onClick={() => onOpenCessaoSearch(a.id, c.id, origem)} className="flex h-[var(--campo-altura)] w-[var(--campo-altura)] shrink-0 items-center justify-center rounded-md border hover:bg-muted disabled:opacity-50"><Search className="h-3 w-3 text-muted-foreground" /></button>
                         </div>
                       </div>
                     )

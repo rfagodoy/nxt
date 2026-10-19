@@ -159,7 +159,7 @@ export function UnitDetailView({ mode, unit, companyId, parentId, parentName, on
         <div className="flex items-center gap-2 shrink-0">
           <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Fechar</button>
           <button type="button" onClick={() => void handleSave()} disabled={saving}
-            className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors">
+            className="inline-flex items-center h-[var(--campo-altura)] rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors">
             {saving ? 'Salvando...' : mode === 'new' ? 'Criar unidade' : 'Salvar'}
           </button>
         </div>

@@ -391,7 +391,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
           ) : (
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => { void handleSaveDraft() }} disabled={saving !== null}
-              className="inline-flex items-center h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+              className="inline-flex items-center h-[var(--campo-altura)] rounded-md border px-3 text-xs font-medium hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
               {saving === 'draft' ? 'Salvando...' : 'Salvar rascunho'}
             </button>
             {/* Dentro de uma ATIVIDADE esta ação deixa de ser primária: quem entrega a
@@ -399,7 +399,7 @@ export default function PartnerNewForm({ embedded = false, onSaved, onCancel, sc
                 empilhados faziam a pessoa não saber qual encerrava o passo. Fora do
                 workflow (cadastro avulso) ela continua sendo a ação principal. */}
             <button type="submit" disabled={saving !== null}
-              className={cn('inline-flex items-center gap-1.5 h-7 rounded-md px-3 text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors',
+              className={cn('inline-flex items-center gap-1.5 h-[var(--campo-altura)] rounded-md px-3 text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors',
                 embedded
                   ? 'border hover:bg-muted'
                   : 'bg-primary text-primary-foreground hover:bg-primary/90')}>

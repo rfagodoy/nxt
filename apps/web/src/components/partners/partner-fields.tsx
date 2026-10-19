@@ -302,7 +302,7 @@ export function CustomFieldInput({ field }: { field: CustomField }) {
       ); break
     case 'checkbox':
       input = (
-        <div className="flex items-center gap-2 h-8">
+        <div className="flex items-center gap-2 h-[var(--campo-altura)]">
           <input type="checkbox" id={field.name} name={field.name} className="h-3.5 w-3.5 rounded border-gray-300" />
           <label htmlFor={field.name} className="text-xs text-muted-foreground">Marcar</label>
         </div>
@@ -478,7 +478,7 @@ export function IdentificacaoFields({ form, ro, isVisible = always, isLocked = n
                       placeholder={docPlaceholder} maxLength={18}
                       className={cn(inputCls, docInvalido && 'border-red-500 focus-visible:ring-red-500')} />
                     <button type="button" onClick={() => void fetchCnpj(v.documento, true)} disabled={cnpjLoading || !isValidCNPJ(v.documento)}
-                      className="px-2.5 h-8 shrink-0 text-xs rounded-md border hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
+                      className="px-2.5 h-[var(--campo-altura)] shrink-0 text-xs rounded-md border hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
                       {cnpjLoading && <Loader2 className="h-3 w-3 animate-spin" />}Buscar
                     </button>
                   </div>
@@ -628,7 +628,7 @@ export function EnderecoFields({ form, ro, isVisible = always, isLocked = never,
                             onChange={e => { const m = maskCEP(e.target.value); form.updEnd(en.id, 'cep', m); if (m.replace(/\D/g, '').length === 8) void fetchCep(en.id, m) }}
                             placeholder="00000-000" maxLength={9} className={inputCls} />
                           <button type="button" onClick={() => void fetchCep(en.id, en.cep)} disabled={cepLoading[en.id]}
-                            className="px-2.5 h-8 shrink-0 text-xs rounded-md border hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
+                            className="px-2.5 h-[var(--campo-altura)] shrink-0 text-xs rounded-md border hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
                             {cepLoading[en.id] && <Loader2 className="h-3 w-3 animate-spin" />}Buscar
                           </button>
                         </div>
@@ -709,9 +709,9 @@ export function SociosFields({ form, ro, isVisible = always, isLocked = never, c
         <div className="space-y-2 max-h-[calc(100vh-24rem)] overflow-y-auto pr-1">
           <div className="grid grid-cols-12 gap-2 px-1 sticky top-0 bg-card z-10 py-1">
             <div className="col-span-1" />
-            {isVisible('soc_nome')         && <p className="col-span-3 text-[11px] font-medium text-muted-foreground">Nome</p>}
-            {isVisible('soc_documento')    && <p className="col-span-3 text-[11px] font-medium text-muted-foreground">{isBR ? 'CPF' : 'Documento'}</p>}
-            {isVisible('soc_participacao') && <p className="col-span-2 text-[11px] font-medium text-muted-foreground">Participação %</p>}
+            {isVisible('soc_nome')         && <p className="col-span-3 text-[length:var(--rotulo-fonte)] text-muted-foreground">Nome</p>}
+            {isVisible('soc_documento')    && <p className="col-span-3 text-[length:var(--rotulo-fonte)] text-muted-foreground">{isBR ? 'CPF' : 'Documento'}</p>}
+            {isVisible('soc_participacao') && <p className="col-span-2 text-[length:var(--rotulo-fonte)] text-muted-foreground">Participação %</p>}
             {isVisible('soc_cargo')        && <p className="col-span-2 text-[11px] font-medium text-muted-foreground">Cargo / Função</p>}
             <div className="col-span-1" />
           </div>
@@ -823,7 +823,7 @@ export function CnaeFields({ form, ro, isVisible = always, isLocked = never }: {
   const usados = [v.cnaePrincipal, ...v.cnaesSecundarios].filter(Boolean)
 
   const Chip = ({ code, onRemove }: { code: string; onRemove?: () => void }) => (
-    <div className="flex items-center gap-2 rounded-md border bg-muted/20 px-2.5 py-1.5 text-xs">
+    <div className="flex items-center gap-2 rounded-md border bg-muted/20 px-2.5 min-h-[var(--campo-altura)] text-[length:var(--leitura-fonte)]">
       <span className="font-mono tabular-nums text-primary">{code}</span>
       <span className="min-w-0 flex-1 truncate">{label(code)}</span>
       {onRemove && <button type="button" onClick={onRemove} className="text-muted-foreground hover:text-destructive"><X className="h-3.5 w-3.5" /></button>}
@@ -834,7 +834,7 @@ export function CnaeFields({ form, ro, isVisible = always, isLocked = never }: {
     <div className="space-y-4">
       {isVisible('cnae_principal') && (
         <div className="space-y-1.5">
-          <p className="text-[11px] font-medium text-muted-foreground">CNAE Principal</p>
+          <p className="text-[length:var(--rotulo-fonte)] text-muted-foreground">CNAE Principal</p>
           {v.cnaePrincipal
             ? <Chip code={v.cnaePrincipal} onRemove={lk('cnae_principal') ? undefined : () => form.set('cnaePrincipal', '')} />
             : lk('cnae_principal')
@@ -845,7 +845,7 @@ export function CnaeFields({ form, ro, isVisible = always, isLocked = never }: {
 
       {isVisible('cnaes_secundarios') && (
         <div className="space-y-1.5">
-          <p className="text-[11px] font-medium text-muted-foreground">CNAEs Secundários</p>
+          <p className="text-[length:var(--rotulo-fonte)] text-muted-foreground">CNAEs Secundários</p>
           {v.cnaesSecundarios.length === 0 && lk('cnaes_secundarios') && <span className={readCls}>—</span>}
           {v.cnaesSecundarios.length > 0 && (
             <div className="space-y-1.5">
