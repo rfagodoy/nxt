@@ -13,6 +13,7 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { SELO } from '@/components/list/selo'
 import { useViews } from '@/hooks/use-views'
 import { exportExcel } from '@/lib/export-excel'
 import { TablePagination } from '@/components/ui/table-pagination'
@@ -23,10 +24,8 @@ import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
 import { Indicadores } from '@/components/list/indicadores'
 import { useFiltroColuna, BotaoFiltroColuna, LinhaFiltroColuna } from '@/components/list/filtro-coluna'
 
-/* selo no mesmo padrão da Categoria/Status de Parceiros (fundo claro da cor, 11px) */
 /* botão de ação da linha: cabe na altura da linha da densidade (não a estica) */
 const ACAO = 'h-[var(--lista-acao)] w-7 px-0'
-const SELO = 'inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium'
 
 interface UserRow {
   id: string

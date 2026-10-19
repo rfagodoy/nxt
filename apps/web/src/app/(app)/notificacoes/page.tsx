@@ -131,8 +131,10 @@ export default function NotificacoesHistoricoPage() {
                         </span>
                       </td>
                       <td className={cn(DENS_CEL, 'align-top')}>
-                        <p className={cn('text-xs', !n.read && 'font-semibold')}>{n.titulo}</p>
-                        <p className="text-[11px] text-muted-foreground">{n.mensagem}</p>
+                        <div className="celula-2l">
+                          <p className={cn(!n.read && 'font-semibold')}>{n.titulo}</p>
+                          <p className="text-[11px] text-muted-foreground">{n.mensagem}</p>
+                        </div>
                       </td>
                       <td className={cn(DENS_CEL, 'align-top text-muted-foreground whitespace-nowrap')}>{fmt(n.createdAt)}</td>
                       <td className={cn(DENS_CEL, 'align-top whitespace-nowrap')}>

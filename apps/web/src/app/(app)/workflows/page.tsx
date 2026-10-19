@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { SELO } from '@/components/list/selo'
 import { apiFetch, apiJson } from '@/lib/http'
 import { useViews } from '@/hooks/use-views'
 import { exportExcel } from '@/lib/export-excel'
@@ -55,11 +56,11 @@ const COLS: Col[] = [
   },
   {
     key: 'tipo', label: 'Tipo', text: (p) => (p.kind && KIND_LABEL[p.kind]) || '—',
-    node: (p) => (p.kind && KIND_LABEL[p.kind]) ? <span className="inline-flex items-center rounded-full border px-2 py-px text-[11px]">{KIND_LABEL[p.kind]}</span> : <span className="text-muted-foreground">—</span>,
+    node: (p) => (p.kind && KIND_LABEL[p.kind]) ? <span className={cn(SELO, 'bg-slate-500/10 text-slate-600 dark:text-slate-400')}>{KIND_LABEL[p.kind]}</span> : <span className="text-muted-foreground">—</span>,
   },
   {
     key: 'situacao', label: 'Situação', text: (p) => STATUS[p.status]?.label ?? p.status,
-    node: (p) => { const st = STATUS[p.status] ?? STATUS.DRAFT; return <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium', st.cls)}>{st.label}</span> },
+    node: (p) => { const st = STATUS[p.status] ?? STATUS.DRAFT; return <span className={cn(SELO, st.cls)}>{st.label}</span> },
   },
   { key: 'versao', label: 'Versão', text: (p) => `v${p.version}`, sortVal: (p) => p.version, node: (p) => <span className="text-muted-foreground tabular-nums">v{p.version}</span> },
   { key: 'atualizado', label: 'Atualizado', text: (p) => fmtDate(p.updatedAt), sortVal: (p) => new Date(p.updatedAt).getTime(), node: (p) => <span className="text-muted-foreground whitespace-nowrap">{fmtDate(p.updatedAt)}</span> },

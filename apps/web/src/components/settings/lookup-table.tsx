@@ -224,8 +224,8 @@ export function LookupTablePage({
             <td />
             <td className={DENS_CEL}>
               <div className="flex items-center justify-end gap-1">
-                <button type="button" onClick={handleAdd} title="Confirmar" className="flex h-6 w-6 items-center justify-center rounded text-primary hover:bg-primary/10 transition-colors"><Check className="h-3.5 w-3.5" /></button>
-                <button type="button" onClick={cancelAdd} title="Cancelar" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted transition-colors"><X className="h-3.5 w-3.5" /></button>
+                <button type="button" onClick={handleAdd} title="Confirmar" className="flex h-[var(--lista-acao)] w-6 items-center justify-center rounded text-primary hover:bg-primary/10 transition-colors"><Check className="h-3.5 w-3.5" /></button>
+                <button type="button" onClick={cancelAdd} title="Cancelar" className="flex h-[var(--lista-acao)] w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted transition-colors"><X className="h-3.5 w-3.5" /></button>
               </div>
             </td>
           </tr>
@@ -264,8 +264,8 @@ export function LookupTablePage({
               <td />
               <td className={DENS_CEL}>
                 <div className="flex items-center justify-end gap-1">
-                  <button type="button" onClick={saveEdit} title="Salvar" className="flex h-6 w-6 items-center justify-center rounded text-primary hover:bg-primary/10 transition-colors"><Check className="h-3.5 w-3.5" /></button>
-                  <button type="button" onClick={() => setEditingId(null)} title="Cancelar" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted transition-colors"><X className="h-3.5 w-3.5" /></button>
+                  <button type="button" onClick={saveEdit} title="Salvar" className="flex h-[var(--lista-acao)] w-6 items-center justify-center rounded text-primary hover:bg-primary/10 transition-colors"><Check className="h-3.5 w-3.5" /></button>
+                  <button type="button" onClick={() => setEditingId(null)} title="Cancelar" className="flex h-[var(--lista-acao)] w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted transition-colors"><X className="h-3.5 w-3.5" /></button>
                 </div>
               </td>
             </tr>
@@ -282,8 +282,8 @@ export function LookupTablePage({
               </td>
               <td className={DENS_CEL}>
                 <div className="flex items-center justify-end gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
-                  <button type="button" onClick={() => startEdit(entry)} title="Editar" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"><Pencil className="h-3.5 w-3.5" /></button>
-                  <button type="button" onClick={() => remove(entry.id)} title="Excluir" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
+                  <button type="button" onClick={() => startEdit(entry)} title="Editar" className="flex h-[var(--lista-acao)] w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"><Pencil className="h-3.5 w-3.5" /></button>
+                  <button type="button" onClick={() => remove(entry.id)} title="Excluir" className="flex h-[var(--lista-acao)] w-6 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
                 </div>
               </td>
             </tr>

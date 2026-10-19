@@ -100,7 +100,7 @@ const readArea  = 'block w-full bg-transparent px-0 py-0 text-[length:var(--leit
 export function Field({ label, required, span2, children }: { label: string; required?: boolean; span2?: boolean; children: React.ReactNode }) {
   return (
     <div className={cn('space-y-0.5', span2 && 'col-span-2')}>
-      <label className="block text-[length:var(--rotulo-fonte)] font-semibold uppercase tracking-wide text-muted-foreground">{label}{required && <span className="text-red-500 ml-1">*</span>}</label>
+      <label className="block text-[length:var(--rotulo-fonte)] font-normal text-muted-foreground">{label}{required && <span className="text-red-500 ml-1">*</span>}</label>
       {children}
     </div>
   )
@@ -2068,7 +2068,7 @@ function DocumentoCard({ doc, idx, ro, form, open, onToggle, onCollapse }: { doc
 
         {/* Arquivo: chip elegante quando anexado; dropzone tracejada quando vazio */}
         <div className="space-y-1">
-          <label className="block text-[length:var(--rotulo-fonte)] font-semibold uppercase tracking-wide text-muted-foreground">Arquivo</label>
+          <label className="block text-[length:var(--rotulo-fonte)] font-normal text-muted-foreground">Arquivo</label>
           {doc.arquivo_key ? (
             <div className="flex items-center gap-3 rounded-lg border bg-muted/20 px-3 py-2.5">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><FileText className="h-4 w-4" /></div>

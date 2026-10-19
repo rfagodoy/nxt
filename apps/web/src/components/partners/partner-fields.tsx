@@ -217,7 +217,7 @@ const readCls  = 'flex min-h-[var(--leitura-altura)] w-full items-center bg-tran
 export function Field({ label, required, span2, hint, children }: { label: string; required?: boolean; span2?: boolean; hint?: string; children: React.ReactNode }) {
   return (
     <div className={cn('space-y-0.5', span2 && 'col-span-2')}>
-      <label className="block text-[length:var(--rotulo-fonte)] font-semibold uppercase tracking-wide text-muted-foreground">{label}{required && <span className="text-red-500 ml-1">*</span>}</label>
+      <label className="block text-[length:var(--rotulo-fonte)] font-normal text-muted-foreground">{label}{required && <span className="text-red-500 ml-1">*</span>}</label>
       {children}
       {hint && <p className="text-[10px] text-muted-foreground normal-case">{hint}</p>}
     </div>

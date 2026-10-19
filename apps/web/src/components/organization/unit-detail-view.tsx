@@ -23,7 +23,7 @@ const alnum15 = (v: string) => v.replace(/[^A-Za-z0-9]/g, '').slice(0, 15)
 function Field({ label, required, span2, children }: { label: string; required?: boolean; span2?: boolean; children: React.ReactNode }) {
   return (
     <div className={cn('space-y-0.5', span2 && 'col-span-2')}>
-      <label className="block text-[length:var(--rotulo-fonte)] font-semibold uppercase tracking-wide text-muted-foreground">{label}{required && <span className="text-red-500 ml-1">*</span>}</label>
+      <label className="block text-[length:var(--rotulo-fonte)] font-normal text-muted-foreground">{label}{required && <span className="text-red-500 ml-1">*</span>}</label>
       {children}
     </div>
   )

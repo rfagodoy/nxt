@@ -62,4 +62,6 @@ export const useDensidade = () => useContext(Ctx)
    estas três e já segue a densidade escolhida pelo usuário. */
 export const DENS_TABELA = 'text-[length:var(--lista-fonte)]'
 export const DENS_CAB = 'px-[var(--lista-px)] h-[var(--lista-cab)]'
-export const DENS_CEL = 'px-[var(--lista-px)] py-[var(--lista-py)] h-[var(--lista-linha)] leading-[var(--lista-lh)]'
+/* `[&>*]:align-middle`: elemento em linha (selo, interruptor, botão) alinhado pela BASE do texto
+   soma a descida da letra e estica a linha além da densidade — pelo meio, não estica. */
+export const DENS_CEL = 'px-[var(--lista-px)] py-[var(--lista-py)] h-[var(--lista-linha)] leading-[var(--lista-lh)] [&>*]:align-middle'
