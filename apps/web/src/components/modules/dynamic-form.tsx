@@ -17,7 +17,7 @@ function FieldInput({ field, register, setValue, watch }: {
   watch: any
 }) {
   const value = watch(field.name)
-  const base  = 'flex h-8 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
+  const base  = 'flex h-[var(--campo-altura)] w-full rounded-md border border-input bg-background px-3 text-[length:var(--campo-fonte)] shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
 
   switch (field.type) {
     case 'textarea':
@@ -82,7 +82,7 @@ function FieldInput({ field, register, setValue, watch }: {
       )
     case 'checkbox':
       return (
-        <div className="flex items-center gap-2 h-8">
+        <div className="flex items-center gap-2 h-[var(--campo-altura)]">
           <input
             type="checkbox"
             id={field.id}
@@ -97,7 +97,7 @@ function FieldInput({ field, register, setValue, watch }: {
     case 'select':
       return (
         <Select value={value} onValueChange={(v) => setValue(field.name, v)}>
-          <SelectTrigger className="h-8 text-xs">
+          <SelectTrigger className="h-[var(--campo-altura)] text-[length:var(--campo-fonte)]">
             <SelectValue placeholder={field.placeholder || 'Selecione...'} />
           </SelectTrigger>
           <SelectContent>
@@ -144,10 +144,10 @@ export function DynamicForm({ step, stepIndex, totalSteps, onSubmit, onCancel, s
   const isLast = stepIndex === totalSteps - 1
 
   return (
-    <form id={formId} onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form id={formId} onSubmit={handleSubmit(onSubmit)} className="space-y-[var(--form-gap)]">
       {step.fields.map((field) => (
         <div key={field.id} className="space-y-1">
-          <label htmlFor={field.id} className="text-xs font-medium">
+          <label htmlFor={field.id} className="block text-[length:var(--rotulo-fonte)] text-muted-foreground">
             {field.label}
             {field.required && <span className="text-red-500 ml-1">*</span>}
           </label>
@@ -174,7 +174,7 @@ export function DynamicForm({ step, stepIndex, totalSteps, onSubmit, onCancel, s
           <button
             type="submit"
             disabled={submitting}
-            className="ml-auto inline-flex items-center gap-1.5 h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            className="ml-auto inline-flex items-center gap-1.5 h-[var(--campo-altura)] rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
           >
             {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {isLast ? 'Concluir' : 'Próximo →'}

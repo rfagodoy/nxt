@@ -10,6 +10,7 @@
  * de quem gere contrato é "o que esteve valendo neste intervalo".
  */
 
+import { DensidadeSelect } from '@/components/list/densidade-select'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FileBarChart, Loader2, Filter, Download, RotateCcw, ArrowUpDown } from 'lucide-react'
 import { apiFetch, apiJson } from '@/lib/http'
@@ -117,7 +118,7 @@ export default function RelatoriosPage() {
     cn('rounded-md border px-2 py-0.5 text-[11px] transition-colors', ativo ? 'border-primary bg-primary/10 text-foreground' : 'text-muted-foreground hover:bg-muted')
 
   const th = (c: Campo, label: string, extra = '') => (
-    <th className={cn('px-3 py-1.5 font-medium cursor-pointer select-none hover:text-foreground', extra)} onClick={() => ordenarPorCampo(c)}>
+    <th className={cn(DENS_CAB, 'font-medium cursor-pointer select-none hover:text-foreground', extra)} onClick={() => ordenarPorCampo(c)}>
       <span className="inline-flex items-center gap-1">
         {label}
         {ordenarPor === c && <ArrowUpDown className="h-3 w-3" />}
@@ -271,26 +272,32 @@ export default function RelatoriosPage() {
             <tbody>
               {linhas.map((l) => (
                 <tr key={l.id} className="border-b last:border-0 hover:bg-muted/40">
-                  <td className={cn(DENS_CEL, 'py-1 whitespace-nowrap font-medium')}>{l.numero}</td>
-                  <td className={cn(DENS_CEL, 'py-1')}>{l.titulo}</td>
-                  <td className={cn(DENS_CEL, 'py-1 text-muted-foreground')}>{l.parceiros || '—'}</td>
-                  <td className={cn(DENS_CEL, 'py-1 whitespace-nowrap')}>
+                  <td className={cn(DENS_CEL, 'whitespace-nowrap font-medium')}>{l.numero}</td>
+                  <td className={DENS_CEL}>{l.titulo}</td>
+                  <td className={cn(DENS_CEL, 'text-muted-foreground')}>{l.parceiros || '—'}</td>
+                  <td className={cn(DENS_CEL, 'whitespace-nowrap')}>
                     <span className={`inline-flex rounded px-1.5 py-0.5 text-[11px] font-medium ${SIT_CLS[l.situacao] ?? ''}`}>
                       {SIT_LABEL[l.situacao] ?? l.situacao}
                     </span>
                   </td>
-                  <td className={cn(DENS_CEL, 'py-1 whitespace-nowrap')}>
+                  <td className={cn(DENS_CEL, 'whitespace-nowrap')}>
                     {l.prazoIndeterminado ? <span className="text-muted-foreground">Indeterminado</span> : fmtData(l.terminoVigencia)}
                     {l.diasParaTerminar !== null && l.diasParaTerminar >= 0 && l.diasParaTerminar <= 30 && (
                       <span className="ml-1 text-[10.5px] text-amber-600 dark:text-amber-400">em {l.diasParaTerminar}d</span>
                     )}
                   </td>
-                  <td className={cn(DENS_CEL, 'py-1 text-right tabular-nums whitespace-nowrap')}>{BRL.format(l.valor)}</td>
+                  <td className={cn(DENS_CEL, 'text-right tabular-nums whitespace-nowrap')}>{BRL.format(l.valor)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
+      </div>
+
+      {/* rodapé: contagem + densidade (a mesma caixa das listas) */}
+      <div className="shrink-0 flex items-center gap-3 text-[11px] text-muted-foreground">
+        <span className="font-semibold text-foreground tabular-nums">{linhas.length} {linhas.length === 1 ? 'contrato' : 'contratos'}</span>
+        <DensidadeSelect />
       </div>
     </div>
   )

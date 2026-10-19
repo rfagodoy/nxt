@@ -18,6 +18,8 @@ import {
 } from 'lucide-react'
 import { apiFetch, apiJson } from '@/lib/http'
 import { cn } from '@/lib/utils'
+import { SELO } from '@/components/list/selo'
+import { DensidadeSelect } from '@/components/list/densidade-select'
 import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
 import { useSession } from '@/lib/session-context'
 import { exportExcel } from '@/lib/export-excel'
@@ -356,14 +358,14 @@ export default function ImportacaoPage() {
                   <tbody>
                     {[...problemas, ...(resultado.linhas ?? []).filter((l) => l.acao !== 'ERRO')].map((l) => (
                       <tr key={l.linha} className="border-b last:border-0 align-top">
-                        <td className={cn(DENS_CEL, 'py-1 tabular-nums text-muted-foreground')}>{l.linha}</td>
-                        <td className={cn(DENS_CEL, 'py-1')}>
-                          <span className={`inline-flex rounded px-1.5 py-0.5 text-[11px] font-medium ${ACAO_CLS[l.acao]}`}>
+                        <td className={cn(DENS_CEL, 'tabular-nums text-muted-foreground')}>{l.linha}</td>
+                        <td className={DENS_CEL}>
+                          <span className={cn(SELO, ACAO_CLS[l.acao])}>
                             {ACAO_LABEL[l.acao]}
                           </span>
                         </td>
-                        <td className={cn(DENS_CEL, 'py-1')}>{l.identificacao}</td>
-                        <td className={cn(DENS_CEL, 'py-1 text-muted-foreground')}>
+                        <td className={DENS_CEL}>{l.identificacao}</td>
+                        <td className={cn(DENS_CEL, 'text-muted-foreground')}>
                           {l.problemas.length > 0
                             ? l.problemas.map((p, i) => (
                                 <span key={i} className="block text-red-700 dark:text-red-400">
@@ -376,6 +378,11 @@ export default function ImportacaoPage() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+              {/* rodapé: contagem + densidade (a mesma caixa das listas) */}
+              <div className="shrink-0 flex items-center gap-3 border-t px-3 py-1.5 bg-muted/20 text-[11px] text-muted-foreground">
+                <span className="font-semibold text-foreground tabular-nums">{(resultado.linhas ?? []).length} {(resultado.linhas ?? []).length === 1 ? 'linha' : 'linhas'}</span>
+                <DensidadeSelect />
               </div>
             </>
           )}

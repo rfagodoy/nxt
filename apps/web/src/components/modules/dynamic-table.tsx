@@ -119,23 +119,23 @@ export function DynamicTable({
               const badge  = status ? STATUS_CLS[status] : null
               return (
                 <tr key={record.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors group">
-                  <td className={cn(DENS_CEL, 'py-1.5 text-muted-foreground')}>{(page - 1) * pageSize + idx + 1}</td>
+                  <td className={cn(DENS_CEL, 'text-muted-foreground')}>{(page - 1) * pageSize + idx + 1}</td>
                   {visibleCols.map((col) => (
                     <td key={col.id} className="px-3 py-1.5">
                       {formatValue(record.data[col.name], col.type)}
                     </td>
                   ))}
-                  <td className={cn(DENS_CEL, 'py-1.5')}>
+                  <td className={DENS_CEL}>
                     {badge && (
                       <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium ${badge.cls}`}>
                         {badge.label}
                       </span>
                     )}
                   </td>
-                  <td className={cn(DENS_CEL, 'py-1.5 text-muted-foreground whitespace-nowrap')}>
+                  <td className={cn(DENS_CEL, 'text-muted-foreground whitespace-nowrap')}>
                     {new Date(record.createdAt).toLocaleDateString('pt-BR')}
                   </td>
-                  <td className={cn(DENS_CEL, 'py-1.5')}>
+                  <td className={DENS_CEL}>
                     <Link
                       href={`${baseHref}/records/${record.id}`}
                       className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"

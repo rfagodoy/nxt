@@ -117,7 +117,7 @@ export default function InstanciasErroPage() {
             <tbody>
               {rows.map((inst) => (
                 <tr key={inst.id} className="border-b last:border-0 align-top hover:bg-muted/30">
-                  <td className={cn(DENS_CEL, 'py-1.5')}>
+                  <td className={DENS_CEL}>
                     <p className="font-medium">{inst.processName} <span className="text-[11px] text-muted-foreground font-normal">v{inst.version}</span></p>
                     {inst.stepName && (
                       <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground mt-0.5">
@@ -125,15 +125,15 @@ export default function InstanciasErroPage() {
                       </span>
                     )}
                   </td>
-                  <td className={cn(DENS_CEL, 'py-1.5')}>
+                  <td className={DENS_CEL}>
                     <span className="inline-flex items-start gap-1.5 text-[12px] text-red-700 dark:text-red-300">
                       <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                       <span className="max-w-md">{inst.error || 'Erro não especificado'}</span>
                     </span>
                   </td>
-                  <td className={cn(DENS_CEL, 'py-1.5 text-muted-foreground text-[12px]')}>{inst.startedBy || '—'}</td>
-                  <td className={cn(DENS_CEL, 'py-1.5 text-muted-foreground text-[12px] whitespace-nowrap')}>{fmt(inst.updatedAt)}</td>
-                  <td className={cn(DENS_CEL, 'py-1.5')}>
+                  <td className={cn(DENS_CEL, 'text-muted-foreground text-[12px]')}>{inst.startedBy || '—'}</td>
+                  <td className={cn(DENS_CEL, 'text-muted-foreground text-[12px] whitespace-nowrap')}>{fmt(inst.updatedAt)}</td>
+                  <td className={DENS_CEL}>
                     <div className="flex items-center justify-end gap-1.5">
                       <Button size="sm" disabled={busy === inst.id} onClick={() => retry(inst)} title="Reexecutar a etapa automática que falhou">
                         {busy === inst.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}

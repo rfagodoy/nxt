@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { DensidadeSelect } from '@/components/list/densidade-select'
 import { Globe, Tag, FileSearch, Coins, CreditCard, TrendingUp, UserCheck, Paperclip, Network, SlidersHorizontal, Scale, Briefcase, FilePlus2, Wallet } from 'lucide-react'
 
 const TABLES = [
@@ -115,12 +116,12 @@ export default function SettingsTabelas() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-[var(--form-gap)]">
         {TABLES.map(({ href, icon: Icon, label, description, color }) => (
           <Link
             key={href}
             href={href}
-            className="group flex gap-4 rounded-xl border bg-card p-4 shadow-sm transition-all hover:shadow-md hover:border-primary/30 hover:-translate-y-0.5"
+            className="group flex gap-4 rounded-xl border bg-card p-[var(--secao-pad)] shadow-sm transition-all hover:shadow-md hover:border-primary/30 hover:-translate-y-0.5"
           >
             <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${color}`}>
               <Icon className="h-5 w-5" />
@@ -132,6 +133,9 @@ export default function SettingsTabelas() {
           </Link>
         ))}
       </div>
+
+      {/* densidade: a mesma preferência das listas */}
+      <div className="flex justify-end"><DensidadeSelect /></div>
     </div>
   )
 }

@@ -7,6 +7,7 @@ import { StartProcessButton } from '@/components/processes/start-process-button'
 import { CancelInstanceButton } from '@/components/processes/cancel-instance-button'
 import { UncancelInstanceButton } from '@/components/processes/uncancel-instance-button'
 import { cn } from '@/lib/utils'
+import { SELO } from '@/components/list/selo'
 import { apiJson } from '@/lib/http'
 import { useAoVivo } from '@/lib/realtime'
 import { useViews } from '@/hooks/use-views'
@@ -32,10 +33,10 @@ const COLS: Col[] = [
   {
     key: 'processo', label: 'Processo', text: (i) => `${i.processName} v${i.version}`, sortVal: (i) => norm(i.processName),
     node: (i) => (
-      <>
+      <div className="celula-2l">
         <p className="font-medium">{i.processName} <span className="text-[11px] text-muted-foreground font-normal">v{i.version}</span></p>
         <p className="text-[11px] text-muted-foreground">{i.doneSteps}/{i.totalSteps} etapa{i.totalSteps !== 1 ? 's' : ''}</p>
-      </>
+      </div>
     ),
   },
   { key: 'inicio', label: 'Início', text: (i) => fmt(i.startedAt), sortVal: (i) => new Date(i.startedAt).getTime(), node: (i) => <span className="text-muted-foreground whitespace-nowrap">{fmt(i.startedAt)}</span> },
@@ -58,7 +59,7 @@ const COLS: Col[] = [
     ) : i.status === 'RUNNING' ? (
       <div className="flex items-center gap-2">
         <span>{i.currentStep || '—'}</span>
-        {i.currentDueAt && <span className={cn('inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium', i.currentOverdue ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' : 'text-amber-600')}><Clock className="h-3 w-3" />{i.currentOverdue ? 'atrasada' : `vence ${fmt(i.currentDueAt)}`}</span>}
+        {i.currentDueAt && <span className={cn(SELO, i.currentOverdue ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' : 'text-amber-600')}><Clock className="h-3 w-3" />{i.currentOverdue ? 'atrasada' : `vence ${fmt(i.currentDueAt)}`}</span>}
       </div>
     ) : i.status === 'ERROR' ? (
       <span className="inline-flex items-start gap-1 text-red-700 dark:text-red-300"><AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" /><span className="max-w-xs truncate">{i.error || i.stepName || 'erro'}</span></span>
@@ -97,11 +98,11 @@ const COLS: Col[] = [
        parado numa escolha sem caminho ficava igual a um "Em andamento" qualquer. */
     key: 'situacao', label: 'Situação', text: (i) => i.status === 'RUNNING' && i.bloqueio ? 'Parado' : STATUS[i.status]?.label ?? i.status,
     node: (i) => i.status === 'RUNNING' && i.bloqueio ? (
-      <span title={i.bloqueio.mensagem} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-amber-500/15 text-amber-700 dark:text-amber-300">
+      <span title={i.bloqueio.mensagem} className={cn(SELO, 'bg-amber-500/10 text-amber-700 dark:text-amber-300')}>
         <AlertTriangle className="h-3 w-3" />Parado
       </span>
     ) : (() => { const st = STATUS[i.status] ?? STATUS.RUNNING; return (
-      <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium', st.cls)}><st.icon className="h-3 w-3" />{st.label}</span>
+      <span className={cn(SELO, st.cls)}><st.icon className="h-3 w-3" />{st.label}</span>
     ) })(),
   },
 ]
@@ -320,9 +321,9 @@ export default function ProcessosPage() {
               ) : pageRows.map((i) => (
                 <tr key={i.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => openDetail(i)}>
                   {visibleCols.map((col) => (
-                    <td key={col.key} className={cn(DENS_CEL, 'py-1.5 align-middle', col.align === 'right' && 'text-right')}>{col.node(i)}</td>
+                    <td key={col.key} className={cn(DENS_CEL, 'align-middle', col.align === 'right' && 'text-right')}>{col.node(i)}</td>
                   ))}
-                  <td className={cn(DENS_CEL, 'py-1.5 align-middle whitespace-nowrap')}>
+                  <td className={cn(DENS_CEL, 'align-middle whitespace-nowrap')}>
                     {(i.status === 'RUNNING' || i.status === 'ERROR') && (
                       <CancelInstanceButton instanceId={i.id} processName={i.processName} onCancelled={load} compact />
                     )}

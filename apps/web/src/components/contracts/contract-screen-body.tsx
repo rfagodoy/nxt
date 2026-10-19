@@ -81,7 +81,7 @@ export function ContractCustomFields({ fields, screenValues, onScreenChange, ro 
 }) {
   if (fields.length === 0) return null
   return (
-    <div className="grid grid-cols-2 gap-3 pt-1">
+    <div className="grid grid-cols-2 gap-[var(--form-gap)] pt-1">
       {fields.map(f => (
         <div key={f.id} className={f.type === 'textarea' ? 'col-span-2' : ''}>
           <Field label={f.label} required={f.required && !ro && !f.locked}>

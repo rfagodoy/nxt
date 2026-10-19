@@ -8,6 +8,8 @@ import {
   FolderInput, CornerDownRight, AlertTriangle, Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useDensidade, type Densidade } from '@/lib/densidade'
+import { DensidadeSelect } from '@/components/list/densidade-select'
 import { apiFetch } from '@/lib/http'
 import { useAoVivo } from '@/lib/realtime'
 import { ResponsaveisSection } from '@/components/responsaveis/responsaveis-section'
@@ -72,7 +74,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T | null> {
 
 /* ─── estilos comuns ─────────────────────────────────────── */
 
-const inputCls  = 'flex h-7 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
+const inputCls  = 'flex h-[var(--campo-altura)] w-full rounded-md border border-input bg-background px-3 text-[length:var(--campo-fonte)] shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
 const ROW_GRID  = 'grid grid-cols-[6.5rem_1fr_9rem] items-center gap-2'
 
 function Modal({ title, onClose, wide, children }: { title: string; onClose: () => void; wide?: boolean; children: React.ReactNode }) {
@@ -185,28 +187,28 @@ function CompanyModal({ editId, initial, onSave, onClose }: {
               <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                 <Field label="Código">
                   <input value={codigo} onChange={e => setCodigo(alnum15(e.target.value))} maxLength={15}
-                    placeholder="Até 15 (alfanumérico)" className={cn(inputCls, 'h-8 font-mono uppercase')} />
+                    placeholder="Até 15 (alfanumérico)" className={cn(inputCls, 'h-[var(--campo-altura)] font-mono uppercase')} />
                 </Field>
                 <Field label="Status">
-                  <select value={status} onChange={e => setStatus(e.target.value)} className={cn(inputCls, 'h-8')}>
+                  <select value={status} onChange={e => setStatus(e.target.value)} className={cn(inputCls, 'h-[var(--campo-altura)]')}>
                     {STATUS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                   </select>
                 </Field>
                 <Field label="Razão social" required span2>
-                  <input value={v.razaoSocial} onChange={e => form.set('razaoSocial', e.target.value)} className={cn(inputCls, 'h-8')} autoFocus placeholder="Razão social da empresa" />
+                  <input value={v.razaoSocial} onChange={e => form.set('razaoSocial', e.target.value)} className={cn(inputCls, 'h-[var(--campo-altura)]')} autoFocus placeholder="Razão social da empresa" />
                 </Field>
                 <Field label="Nome fantasia" span2>
-                  <input value={v.nomeFantasia} onChange={e => form.set('nomeFantasia', e.target.value)} className={cn(inputCls, 'h-8')} placeholder="Nome fantasia (se houver)" />
+                  <input value={v.nomeFantasia} onChange={e => form.set('nomeFantasia', e.target.value)} className={cn(inputCls, 'h-[var(--campo-altura)]')} placeholder="Nome fantasia (se houver)" />
                 </Field>
                 <Field label="CNPJ">
-                  <input value={v.documento} onChange={e => form.set('documento', maskCNPJ(e.target.value))} maxLength={18} placeholder="00.000.000/0000-00" className={cn(inputCls, 'h-8')} />
+                  <input value={v.documento} onChange={e => form.set('documento', maskCNPJ(e.target.value))} maxLength={18} placeholder="00.000.000/0000-00" className={cn(inputCls, 'h-[var(--campo-altura)]')} />
                 </Field>
                 <div />
                 <Field label="Inscrição Estadual">
-                  <input value={v.ie} onChange={e => form.set('ie', e.target.value)} placeholder="Inscrição estadual" className={cn(inputCls, 'h-8')} />
+                  <input value={v.ie} onChange={e => form.set('ie', e.target.value)} placeholder="Inscrição estadual" className={cn(inputCls, 'h-[var(--campo-altura)]')} />
                 </Field>
                 <Field label="Inscrição Municipal">
-                  <input value={v.im} onChange={e => form.set('im', e.target.value)} placeholder="Inscrição municipal" className={cn(inputCls, 'h-8')} />
+                  <input value={v.im} onChange={e => form.set('im', e.target.value)} placeholder="Inscrição municipal" className={cn(inputCls, 'h-[var(--campo-altura)]')} />
                 </Field>
               </div>
             </Section>
@@ -234,7 +236,7 @@ function CompanyModal({ editId, initial, onSave, onClose }: {
           <div className="flex justify-end gap-2 pt-1">
             <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Cancelar</button>
             <button type="button" disabled={saving || !v.razaoSocial.trim()} onClick={() => { void save() }}
-              className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors">
+              className="inline-flex items-center h-[var(--campo-altura)] rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors">
               {saving ? 'Salvando...' : 'Salvar'}
             </button>
           </div>
@@ -364,7 +366,7 @@ function UnitRow({ row, flatMode, typeMap, onToggle, onAddChild, onEdit, onMove,
   const view = unitTypeView(typeMap, u.natureza)
   const hasKids = (u.childrenCount ?? 0) > 0
   return (
-    <div className={cn('group relative h-[30px] px-3 text-xs hover:bg-muted/60 border-b border-border/40', ROW_GRID)}>
+    <div className={cn('group relative h-full px-[var(--lista-px)] text-[length:var(--lista-fonte)] hover:bg-muted/60 border-b border-border/40', ROW_GRID)}>
       <span className="font-mono text-[10px] text-muted-foreground truncate">{u.codigo || '—'}</span>
       <div className="flex items-center gap-1 min-w-0" style={{ paddingLeft: flatMode ? 0 : depth * 16 }}>
         {flatMode ? (
@@ -392,10 +394,14 @@ function UnitRow({ row, flatMode, typeMap, onToggle, onAddChild, onEdit, onMove,
 
 /* ─── organograma (tabela hierárquica, lazy + virtualizada + busca) ─── */
 
-const ROW_H = 30
+/* A lista é VIRTUALIZADA: a altura da linha precisa existir em JS (não só no CSS) para
+   calcular quais linhas desenhar — por isso segue a densidade aqui, além das variáveis. */
+const ALTURA_LINHA: Record<Densidade, number> = { compacta: 22, media: 26, alta: 36 }
 const VIEWPORT = 460
 
 function OrgChart({ companyId, onChanged }: { companyId: string; onChanged: () => void }) {
+  const { densidade } = useDensidade()
+  const ROW_H = ALTURA_LINHA[densidade]
   const [cache,    setCache]    = useState<Record<string, Unit[]>>({})
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [loading,  setLoading]  = useState(true)
@@ -503,14 +509,14 @@ function OrgChart({ companyId, onChanged }: { companyId: string; onChanged: () =
           <div className="relative">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar unidade..."
-              className="h-7 w-48 rounded-md border border-input bg-background pl-7 pr-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+              className="h-[var(--campo-altura)] w-48 rounded-md border border-input bg-background pl-7 pr-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
           </div>
           <button type="button" onClick={() => openNewUnit()} className="inline-flex items-center gap-1 text-xs text-primary hover:text-primary/80 font-medium whitespace-nowrap"><Plus className="h-3.5 w-3.5" />Unidade raiz</button>
         </div>
       </div>
 
       {/* cabeçalho da tabela */}
-      <div className={cn('px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground border-b bg-muted/40 rounded-t-md', ROW_GRID)}>
+      <div className={cn('px-3 py-1.5 text-[length:var(--rotulo-fonte)] font-semibold text-muted-foreground border-b bg-muted/40 rounded-t-md', ROW_GRID)}>
         <span>Código</span><span>Unidade</span><span>Tipo de unidade</span>
       </div>
 
@@ -526,7 +532,7 @@ function OrgChart({ companyId, onChanged }: { companyId: string; onChanged: () =
           onScroll={e => setScrollTop(e.currentTarget.scrollTop)}>
           <div style={{ height: total * ROW_H, position: 'relative' }}>
             {slice.map((row, i) => (
-              <div key={row.unit.id} style={{ position: 'absolute', top: (start + i) * ROW_H, left: 0, right: 0 }}>
+              <div key={row.unit.id} style={{ position: 'absolute', top: (start + i) * ROW_H, left: 0, right: 0, height: ROW_H }}>
                 <UnitRow row={row} flatMode={inSearch} typeMap={typeMap} onToggle={toggle}
                   onAddChild={u => openNewUnit(u)} onEdit={u => openEditUnit(u)} onMove={u => setMoving(u)} onRemove={removeUnit} />
               </div>
@@ -542,7 +548,10 @@ function OrgChart({ companyId, onChanged }: { companyId: string; onChanged: () =
             <span key={k} className="inline-flex items-center gap-1.5 text-[10px] text-muted-foreground"><span className={cn('h-2 w-2 rounded-full', c.dot)} />{c.label}</span>
           ))}
         </div>
-        <span className="text-[10px] text-muted-foreground">{inSearch ? `${total} resultado(s)` : `${total} unidade(s) visível(is)`}</span>
+        <span className="flex items-center gap-3">
+          <span className="text-[10px] text-muted-foreground">{inSearch ? `${total} resultado(s)` : `${total} unidade(s) visível(is)`}</span>
+          <DensidadeSelect />
+        </span>
       </div>
 
       {moving && (
@@ -657,8 +666,8 @@ export default function EmpresasPage() {
                 <p className="text-[11px] text-muted-foreground mt-0.5">{selected.codigo && <span className="font-mono text-foreground/70">{selected.codigo} · </span>}{selected.nomeFantasia && <span>{selected.nomeFantasia} · </span>}{selected.cnpj || 'sem CNPJ'}</p>
               </div>
               <div className="flex items-center gap-1 shrink-0">
-                <button type="button" onClick={() => setCompanyModal({ initial: selected })} className="inline-flex items-center gap-1 h-7 rounded-md border px-2.5 text-xs hover:bg-muted transition-colors"><Pencil className="h-3 w-3" />Editar</button>
-                <button type="button" onClick={() => removeCompany(selected)} className="inline-flex items-center justify-center h-7 w-7 rounded-md border text-muted-foreground hover:text-destructive hover:bg-muted transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
+                <button type="button" onClick={() => setCompanyModal({ initial: selected })} className="inline-flex items-center gap-1 h-[var(--campo-altura)] rounded-md border px-2.5 text-xs hover:bg-muted transition-colors"><Pencil className="h-3 w-3" />Editar</button>
+                <button type="button" onClick={() => removeCompany(selected)} className="inline-flex items-center justify-center h-[var(--campo-altura)] w-[var(--campo-altura)] rounded-md border text-muted-foreground hover:text-destructive hover:bg-muted transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
               </div>
             </div>
             <OrgChart companyId={selected.id} onChanged={loadCompanies} />
