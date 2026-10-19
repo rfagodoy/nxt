@@ -535,7 +535,7 @@ export default function ParceirosPage() {
       />
 
       {/* tabela */}
-      <div className="rounded-xl border bg-card shadow-sm flex-1 min-h-0 flex flex-col">
+      <div className="rounded-xl border bg-card shadow-sm flex-1 min-h-0 flex flex-col overflow-clip">
         <div className="overflow-auto flex-1 min-h-0">
         <table className={cn('min-w-full', DENS_TABELA)}>
           <thead className="sticky top-0 z-20">

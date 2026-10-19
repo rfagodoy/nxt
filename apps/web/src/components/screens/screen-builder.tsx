@@ -463,7 +463,7 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
                colunas: é a camada de cima, não um cabeçalho com botões avulsos. */
             /* sem `overflow-*` no container: qualquer overflow aqui viraria o contexto de
                rolagem do `sticky` e o cabeçalho pararia de grudar na barra do topo. */
-            <div className="rounded-xl border bg-card shadow-sm">
+            <div className="rounded-xl border bg-card shadow-sm overflow-clip">
               <table className="w-full text-xs">
                 <thead className="sticky top-[68px] z-20">
                   <tr className="text-[10px] uppercase tracking-wider text-muted-foreground [&_th]:bg-muted [&_th]:border-b">

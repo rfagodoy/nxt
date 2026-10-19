@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSession } from '@/lib/session-context'
 import {
-  FileText, Users, Loader2, Plus, ListChecks, CalendarClock, PieChart as PieIcon, AlertTriangle,
+  FileText, Users, Loader2, Plus, CalendarClock, PieChart as PieIcon, AlertTriangle,
 } from 'lucide-react'
 import { ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { cn } from '@/lib/utils'
@@ -13,9 +13,6 @@ import { useAoVivo } from '@/lib/realtime'
 import { dueInfo, type Task } from '@/lib/tasks-ui'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { StartProcessButton } from '@/components/processes/start-process-button'
-import { useFaixaVisivel } from '@/components/layout/workspace-bar'
-import { NotificationBell } from '@/components/layout/notification-bell'
-import { UserMenu } from '@/components/layout/user-menu'
 
 /* ─────────────────────────── tipos (espelham o DashboardService) ─────────── */
 interface Summary {
@@ -69,10 +66,6 @@ function greeting(): string {
   if (h < 12) return 'Bom dia'
   if (h < 18) return 'Boa tarde'
   return 'Boa noite'
-}
-
-function todayLabel(): string {
-  return new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })
 }
 
 /** Anima um número até o alvo com easing — dá vida sem distrair.
@@ -140,8 +133,6 @@ const ABA_KEY = 'nxt:dashboard:aba'
 export default function DashboardPage() {
   const router = useRouter()
   const ws = useWorkspace()
-  /* sem a faixa do topo (nenhuma aba aberta), o painel é o topo: leva sino e usuário */
-  const faixa = useFaixaVisivel()
   const { data: session } = useSession()
   const [data, setData] = useState<Summary | null>(null)
   const [minhasTarefas, setMinhasTarefas] = useState<Task[]>([])
@@ -209,48 +200,34 @@ export default function DashboardPage() {
        atalhos de criação — sempre à mão ao rolar) e ABAS, cada uma com a altura toda. */
     <div className="flex min-h-full flex-col gap-3 lg:h-full">
 
-      {/* lg:h-14 = a MESMA altura da linha do logo no menu lateral, e os dois começam no
-          mesmo topo (pt-2 do shell = p-2 da ilha): logo e saudação na mesma linha. */}
-      <header className="sticky top-0 z-20 shrink-0 overflow-hidden rounded-xl px-5 py-2 text-white shadow-md lg:flex lg:h-14 lg:items-center lg:py-0
-                         bg-gradient-to-r from-[hsl(156_42%_11%)] to-[hsl(150_44%_6%)]">
-        <div className="pointer-events-none absolute -right-8 -top-16 h-40 w-40 rounded-full bg-primary/20 blur-2xl" />
-        <div className="relative flex w-full flex-wrap items-center gap-x-4 gap-y-2">
-          <div className="min-w-0 flex-1">
-            <p className="text-[10.5px] font-medium uppercase tracking-widest text-white/60">{todayLabel()}</p>
-            <h1 className="text-base font-semibold tracking-tight leading-tight">
-              {greeting()}{firstName ? `, ${firstName}` : ''} 👋
-            </h1>
-          </div>
-          {/* O resumo da caixa de trabalho mora no cabeçalho: era uma faixa inteira só
-              para dizer quantas tarefas esperam. O detalhe continua em /tarefas. */}
-          <button type="button" onClick={() => router.push('/tarefas')}
-            title={minhasTarefas.length ? (atrasadas > 0 ? `A mais antiga: ${maisUrgente}` : `A mais próxima ${maisUrgente}`) : 'Abrir a caixa de tarefas'}
-            className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs text-white ring-1 ring-inset ring-white/15 transition-colors hover:bg-white/20">
-            <ListChecks className="h-3.5 w-3.5" />
-            {minhasTarefas.length === 0 ? <span>Nenhuma tarefa aguardando</span> : (
-              <span>
-                <span className="font-semibold">{minhasTarefas.length} tarefa{minhasTarefas.length > 1 ? 's' : ''}</span>
-                {atrasadas > 0 && <> · <span className="font-semibold text-orange-300">{atrasadas} vencida{atrasadas > 1 ? 's' : ''}</span></>}
-              </span>
-            )}
-          </button>
-          <div className="flex flex-wrap items-center gap-2">
-            <button onClick={() => ws.open({ id: 'contract:new', kind: 'contract', mode: 'new', label: 'Novo contrato' })}
-              className="inline-flex items-center gap-1.5 rounded-md bg-white px-3 py-1.5 text-xs font-semibold text-primary shadow-sm hover:bg-white/90 transition-colors">
-              <Plus className="h-3.5 w-3.5" />Novo contrato
-            </button>
-            <button onClick={() => ws.open({ id: 'partner:new', kind: 'partner', mode: 'new', label: 'Novo parceiro' })}
-              className="inline-flex items-center gap-1.5 rounded-md bg-white/15 px-3 py-1.5 text-xs font-medium text-white ring-1 ring-inset ring-white/25 hover:bg-white/25 transition-colors">
-              <Plus className="h-3.5 w-3.5" />Novo parceiro
-            </button>
-            <StartProcessButton variant="hero" />
-          </div>
-          {!faixa && (
-            <div className="flex items-center gap-1 border-l border-white/15 pl-3">
-              <NotificationBell sobreEscuro />
-              <UserMenu sobreEscuro />
-            </div>
+      {/* Saudação numa LINHA, como no Conexos (PO, 18/10/2026 — opção B): o topo é a faixa
+          de abas, alinhada ao logo; aqui fica só quem está, o que espera por você e os atalhos. */}
+      <header className="flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-2 px-0.5">
+        <h1 className="text-[17px] font-extrabold tracking-tight">
+          {greeting()}{firstName ? `, ${firstName}` : ''}
+        </h1>
+        {/* O resumo da caixa de trabalho mora na saudação; o detalhe continua em /tarefas. */}
+        <button type="button" onClick={() => router.push('/tarefas')}
+          title={minhasTarefas.length ? (atrasadas > 0 ? `A mais antiga: ${maisUrgente}` : `A mais próxima ${maisUrgente}`) : 'Abrir a caixa de tarefas'}
+          className="text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline">
+          {minhasTarefas.length === 0 ? '· nenhuma tarefa aguardando' : (
+            <>
+              · {minhasTarefas.length} tarefa{minhasTarefas.length > 1 ? 's esperam' : ' espera'} por você
+              {atrasadas > 0 && <> · <span className="font-semibold text-[hsl(25_90%_32%)] dark:text-orange-300">{atrasadas} vencida{atrasadas > 1 ? 's' : ''}</span></>}
+            </>
           )}
+        </button>
+        <span className="flex-1" />
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={() => ws.open({ id: 'partner:new', kind: 'partner', mode: 'new', label: 'Novo parceiro' })}
+            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-muted transition-colors">
+            <Plus className="h-3.5 w-3.5" />Novo parceiro
+          </button>
+          <StartProcessButton variant="outline" />
+          <button onClick={() => ws.open({ id: 'contract:new', kind: 'contract', mode: 'new', label: 'Novo contrato' })}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors">
+            <Plus className="h-3.5 w-3.5" />Novo contrato
+          </button>
         </div>
       </header>
 

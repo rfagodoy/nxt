@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { SidebarProvider } from '@/contexts/sidebar-context'
 import { WorkspaceProvider, useWorkspace } from '@/contexts/workspace-context'
 import { Sidebar } from './sidebar'
-import { WorkspaceBar, useFaixaVisivel } from './workspace-bar'
+import { WorkspaceBar } from './workspace-bar'
 import { WorkspaceHost } from './workspace-host'
 
 /* Ao navegar entre módulos pelo menu, volta a mostrar a lista roteada
@@ -19,7 +19,6 @@ function DeactivateOnNav() {
 
 function ShellInner({ children }: { children: React.ReactNode }) {
   const { activeId } = useWorkspace()
-  const faixa = useFaixaVisivel()
   return (
     /* NENHUMA camada opaca entre o degradê (app-mesh) e as ilhas de vidro: sem isso o
        vidro não tem o que refratar. Sem cabeçalho — o conteúdo começa na altura da
@@ -27,7 +26,7 @@ function ShellInner({ children }: { children: React.ReactNode }) {
     <div className="app-mesh flex h-screen overflow-hidden">
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden pt-2">
-        {faixa && <WorkspaceBar />}
+        <WorkspaceBar />
         <main className="min-h-0 flex-1 overflow-y-auto pb-2.5 pl-0.5 pr-2.5">
           <div className="mx-auto h-full w-full max-w-[1400px]">
             {/* lista roteada: sempre montada (preserva estado), escondida quando um documento está ativo.

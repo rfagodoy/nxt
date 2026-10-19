@@ -3,9 +3,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { usePathname } from 'next/navigation'
-import { X, FileText, Handshake, ListChecks, Activity, Building2, Eraser, ChevronLeft, ChevronRight, List, type LucideIcon } from 'lucide-react'
+import { X, FileText, Handshake, ListChecks, Activity, Building2, Eraser, ChevronLeft, ChevronRight, List, LayoutDashboard, PanelLeft, Clock, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useWorkspace, type WorkspaceKind, type WorkspaceTab } from '@/contexts/workspace-context'
+import { useSidebar } from '@/contexts/sidebar-context'
 import { itemDaRota } from './sidebar'
 import { NotificationBell } from './notification-bell'
 import { UserMenu } from './user-menu'
@@ -23,17 +24,29 @@ function dicaDaAba(t: WorkspaceTab): string {
   return typeof d?.titulo === 'string' && d.titulo.trim() ? `${t.label} · ${d.titulo}` : t.label
 }
 
-/* No Dashboard a faixa só aparece com documento aberto (PO, 18/10/2026): sem abas ela
-   seria só "☰ Dashboard" repetindo o menu — o painel de boas-vindas assume o topo,
-   alinhado ao logo, e leva sino e usuário. Com abas abertas ela volta, e a 1ª aba é o
-   caminho de volta ao painel. */
-export function useFaixaVisivel(): boolean {
-  const pathname = usePathname()
-  const { tabs } = useWorkspace()
-  return !pathname.startsWith('/dashboard') || tabs.length > 0
+/* Data e hora como no Conexos — "dom, 18/10/2026 23:16". Só depois de montar (a hora do
+   servidor não é a do navegador e quebraria a hidratação); atualiza a cada 30s. */
+function Relogio() {
+  const [agora, setAgora] = useState<Date | null>(null)
+  useEffect(() => {
+    setAgora(new Date())
+    const id = setInterval(() => setAgora(new Date()), 30_000)
+    return () => clearInterval(id)
+  }, [])
+  if (!agora) return null
+  const dia  = agora.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '')
+  const data = agora.toLocaleDateString('pt-BR')
+  const hora = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  return (
+    <span className="hidden h-7 items-center gap-1.5 whitespace-nowrap rounded-full border border-[var(--vidro-borda)] px-2.5 text-[11.5px] text-muted-foreground lg:inline-flex">
+      <Clock className="h-3.5 w-3.5" />{dia}, {data} <span className="font-mono font-bold tabular-nums text-foreground">{hora}</span>
+    </span>
+  )
 }
 
 /* Faixa ÚNICA do topo (PO, 18/10/2026 — opção 1 do mockup): as abas SÃO o caminho.
+   Geometria do Conexos (opção B, 18/10): 40px, no MESMO topo e altura da linha do logo
+   do menu lateral; o botão de recolher o menu abre a faixa; data e hora à direita.
    A 1ª aba é a lista da tela atual ("☰ Contratos", no lugar da antiga "Lista" sem nome);
    depois vêm os documentos abertos de qualquer módulo; à direita, sino e menu do usuário.
    Existe SEMPRE — mesmo sem documento aberto, é onde moram sino e usuário.
@@ -45,6 +58,8 @@ export function WorkspaceBar() {
   const { tabs, activeId, dirty, setActive, close, closeOthers, closeAll, reorder } = useWorkspace()
   const pathname = usePathname()
   const tela = itemDaRota(pathname)
+  const IconeTela = pathname.startsWith('/dashboard') ? LayoutDashboard : List
+  const { collapsed, toggle } = useSidebar()
   const [drag,    setDrag]    = useState<number | null>(null)
   const [overIdx, setOverIdx] = useState<number | null>(null)
   const [menu,    setMenu]    = useState<{ id: string; x: number; y: number } | null>(null)
@@ -103,13 +118,19 @@ export function WorkspaceBar() {
   const arrowCls  = 'shrink-0 flex h-7 w-5 items-center justify-center rounded text-muted-foreground transition-all'
 
   return (
-    <div className="vidro mb-3 ml-0.5 mr-2.5 flex h-[38px] shrink-0 items-center rounded-xl bg-[var(--vidro-controle)] px-[5px]">
+    <div className="vidro mb-3 ml-0.5 mr-2.5 flex h-10 shrink-0 items-center rounded-xl bg-[var(--vidro-controle)] px-[5px]">
+
+      <button type="button" onClick={toggle} title={collapsed ? 'Expandir menu' : 'Recolher menu'} aria-label={collapsed ? 'Expandir menu' : 'Recolher menu'}
+        className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-white/50 hover:text-foreground dark:hover:bg-white/[0.07]">
+        <PanelLeft className="h-4 w-4" />
+      </button>
+      <span className="mx-1 h-[18px] w-px shrink-0 bg-foreground/10" />
 
       {/* 1ª aba = a LISTA da tela atual, com o nome dela → volta para a página roteada */}
       <button type="button" onClick={() => setActive(null)} aria-pressed={activeId === null}
         title={`Lista de ${tela.label.toLowerCase()}`}
         className={cn(tabBase, 'font-medium', activeId === null ? cn(activeCls, 'text-primary') : idleCls)}>
-        <List className="h-3.5 w-3.5 shrink-0" />
+        <IconeTela className="h-3.5 w-3.5 shrink-0" />
         <span className="text-xs">{tela.label}</span>
       </button>
       {tabs.length > 0 && <span className="mx-1 h-[18px] w-px shrink-0 bg-foreground/10" />}
@@ -162,7 +183,7 @@ export function WorkspaceBar() {
         <ChevronRight className="h-4 w-4" />
       </button>
 
-      {/* à direita: limpar (com abas) · sino · menu do usuário */}
+      {/* à direita: limpar (com abas) · data e hora · sino · menu do usuário */}
       <div className="flex shrink-0 items-center gap-1 pl-1.5">
         {tabs.length > 0 && <button type="button" title="Fechar todas as abas"
           onClick={e => setClearAt({ x: e.clientX, y: e.clientY })}
@@ -170,6 +191,7 @@ export function WorkspaceBar() {
           <Eraser className="h-3.5 w-3.5" />Limpar
         </button>}
         {tabs.length > 0 && <span className="mx-1 h-[18px] w-px shrink-0 bg-foreground/10" />}
+        <Relogio />
         <NotificationBell />
         <UserMenu />
       </div>

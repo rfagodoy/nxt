@@ -49,8 +49,7 @@ function minimalRow(n: Notif) {
   }
 }
 
-/** `sobreEscuro`: o sino no painel de boas-vindas do Dashboard (fundo Forest Ink). */
-export function NotificationBell({ className, sobreEscuro }: { className?: string; sobreEscuro?: boolean }) {
+export function NotificationBell({ className }: { className?: string }) {
   const ws = useWorkspace()
   const router = useRouter()
   const [items, setItems] = useState<Notif[]>([])
@@ -141,15 +140,10 @@ export function NotificationBell({ className, sobreEscuro }: { className?: strin
       {/* número ESCRITO ao lado do sino (não só uma bolinha colorida) */}
       <button ref={btnRef} onClick={toggle} title="Notificações" aria-expanded={open}
         aria-label={unread > 0 ? `Notificações: ${unread} não lida${unread === 1 ? '' : 's'}` : 'Notificações'}
-        className={cn('flex h-[30px] shrink-0 items-center gap-1 rounded-lg px-2 transition-colors',
-          sobreEscuro
-            ? cn('text-white/80 hover:bg-white/10 hover:text-white', open && 'bg-white/15 text-white')
-            : cn('text-foreground/75 hover:text-foreground hover:bg-white/50 dark:hover:bg-white/[0.07]', open && 'bg-muted text-foreground'),
-          className)}>
+        className={cn('flex h-[30px] shrink-0 items-center gap-1 rounded-lg px-2 text-foreground/75 hover:text-foreground hover:bg-white/50 dark:hover:bg-white/[0.07] transition-colors', open && 'bg-muted text-foreground', className)}>
         <Bell className="h-4 w-4" />
         {unread > 0 && (
-          <span className={cn('flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold tabular-nums',
-            sobreEscuro ? 'bg-white text-[hsl(150_44%_6%)]' : 'bg-foreground text-background')}>
+          <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-foreground px-1 text-[10px] font-bold tabular-nums text-background">
             {unread > 99 ? '99+' : unread}
           </span>
         )}

@@ -101,7 +101,7 @@ export default function NotificacoesHistoricoPage() {
         </span>
       </div>
 
-      <div className="rounded-xl border bg-card shadow-sm flex-1 min-h-0 flex flex-col">
+      <div className="rounded-xl border bg-card shadow-sm flex-1 min-h-0 flex flex-col overflow-clip">
         <div className="overflow-auto flex-1 min-h-0">
           {data === null ? (
             <div className="flex items-center justify-center py-12 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin mr-2" />Carregando…</div>

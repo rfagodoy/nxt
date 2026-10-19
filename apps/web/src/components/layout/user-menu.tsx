@@ -47,8 +47,7 @@ function Segmentado<T extends string>({ rotulo, opcoes, valor, onChange }: {
 /** Versão gravada no build (next.config: tag do git ou NXT_VERSAO). */
 const VERSAO = process.env.NEXT_PUBLIC_NXT_VERSAO || 'desenvolvimento'
 
-/** `sobreEscuro`: no painel de boas-vindas do Dashboard (fundo Forest Ink). */
-export function UserMenu({ sobreEscuro }: { sobreEscuro?: boolean } = {}) {
+export function UserMenu() {
   const { data: session } = useSession()
   const { theme, setTheme } = useTheme()
   const { densidade, setDensidade } = useDensidade()
@@ -70,11 +69,9 @@ export function UserMenu({ sobreEscuro }: { sobreEscuro?: boolean } = {}) {
       <button ref={ancora} type="button" onClick={() => setAberto((v) => !v)}
         aria-haspopup="menu" aria-expanded={aberto} aria-label={`Menu do usuário: ${nome}`} title={nome}
         className={cn('flex h-[30px] items-center gap-1.5 rounded-full pl-[3px] pr-1.5 transition-colors',
-          sobreEscuro
-            ? (aberto ? 'bg-white/15' : 'hover:bg-white/10')
-            : (aberto ? 'bg-muted' : 'hover:bg-white/50 dark:hover:bg-white/[0.07]'))}>
+          aberto ? 'bg-muted' : 'hover:bg-white/50 dark:hover:bg-white/[0.07]')}>
         <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-[10.5px] font-semibold text-primary-foreground">{iniciais}</span>
-        <ChevronDown className={cn('h-3 w-3 transition-transform', sobreEscuro ? 'text-white/75' : 'text-muted-foreground', aberto && 'rotate-180')} aria-hidden />
+        <ChevronDown className={cn('h-3 w-3 text-muted-foreground transition-transform', aberto && 'rotate-180')} aria-hidden />
       </button>
 
       {aberto && (
