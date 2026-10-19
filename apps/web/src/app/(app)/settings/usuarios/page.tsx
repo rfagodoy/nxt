@@ -19,7 +19,10 @@ import { exportExcel } from '@/lib/export-excel'
 import { TablePagination } from '@/components/ui/table-pagination'
 import { TransferTasksModal } from '@/components/processes/transfer-tasks-modal'
 import { ListToolbar } from '@/components/list/list-toolbar'
-import { type FilterRow, matchOp, norm } from '@/lib/list-filter'
+import { type FilterRow, matchOp, norm, colunaContem } from '@/lib/list-filter'
+import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
+import { Indicadores } from '@/components/list/indicadores'
+import { useFiltroColuna, BotaoFiltroColuna, LinhaFiltroColuna } from '@/components/list/filtro-coluna'
 
 interface UserRow {
   id: string
@@ -112,16 +115,23 @@ export default function UsuariosPage() {
     inativos: all.filter((u) => u.status === 'INATIVO').length,
   }), [all])
 
+  /* indicador clicado = filtro de um clique ("ADMIN" é papel, os outros são status) */
+  const [statusFiltro, setStatusFiltro] = useState<string | null>(null)
+  const filtroCol = useFiltroColuna('usuarios')
+  useEffect(() => { setPage(1) }, [statusFiltro, filtroCol.ativos])
+
   const filtered = useMemo(() => {
     const q = norm(search)
     const active = filters.filter((f) => f.value.trim())
     return all.filter((u) => {
+      if (statusFiltro === 'ADMIN' ? u.role !== 'admin' : statusFiltro && u.status !== statusFiltro) return false
+      if (filtroCol.ativos.length && !filtroCol.ativos.every((f) => { const c = COLS.find((x) => x.key === f.col); return c ? colunaContem(c.text(u), f.value) : true })) return false
       if (q && !COLS.some((c) => norm(c.text(u)).includes(q))) return false
       if (!active.length) return true
       const res = active.map((f) => { const col = COLS.find((c) => c.key === f.col); return col ? matchOp(col.text(u), f.op, f.value) : true })
       return logic === 'AND' ? res.every(Boolean) : res.some(Boolean)
     })
-  }, [all, search, filters, logic])
+  }, [all, search, filters, logic, statusFiltro, filtroCol.ativos])
 
   const sorted = useMemo(() => {
     if (!sort) return filtered
@@ -157,6 +167,8 @@ export default function UsuariosPage() {
   }
 
   const configSlot = (
+    <>
+    <BotaoFiltroColuna ligado={filtroCol.ligado} onClick={filtroCol.alternar} />
     <div ref={configRef} className="relative">
       <button onClick={() => setShowConfig((v) => !v)} className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
         <Settings2 className="h-3.5 w-3.5" />Configurações
@@ -174,6 +186,7 @@ export default function UsuariosPage() {
         </div>
       )}
     </div>
+    </>
   )
 
   if (forbidden) {
@@ -205,19 +218,12 @@ export default function UsuariosPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        {[
-          { label: 'Total', value: stats.total, cls: 'text-foreground' },
-          { label: 'Administradores', value: stats.admins, cls: 'text-primary' },
-          { label: 'Ativos', value: stats.ativos, cls: 'text-emerald-600 dark:text-emerald-400' },
-          { label: 'Inativos', value: stats.inativos, cls: 'text-muted-foreground' },
-        ].map(({ label, value, cls }) => (
-          <div key={label} className="vidro rounded-xl bg-[var(--vidro-cartao)] px-3 py-2 flex items-center justify-between">
-            <p className="text-[11px] text-muted-foreground">{label}</p>
-            <p className={cn('text-sm font-bold tabular-nums', cls)}>{value}</p>
-          </div>
-        ))}
-      </div>
+      <Indicadores className="grid-cols-2 sm:grid-cols-4" ativo={statusFiltro} onSelect={setStatusFiltro} itens={[
+        { label: 'Total', valor: stats.total, cls: 'text-foreground', filtro: null },
+        { label: 'Administradores', valor: stats.admins, cls: 'text-primary', filtro: 'ADMIN' },
+        { label: 'Ativos', valor: stats.ativos, cls: 'text-emerald-600 dark:text-emerald-400', filtro: 'ATIVO' },
+        { label: 'Inativos', valor: stats.inativos, cls: 'text-muted-foreground', filtro: 'INATIVO' },
+      ]} />
 
       <ListToolbar
         search={search} onSearch={setSearch}
@@ -231,11 +237,11 @@ export default function UsuariosPage() {
 
       <div className="rounded-xl border bg-card shadow-sm flex-1 min-h-0 flex flex-col">
         <div className="overflow-auto flex-1 min-h-0">
-          <table className="min-w-full text-xs">
+          <table className={cn('min-w-full', DENS_TABELA)}>
             <thead className="sticky top-0 z-20">
               <tr className="border-b">
                 {visibleCols.map((col) => (
-                  <th key={col.key} className={cn('text-left px-3 py-1.5 font-medium text-muted-foreground select-none whitespace-nowrap bg-muted', col.align === 'right' && 'text-right')}>
+                  <th key={col.key} className={cn('text-left ' + DENS_CAB + ' font-medium text-muted-foreground select-none whitespace-nowrap bg-muted', col.align === 'right' && 'text-right')}>
                     <button onClick={() => handleSort(col.key)} className="group inline-flex items-center hover:text-foreground transition-colors">
                       {col.label}
                       {!sort || sort.col !== col.key
@@ -246,6 +252,9 @@ export default function UsuariosPage() {
                 ))}
                 <th className="px-3 py-1.5 font-medium text-muted-foreground text-right bg-muted whitespace-nowrap">Ações</th>
               </tr>
+              {filtroCol.ligado && (
+                <LinhaFiltroColuna colunas={visibleCols} valores={filtroCol.valores} onChange={filtroCol.mudar} sobra={1} />
+              )}
             </thead>
             <tbody>
               {users === null ? (
@@ -257,9 +266,9 @@ export default function UsuariosPage() {
               ) : pageRows.map((u) => (
                 <tr key={u.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => openEdit(u)}>
                   {visibleCols.map((col) => (
-                    <td key={col.key} className={cn('px-3 py-2 align-middle', col.align === 'right' && 'text-right')}>{col.node(u)}</td>
+                    <td key={col.key} className={cn(DENS_CEL, 'py-1 align-middle', col.align === 'right' && 'text-right')}>{col.node(u)}</td>
                   ))}
-                  <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
+                  <td className={cn(DENS_CEL, 'py-1 text-right')} onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-1">
                       <Button variant="ghost" size="sm" onClick={() => openEdit(u)} title="Editar"><Pencil className="h-3.5 w-3.5" /></Button>
                       <Button variant="ghost" size="sm" onClick={() => openPassword(u)} title="Resetar senha"><KeyRound className="h-3.5 w-3.5" /></Button>
@@ -273,7 +282,7 @@ export default function UsuariosPage() {
             </tbody>
           </table>
         </div>
-        <TablePagination page={page} pageSize={pageSize} total={sorted.length} onPage={setPage} onPageSize={setPageSize} />
+        <TablePagination page={page} pageSize={pageSize} total={sorted.length} onPage={setPage} onPageSize={setPageSize} rotulo={['usuário', 'usuários']} />
       </div>
 
       {modal === 'create' && <UserFormModal onClose={close} />}

@@ -7,6 +7,8 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { LoadErrorBlock } from '@/components/list/load-error'
 import { apiJson } from '@/lib/http'
 import { useAoVivo } from '@/lib/realtime'
+import { Indicadores } from '@/components/list/indicadores'
+import { DensidadeSelect } from '@/components/list/densidade-select'
 import { cn } from '@/lib/utils'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { dueInfo, kindMeta, COLUMNS, DUE_CHIP, type Task, type Grp, valorCurto } from '@/lib/tasks-ui'
@@ -57,6 +59,9 @@ export default function TarefasPage() {
     return { total: r.length, crit, warn }
   }, [tasks])
 
+  const [grupoFiltro, setGrupoFiltro] = useState<string | null>(null)
+  const colunasVisiveis = COLUMNS.filter((c) => !grupoFiltro || c.key === grupoFiltro)
+
   const byGroup = useMemo(() => {
     const g: Record<Grp, Task[]> = { crit: [], warn: [], week: [] }
     ;(tasks ?? []).forEach((t) => g[dueInfo(t.dueAt).grp].push(t))
@@ -75,19 +80,13 @@ export default function TarefasPage() {
       </div>
 
       {/* cards de resumo (padrão das listas) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        {[
-          { label: 'Total',       value: stats.total,        cls: 'text-foreground' },
-          { label: 'Atrasadas',   value: stats.crit,         cls: 'text-red-600 dark:text-red-400' },
-          { label: 'Vencem hoje', value: stats.warn,         cls: 'text-amber-600 dark:text-amber-400' },
-          { label: 'Próximas',    value: byGroup.week.length, cls: 'text-primary' },
-        ].map(({ label, value, cls }) => (
-          <div key={label} className="vidro rounded-xl bg-[var(--vidro-cartao)] px-3 py-2 flex items-center justify-between">
-            <p className="text-[11px] text-muted-foreground">{label}</p>
-            <p className={cn('text-sm font-bold tabular-nums', cls)}>{value}</p>
-          </div>
-        ))}
-      </div>
+      {/* clicar num indicador mostra só a coluna dele no quadro */}
+      <Indicadores className="grid-cols-2 sm:grid-cols-4" ativo={grupoFiltro} onSelect={setGrupoFiltro} itens={[
+        { label: 'Total',       valor: stats.total,         cls: 'text-foreground', filtro: null },
+        { label: 'Atrasadas',   valor: stats.crit,          cls: 'text-red-600 dark:text-red-400', filtro: 'crit' },
+        { label: 'Vencem hoje', valor: stats.warn,          cls: 'text-amber-600 dark:text-amber-400', filtro: 'warn' },
+        { label: 'Próximas',    valor: byGroup.week.length, cls: 'text-primary', filtro: 'week' },
+      ]} />
 
       {notice && (
         <div className={cn(
@@ -114,8 +113,9 @@ export default function TarefasPage() {
             : <EmptyState icon={CheckCircle2} tone="success" size="lg" title="Tudo em dia! 🎉" description="Nenhuma tarefa aguardando você." />}
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 xl:grid-rows-1 gap-3 items-start xl:items-stretch xl:flex-1 xl:min-h-0">
-          {COLUMNS.map((col) => {
+        <div className={cn('grid grid-cols-1 gap-3 items-start xl:grid-rows-1 xl:items-stretch xl:flex-1 xl:min-h-0',
+          colunasVisiveis.length > 1 && 'sm:grid-cols-2 xl:grid-cols-3')}>
+          {colunasVisiveis.map((col) => {
             const items = byGroup[col.key]
             return (
               <div key={col.key} className="rounded-xl border bg-muted/30 p-2.5 flex flex-col gap-2 min-h-[120px] xl:min-h-0">
@@ -127,7 +127,7 @@ export default function TarefasPage() {
                 {/* Rola em qualquer largura — não só em telas grandes — e com a barra
                     VISÍVEL: sem ela o último cartão fica cortado na borda e nada indica
                     que há mais tarefas embaixo. */}
-                <div className="rolagem-visivel flex max-h-[60vh] flex-col gap-1 overflow-y-auto pr-1.5 xl:max-h-none xl:flex-1 xl:min-h-0">
+                <div className="rolagem-visivel flex max-h-[60vh] flex-col gap-[var(--cartao-gap)] overflow-y-auto pr-1.5 xl:max-h-none xl:flex-1 xl:min-h-0">
                 {items.length === 0 ? (
                   <p className="text-[11px] text-muted-foreground/60 text-center py-3">vazio</p>
                 ) : items.map((t) => {
@@ -147,7 +147,7 @@ export default function TarefasPage() {
                          porque o ícone media 24px — o texto ocupa 16. Reduzir fonte
                          economizaria pouco e custaria legibilidade numa tela de uso
                          diário; reduzir folga economiza o mesmo e não custa nada. */
-                      className="group relative shrink-0 text-left w-full bg-card border rounded-lg p-2 pl-2.5 shadow-sm overflow-hidden transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md hover:border-primary/30"
+                      className="group relative shrink-0 text-left w-full bg-card border rounded-lg p-[var(--cartao-pad)] pl-[calc(var(--cartao-pad)+0.125rem)] shadow-sm overflow-hidden transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md hover:border-primary/30"
                     >
                       <span className={cn('absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full', col.rail)} />
                       {/* `items-start` + quebra livre: o nome da tarefa é o dado
@@ -190,6 +190,13 @@ export default function TarefasPage() {
         </div>
       )}
 
+      {/* rodapé: contagem + densidade (a mesma caixa das listas) */}
+      {tasks !== null && tasks.length > 0 && (
+        <div className="flex items-center gap-3 shrink-0 text-[11px] text-muted-foreground">
+          <span className="font-semibold text-foreground tabular-nums">{tasks.length} {tasks.length === 1 ? 'tarefa' : 'tarefas'}</span>
+          <DensidadeSelect />
+        </div>
+      )}
     </div>
   )
 }

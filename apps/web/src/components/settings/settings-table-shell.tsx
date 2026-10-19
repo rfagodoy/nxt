@@ -3,7 +3,9 @@
 import { useState, useEffect, type ElementType, type ReactNode } from 'react'
 import Link from 'next/link'
 import { ChevronLeft, Search, FileDown } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/utils'
+import { DENS_CAB, DENS_TABELA } from '@/lib/densidade'
+import { DensidadeSelect } from '@/components/list/densidade-select'
 
 export type StatusFilter = 'all' | 'active' | 'inactive'
 
@@ -107,15 +109,19 @@ export function SettingsTableShell({
       ) : (
         <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
           <div className="overflow-y-auto max-h-[calc(100vh-12rem)]">
-            <table className="w-full text-xs">
+            <table className={cn('w-full', DENS_TABELA)}>
               {children}
             </table>
           </div>
         </div>
       )}
 
-      {mounted && footer && (
-        <p className="text-[11px] text-muted-foreground text-center">{footer}</p>
+      {/* rodapé: contagem + densidade (tabelas auxiliares não paginam — rolam por dentro) */}
+      {mounted && (
+        <div className="flex items-center justify-center gap-3 text-[11px] text-muted-foreground">
+          {footer && <span>{footer}</span>}
+          <DensidadeSelect />
+        </div>
       )}
     </div>
   )

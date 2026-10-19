@@ -13,6 +13,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { TablePagination } from '@/components/ui/table-pagination'
 import { apiFetch, apiJson } from '@/lib/http'
 import { useAoVivo } from '@/lib/realtime'
+import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
 import { cn } from '@/lib/utils'
 
 interface Notif {
@@ -107,13 +108,13 @@ export default function NotificacoesHistoricoPage() {
           ) : rows.length === 0 ? (
             <EmptyState icon={Bell} title="Nenhuma notificação" description={tipo || unread ? 'Nenhuma notificação com os filtros aplicados.' : 'Você ainda não recebeu avisos.'} />
           ) : (
-            <table className="min-w-full text-xs">
+            <table className={cn('min-w-full', DENS_TABELA)}>
               <thead className="sticky top-0 z-10">
                 <tr className="border-b">
-                  <th className="text-left px-3 py-1.5 font-medium text-muted-foreground bg-muted whitespace-nowrap">Tipo</th>
-                  <th className="text-left px-3 py-1.5 font-medium text-muted-foreground bg-muted">Aviso</th>
-                  <th className="text-left px-3 py-1.5 font-medium text-muted-foreground bg-muted whitespace-nowrap">Quando</th>
-                  <th className="text-left px-3 py-1.5 font-medium text-muted-foreground bg-muted whitespace-nowrap">Situação</th>
+                  <th className={cn('text-left font-medium text-muted-foreground bg-muted whitespace-nowrap', DENS_CAB)}>Tipo</th>
+                  <th className={cn('text-left font-medium text-muted-foreground bg-muted', DENS_CAB)}>Aviso</th>
+                  <th className={cn('text-left font-medium text-muted-foreground bg-muted whitespace-nowrap', DENS_CAB)}>Quando</th>
+                  <th className={cn('text-left font-medium text-muted-foreground bg-muted whitespace-nowrap', DENS_CAB)}>Situação</th>
                 </tr>
               </thead>
               <tbody>
@@ -121,7 +122,7 @@ export default function NotificacoesHistoricoPage() {
                   const Icon = TIPO_ICON[n.tipo] ?? Bell
                   return (
                     <tr key={n.id} className={cn('border-b last:border-0 hover:bg-muted/30 transition-colors', !n.read && 'bg-primary/[0.03]')}>
-                      <td className="px-3 py-2 align-top whitespace-nowrap">
+                      <td className={cn(DENS_CEL, 'py-1.5 align-top whitespace-nowrap')}>
                         <span className="inline-flex items-center gap-1.5">
                           <span className={cn('flex h-5 w-5 items-center justify-center rounded-full', SEV_CLS[n.severidade] ?? SEV_CLS.INFO)}>
                             <Icon className="h-3 w-3" />
@@ -129,12 +130,12 @@ export default function NotificacoesHistoricoPage() {
                           {TIPO_LABEL[n.tipo] ?? n.tipo}
                         </span>
                       </td>
-                      <td className="px-3 py-2 align-top">
+                      <td className={cn(DENS_CEL, 'py-1.5 align-top')}>
                         <p className={cn('text-xs', !n.read && 'font-semibold')}>{n.titulo}</p>
                         <p className="text-[11px] text-muted-foreground">{n.mensagem}</p>
                       </td>
-                      <td className="px-3 py-2 align-top text-muted-foreground whitespace-nowrap">{fmt(n.createdAt)}</td>
-                      <td className="px-3 py-2 align-top whitespace-nowrap">
+                      <td className={cn(DENS_CEL, 'py-1.5 align-top text-muted-foreground whitespace-nowrap')}>{fmt(n.createdAt)}</td>
+                      <td className={cn(DENS_CEL, 'py-1.5 align-top whitespace-nowrap')}>
                         {n.read
                           ? <span className="text-muted-foreground">lida</span>
                           : <span className="inline-flex items-center gap-1 text-primary font-medium"><span className="h-1.5 w-1.5 rounded-full bg-primary" />não lida</span>}
@@ -146,7 +147,7 @@ export default function NotificacoesHistoricoPage() {
             </table>
           )}
         </div>
-        <TablePagination page={page} pageSize={pageSize} total={data?.total ?? 0} onPage={setPage} onPageSize={setPageSize} />
+        <TablePagination page={page} pageSize={pageSize} total={data?.total ?? 0} onPage={setPage} onPageSize={setPageSize} rotulo={['notificação', 'notificações']} />
       </div>
     </div>
   )

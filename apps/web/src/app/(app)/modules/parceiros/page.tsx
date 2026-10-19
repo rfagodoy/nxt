@@ -20,6 +20,9 @@ import { formatScreenCellValue } from '@/lib/screen-value-format'
 import type { ScreenField } from '@/lib/screen-types'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { fieldValueKey } from '@/lib/screen-types'
+import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
+import { Indicadores } from '@/components/list/indicadores'
+import { useFiltroColuna, BotaoFiltroColuna, LinhaFiltroColuna } from '@/components/list/filtro-coluna'
 
 
 
@@ -242,6 +245,10 @@ export default function ParceirosPage() {
   const [page,         setPage]         = useState(1)
   const [pageSize,     setPageSize]     = useState(25)
   const [showFields,   setShowFields]   = useState(false)
+  /* indicador clicado = filtro de um clique pelo status; filtro na coluna = "contém" em E */
+  const [statusFiltro, setStatusFiltro] = useState<string | null>(null)
+  const filtroCol = useFiltroColuna('parceiros')
+  const columnFilters = filtroCol.ativos
 
   /* ── query server-side ── */
   const queryServer = useCallback(async () => {
@@ -257,6 +264,8 @@ export default function ParceirosPage() {
           sort:    sort   ?? undefined,
           filters: filters.filter(f => f.value.trim()).map(({ col, op, value }) => ({ col, op, value })),
           logic,
+          status: statusFiltro ?? undefined,
+          columnFilters,
         }),
       })
       if (reqId !== reqIdRef.current) return
@@ -269,7 +278,7 @@ export default function ParceirosPage() {
       } else setErroCarga(true)
     } catch { if (reqId === reqIdRef.current) setErroCarga(true) }
     finally { if (reqId === reqIdRef.current) setServerLoading(false) }
-  }, [page, pageSize, debouncedSearch, sort, filters, logic]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [page, pageSize, debouncedSearch, sort, filters, logic, statusFiltro, columnFilters]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { void queryServer() }, [queryServer])
 
@@ -306,7 +315,7 @@ export default function ParceirosPage() {
      um documento é salvo nesta aba OU quando outra pessoa grava algo na organização. */
   useAoVivo(() => { void queryServer() })
 
-  useEffect(() => { setPage(1) }, [debouncedSearch, filters, sort, logic, pageSize])
+  useEffect(() => { setPage(1) }, [debouncedSearch, filters, sort, logic, pageSize, statusFiltro, columnFilters])
 
   const selectView = (id: string | null) => {
     setActiveViewId(id)
@@ -345,6 +354,8 @@ export default function ParceirosPage() {
           sort:    sort   ?? undefined,
           filters: filters.filter(f => f.value.trim()).map(({ col, op, value }) => ({ col, op, value })),
           logic,
+          status: statusFiltro ?? undefined,
+          columnFilters,
         }),
       })
       if (!res.ok) return
@@ -411,20 +422,20 @@ export default function ParceirosPage() {
     switch (key) {
       case 'nome':
         return (
-          <td key={key} className={cn('px-3 py-1 font-medium whitespace-nowrap', sticky)}>
-            <button type="button" onClick={() => { void openPartner(row.id, row.nome) }} className="hover:text-primary hover:underline text-left">{row.nome}</button>
+          <td key={key} className={cn(DENS_CEL, 'font-medium whitespace-nowrap', sticky)}>
+            <button type="button" onClick={(e) => { e.stopPropagation(); void openPartner(row.id, row.nome) }} className="hover:text-primary hover:underline text-left">{row.nome}</button>
           </td>
         )
       case 'categoria':
         return (
-          <td key={key} className={cn('px-3 py-1 whitespace-nowrap', sticky)}>
+          <td key={key} className={cn(DENS_CEL, 'whitespace-nowrap', sticky)}>
             <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium ${TIPO_CLS[row.categoria]}`}>{row.categoria}</span>
           </td>
         )
       case 'identificador': {
         const docTipo = row.categoria === 'PJ Brasileira' ? 'CNPJ' : row.categoria === 'PF Brasileira' ? 'CPF' : row.identificador ? 'Cód.' : ''
         return (
-          <td key={key} className={cn('px-3 py-1 whitespace-nowrap', sticky)}>
+          <td key={key} className={cn(DENS_CEL, 'whitespace-nowrap', sticky)}>
             <span className="flex items-center gap-1.5">
               {docTipo && <span className="text-[10px] font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">{docTipo}</span>}
               <span className="font-mono text-muted-foreground">{row.identificador || '—'}</span>
@@ -433,12 +444,12 @@ export default function ParceirosPage() {
         )
       }
       case 'cidade':
-        return <td key={key} className={cn('px-3 py-1 text-muted-foreground whitespace-nowrap', sticky)}>{[row.cidade, row.estado].filter(Boolean).join(' — ')}</td>
+        return <td key={key} className={cn(DENS_CEL, 'text-muted-foreground whitespace-nowrap', sticky)}>{[row.cidade, row.estado].filter(Boolean).join(' — ')}</td>
       case 'contato':
-        return <td key={key} className={cn('px-3 py-1 text-muted-foreground whitespace-nowrap', sticky)}>{row.contato}</td>
+        return <td key={key} className={cn(DENS_CEL, 'text-muted-foreground whitespace-nowrap', sticky)}>{row.contato}</td>
       case 'status':
         return (
-          <td key={key} className={cn('px-3 py-1 whitespace-nowrap', sticky)}>
+          <td key={key} className={cn(DENS_CEL, 'whitespace-nowrap', sticky)}>
             <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium ${STATUS_CLS[row.status]}`}>
               {STATUS_LABEL[row.status]}
             </span>
@@ -447,10 +458,10 @@ export default function ParceirosPage() {
       case 'dataNascimento': {
         const raw = row.dataNascimento
         const fmt = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw.split('-').reverse().join('/') : raw
-        return <td key={key} className={cn('px-3 py-1 text-muted-foreground whitespace-nowrap tabular-nums', sticky)}>{fmt || '—'}</td>
+        return <td key={key} className={cn(DENS_CEL, 'text-muted-foreground whitespace-nowrap tabular-nums', sticky)}>{fmt || '—'}</td>
       }
       default:
-        return <td key={key} className={cn('px-3 py-1 text-muted-foreground whitespace-nowrap', sticky)}>{row[key] || '—'}</td>
+        return <td key={key} className={cn(DENS_CEL, 'text-muted-foreground whitespace-nowrap', sticky)}>{row[key] || '—'}</td>
     }
   }
 
@@ -490,19 +501,12 @@ export default function ParceirosPage() {
       </div>
 
       {/* cards */}
-      <div className="grid grid-cols-4 gap-2">
-        {[
-          { label: 'Total',            value: serverStats.total,           cls: 'text-foreground' },
-          { label: 'Em cadastramento', value: serverStats.emCadastramento, cls: 'text-blue-600 dark:text-blue-400'       },
-          { label: 'Ativos',           value: serverStats.ativo,           cls: 'text-emerald-600 dark:text-emerald-400' },
-          { label: 'Inativos',         value: serverStats.inativo,         cls: 'text-muted-foreground'                  },
-        ].map(({ label, value, cls }) => (
-          <div key={label} className="vidro rounded-xl bg-[var(--vidro-cartao)] px-3 py-2 flex items-center justify-between">
-            <p className="text-[11px] text-muted-foreground">{label}</p>
-            <p className={`text-sm font-bold tabular-nums ${cls}`}>{value}</p>
-          </div>
-        ))}
-      </div>
+      <Indicadores className="grid-cols-4" ativo={statusFiltro} onSelect={setStatusFiltro} itens={[
+        { label: 'Total',            valor: serverStats.total,           cls: 'text-foreground', filtro: null },
+        { label: 'Em cadastramento', valor: serverStats.emCadastramento, cls: 'text-blue-600 dark:text-blue-400', filtro: 'EM_CADASTRAMENTO' },
+        { label: 'Ativos',           valor: serverStats.ativo,           cls: 'text-emerald-600 dark:text-emerald-400', filtro: 'ATIVO' },
+        { label: 'Inativos',         valor: serverStats.inativo,         cls: 'text-muted-foreground', filtro: 'INATIVO' },
+      ]} />
 
       {/* toolbar */}
       <ListToolbar
@@ -519,10 +523,13 @@ export default function ParceirosPage() {
         onSelectView={selectView} onSaveView={handleSaveView} onDeleteView={handleDeleteView}
         onExport={() => { void handleExport() }} exportDisabled={serverTotal === 0}
         configSlot={
+          <>
+          <BotaoFiltroColuna ligado={filtroCol.ligado} onClick={filtroCol.alternar} />
           <button onClick={() => setShowFields(true)}
             className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
             <Settings2 className="h-3.5 w-3.5" />Configurações
           </button>
+          </>
         }
         filteredCount={serverTotal} totalCount={serverTotal} busy={serverLoading}
       />
@@ -530,7 +537,7 @@ export default function ParceirosPage() {
       {/* tabela */}
       <div className="rounded-xl border bg-card shadow-sm flex-1 min-h-0 flex flex-col">
         <div className="overflow-auto flex-1 min-h-0">
-        <table className="min-w-full text-xs">
+        <table className={cn('min-w-full', DENS_TABELA)}>
           <thead className="sticky top-0 z-20">
             <tr className="border-b">
               {orderedColumns.map((col, idx) => (
@@ -543,7 +550,7 @@ export default function ParceirosPage() {
                   onDrop={() => { handleDrop(idx); clearDrag() }}
                   onDragEnd={clearDrag}
                   className={cn(
-                    'text-left px-3 py-1.5 font-medium text-muted-foreground select-none transition-all whitespace-nowrap bg-muted',
+                    'text-left ' + DENS_CAB + ' font-medium text-muted-foreground select-none transition-all whitespace-nowrap bg-muted',
                     'cursor-grab active:cursor-grabbing',
                     idx === 0 && 'sticky left-0 z-20 bg-muted', // opaco p/ sticky vertical + horizontal
                     dragFrom === idx && 'opacity-40',
@@ -564,6 +571,9 @@ export default function ParceirosPage() {
                 </th>
               ))}
             </tr>
+            {filtroCol.ligado && (
+              <LinhaFiltroColuna colunas={orderedColumns} valores={filtroCol.valores} onChange={filtroCol.mudar} primeiraFixa />
+            )}
           </thead>
           <tbody>
             {pageRows.length === 0 ? (
@@ -572,14 +582,15 @@ export default function ParceirosPage() {
               ) : (
               <tr>
                 <td colSpan={orderedColumns.length} className="px-3 py-8 text-center text-xs text-muted-foreground">
-                  {(search.trim() || filters.some(f => f.value.trim()))
+                  {(search.trim() || filters.some(f => f.value.trim()) || statusFiltro || columnFilters.length)
                     ? 'Nenhum parceiro encontrado com os filtros aplicados.'
                     : 'Nenhum parceiro cadastrado.'}
                 </td>
               </tr>
               )
             ) : pageRows.map(p => (
-              <tr key={p.id} className="group/row border-b last:border-0 hover:bg-muted/30 transition-colors">
+              <tr key={p.id} onClick={() => { void openPartner(p.id, p.nome) }} title="Abrir o parceiro"
+                className="group/row border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer">
                 {orderedColumns.map((col, colIdx) => renderCell(p, col.key, colIdx))}
               </tr>
             ))}
@@ -588,7 +599,7 @@ export default function ParceirosPage() {
         </div>
 
         {/* rodapé com paginação */}
-        <TablePagination page={page} pageSize={pageSize} total={serverTotal} onPage={setPage} onPageSize={setPageSize} />
+        <TablePagination page={page} pageSize={pageSize} total={serverTotal} onPage={setPage} onPageSize={setPageSize} rotulo={['parceiro', 'parceiros']} />
       </div>
     </div>
 

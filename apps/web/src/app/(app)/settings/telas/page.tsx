@@ -4,6 +4,8 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Plus, LayoutTemplate, Search, Pencil, Trash2, Check, X, Star, Lock, Copy } from 'lucide-react'
+import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
+import { DensidadeSelect } from '@/components/list/densidade-select'
 import { cn } from '@/lib/utils'
 import { useScreens, deleteScreen, duplicateScreen, saveScreen } from '@/hooks/use-screens'
 import { buildNativeSeed } from '@/lib/screen-native-structure'
@@ -125,14 +127,14 @@ export default function TelasPage() {
       {/* tabela */}
       <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
         <div className="overflow-y-auto max-h-[calc(100vh-13rem)]">
-          <table className="w-full text-xs">
+          <table className={cn('w-full', DENS_TABELA)}>
             <thead className="sticky top-0 z-10 [&_th]:bg-muted">
               <tr className="border-b">
-                <th className="text-left px-4 py-1.5 font-medium text-muted-foreground">Nome</th>
-                <th className="text-left px-3 py-1.5 font-medium text-muted-foreground w-32">Aplica-se a</th>
-                <th className="text-left px-3 py-1.5 font-medium text-muted-foreground w-28">Situação</th>
-                <th className="text-center px-3 py-1.5 font-medium text-muted-foreground w-20">Padrão</th>
-                <th className="text-center px-3 py-1.5 font-medium text-muted-foreground w-24">Campos</th>
+                <th className={'text-left ' + DENS_CAB + ' font-medium text-muted-foreground'}>Nome</th>
+                <th className={'text-left ' + DENS_CAB + ' font-medium text-muted-foreground w-32'}>Aplica-se a</th>
+                <th className={'text-left ' + DENS_CAB + ' font-medium text-muted-foreground w-28'}>Situação</th>
+                <th className={'text-center ' + DENS_CAB + ' font-medium text-muted-foreground w-20'}>Padrão</th>
+                <th className={'text-center ' + DENS_CAB + ' font-medium text-muted-foreground w-24'}>Campos</th>
                 <th className="w-20" />
               </tr>
             </thead>
@@ -144,23 +146,24 @@ export default function TelasPage() {
                   {screens.length === 0 ? 'Nenhuma tela criada. Clique em "Nova tela".' : 'Nenhuma tela para o filtro.'}
                 </td></tr>
               ) : shown.map(s => (
-                <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors group/row">
-                  <td className="px-4 py-1.5">
+                <tr key={s.id} onClick={() => router.push(`/settings/telas/${s.id}`)} title="Abrir a tela"
+                  className="border-b last:border-0 hover:bg-muted/30 transition-colors group/row cursor-pointer">
+                  <td className={cn(DENS_CEL, 'py-1')}>
                     {/* Fluxo de texto, não flex: a etiqueta é parte da frase e tem de seguir a
                         ÚLTIMA palavra do nome. Em flex com `items-center`, um nome que quebra em
                         duas linhas deixava a etiqueta boiando no meio da altura da linha. */}
                     <span className="block">
-                      <Link href={`/settings/telas/${s.id}`} className="font-medium hover:text-primary transition-colors">{s.name}</Link>
+                      <Link href={`/settings/telas/${s.id}`} onClick={(e) => e.stopPropagation()} className="font-medium hover:text-primary transition-colors">{s.name}</Link>
                       {s.isSystem && <span className="ml-1.5 inline-flex items-center gap-0.5 align-middle whitespace-nowrap rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-slate-500/10 text-slate-600 dark:text-slate-300"><Lock className="h-2.5 w-2.5" />Sistema</span>}
                       {s.readOnly && <span className="ml-1.5 inline-flex items-center gap-0.5 align-middle whitespace-nowrap rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-amber-500/10 text-amber-600 dark:text-amber-400" title="Nenhum campo é editável e nada é gravado por esta tela"><Lock className="h-2.5 w-2.5" />Somente consulta</span>}
                     </span>
                     {s.description && <p className="text-[11px] text-muted-foreground truncate max-w-md">{s.description}</p>}
                   </td>
-                  <td className="px-3 py-1.5"><span className={cn('inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium', SUBJECT_CLS[s.subjectType])}>{SUBJECT_LABELS[s.subjectType]}</span></td>
-                  <td className="px-3 py-1.5"><span className={cn('inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium', STATUS_CLS[s.status])}>{STATUS_LABELS[s.status]}</span></td>
-                  <td className="px-3 py-1.5 text-center">{s.isDefault ? <Star className="h-3.5 w-3.5 text-primary inline fill-primary" /> : <span className="text-muted-foreground">—</span>}</td>
-                  <td className="px-3 py-1.5 text-center text-muted-foreground tabular-nums">{custom(s)} pers.</td>
-                  <td className="px-3 py-1.5">
+                  <td className={cn(DENS_CEL, 'py-1')}><span className={cn('inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium', SUBJECT_CLS[s.subjectType])}>{SUBJECT_LABELS[s.subjectType]}</span></td>
+                  <td className={cn(DENS_CEL, 'py-1')}><span className={cn('inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium', STATUS_CLS[s.status])}>{STATUS_LABELS[s.status]}</span></td>
+                  <td className={cn(DENS_CEL, 'py-1 text-center')}>{s.isDefault ? <Star className="h-3.5 w-3.5 text-primary inline fill-primary" /> : <span className="text-muted-foreground">—</span>}</td>
+                  <td className={cn(DENS_CEL, 'py-1 text-center text-muted-foreground tabular-nums')}>{custom(s)} pers.</td>
+                  <td className={cn(DENS_CEL, 'py-1 cursor-default')} onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1">
                       <Link href={`/settings/telas/${s.id}`} title="Editar" className="h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted opacity-0 group-hover/row:opacity-100 transition-all"><Pencil className="h-3.5 w-3.5" /></Link>
                       <button onClick={() => void duplicar(s.id)} disabled={!!duplicando} title="Duplicar — cria um rascunho com as mesmas marcações"
@@ -182,11 +185,14 @@ export default function TelasPage() {
             </tbody>
           </table>
         </div>
+        {mounted && !loading && (
+          <div className="flex items-center gap-3 border-t px-3 py-1.5 bg-muted/20 text-[11px] text-muted-foreground">
+            <span className="font-semibold text-foreground tabular-nums">{shown.length} tela{shown.length !== 1 ? 's' : ''}</span>
+            {shown.length !== screens.length && <span className="tabular-nums">de {screens.length}</span>}
+            <DensidadeSelect />
+          </div>
+        )}
       </div>
-
-      {mounted && !loading && (
-        <p className="text-[11px] text-muted-foreground text-center">{shown.length} tela{shown.length !== 1 ? 's' : ''}{shown.length !== screens.length ? ` de ${screens.length}` : ''}</p>
-      )}
     </div>
   )
 }

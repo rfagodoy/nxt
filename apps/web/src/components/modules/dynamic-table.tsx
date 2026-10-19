@@ -1,5 +1,7 @@
 'use client'
 
+import { cn } from '@/lib/utils'
+import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
 import { useState } from 'react'
 import { ChevronUp, ChevronDown, Search, ExternalLink } from 'lucide-react'
 import Link from 'next/link'
@@ -79,10 +81,10 @@ export function DynamicTable({
 
       <div className="rounded-xl border bg-card overflow-hidden shadow-sm">
         <div className="overflow-auto max-h-[calc(100vh-13rem)]">
-        <table className="w-full text-xs">
+        <table className={cn('w-full', DENS_TABELA)}>
           <thead className="sticky top-0 z-10 [&_th]:bg-muted">
             <tr className="border-b">
-              <th className="text-left px-3 py-2 font-medium text-muted-foreground w-8">#</th>
+              <th className={cn('text-left font-medium text-muted-foreground w-8', DENS_CAB)}>#</th>
               {visibleCols.map((col) => (
                 <th
                   key={col.id}
@@ -100,8 +102,8 @@ export function DynamicTable({
                   </div>
                 </th>
               ))}
-              <th className="text-left px-3 py-2 font-medium text-muted-foreground">Status</th>
-              <th className="text-left px-3 py-2 font-medium text-muted-foreground">Criado em</th>
+              <th className={cn('text-left font-medium text-muted-foreground', DENS_CAB)}>Status</th>
+              <th className={cn('text-left font-medium text-muted-foreground', DENS_CAB)}>Criado em</th>
               <th className="w-8" />
             </tr>
           </thead>
@@ -117,23 +119,23 @@ export function DynamicTable({
               const badge  = status ? STATUS_CLS[status] : null
               return (
                 <tr key={record.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors group">
-                  <td className="px-3 py-1.5 text-muted-foreground">{(page - 1) * pageSize + idx + 1}</td>
+                  <td className={cn(DENS_CEL, 'py-1.5 text-muted-foreground')}>{(page - 1) * pageSize + idx + 1}</td>
                   {visibleCols.map((col) => (
                     <td key={col.id} className="px-3 py-1.5">
                       {formatValue(record.data[col.name], col.type)}
                     </td>
                   ))}
-                  <td className="px-3 py-1.5">
+                  <td className={cn(DENS_CEL, 'py-1.5')}>
                     {badge && (
                       <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium ${badge.cls}`}>
                         {badge.label}
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-1.5 text-muted-foreground whitespace-nowrap">
+                  <td className={cn(DENS_CEL, 'py-1.5 text-muted-foreground whitespace-nowrap')}>
                     {new Date(record.createdAt).toLocaleDateString('pt-BR')}
                   </td>
-                  <td className="px-3 py-1.5">
+                  <td className={cn(DENS_CEL, 'py-1.5')}>
                     <Link
                       href={`${baseHref}/records/${record.id}`}
                       className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"

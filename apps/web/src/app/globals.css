@@ -10,6 +10,8 @@
   --lista-fonte: 0.75rem;
   --lista-px: 0.75rem;
   --lista-indicador: 1.875rem;
+  --cartao-pad: 0.5rem;
+  --cartao-gap: 0.25rem;
 }
 :root[data-densidade="media"] {
   --lista-linha: 2.5rem;
@@ -17,6 +19,8 @@
   --lista-fonte: 0.8125rem;
   --lista-px: 0.875rem;
   --lista-indicador: 2.125rem;
+  --cartao-pad: 0.75rem;
+  --cartao-gap: 0.5rem;
 }
 :root[data-densidade="alta"] {
   --lista-linha: 3.125rem;
@@ -24,6 +28,8 @@
   --lista-fonte: 0.875rem;
   --lista-px: 1rem;
   --lista-indicador: 2.5rem;
+  --cartao-pad: 1rem;
+  --cartao-gap: 0.75rem;
 }
 
 @layer base {

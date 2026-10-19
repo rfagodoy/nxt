@@ -52,4 +52,16 @@ export class QueryPartnersDto {
   @IsOptional()
   @IsIn(['AND', 'OR'])
   logic?: 'AND' | 'OR'
+
+  /** Status exato (indicador clicado na lista). */
+  @IsOptional()
+  @IsIn(['ATIVO', 'INATIVO', 'EM_CADASTRAMENTO'])
+  status?: string
+
+  /** Filtro na coluna: "contém", sempre em E. O `op` é ignorado. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => FilterItemDto)
+  columnFilters?: FilterItemDto[]
 }

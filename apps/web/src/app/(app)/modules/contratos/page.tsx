@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
-import { Plus, ArrowUp, ArrowDown, ChevronsUpDown, Settings2, Filter } from 'lucide-react'
+import { Plus, ArrowUp, ArrowDown, ChevronsUpDown, Settings2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/http'
 import { useAoVivo } from '@/lib/realtime'
@@ -23,7 +23,9 @@ import type { ScreenField } from '@/lib/screen-types'
 import { type Row, SIT_CLS, SIT_LABEL, BRL, fmtDate } from '@/components/contracts/contract-detail-view'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { fieldValueKey } from '@/lib/screen-types'
-import { useDensidade } from '@/lib/densidade'
+import { useDensidade, DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
+import { Indicadores } from '@/components/list/indicadores'
+import { useFiltroColuna, BotaoFiltroColuna, LinhaFiltroColuna } from '@/components/list/filtro-coluna'
 
 
 
@@ -39,9 +41,6 @@ const COLUMNS = [
 ]
 
 const COL_ORDER_KEY = 'nxt:columns:contratos'
-/* liga/desliga da linha de filtro sob o cabeçalho — preferência PESSOAL (escopo do token) */
-const FILTRO_COLUNA_KEY = 'nxt:me:lista:filtro-coluna:contratos'
-
 /* Indicadores = filtros de um clique pela situação EFETIVA (o servidor filtra igual conta). */
 const INDICADORES: { label: string; situacao: string | null; cls: string }[] = [
   { label: 'Total',       situacao: null,          cls: 'text-foreground' },
@@ -53,8 +52,7 @@ const INDICADORES: { label: string; situacao: string | null; cls: string }[] = [
   { label: 'Cancelados',  situacao: 'CANCELADO',   cls: 'text-muted-foreground' },
 ]
 
-/* célula da grade: espaçamento e altura vêm da DENSIDADE do usuário (globals.css) */
-const CEL = 'px-[var(--lista-px)] h-[var(--lista-linha)]'
+const CEL = DENS_CEL
 
 interface SortState { col: string; dir: 'asc' | 'desc' }
 
@@ -193,32 +191,8 @@ export default function ContratosPage() {
   const [pageSize,     setPageSize]     = useState(25)
   const [showFields,   setShowFields]   = useState(false)
   const [situacaoFiltro, setSituacaoFiltro] = useState<string | null>(null)
-  /* filtro na coluna: o que se digita (imediato) e o que vai ao servidor (com espera) */
-  const [colFiltros,     setColFiltros]     = useState<Record<string, string>>({})
-  const [colFiltrosDeb,  setColFiltrosDeb]  = useState<Record<string, string>>({})
-  const colDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const [filtroColuna, setFiltroColunaState] = useState(false)
-  useEffect(() => {
-    setFiltroColunaState(cacheRead<boolean>(FILTRO_COLUNA_KEY, false))
-    void pullSetting<boolean>(FILTRO_COLUNA_KEY).then(v => { if (typeof v === 'boolean') setFiltroColunaState(v) })
-  }, [])
-  const alternarFiltroColuna = () => {
-    const v = !filtroColuna
-    setFiltroColunaState(v)
-    pushSetting(FILTRO_COLUNA_KEY, v)
-    // desligar a linha também solta o recorte — filtro escondido confunde
-    if (!v) { setColFiltros({}); setColFiltrosDeb({}) }
-  }
-  const mudarFiltroColuna = (col: string, value: string) => {
-    const next = { ...colFiltros, [col]: value }
-    setColFiltros(next)
-    clearTimeout(colDebounceRef.current)
-    colDebounceRef.current = setTimeout(() => setColFiltrosDeb(next), 300)
-  }
-  const columnFilters = useMemo(
-    () => Object.entries(colFiltrosDeb).filter(([, v]) => v.trim()).map(([col, value]) => ({ col, value })),
-    [colFiltrosDeb],
-  )
+  const filtroCol = useFiltroColuna('contratos')
+  const columnFilters = filtroCol.ativos
   const { densidade } = useDensidade()
 
   /* ── query server-side (mesmo desenho do módulo Parceiros) ── */
@@ -439,25 +413,11 @@ export default function ContratosPage() {
       {/* cards de resumo — as categorias precisam FECHAR com o Total: enquanto
           "Cancelados" faltava aqui, um contrato cancelado entrava no Total e em
           nenhuma coluna, e a conta simplesmente não batia na tela. */}
-      <div role="group" aria-label="Filtrar por situação" className="grid grid-cols-4 lg:grid-cols-7 gap-2">
-        {INDICADORES.map(({ label, situacao, cls }) => {
-          /* Contagem pela situação EFETIVA (stats.byEffective) — e um clique filtra por ela.
-             Selecionado = fundo escuro + "✓ filtrando" escrito (cor nunca sozinha). */
-          const value = situacao ? serverStats.byEffective[situacao] ?? 0 : totalAll
-          const on = situacao === situacaoFiltro
-          return (
-            <button key={label} type="button" aria-pressed={on}
-              onClick={() => setSituacaoFiltro(situacao === situacaoFiltro ? null : situacao)}
-              className={cn('rounded-xl px-3 flex items-center justify-between gap-2 text-left transition-colors min-h-[var(--lista-indicador)]',
-                on ? 'bg-foreground text-background' : 'vidro bg-[var(--vidro-cartao)] hover:bg-card')}>
-              <span className={cn('text-[11px]', on ? 'text-background/80' : 'text-muted-foreground')}>
-                {label}{on && situacao && <span className="ml-1.5 font-semibold text-background">✓ filtrando</span>}
-              </span>
-              <span className={cn('text-sm font-bold tabular-nums', on ? 'text-background' : cls)}>{value}</span>
-            </button>
-          )
-        })}
-      </div>
+      <Indicadores className="grid-cols-4 lg:grid-cols-7" ativo={situacaoFiltro} onSelect={setSituacaoFiltro}
+        itens={INDICADORES.map(({ label, situacao, cls }) => ({
+          /* contagem pela situação EFETIVA (stats.byEffective) */
+          label, cls, filtro: situacao, valor: situacao ? serverStats.byEffective[situacao] ?? 0 : totalAll,
+        }))} />
 
       {/* toolbar */}
       <ListToolbar
@@ -474,12 +434,7 @@ export default function ContratosPage() {
         onExport={() => { void handleExport() }} exportDisabled={totalFiltered === 0}
         configSlot={
           <>
-          <button type="button" onClick={alternarFiltroColuna} aria-pressed={filtroColuna}
-            title="Mostrar uma linha de filtro embaixo do título de cada coluna"
-            className={cn('inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium transition-colors',
-              filtroColuna ? 'border-foreground bg-foreground text-background' : 'text-muted-foreground hover:text-foreground hover:bg-muted')}>
-            <Filter className="h-3.5 w-3.5" />Filtro na coluna{filtroColuna && <span className="text-[10px] font-semibold">· ligado</span>}
-          </button>
+          <BotaoFiltroColuna ligado={filtroCol.ligado} onClick={filtroCol.alternar} />
           <button onClick={() => setShowFields(true)}
             className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
             <Settings2 className="h-3.5 w-3.5" />Configurações
@@ -492,7 +447,7 @@ export default function ContratosPage() {
       {/* tabela */}
       <div className="rounded-xl border bg-card shadow-sm flex-1 min-h-0 flex flex-col">
         <div className="overflow-auto flex-1 min-h-0">
-        <table className="min-w-full text-[length:var(--lista-fonte)]">
+        <table className={cn('min-w-full', DENS_TABELA)}>
           <thead className="sticky top-0 z-20">
             <tr className="border-b">
               {orderedColumns.map((col, idx) => (
@@ -503,7 +458,7 @@ export default function ContratosPage() {
                   onDrop={() => { handleDrop(idx); clearDrag() }}
                   onDragEnd={clearDrag}
                   className={cn(
-                    'text-left px-[var(--lista-px)] h-[var(--lista-cab)] font-medium text-muted-foreground select-none cursor-grab active:cursor-grabbing transition-all whitespace-nowrap bg-muted',
+                    'text-left ' + DENS_CAB + ' font-medium text-muted-foreground select-none cursor-grab active:cursor-grabbing transition-all whitespace-nowrap bg-muted',
                     col.key === 'valor_total' && 'text-right',
                     idx === 0 && 'sticky left-0 z-20 bg-muted',
                     dragFrom === idx && 'opacity-40',
@@ -515,18 +470,8 @@ export default function ContratosPage() {
                 </th>
               ))}
             </tr>
-            {filtroColuna && (
-              /* filtro na coluna: "contém" sobre o que a célula MOSTRA (data dd/mm/aaaa,
-                 valor com milhar) — sempre somado em E aos Filtros avançados */
-              <tr className="border-b">
-                {orderedColumns.map((col, idx) => (
-                  <th key={col.key} className={cn('bg-muted px-[var(--lista-px)] pb-1.5 pt-0 font-normal', idx === 0 && 'sticky left-0 z-20')}>
-                    <input value={colFiltros[col.key] ?? ''} onChange={e => mudarFiltroColuna(col.key, e.target.value)}
-                      aria-label={`Filtrar ${col.label}`} placeholder="contém…"
-                      className="h-6 w-full min-w-[80px] rounded border border-input bg-background px-1.5 text-[11px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
-                  </th>
-                ))}
-              </tr>
+            {filtroCol.ligado && (
+              <LinhaFiltroColuna colunas={orderedColumns} valores={filtroCol.valores} onChange={filtroCol.mudar} primeiraFixa />
             )}
           </thead>
           <tbody>

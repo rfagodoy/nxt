@@ -11,6 +11,7 @@ import { Loader2, User, GitBranch, CheckCircle2, Undo2, Clock, UserPlus, Ban, Ro
 import { apiJson } from '@/lib/http'
 import { useAoVivo } from '@/lib/realtime'
 import { cn } from '@/lib/utils'
+import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
 import { TableToolbar } from '@/components/list/table-toolbar'
 import { filterRows, type FilterRow } from '@/lib/list-filter'
 import {
@@ -42,7 +43,7 @@ function FilteredTable<T>({ cols, rows, rowKey, emptyText }: {
           logic={logic} onLogicChange={setLogic} filteredCount={filtered.length} totalCount={rows?.length ?? 0} />
       </div>
       <div className="overflow-x-auto mt-2">
-        <table className="min-w-full text-xs">
+        <table className={cn('min-w-full', DENS_TABELA)}>
           <thead className="sticky top-0 z-10">
             <tr className="border-b">
               {cols.map((c) => <th key={c.key} className="text-left px-3 py-1.5 font-medium text-muted-foreground whitespace-nowrap bg-muted">{c.label}</th>)}

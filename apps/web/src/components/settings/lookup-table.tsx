@@ -6,6 +6,7 @@ import {
   ArrowUp, ArrowDown, ChevronsUpDown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { DENS_CEL, DENS_CAB } from '@/lib/densidade'
 import { exportExcel } from '@/lib/export-excel'
 import { useLookupTable, type LookupEntry } from '@/hooks/use-lookup-table'
 import { SettingsTableShell, type StatusFilter } from './settings-table-shell'
@@ -157,7 +158,7 @@ export function LookupTablePage({
     return sort.dir === 'asc' ? <ArrowUp className="h-3 w-3 ml-1 text-primary" /> : <ArrowDown className="h-3 w-3 ml-1 text-primary" />
   }
   const ThSort = ({ col, label, className }: { col: SortCol; label: string; className?: string }) => (
-    <th className={cn('text-left px-3 py-1.5 font-medium text-muted-foreground', className)}>
+    <th className={cn('text-left font-medium text-muted-foreground', DENS_CAB, className)}>
       <button type="button" onClick={() => handleSort(col)} className="group/h inline-flex items-center hover:text-foreground transition-colors">
         {label}<SortIcon col={col} />
       </button>
@@ -184,11 +185,11 @@ export function LookupTablePage({
     >
       <thead className="sticky top-0 z-10 [&_th]:bg-muted">
         <tr className="border-b">
-          <th className="text-left px-4 py-1.5 font-medium text-muted-foreground w-8">#</th>
+          <th className={cn('text-left font-medium text-muted-foreground w-8', DENS_CAB)}>#</th>
           {withCode && <ThSort col="code" label={codeLabel} className="w-28" />}
           <ThSort col="label" label="Nome" />
           {selectField && <ThSort col="origem" label={selectField.label} className="w-56" />}
-          <th className="text-center px-3 py-1.5 font-medium text-muted-foreground w-20">Ativo</th>
+          <th className={cn('text-center font-medium text-muted-foreground w-20', DENS_CAB)}>Ativo</th>
           <th className="w-20" />
         </tr>
       </thead>
@@ -197,15 +198,15 @@ export function LookupTablePage({
         {/* linha de adição */}
         {adding && (
           <tr className="border-b bg-primary/5">
-            <td className="px-4 py-1 text-muted-foreground">—</td>
+            <td className={cn(DENS_CEL, 'text-muted-foreground')}>—</td>
             {withCode && (
-              <td className="px-3 py-1">
+              <td className={DENS_CEL}>
                 <input value={newCode} onChange={e => setNewCode(sanitizeCode(e.target.value))} maxLength={codeMaxLength}
                   onKeyDown={e => { if (e.key === 'Enter') handleAdd(); if (e.key === 'Escape') cancelAdd() }}
                   placeholder={codePlaceholder} className={inputCls} autoFocus={withCode} />
               </td>
             )}
-            <td className="px-3 py-1">
+            <td className={DENS_CEL}>
               <div className="space-y-1">
                 <input value={newLabel} onChange={e => { setNewLabel(e.target.value); setLabelErr('') }}
                   onKeyDown={e => { if (e.key === 'Enter') handleAdd(); if (e.key === 'Escape') cancelAdd() }}
@@ -214,14 +215,14 @@ export function LookupTablePage({
               </div>
             </td>
             {selectField && (
-              <td className="px-3 py-1">
+              <td className={DENS_CEL}>
                 <select value={newOrigem} onChange={e => setNewOrigem(e.target.value)} className={inputCls}>
                   {selectField.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </td>
             )}
             <td />
-            <td className="px-3 py-1">
+            <td className={DENS_CEL}>
               <div className="flex items-center justify-end gap-1">
                 <button type="button" onClick={handleAdd} title="Confirmar" className="flex h-6 w-6 items-center justify-center rounded text-primary hover:bg-primary/10 transition-colors"><Check className="h-3.5 w-3.5" /></button>
                 <button type="button" onClick={cancelAdd} title="Cancelar" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted transition-colors"><X className="h-3.5 w-3.5" /></button>
@@ -237,15 +238,15 @@ export function LookupTablePage({
         ) : displayed.map((entry, idx) => (
           editingId === entry.id ? (
             <tr key={entry.id} className="border-b last:border-0 bg-primary/5">
-              <td className="px-4 py-1 text-muted-foreground">{idx + 1}</td>
+              <td className={cn(DENS_CEL, 'text-muted-foreground')}>{idx + 1}</td>
               {withCode && (
-                <td className="px-3 py-1">
+                <td className={DENS_CEL}>
                   <input value={editCode} onChange={e => setEditCode(sanitizeCode(e.target.value))} maxLength={codeMaxLength}
                     onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditingId(null) }}
                     placeholder={codePlaceholder} className={inputCls} autoFocus={withCode} />
                 </td>
               )}
-              <td className="px-3 py-1">
+              <td className={DENS_CEL}>
                 <div className="space-y-1">
                   <input value={editLabel} onChange={e => { setEditLabel(e.target.value); setEditErr('') }}
                     onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditingId(null) }}
@@ -254,14 +255,14 @@ export function LookupTablePage({
                 </div>
               </td>
               {selectField && (
-                <td className="px-3 py-1">
+                <td className={DENS_CEL}>
                   <select value={editOrigem} onChange={e => setEditOrigem(e.target.value)} className={inputCls}>
                     {selectField.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </td>
               )}
               <td />
-              <td className="px-3 py-1">
+              <td className={DENS_CEL}>
                 <div className="flex items-center justify-end gap-1">
                   <button type="button" onClick={saveEdit} title="Salvar" className="flex h-6 w-6 items-center justify-center rounded text-primary hover:bg-primary/10 transition-colors"><Check className="h-3.5 w-3.5" /></button>
                   <button type="button" onClick={() => setEditingId(null)} title="Cancelar" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted transition-colors"><X className="h-3.5 w-3.5" /></button>
@@ -270,16 +271,16 @@ export function LookupTablePage({
             </tr>
           ) : (
             <tr key={entry.id} className={cn('border-b last:border-0 hover:bg-muted/30 transition-colors group/row', !entry.active && 'opacity-50')}>
-              <td className="px-4 py-1 text-muted-foreground tabular-nums">{idx + 1}</td>
-              {withCode && <td className="px-3 py-1 font-mono text-muted-foreground">{entry.code ?? '—'}</td>}
-              <td className="px-3 py-1 font-medium">{entry.label}</td>
-              {selectField && <td className="px-3 py-1 text-muted-foreground">{origemLabel(selectField ? (entry[selectField.field] as string | undefined) : undefined)}</td>}
-              <td className="px-3 py-1 text-center">
+              <td className={cn(DENS_CEL, 'text-muted-foreground tabular-nums')}>{idx + 1}</td>
+              {withCode && <td className={cn(DENS_CEL, 'font-mono text-muted-foreground')}>{entry.code ?? '—'}</td>}
+              <td className={cn(DENS_CEL, 'font-medium')}>{entry.label}</td>
+              {selectField && <td className={cn(DENS_CEL, 'text-muted-foreground')}>{origemLabel(selectField ? (entry[selectField.field] as string | undefined) : undefined)}</td>}
+              <td className={cn(DENS_CEL, 'text-center')}>
                 <button type="button" onClick={() => toggle(entry.id)} title={entry.active ? 'Desativar' : 'Ativar'} className="inline-flex items-center justify-center transition-colors">
                   {entry.active ? <ToggleRight className="h-5 w-5 text-primary" /> : <ToggleLeft className="h-5 w-5 text-muted-foreground" />}
                 </button>
               </td>
-              <td className="px-3 py-1">
+              <td className={DENS_CEL}>
                 <div className="flex items-center justify-end gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
                   <button type="button" onClick={() => startEdit(entry)} title="Editar" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"><Pencil className="h-3.5 w-3.5" /></button>
                   <button type="button" onClick={() => remove(entry.id)} title="Excluir" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>

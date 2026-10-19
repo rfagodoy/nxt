@@ -8,6 +8,7 @@ import {
   Clock, ChevronDown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
 import { apiFetch, motivoDoErro } from '@/lib/http'
 import { usePartnerLogs, getLogUser, LOG_EVENT_LABEL, LOG_EVENT_CLS, type LogEvent } from '@/hooks/use-partner-logs'
 
@@ -278,22 +279,22 @@ export default function ParceiroDetail() {
             </span>
           </div>
           <div className="overflow-hidden">
-            <table className="w-full text-xs">
+            <table className={cn('w-full', DENS_TABELA)}>
               <thead>
                 <tr className="border-b bg-muted/20">
-                  <th className="text-left px-4 py-2 font-medium text-muted-foreground">Nome</th>
-                  <th className="text-left px-4 py-2 font-medium text-muted-foreground">Documento</th>
-                  <th className="text-left px-4 py-2 font-medium text-muted-foreground">Participação</th>
-                  <th className="text-left px-4 py-2 font-medium text-muted-foreground">Cargo</th>
+                  <th className={cn('text-left font-medium text-muted-foreground', DENS_CAB)}>Nome</th>
+                  <th className={cn('text-left font-medium text-muted-foreground', DENS_CAB)}>Documento</th>
+                  <th className={cn('text-left font-medium text-muted-foreground', DENS_CAB)}>Participação</th>
+                  <th className={cn('text-left font-medium text-muted-foreground', DENS_CAB)}>Cargo</th>
                 </tr>
               </thead>
               <tbody>
                 {partner.socios.map((s, i) => (
                   <tr key={i} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
-                    <td className="px-4 py-2 font-medium">{s.nome || '—'}</td>
-                    <td className="px-4 py-2 font-mono text-muted-foreground">{s.documento || '—'}</td>
-                    <td className="px-4 py-2">{s.participacao || '—'}</td>
-                    <td className="px-4 py-2 text-muted-foreground">{s.cargo || '—'}</td>
+                    <td className={cn(DENS_CEL, 'py-2 font-medium')}>{s.nome || '—'}</td>
+                    <td className={cn(DENS_CEL, 'py-2 font-mono text-muted-foreground')}>{s.documento || '—'}</td>
+                    <td className={cn(DENS_CEL, 'py-2')}>{s.participacao || '—'}</td>
+                    <td className={cn(DENS_CEL, 'py-2 text-muted-foreground')}>{s.cargo || '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -320,40 +321,40 @@ export default function ParceiroDetail() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+            <table className={cn('w-full', DENS_TABELA)}>
               <thead>
                 <tr className="border-b bg-muted/30">
-                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground whitespace-nowrap">Data/hora</th>
-                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Usuário</th>
-                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Motivo</th>
-                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground whitespace-nowrap">Status</th>
+                  <th className={cn('text-left font-medium text-muted-foreground whitespace-nowrap', DENS_CAB)}>Data/hora</th>
+                  <th className={cn('text-left font-medium text-muted-foreground', DENS_CAB)}>Usuário</th>
+                  <th className={cn('text-left font-medium text-muted-foreground', DENS_CAB)}>Motivo</th>
+                  <th className={cn('text-left font-medium text-muted-foreground whitespace-nowrap', DENS_CAB)}>Status</th>
                 </tr>
               </thead>
               <tbody>
                 {[...logs].reverse().map(log => (
                   <tr key={log.id} className="border-b last:border-0 hover:bg-muted/20 transition-colors">
-                    <td className="px-4 py-2.5 text-muted-foreground tabular-nums whitespace-nowrap align-top">
+                    <td className={cn(DENS_CEL, 'py-2.5 text-muted-foreground tabular-nums whitespace-nowrap align-top')}>
                       {formatLogDate(log.ts)}
                     </td>
-                    <td className="px-4 py-2.5 text-muted-foreground align-top whitespace-nowrap">{log.user}</td>
-                    <td className="px-4 py-2.5 align-top">
+                    <td className={cn(DENS_CEL, 'py-2.5 text-muted-foreground align-top whitespace-nowrap')}>{log.user}</td>
+                    <td className={cn(DENS_CEL, 'py-2.5 align-top')}>
                       <p className="leading-snug">{log.description}</p>
                       {log.changes && log.changes.length > 0 && (
                         <div className="mt-2 rounded border overflow-hidden">
                           <table className="w-full text-[11px]">
                             <thead>
                               <tr className="bg-muted/40 border-b">
-                                <th className="px-3 py-1.5 text-left font-medium text-muted-foreground w-1/3">Campo</th>
-                                <th className="px-3 py-1.5 text-left font-medium text-muted-foreground w-1/3">Antes</th>
-                                <th className="px-3 py-1.5 text-left font-medium text-muted-foreground w-1/3">Depois</th>
+                                <th className={cn('text-left font-medium text-muted-foreground w-1/3', DENS_CAB)}>Campo</th>
+                                <th className={cn('text-left font-medium text-muted-foreground w-1/3', DENS_CAB)}>Antes</th>
+                                <th className={cn('text-left font-medium text-muted-foreground w-1/3', DENS_CAB)}>Depois</th>
                               </tr>
                             </thead>
                             <tbody>
                               {log.changes.map((c, i) => (
                                 <tr key={i} className="border-b last:border-0">
-                                  <td className="px-3 py-1.5 font-medium">{c.label}</td>
-                                  <td className="px-3 py-1.5 text-muted-foreground line-through">{c.before || '—'}</td>
-                                  <td className="px-3 py-1.5">{c.after || '—'}</td>
+                                  <td className={cn(DENS_CEL, 'py-1.5 font-medium')}>{c.label}</td>
+                                  <td className={cn(DENS_CEL, 'py-1.5 text-muted-foreground line-through')}>{c.before || '—'}</td>
+                                  <td className={cn(DENS_CEL, 'py-1.5')}>{c.after || '—'}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -361,7 +362,7 @@ export default function ParceiroDetail() {
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-2.5 align-top">
+                    <td className={cn(DENS_CEL, 'py-2.5 align-top')}>
                       <span className={cn('inline-flex items-center rounded px-2 py-0.5 text-[10px] font-semibold tracking-wide whitespace-nowrap', LOG_EVENT_CLS[log.event])}>
                         {LOG_EVENT_LABEL[log.event]}
                       </span>

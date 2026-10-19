@@ -5,6 +5,9 @@ import Link from 'next/link'
 import {
   AlertTriangle, Loader2, RefreshCw, RotateCw, XCircle, CheckCircle2, ArrowLeft, ChevronRight,
 } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
+import { DensidadeSelect } from '@/components/list/densidade-select'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { CancelInstanceButton } from '@/components/processes/cancel-instance-button'
@@ -101,20 +104,20 @@ export default function InstanciasErroPage() {
         ) : rows.length === 0 ? (
           <EmptyState icon={CheckCircle2} tone="success" title="Nenhuma instância com erro 🎉" description="Todos os processos em andamento estão saudáveis" />
         ) : (
-          <table className="w-full text-sm">
+          <table className={cn('w-full', DENS_TABELA)}>
             <thead>
               <tr className="border-b bg-muted/40 text-[11px] uppercase tracking-wide text-muted-foreground">
-                <th className="text-left font-medium px-3 py-1.5">Processo / etapa parada</th>
-                <th className="text-left font-medium px-3 py-1.5">Causa do erro</th>
-                <th className="text-left font-medium px-3 py-1.5 w-40">Iniciado por</th>
-                <th className="text-left font-medium px-3 py-1.5 w-28">Atualizado</th>
-                <th className="text-right font-medium px-3 py-1.5 w-52">Ações</th>
+                <th className={cn('text-left font-medium', DENS_CAB)}>Processo / etapa parada</th>
+                <th className={cn('text-left font-medium', DENS_CAB)}>Causa do erro</th>
+                <th className={cn('text-left font-medium w-40', DENS_CAB)}>Iniciado por</th>
+                <th className={cn('text-left font-medium w-28', DENS_CAB)}>Atualizado</th>
+                <th className={cn('text-right font-medium w-52', DENS_CAB)}>Ações</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((inst) => (
                 <tr key={inst.id} className="border-b last:border-0 align-top hover:bg-muted/30">
-                  <td className="px-3 py-2">
+                  <td className={cn(DENS_CEL, 'py-1.5')}>
                     <p className="font-medium">{inst.processName} <span className="text-[11px] text-muted-foreground font-normal">v{inst.version}</span></p>
                     {inst.stepName && (
                       <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground mt-0.5">
@@ -122,15 +125,15 @@ export default function InstanciasErroPage() {
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-2">
+                  <td className={cn(DENS_CEL, 'py-1.5')}>
                     <span className="inline-flex items-start gap-1.5 text-[12px] text-red-700 dark:text-red-300">
                       <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                       <span className="max-w-md">{inst.error || 'Erro não especificado'}</span>
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-muted-foreground text-[12px]">{inst.startedBy || '—'}</td>
-                  <td className="px-3 py-2 text-muted-foreground text-[12px] whitespace-nowrap">{fmt(inst.updatedAt)}</td>
-                  <td className="px-3 py-2">
+                  <td className={cn(DENS_CEL, 'py-1.5 text-muted-foreground text-[12px]')}>{inst.startedBy || '—'}</td>
+                  <td className={cn(DENS_CEL, 'py-1.5 text-muted-foreground text-[12px] whitespace-nowrap')}>{fmt(inst.updatedAt)}</td>
+                  <td className={cn(DENS_CEL, 'py-1.5')}>
                     <div className="flex items-center justify-end gap-1.5">
                       <Button size="sm" disabled={busy === inst.id} onClick={() => retry(inst)} title="Reexecutar a etapa automática que falhou">
                         {busy === inst.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
@@ -147,6 +150,12 @@ export default function InstanciasErroPage() {
               ))}
             </tbody>
           </table>
+        )}
+        {rows && rows.length > 0 && (
+          <div className="flex items-center gap-3 border-t px-3 py-1.5 bg-muted/20 text-[11px] text-muted-foreground">
+            <span className="font-semibold text-foreground tabular-nums">{rows.length} {rows.length === 1 ? 'instância' : 'instâncias'} com erro</span>
+            <DensidadeSelect />
+          </div>
         )}
       </div>
     </div>

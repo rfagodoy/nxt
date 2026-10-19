@@ -121,7 +121,7 @@ export function ListToolbar({
           </button>
         )}
 
-        {configSlot && <div className="ml-auto">{configSlot}</div>}
+        {configSlot && <div className="ml-auto flex items-center gap-2">{configSlot}</div>}
 
         <button onClick={onExport} disabled={exportDisabled}
           className={cn('inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors', CONTROLE, !configSlot && 'ml-auto')}>
