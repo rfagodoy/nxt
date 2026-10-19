@@ -2,9 +2,15 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { X, FileText, Users, Eraser, ChevronLeft, ChevronRight } from 'lucide-react'
+import { X, FileText, Handshake, ListChecks, Activity, Building2, Eraser, ChevronLeft, ChevronRight, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useWorkspace } from '@/contexts/workspace-context'
+import { useWorkspace, type WorkspaceKind } from '@/contexts/workspace-context'
+
+/* Ícone da aba = o MESMO do item do menu de onde o documento vem. Antes tudo que não
+   era contrato levava o ícone de pessoas — inclusive tarefa, processo e unidade. */
+const ICONE_DA_ABA: Record<WorkspaceKind, LucideIcon> = {
+  contract: FileText, partner: Handshake, task: ListChecks, 'process-instance': Activity, unit: Building2,
+}
 
 /* Faixa de abas GLOBAL do shell — documentos de qualquer módulo (contrato + parceiro + unidade) juntos.
    Só existe com documento aberto: sem abas, não há barra nenhuma e o conteúdo começa no topo.
@@ -92,7 +98,7 @@ export function WorkspaceBar() {
       {/* abas de documento (rolam) */}
       <div ref={scrollRef} className="flex items-center flex-1 min-w-0 gap-0.5 overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none] [-ms-overflow-style:none]">
         {tabs.map((t, i) => {
-          const Icon    = t.kind === 'contract' ? FileText : Users
+          const Icon    = ICONE_DA_ABA[t.kind]
           const active  = activeId === t.id
           const isDirty = !!dirty[t.id]
           return (
@@ -111,7 +117,7 @@ export function WorkspaceBar() {
               className={cn(tabBase,
                 active ? activeCls : idleCls,
                 overIdx === i && drag !== null && drag !== i && 'ring-1 ring-primary/40')}>
-              <Icon className={cn('h-3.5 w-3.5 shrink-0', active ? (t.kind === 'contract' ? 'text-primary' : 'text-emerald-500') : '')} />
+              <Icon className={cn('h-3.5 w-3.5 shrink-0', active && 'text-primary')} />
               <span className="text-xs font-medium max-w-[160px] truncate">{t.label}</span>
               <span className="relative ml-0.5 flex h-4 w-4 items-center justify-center shrink-0">
                 {isDirty && <span className="absolute h-1.5 w-1.5 rounded-full bg-amber-500 group-hover:opacity-0 transition-opacity" title="Alterações não salvas" />}
