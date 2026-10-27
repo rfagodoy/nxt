@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { lerDesenho, podarDesenho, pontoDaSeta } from '../src/desenho'
+import { lerDesenho, podarDesenho, pontoDaSeta, ligacaoPermitida, MSG_LOSANGO, MSG_PARALELO, MSG_ORDEM, MSG_DESTINO } from '../src/desenho'
 import type { FluxoBlocos, ItemAtividade } from '../src/blocos'
 
 const at = (id: string): ItemAtividade => ({ kind: 'atividade', id, tipo: 'userTask', nome: id })
@@ -53,5 +53,42 @@ describe('pontoDaSeta', () => {
   it('seta de volta ou inexistente não é vaga', () => {
     expect(pontoDaSeta(f, 'X', 'A')).toBeNull()
     expect(pontoDaSeta(f, 'nada', 'B')).toBeNull()
+  })
+})
+
+describe('ligacaoPermitida', () => {
+  const esc = (): FluxoBlocos['itens'][number] => ({
+    kind: 'escolha', id: 'E', modo: 'primeiro',
+    caminhos: [{ id: 'c1', itens: [at('X')], fim: { tipo: 'segue' } }],
+    casoContrario: { id: 'cc', itens: [at('W')], fim: { tipo: 'segue' } },
+  })
+  const f: FluxoBlocos = { versao: 1, inicioId: 'start', fimId: 'end', itens: [at('A'), esc(), at('B')] }
+
+  it('última tarefa do caminho -> tarefa anterior = volta', () => {
+    expect(ligacaoPermitida(f, 'X', 'A')).toEqual({ ok: true, caminhoId: 'c1', fim: { tipo: 'volta', alvoId: 'A' } })
+  })
+  it('última tarefa do caminho -> fim = encerra', () => {
+    expect(ligacaoPermitida(f, 'X', 'end')).toEqual({ ok: true, caminhoId: 'c1', fim: { tipo: 'encerra' } })
+  })
+  it('losango como destino é recusado', () => {
+    expect(ligacaoPermitida(f, 'X', 'E')).toEqual({ ok: false, motivo: MSG_LOSANGO })
+    expect(ligacaoPermitida(f, 'X', 'E__fim')).toEqual({ ok: false, motivo: MSG_LOSANGO })
+  })
+  it('tarefa depois da escolha não é destino de volta', () => {
+    expect(ligacaoPermitida(f, 'X', 'B')).toEqual({ ok: false, motivo: MSG_DESTINO })
+  })
+  it('origem que não fecha caminho -> ordem', () => {
+    expect(ligacaoPermitida(f, 'A', 'B')).toEqual({ ok: false, motivo: MSG_ORDEM })
+  })
+  it('caso contrário não é origem válida', () => {
+    expect(ligacaoPermitida(f, 'W', 'A')).toEqual({ ok: false, motivo: MSG_ORDEM })
+  })
+  it('escolha dentro de frente de paralelo -> MSG_PARALELO', () => {
+    const g: FluxoBlocos = {
+      versao: 1, inicioId: 'start', fimId: 'end',
+      itens: [at('A'), { kind: 'paralelo', id: 'P', caminhos: [{ id: 'f1', itens: [esc()] }, { id: 'f2', itens: [at('Z')] }] }],
+    }
+    expect(ligacaoPermitida(g, 'X', 'A')).toEqual({ ok: false, motivo: MSG_PARALELO })
+    expect(ligacaoPermitida(g, 'X', 'end')).toEqual({ ok: false, motivo: MSG_PARALELO })
   })
 })

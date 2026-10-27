@@ -3,7 +3,7 @@
  * defensiva do desenho gravado e a regra de "onde soltar": dada uma seta do grafo gerado
  * (de → para), qual é a vaga (lista + índice) do fluxo em blocos que ela representa. */
 import type { DesenhoBpmn } from '@nxt/types'
-import { SUFIXO_REENCONTRO, temSenaoAntigo, type FluxoBlocos, type ItemFluxo } from './blocos'
+import { SUFIXO_REENCONTRO, destinosDeVolta, listarEscolhas, temSenaoAntigo, type BlocoEscolha, type FimCaminho, type FluxoBlocos, type ItemFluxo } from './blocos'
 
 /** Vaga de inserção: lista (`'raiz'` ou id do caminho) e posição dentro dela. */
 export interface PontoDeInsercao { ref: string; indice: number }
@@ -60,4 +60,54 @@ export function pontoDaSeta(f: FluxoBlocos, de: string, para: string): PontoDeIn
   }
   lista('raiz', f.itens, f.inicioId, f.fimId)
   return achado
+}
+
+/* ─── setas desenhadas à mão ─────────────────────────────────────────────────────── */
+
+export type Ligacao = { ok: true; caminhoId: string; fim: FimCaminho } | { ok: false; motivo: string }
+
+export const MSG_LOSANGO = 'Uma volta só pode apontar para uma tarefa — voltar para um losango trava o processo.'
+export const MSG_PARALELO = 'Dentro de “ao mesmo tempo” não dá para voltar nem encerrar: as outras frentes continuariam rodando.'
+export const MSG_ORDEM = 'As setas seguem a ordem das etapas. Para mudar a ordem, arraste a etapa para cima de outra seta.'
+export const MSG_DESTINO = 'Só dá para voltar para uma tarefa que vem antes desta escolha e fora de “ao mesmo tempo”.'
+
+/** Ids das escolhas que moram (em qualquer profundidade) dentro de uma frente de paralelo,
+ *  e ids de todos os paralelos. */
+function mapearParalelos(f: FluxoBlocos): { dentroDeParalelo: Set<string>; paralelos: Set<string> } {
+  const dentroDeParalelo = new Set<string>()
+  const paralelos = new Set<string>()
+  const varrer = (itens: ItemFluxo[], dentro: boolean) => {
+    for (const it of itens) {
+      if (it.kind === 'escolha') {
+        if (dentro) dentroDeParalelo.add(it.id)
+        for (const c of it.caminhos) varrer(c.itens, dentro)
+        varrer(it.casoContrario.itens, dentro)
+      } else if (it.kind === 'paralelo') {
+        paralelos.add(it.id)
+        for (const c of it.caminhos) varrer(c.itens, true)
+      }
+    }
+  }
+  varrer(f.itens, false)
+  return { dentroDeParalelo, paralelos }
+}
+
+/** Uma seta `de → para` desenhada à mão vira o fim de um caminho (volta ou encerra)? */
+export function ligacaoPermitida(f: FluxoBlocos, de: string, para: string): Ligacao {
+  let escolha: BlocoEscolha | null = null
+  let caminhoId = ''
+  for (const e of listarEscolhas(f)) {
+    const c = e.caminhos.find((x) => {
+      const ultimo = x.itens[x.itens.length - 1]
+      return ultimo?.kind === 'atividade' && ultimo.id === de
+    })
+    if (c) { escolha = e; caminhoId = c.id; break }
+  }
+  if (!escolha) return { ok: false, motivo: MSG_ORDEM }
+  const { dentroDeParalelo, paralelos } = mapearParalelos(f)
+  if (dentroDeParalelo.has(escolha.id)) return { ok: false, motivo: MSG_PARALELO }
+  if (para === f.fimId) return { ok: true, caminhoId, fim: { tipo: 'encerra' } }
+  if (destinosDeVolta(f, escolha.id).some((a) => a.id === para)) return { ok: true, caminhoId, fim: { tipo: 'volta', alvoId: para } }
+  const ehLosango = para.endsWith(SUFIXO_REENCONTRO) || paralelos.has(para) || listarEscolhas(f).some((e) => e.id === para)
+  return { ok: false, motivo: ehLosango ? MSG_LOSANGO : MSG_DESTINO }
 }
