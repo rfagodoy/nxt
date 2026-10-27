@@ -7,10 +7,12 @@ import type { GrafoGerado } from '@nxt/workflow-core'
 import { layoutGraph, LANE_SEM_RESPONSAVEL, type FlowGraph, type FlowNodeType } from '@/lib/flow-layout'
 
 export const GRADE = 16
-export const RAIA_ALTURA_PADRAO = 140
+export const RAIA_ALTURA_PADRAO = 144
 export const RAIA_ROTULO_W = 120
-/** Menor altura a que a alça deixa encolher uma raia. */
-export const RAIA_ALTURA_MINIMA = 60
+/** Menor altura a que a alça deixa encolher uma raia. Alturas sempre múltiplas da GRADE. */
+export const RAIA_ALTURA_MINIMA = 64
+/** Maior altura que a alça aceita (o separador anuncia mínimo e máximo). */
+export const RAIA_ALTURA_MAXIMA = 1600
 /** Distância horizontal entre um nó e o que vem depois dele, ao completar posições. */
 const PASSO_X = 200
 
@@ -158,13 +160,16 @@ const trocarRaia = (d: DesenhoBpmn, id: string, muda: (r: RaiaDesenho) => RaiaDe
   return { ...d, raias: d.raias.map((r, j) => (j === i ? nova : r)) }
 }
 
+/** Nome em branco é cancelar: devolve o mesmo desenho (a raia "sem nome" só nasce do layout). */
 export function renomearRaia(d: DesenhoBpmn, id: string, nome: string): DesenhoBpmn {
-  return trocarRaia(d, id, (r) => ({ ...r, nome: nome.trim() }))
+  const limpo = nome.trim()
+  if (!limpo) return d
+  return trocarRaia(d, id, (r) => ({ ...r, nome: limpo }))
 }
 
-/** Nova altura na grade, nunca abaixo de `RAIA_ALTURA_MINIMA`. */
+/** Nova altura na grade, entre `RAIA_ALTURA_MINIMA` e `RAIA_ALTURA_MAXIMA`. */
 export function redimensionarRaia(d: DesenhoBpmn, id: string, altura: number): DesenhoBpmn {
-  return trocarRaia(d, id, (r) => ({ ...r, altura: Math.max(RAIA_ALTURA_MINIMA, naGrade(altura)) }))
+  return trocarRaia(d, id, (r) => ({ ...r, altura: Math.min(RAIA_ALTURA_MAXIMA, Math.max(RAIA_ALTURA_MINIMA, naGrade(altura))) }))
 }
 
 /** Troca a raia de lugar com a de cima (-1) ou a de baixo (1). As formas ficam onde estão. */

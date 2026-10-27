@@ -3,7 +3,7 @@ import type { GrafoGerado } from '@nxt/workflow-core'
 import type { DesenhoBpmn } from '@nxt/types'
 import { nodeSize } from './flow-layout'
 import {
-  GRADE, RAIA_ALTURA_PADRAO, RAIA_ALTURA_MINIMA, desenhoInicial, organizar, completarPosicoes, raiaNaAltura, avisoDeRaia, setaSobPonto, polilinhaDaSeta,
+  GRADE, RAIA_ALTURA_PADRAO, RAIA_ALTURA_MINIMA, RAIA_ALTURA_MAXIMA, desenhoInicial, organizar, completarPosicoes, raiaNaAltura, avisoDeRaia, setaSobPonto, polilinhaDaSeta,
   adicionarRaia, renomearRaia, redimensionarRaia, moverRaia, removerRaia,
 } from './desenho-bpmn'
 
@@ -173,10 +173,21 @@ describe('edição das raias', () => {
     expect(renomearRaia(b, 'x', 'Y')).toBe(b)
   })
 
+  it('renomearRaia com nome em branco é cancelar: devolve o mesmo desenho', () => {
+    const b = base()
+    expect(renomearRaia(b, 'r1', '')).toBe(b)
+    expect(renomearRaia(b, 'r1', '   ')).toBe(b)
+  })
+
   it('redimensionarRaia prende ao mínimo e à grade', () => {
     const b = base()
     expect(redimensionarRaia(b, 'r1', 10).raias[0].altura).toBe(RAIA_ALTURA_MINIMA)
-    expect(RAIA_ALTURA_MINIMA).toBe(60)
+    expect(RAIA_ALTURA_MINIMA).toBe(64)
+    expect(RAIA_ALTURA_PADRAO).toBe(144)
+    expect(RAIA_ALTURA_MINIMA % GRADE).toBe(0)
+    expect(RAIA_ALTURA_PADRAO % GRADE).toBe(0)
+    expect(redimensionarRaia(b, 'r1', 99999).raias[0].altura).toBe(RAIA_ALTURA_MAXIMA)
+    expect(RAIA_ALTURA_MAXIMA % GRADE).toBe(0)
     expect(redimensionarRaia(b, 'r1', 203).raias[0].altura).toBe(208)
     expect(redimensionarRaia(b, 'r1', 203).raias[0].altura % GRADE).toBe(0)
     expect(redimensionarRaia(b, 'r2', 160)).toBe(b)

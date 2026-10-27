@@ -288,6 +288,8 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   consultas.current = { responsavelDe: props.responsavelDe, prazoDe: props.prazoDe, problemasDe: props.problemasDe }
   /** Altura provisória da raia enquanto a alça é arrastada (só na tela; grava ao soltar). */
   const [previa, setPrevia] = useState<{ id: string; altura: number } | null>(null)
+  // a raia da prévia sumiu ou o desenho virou só leitura: descarta (ajuste durante o render)
+  if (previa && (somenteLeitura || !desenho.raias.some((r) => r.id === previa.id))) setPrevia(null)
   const desenhoVisto = useMemo(() => (previa ? redimensionarRaia(desenho, previa.id, previa.altura) : desenho), [desenho, previa])
   const projetados = useMemo(
     () => projetarNos({ grafo, desenho: desenhoVisto, steps, selecionado, nomeDoProcesso, ...consultas.current }),
