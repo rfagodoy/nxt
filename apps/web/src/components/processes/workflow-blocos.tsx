@@ -9,7 +9,7 @@
  * saída do bloco. O grafo que o motor executa é gerado disso (@nxt/workflow-core/blocos).
  */
 
-import { createContext, Fragment, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, Fragment, useContext, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { AlertTriangle, ArrowDown, ArrowUp, Building2, ChevronDown, ChevronsDownUp, ChevronsUpDown, Clock, CornerDownRight, GripVertical, Info, Link2, Map as MapIcon, Play, Plus, SlidersHorizontal, Trash2, User, UserSquare, X, Zap } from 'lucide-react'
 import {
   acharItem, adicionarCaminho, atualizarCaminho, atualizarItem, destinosDeVolta, gruposDeVinculo, listarAtividades, modoDaEscolha, moverCaminho, moverItem, removerCaminho, senaoParaCaminho, temSenaoAntigo,
@@ -139,6 +139,9 @@ interface TrilhoCtx extends TrilhoProps {
   problemas: Map<string, ProblemaAtivacao[]>
   emParalelo: Set<string>
   nomeDe: (id: string) => string
+  /** Só a CONFIGURAÇÃO do bloco (gaveta lateral do desenho BPMN): as `Sequencia`s
+   *  aninhadas não aparecem — as etapas moram no desenho. */
+  soConfiguracao?: boolean
 }
 const Ctx = createContext<TrilhoCtx | null>(null)
 function useTrilho(): TrilhoCtx {
@@ -709,28 +712,30 @@ function TestarEscolha({ bloco }: { bloco: BlocoEscolha }) {
 function BlocoEscolhaView({ bloco }: { bloco: BlocoEscolha }) {
   const t = useTrilho()
   const { alca, bloco: arrasto } = useArrastoPelaAlca(bloco.id)
+  const so = !!t.soConfiguracao
   const dentroParalelo = t.emParalelo.has(bloco.id)
   const todos = modoDaEscolha(bloco) === 'todos'
+  const ordemConta = !todos && bloco.caminhos.length > 1
   const sim = t.simulacao?.blocoId === bloco.id ? t.simulacao : null
   const luz = (id: string) => ({ acesa: !!sim && sim.caminhoIds.includes(id), apagada: !!sim && !sim.caminhoIds.includes(id) })
   const senao = bloco.casoContrario
   const senaoAntigo = temSenaoAntigo(bloco)
   return (
-    <section data-item-id={bloco.id} aria-label="Escolher um caminho" {...arrasto}
-      className={cn('shrink-0 flex flex-col rounded-2xl border-[1.5px] border-violet-500/55 bg-card shadow-sm',
-        t.selectedId === bloco.id && 'ring-2 ring-primary', t.arrastando === bloco.id && 'opacity-40')}>
-      <header onClick={() => t.onAbrir(bloco.id)}
-        className="flex cursor-pointer flex-wrap items-center gap-x-2 gap-y-1 rounded-t-2xl border-b bg-violet-500/[0.07] px-2 py-1.5">
-        <span {...alca} className="cursor-grab text-muted-foreground/70 hover:text-foreground"><GripVertical className="h-3.5 w-3.5" /></span>
+    <section {...(so ? {} : { 'data-item-id': bloco.id, ...arrasto })} aria-label="Escolher um caminho"
+      className={cn('flex flex-col rounded-2xl border-[1.5px] border-violet-500/55 bg-card shadow-sm', so ? 'w-full' : 'shrink-0',
+        !so && t.selectedId === bloco.id && 'ring-2 ring-primary', t.arrastando === bloco.id && 'opacity-40')}>
+      <header onClick={so ? undefined : () => t.onAbrir(bloco.id)}
+        className={cn('flex flex-wrap items-center gap-x-2 gap-y-1 rounded-t-2xl border-b bg-violet-500/[0.07] px-2 py-1.5', !so && 'cursor-pointer')}>
+        {!so && <span {...alca} className="cursor-grab text-muted-foreground/70 hover:text-foreground"><GripVertical className="h-3.5 w-3.5" /></span>}
         <GatewayGlyph kind="exclusive" className="h-4 w-4 shrink-0 text-violet-600 dark:text-violet-400" />
-        <div className="min-w-0">
+        <div className={cn('min-w-0', so && 'flex-1')}>
           <span className="block text-[9.5px] font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300">{todos ? 'Escolher caminhos' : 'Escolher um caminho'}</span>
           <input value={bloco.pergunta ?? ''} placeholder="Qual é a pergunta?" aria-label="Pergunta da escolha"
             onClick={(e) => e.stopPropagation()}
             onChange={(e) => { const pergunta = e.target.value; t.onFluxo((f) => atualizarItem(f, bloco.id, { pergunta })) }}
-            className="block w-[300px] bg-transparent text-[12.5px] font-semibold leading-tight outline-none placeholder:font-normal placeholder:italic placeholder:text-muted-foreground focus:underline focus:decoration-dotted" />
+            className={cn('block bg-transparent text-[12.5px] font-semibold leading-tight outline-none placeholder:font-normal placeholder:italic placeholder:text-muted-foreground focus:underline focus:decoration-dotted', so ? 'w-full' : 'w-[300px]')} />
         </div>
-        <div className="flex items-center gap-1.5 pl-2 text-[11px] text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+        <div className={cn('flex items-center gap-1.5 text-[11px] text-muted-foreground', so ? 'order-last basis-full pl-6' : 'pl-2')} onClick={(e) => e.stopPropagation()}>
           <span>Se mais de um servir:</span>
           <Select value={todos ? 'todos' : 'primeiro'} onValueChange={(v) => t.onFluxo((f) => atualizarItem(f, bloco.id, { modo: v as ModoEscolha }))}>
             <SelectTrigger className="h-6 w-[175px] whitespace-nowrap text-[11px]" aria-label="Quando mais de um filtro servir"><SelectValue /></SelectTrigger>
@@ -751,13 +756,16 @@ function BlocoEscolhaView({ bloco }: { bloco: BlocoEscolha }) {
         {bloco.caminhos.map((c, i) => {
           const { acesa, apagada } = luz(c.id)
           return (
-            <div key={c.id} className={cn('flex items-center gap-1.5 rounded-lg bg-muted/45 px-2 py-1 transition-opacity', acesa && 'bg-primary/5 ring-2 ring-primary', apagada && 'opacity-40')}>
+            <div key={c.id} className={cn('flex items-center gap-1.5 rounded-lg bg-muted/45 px-2 py-1 transition-opacity', so && 'flex-wrap py-1.5', acesa && 'bg-primary/5 ring-2 ring-primary', apagada && 'opacity-40')}>
               <span className="shrink-0 text-[11.5px] font-bold text-violet-700 dark:text-violet-300">Se</span>
               <CondicaoNaFrase bloco={bloco} caminho={c} indice={i} />
               <span className="shrink-0 text-[11.5px] font-semibold">então</span>
               {acesa && <span className="shrink-0 text-[10.5px] font-bold text-primary">✓ por aqui</span>}
-              <div className="flex min-w-0 flex-1 items-center"><Sequencia refId={c.id} itens={c.itens} /></div>
-              <div className="flex shrink-0 items-center gap-1 pl-1">
+              {so
+                /* as etapas do caminho estão no desenho: aqui só o resumo delas */
+                ? <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground" title={resumoItens(c.itens, t.nomeDe)}>{resumoItens(c.itens, t.nomeDe)}</span>
+                : <div className="flex min-w-0 flex-1 items-center"><Sequencia refId={c.id} itens={c.itens} /></div>}
+              <div className={cn('flex shrink-0 items-center gap-1 pl-1', so && 'ml-auto')}>
                 <span className="text-[11px] text-muted-foreground">e depois</span>
                 {todos || dentroParalelo
                   /* em "todos" (e dentro de um paralelo) um caminho com filtro só segue */
@@ -765,6 +773,11 @@ function BlocoEscolhaView({ bloco }: { bloco: BlocoEscolha }) {
                       ? <span className="text-[11px] font-semibold">segue</span>
                       : <FimSelect fluxo={t.fluxo} escolhaId={bloco.id} caminhoId={c.id} fim={c.fim} nomeDe={t.nomeDe} onFluxo={t.onFluxo} soSegue />)
                   : <FimSelect fluxo={t.fluxo} escolhaId={bloco.id} caminhoId={c.id} fim={c.fim} nomeDe={t.nomeDe} onFluxo={t.onFluxo} />}
+                {so && ordemConta && (<>
+                  {/* no "primeiro que servir" a ORDEM decide: vence o primeiro verdadeiro */}
+                  <BotaoIcone title="Testar este caminho antes do anterior" onClick={() => { if (i > 0) t.onFluxo((f) => moverCaminho(f, bloco.id, c.id, -1)) }}><ArrowUp className="h-3.5 w-3.5" /></BotaoIcone>
+                  <BotaoIcone title="Testar este caminho depois do seguinte" onClick={() => { if (i < bloco.caminhos.length - 1) t.onFluxo((f) => moverCaminho(f, bloco.id, c.id, 1)) }}><ArrowDown className="h-3.5 w-3.5" /></BotaoIcone>
+                </>)}
                 {bloco.caminhos.length > 1 && (
                   <BotaoIcone title="Remover este caminho" perigo onClick={() => t.onFluxo((f) => removerCaminho(f, bloco.id, c.id))}><X className="h-3.5 w-3.5" /></BotaoIcone>
                 )}
@@ -790,9 +803,9 @@ function BlocoEscolhaView({ bloco }: { bloco: BlocoEscolha }) {
         )}
       </div>
 
-      <footer className="flex items-center gap-3 border-t px-2.5 py-1.5">
+      <footer className={cn('flex items-center gap-3 border-t px-2.5 py-1.5', so && 'flex-wrap gap-y-1')}>
         <button type="button" onClick={() => { const id = novoId('Caminho'); t.onFluxo((f) => adicionarCaminho(f, bloco.id, id)) }}
-          className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-violet-700 hover:underline dark:text-violet-300">
+          className="inline-flex shrink-0 items-center gap-1 text-[11.5px] font-semibold text-violet-700 hover:underline dark:text-violet-300">
           <Plus className="h-3 w-3" />outra condição
         </button>
         <span className="text-[10.5px] text-muted-foreground">
@@ -807,20 +820,21 @@ function BlocoEscolhaView({ bloco }: { bloco: BlocoEscolha }) {
 function BlocoParaleloView({ bloco }: { bloco: BlocoParalelo }) {
   const t = useTrilho()
   const { alca, bloco: arrasto } = useArrastoPelaAlca(bloco.id)
+  const so = !!t.soConfiguracao
   return (
-    <section data-item-id={bloco.id} aria-label="Fazer ao mesmo tempo" {...arrasto}
-      className={cn('shrink-0 flex flex-col rounded-2xl border-[1.5px] border-rose-500/55 bg-card shadow-sm',
-        t.selectedId === bloco.id && 'ring-2 ring-primary', t.arrastando === bloco.id && 'opacity-40')}>
-      <header onClick={() => t.onAbrir(bloco.id)}
-        className="flex cursor-pointer items-center gap-2 rounded-t-2xl border-b bg-rose-500/[0.07] px-2 py-1.5">
-        <span {...alca} className="cursor-grab text-muted-foreground/70 hover:text-foreground"><GripVertical className="h-3.5 w-3.5" /></span>
+    <section {...(so ? {} : { 'data-item-id': bloco.id, ...arrasto })} aria-label="Fazer ao mesmo tempo"
+      className={cn('flex flex-col rounded-2xl border-[1.5px] border-rose-500/55 bg-card shadow-sm', so ? 'w-full' : 'shrink-0',
+        !so && t.selectedId === bloco.id && 'ring-2 ring-primary', t.arrastando === bloco.id && 'opacity-40')}>
+      <header onClick={so ? undefined : () => t.onAbrir(bloco.id)}
+        className={cn('flex items-center gap-2 rounded-t-2xl border-b bg-rose-500/[0.07] px-2 py-1.5', !so && 'cursor-pointer')}>
+        {!so && <span {...alca} className="cursor-grab text-muted-foreground/70 hover:text-foreground"><GripVertical className="h-3.5 w-3.5" /></span>}
         <GatewayGlyph kind="parallel" className="h-4 w-4 shrink-0 text-rose-600 dark:text-rose-400" />
-        <div className="min-w-0">
+        <div className={cn('min-w-0', so && 'flex-1')}>
           <span className="block text-[9.5px] font-bold uppercase tracking-wider text-rose-700 dark:text-rose-300">Fazer ao mesmo tempo</span>
           <input value={bloco.nome ?? ''} placeholder="Dê um nome (ex.: Pareceres)" aria-label="Nome do bloco"
             onClick={(e) => e.stopPropagation()}
             onChange={(e) => { const nome = e.target.value; t.onFluxo((f) => atualizarItem(f, bloco.id, { nome })) }}
-            className="block w-[220px] bg-transparent text-[12.5px] font-semibold leading-tight outline-none placeholder:font-normal placeholder:italic placeholder:text-muted-foreground focus:underline focus:decoration-dotted" />
+            className={cn('block bg-transparent text-[12.5px] font-semibold leading-tight outline-none placeholder:font-normal placeholder:italic placeholder:text-muted-foreground focus:underline focus:decoration-dotted', so ? 'w-full' : 'w-[220px]')} />
         </div>
         <span className="ml-auto flex items-center gap-0.5 pl-3">
           <MarcaProblema id={bloco.id} />
@@ -833,7 +847,9 @@ function BlocoParaleloView({ bloco }: { bloco: BlocoParalelo }) {
         {bloco.caminhos.map((c, i) => (
           <div key={c.id} className="flex items-center gap-1.5 rounded-lg bg-muted/45 px-2 py-1">
             <span className="w-[64px] shrink-0 text-[11px] font-semibold text-muted-foreground">{i === 0 ? 'Frente 1' : `e frente ${i + 1}`}</span>
-            <div className="flex min-w-0 flex-1 items-center"><Sequencia refId={c.id} itens={c.itens} /></div>
+            {so
+              ? <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground" title={resumoItens(c.itens, t.nomeDe)}>{resumoItens(c.itens, t.nomeDe)}</span>
+              : <div className="flex min-w-0 flex-1 items-center"><Sequencia refId={c.id} itens={c.itens} /></div>}
             {bloco.caminhos.length > 1 && (
               <BotaoIcone title="Remover esta frente" perigo onClick={() => t.onFluxo((f) => removerCaminho(f, bloco.id, c.id))}><X className="h-3.5 w-3.5" /></BotaoIcone>
             )}
@@ -880,6 +896,39 @@ function FimSelect({ fluxo, escolhaId, caminhoId, fim, nomeDe, onFluxo, soSegue 
         {alvoInvalido && <SelectItem value={valor} className="text-xs">Volta para: {nomeDe(alvoInvalido)} (não vale mais)</SelectItem>}
       </SelectContent>
     </Select>
+  )
+}
+
+/* ─── configuração do bloco na gaveta lateral (desenho BPMN) ─────────────────────
+   As MESMAS vistas do trilho (BlocoEscolhaView / BlocoParaleloView) sob o mesmo Ctx,
+   com `soConfiguracao`: sem as Sequencias aninhadas (as etapas estão no desenho), sem
+   arrasto e na largura da gaveta. Escolha: pergunta, modo "todos / só o primeiro",
+   caminhos com condição, fim, Testar, adicionar/remover/mover caminho. Paralelo: nome
+   e frentes. Renomear e remover o bloco moram no cabeçalho da própria vista. */
+
+export function ConfiguracaoDoBloco({ blocoId, ...props }: TrilhoProps & { blocoId: string }): JSX.Element {
+  const emParalelo = useMemo(() => escolhasEmParalelo(props.fluxo), [props.fluxo])
+  const vinculos = useMemo(() => gruposDeVinculo(props.fluxo), [props.fluxo])
+  const problemas = useMemo(() => new Map<string, ProblemaAtivacao[]>(), [])
+  const nomeDe = (id: string) => props.steps[id]?.stepName?.trim() || 'Atividade sem nome'
+  const b = acharItem(props.fluxo, blocoId)
+  if (!b || b.kind === 'atividade') {
+    return <p className="p-4 text-xs text-muted-foreground">Este bloco não existe mais no fluxo.</p>
+  }
+  return (
+    <Ctx.Provider value={{
+      ...props, abertos: [], alternarBloco: () => {}, expandirTudo: false, vinculos,
+      arrastando: null, setArrastando: () => {}, problemas, emParalelo, nomeDe, soConfiguracao: true,
+    }}>
+      <div className="flex flex-col gap-3 p-4">
+        {b.kind === 'escolha' ? <BlocoEscolhaView bloco={b} /> : <BlocoParaleloView bloco={b} />}
+        <p className="text-[11px] leading-snug text-muted-foreground">
+          {b.kind === 'escolha'
+            ? <>Clique na <span className="font-medium">condição</span> de um caminho para montar o filtro, e use <span className="font-medium">Testar</span> para ver por onde o processo seguiria. As etapas de cada caminho ficam no desenho.</>
+            : <>As {b.caminhos.length} frentes começam juntas, e o processo só segue quando todas terminarem. As etapas de cada frente ficam no desenho.</>}
+        </p>
+      </div>
+    </Ctx.Provider>
   )
 }
 
