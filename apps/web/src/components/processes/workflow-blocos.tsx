@@ -522,10 +522,10 @@ function useArrastoPelaAlca(id: string) {
   }
 }
 
-function BotaoIcone({ title, onClick, perigo, children }: { title: string; onClick: () => void; perigo?: boolean; children: React.ReactNode }) {
+function BotaoIcone({ title, onClick, perigo, disabled, children }: { title: string; onClick: () => void; perigo?: boolean; disabled?: boolean; children: React.ReactNode }) {
   return (
-    <button type="button" title={title} aria-label={title} onClick={(e) => { e.stopPropagation(); onClick() }}
-      className={cn('h-6 w-6 rounded flex items-center justify-center text-muted-foreground transition-colors',
+    <button type="button" title={title} aria-label={title} disabled={disabled} onClick={(e) => { e.stopPropagation(); onClick() }}
+      className={cn('h-6 w-6 rounded flex items-center justify-center text-muted-foreground transition-colors disabled:pointer-events-none disabled:opacity-30',
         perigo ? 'hover:bg-destructive/10 hover:text-destructive' : 'hover:bg-muted hover:text-foreground')}>
       {children}
     </button>
@@ -775,8 +775,8 @@ function BlocoEscolhaView({ bloco }: { bloco: BlocoEscolha }) {
                   : <FimSelect fluxo={t.fluxo} escolhaId={bloco.id} caminhoId={c.id} fim={c.fim} nomeDe={t.nomeDe} onFluxo={t.onFluxo} />}
                 {so && ordemConta && (<>
                   {/* no "primeiro que servir" a ORDEM decide: vence o primeiro verdadeiro */}
-                  <BotaoIcone title="Testar este caminho antes do anterior" onClick={() => { if (i > 0) t.onFluxo((f) => moverCaminho(f, bloco.id, c.id, -1)) }}><ArrowUp className="h-3.5 w-3.5" /></BotaoIcone>
-                  <BotaoIcone title="Testar este caminho depois do seguinte" onClick={() => { if (i < bloco.caminhos.length - 1) t.onFluxo((f) => moverCaminho(f, bloco.id, c.id, 1)) }}><ArrowDown className="h-3.5 w-3.5" /></BotaoIcone>
+                  <BotaoIcone title="Testar este caminho antes do anterior" disabled={i === 0} onClick={() => t.onFluxo((f) => moverCaminho(f, bloco.id, c.id, -1))}><ArrowUp className="h-3.5 w-3.5" /></BotaoIcone>
+                  <BotaoIcone title="Testar este caminho depois do seguinte" disabled={i === bloco.caminhos.length - 1} onClick={() => t.onFluxo((f) => moverCaminho(f, bloco.id, c.id, 1))}><ArrowDown className="h-3.5 w-3.5" /></BotaoIcone>
                 </>)}
                 {bloco.caminhos.length > 1 && (
                   <BotaoIcone title="Remover este caminho" perigo onClick={() => t.onFluxo((f) => removerCaminho(f, bloco.id, c.id))}><X className="h-3.5 w-3.5" /></BotaoIcone>

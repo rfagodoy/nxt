@@ -33,13 +33,13 @@ import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, t
 import { apiFetch } from '@/lib/http'
 import { ProcessHistoryDrawer } from './process-history-drawer'
 import { WorkflowIdentity } from './workflow-identity'
-import { PendenciasPill, ZoomBar, ZOOM_MAX, ZOOM_MIN } from './flow-shared'
+import { GatewayGlyph, PendenciasPill, ZoomBar, ZOOM_MAX, ZOOM_MIN } from './flow-shared'
 import { ExecutorDaVariavel } from './executor-da-variavel'
 import { EXECUTOR_CONTRATO_DO_PROCESSO, EXECUTOR_QUEM_INICIOU, nasceDeContrato, type QuemInicia } from '@nxt/types'
 import { QuemIniciaPill } from './quem-inicia'
 import { BlocosTrilho, ConfiguracaoDoBloco, comNomes, novoItem, type NovoItem, type Simulacao, type MetaAtividade } from './workflow-blocos'
 import { NoticeDialog } from '@/components/ui/confirm-dialog'
-import { GavetaLateral } from './desenho-bpmn/gaveta'
+import { ATRIBUTO_GAVETA, GavetaLateral, ehEscDaGaveta } from './desenho-bpmn/gaveta'
 import { cn } from '@/lib/utils'
 
 /** Preferência de painel recolhido (por usuário desta máquina). */
@@ -402,15 +402,27 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     ]
   }, [fluxo, nodes, edges, screens, kind, papeis.entries, quemInicia])
 
+  /* A gaveta é um PAINEL DE PROPRIEDADES (como no Bizagi), não um modal — decisão R11 do
+     desenho BPMN: o que se edita nela já vale ao vivo. Clicar noutra forma/atividade, no
+     vazio do desenho, em "Salvar rascunho" ou "Ativar" com a gaveta das perguntas aberta
+     APLICA (fecha como o "Aplicar") e segue. Só "Cancelar", o X e o Esc (dentro da gaveta)
+     desfazem pelo retrato tirado na abertura.
+     Aplicar por troca de seleção também esquece a pergunta de abertura (`configSecao`) e a
+     volta para a escolha (`retornoEscolha`): elas valiam só para a gaveta que fechou. */
+  const aplicarGaveta = useCallback(() => {
+    setConfigId(null); setConfigSecao(undefined); setRetornoEscolha(null)
+  }, [])
+
   /* Clicar é o gesto de "quero configurar isto": a atividade abre a gaveta das perguntas;
      escolha e "ao mesmo tempo" selecionados abrem a gaveta da configuração do bloco. Pontos de
      reencontro (gerados) não têm o que configurar. No desenho antigo, só seleciona. */
   const abrir = useCallback((id: string | null) => {
     const alvo = id && !id.endsWith(SUFIXO_REENCONTRO) ? id : null
     const it = alvo && fluxo ? acharItem(fluxo, alvo) : undefined
+    aplicarGaveta()
     setSelectedId(alvo)
     setConfigId(it?.kind === 'atividade' ? alvo : null)
-  }, [fluxo])
+  }, [fluxo, aplicarGaveta])
 
   /* Conserto de "caminho sem campos" (aviso dentro da escolha): abre a atividade já na
      pergunta do formulário e, ao fechar, devolve a seleção para a escolha. */
@@ -465,7 +477,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const togglePanel = useCallback(() => {
     if (panelCollapsed) { setPanelPref(false); return }
     // recolher = "me devolve o desenho": também deseleciona, senão o derivado o manteria aberto
-    setSelectedId(null)
+    setSelectedId(null); setConfigSecao(undefined); setRetornoEscolha(null)
     setPanelPref(true)
   }, [panelCollapsed])
 
@@ -490,6 +502,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   /** Repete aqui uma atividade já configurada — mesma configuração, vinculada. */
   const inserirVinculada = useCallback((ref: string, indice: number, origemId: string) => {
     const raiz = raizRef.current.get(origemId) ?? origemId
+    aplicarGaveta()
     setFluxo((f) => {
       if (!f) return f
       const origem = listarAtivs(f).find((a) => a.id === raiz)
@@ -498,7 +511,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       setSelectedId(item.id)
       return inserirItem(f, ref, indice, item)
     })
-  }, [])
+  }, [aplicarGaveta])
   /** Desfaz o vínculo: a atividade passa a ter configuração própria (cópia da atual). */
   const desvincular = useCallback((id: string) => {
     const raiz = raizRef.current.get(id)
@@ -513,9 +526,10 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     const item = novoItem(tipo)
     if (item.kind === 'atividade') setSteps((prev) => ({ ...prev, [item.id]: passoVazio(item.id, item.tipo) }))
     setFluxo((f) => (f ? inserirItem(f, ref, indice, item) : f))
+    aplicarGaveta()
     setSelectedId(item.id)
     setConfigId(item.kind === 'atividade' ? item.id : null)
-  }, [])
+  }, [aplicarGaveta])
 
   /* Remover um bloco leva junto o que mora dentro dele. Os passos das atividades ficam no
      mapa (o desfazer os traz de volta inteiros); a gravação só leva os que existem. */
@@ -557,8 +571,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     aplicandoHistorico.current = true
     setFluxo(r.fluxo); setSteps(r.steps); setLaneOrder(r.laneOrder)
     setHIndice(i)
-    setConfigId(null)
-  }, [historia])
+    aplicarGaveta()
+  }, [historia, aplicarGaveta])
 
   const podeDesfazer = hIndice > 0
   const podeRefazer = hIndice < historia.length - 1
@@ -747,12 +761,24 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     }
   }, [buildExportModel, name, kind])
 
+  /* Esc DENTRO da gaveta de um bloco a fecha (deseleciona). Não há o que desfazer: a
+     configuração do bloco vale ao vivo, como no resto do desenho. */
+  const gavetaDoBloco = !!selectedBloco && !(configNode && configNode.step)
+  useEffect(() => {
+    if (!gavetaDoBloco) return
+    const onKey = (e: KeyboardEvent) => { if (ehEscDaGaveta(e)) { e.stopPropagation(); setSelectedId(null) } }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [gavetaDoBloco])
+
   // Delete/Backspace remove o item selecionado (fora de campos e com os modais fechados).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Delete' && e.key !== 'Backspace') return
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      // dentro da gaveta lateral (um botão, uma lista) a tecla é dela, não do desenho
+      if (t?.closest?.(`[${ATRIBUTO_GAVETA}]`)) return
       if (!selectedId || !fluxo || configId) return
       if (acharItem(fluxo, selectedId)) { e.preventDefault(); remover(selectedId) }
     }
@@ -815,8 +841,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
           <ExportMenu exporting={exporting} disabled={saving || activating} onExport={handleExport} />
           {/* ⚠️ `() =>` obrigatório: passar a função direto entregaria o MouseEvent como
               `confirmarReducao` — truthy — e a guarda seria burlada em TODO salvamento. */}
-          <Button variant="outline" size="sm" onClick={() => handleSaveDraft()} disabled={saving || activating || somenteLeitura}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Salvar rascunho</Button>
-          <Button size="sm" onClick={() => handleActivate()} disabled={saving || activating || !name.trim() || somenteLeitura}
+          <Button variant="outline" size="sm" onClick={() => { aplicarGaveta(); void handleSaveDraft() }} disabled={saving || activating || somenteLeitura}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Salvar rascunho</Button>
+          <Button size="sm" onClick={() => { aplicarGaveta(); void handleActivate() }} disabled={saving || activating || !name.trim() || somenteLeitura}
             title={somenteLeitura ? 'Workflow do editor antigo: aberto só para leitura' : !name.trim() ? 'Dê um nome ao workflow para poder ativá-lo' : 'Ativar workflow'}>
             {activating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}Ativar workflow</Button>
         </div>
@@ -892,7 +918,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         <div className={cn('w-80 border-l bg-card flex-col overflow-hidden shrink-0', panelCollapsed ? 'hidden' : 'flex')}>
           {selected && isActivity(selected.type) ? (
             <ActivitySummaryPanel node={selected} papeis={papeis}
-              onConfigure={fluxo ? () => setConfigId(selected.id) : undefined}
+              onConfigure={fluxo ? () => { aplicarGaveta(); setConfigId(selected.id) } : undefined}
               onRemove={fluxo ? () => remover(selected.id) : undefined} />
           ) : (
             /* Nada selecionado → AJUDA. Este painel é do que está SELECIONADO. */
@@ -930,6 +956,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
             rotulo={selectedBloco.kind === 'escolha' ? 'Escolha' : 'Ao mesmo tempo'}
             titulo={(selectedBloco.kind === 'escolha' ? selectedBloco.pergunta?.trim() : selectedBloco.nome?.trim())
               || (selectedBloco.kind === 'escolha' ? 'Escolha sem pergunta' : 'Bloco sem nome')}
+            rotuloTom={selectedBloco.kind === 'escolha' ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'}
+            rotuloIcone={<GatewayGlyph kind={selectedBloco.kind === 'escolha' ? 'exclusive' : 'parallel'} className="h-3 w-3" />}
             onFechar={() => setSelectedId(null)}>
             <ConfiguracaoDoBloco blocoId={selectedBloco.id} fluxo={fluxo} steps={stepsEfetivos} selectedId={selectedId} simulacao={simulacao}
               metaDe={metaDe} onAbrir={abrir} onInserir={inserir} onInserirVinculada={inserirVinculada} onRemover={remover} onFluxo={mudarFluxo}
@@ -1681,9 +1709,10 @@ function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveEntidade
     onClose()
   }
 
-  // Esc fecha cancelando: é o que a tecla significa em todo lugar.
+  /* Esc fecha cancelando — mas só o Esc DENTRO da gaveta e sem uma camada (lista, balão,
+     diálogo) aberta por cima: essa fecha sozinha. Fora disso, nem para a propagação. */
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); cancelar() } }
+    const onKey = (e: KeyboardEvent) => { if (ehEscDaGaveta(e)) { e.stopPropagation(); cancelar() } }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   })
@@ -1814,7 +1843,8 @@ function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveEntidade
   )
 
   return (
-    <GavetaLateral rotulo={meta.label} titulo={step.stepName?.trim() || 'Etapa sem nome'} onFechar={cancelar} rodape={rodape}>
+    <GavetaLateral rotulo={meta.label} rotuloTom={meta.tone} rotuloIcone={<meta.Icon className="h-3 w-3" />} rotuloFechar="Fechar sem aplicar"
+      titulo={step.stepName?.trim() || 'Etapa sem nome'} onFechar={cancelar} rodape={rodape}>
       <div ref={corpoRef} className="flex flex-col">
         {vinculo && (
           <div className="flex items-center gap-2 border-b bg-primary/5 px-4 py-2 text-xs">
