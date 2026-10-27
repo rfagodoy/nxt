@@ -2,12 +2,15 @@
 
 /* ─── Formas do desenho BPMN na identidade Nxt ─────────────────────────────────
    Cada forma é um nó do React Flow: tarefa, losango (escolha / ao mesmo tempo /
-   reencontro), evento (início e fim) e a raia, que é só fundo. A seta é ortogonal,
+   reencontro), evento (início e fim) e a raia, que é fundo (só o rótulo e a alça de
+   baixo recebem o ponteiro, para editá-la). A seta é ortogonal,
    com o rótulo do caminho numa pílula. As cores seguem o mockup aprovado: o tema
    claro é o padrão e o escuro vem pelas variantes `dark:`. */
-import { BaseEdge, EdgeLabelRenderer, Handle, Position, getSmoothStepPath, type Edge, type EdgeProps, type Node, type NodeProps } from '@xyflow/react'
-import { Settings, UserSquare } from 'lucide-react'
-import { RAIA_ROTULO_W } from '@/lib/desenho-bpmn'
+import { createContext, useContext, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { createPortal } from 'react-dom'
+import { BaseEdge, EdgeLabelRenderer, Handle, Position, getSmoothStepPath, useReactFlow, type Edge, type EdgeProps, type Node, type NodeProps } from '@xyflow/react'
+import { MoreHorizontal, Plus, Settings, UserSquare } from 'lucide-react'
+import { GRADE, RAIA_ALTURA_MINIMA, RAIA_ROTULO_W } from '@/lib/desenho-bpmn'
 
 /* ─── Medidas ─────────────────────────────────────────────────────────────── */
 /* A caixa de cada forma é a que o layout (`nodeSize` de flow-layout) reserva: a tarefa
@@ -27,7 +30,7 @@ export type DadosTarefa = { nome: string; automatica: boolean; meta: string; pro
 export type TipoLosango = 'escolha' | 'paralelo' | 'inclusivo'
 export type DadosLosango = { tipo: TipoLosango; nome?: string; reencontro: boolean; problemas: string[] }
 export type DadosEvento = { tipo: 'inicio' | 'fim'; problemas: string[] }
-export type DadosRaia = { nome: string; largura: number; altura: number; indice: number; primeira: boolean; ultima: boolean }
+export type DadosRaia = { id: string; nome: string; largura: number; altura: number; indice: number; primeira: boolean; ultima: boolean }
 export type DadosPiscina = { nome: string; altura: number }
 export type DadosSeta = { rotulo?: string; senao: boolean; /** Seta sob o ponteiro durante um arrasto: a forma entra aqui. */ destacada?: boolean }
 
@@ -168,8 +171,159 @@ export function FormaEvento({ data, selected, isConnectable }: NodeProps<NoEvent
   )
 }
 
+/* ─── Edição das raias ────────────────────────────────────────────────────── */
+/** O que o canvas oferece às raias. Fica num contexto (e não nos dados do nó) para a
+ *  projeção não refazer a cada render só porque uma função trocou de identidade. */
+export type AcoesDeRaia = {
+  editavel: boolean
+  renomear: (id: string, nome: string) => void
+  /** Grava a altura (a função pura prende ao mínimo e à grade). */
+  redimensionar: (id: string, altura: number) => void
+  /** Altura provisória durante o arrasto da alça; `null` encerra a prévia. */
+  previa: (id: string, altura: number | null) => void
+  mover: (id: string, direcao: -1 | 1) => void
+  remover: (id: string) => void
+  adicionar: () => void
+}
+const nada = () => {}
+export const ContextoRaias = createContext<AcoesDeRaia>({
+  editavel: false, renomear: nada, redimensionar: nada, previa: nada, mover: nada, remover: nada, adicionar: nada,
+})
+
+/** `nodrag nopan`: o ponteiro aqui edita a raia, não arrasta nem move a vista. */
+const INTERATIVO = 'nodrag nopan pointer-events-auto'
+const FOCO = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#11804F] dark:focus-visible:outline-spark'
+const ITEM_MENU = `block w-full rounded-md border-0 bg-transparent px-2.5 py-1.5 text-left font-sans text-xs font-semibold text-[#2E3E36]
+  hover:bg-[rgba(20,36,32,0.06)] disabled:opacity-40 disabled:hover:bg-transparent dark:text-[#C9D6CE] dark:hover:bg-white/5 ${FOCO}`
+
+/** Rótulo em edição: Enter grava, Esc cancela, sair do campo grava. */
+function NomeDaRaia({ id, nome, onFim }: { id: string; nome: string; onFim: () => void }) {
+  const { renomear } = useContext(ContextoRaias)
+  const [texto, setTexto] = useState(nome)
+  const encerrado = useRef(false)
+  const fim = (gravar: boolean) => {
+    if (encerrado.current) return // o blur que vem depois do Enter/Esc não conta de novo
+    encerrado.current = true
+    if (gravar) renomear(id, texto)
+    onFim()
+  }
+  return (
+    <input aria-label="Nome da raia" value={texto} autoFocus onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => setTexto(e.target.value)}
+      onKeyDown={(e) => {
+        e.stopPropagation()
+        if (e.key === 'Enter') { e.preventDefault(); fim(true) }
+        else if (e.key === 'Escape') { e.preventDefault(); fim(false) }
+      }}
+      onBlur={() => fim(true)}
+      className={`${INTERATIVO} w-full rounded-md border border-[#11804F] bg-white px-1.5 py-0.5 font-sans text-xs font-extrabold text-[#142420] outline-none dark:border-spark dark:bg-[#0F1914] dark:text-white`} />
+  )
+}
+
+function MenuDaRaia({ id, nome, primeira, ultima, onRenomear }: { id: string; nome: string; primeira: boolean; ultima: boolean; onRenomear: () => void }) {
+  const { mover, remover } = useContext(ContextoRaias)
+  /* O menu vai para o <body> (posição fixa, na escala da tela): dentro da raia, que fica
+     atrás de tudo, as formas e a raia de baixo o cobririam. Fecha ao clicar fora, ao girar
+     a roda (zoom/rolagem) e ao redimensionar a janela, porque a posição foi tirada na abertura. */
+  const [aberto, setAberto] = useState<{ left: number; top: number } | null>(null)
+  const botao = useRef<HTMLButtonElement>(null)
+  const menu = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!aberto) return
+    menu.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
+    const fora = (e: globalThis.PointerEvent) => {
+      const alvo = e.target as globalThis.Node
+      if (!menu.current?.contains(alvo) && !botao.current?.contains(alvo)) setAberto(null)
+    }
+    const sumir = () => setAberto(null)
+    document.addEventListener('pointerdown', fora)
+    window.addEventListener('wheel', sumir, { capture: true, passive: true })
+    window.addEventListener('resize', sumir)
+    return () => {
+      document.removeEventListener('pointerdown', fora)
+      window.removeEventListener('wheel', sumir, { capture: true })
+      window.removeEventListener('resize', sumir)
+    }
+  }, [aberto])
+  const abrir = () => {
+    const r = botao.current?.getBoundingClientRect()
+    setAberto((x) => (x || !r ? null : { left: r.left, top: r.bottom + 4 }))
+  }
+  const fechar = () => { setAberto(null); botao.current?.focus() }
+  const escolher = (acao: () => void) => { setAberto(null); acao() }
+  const teclas = (e: KeyboardEvent<HTMLDivElement>) => {
+    e.stopPropagation()
+    if (e.key === 'Escape') { e.preventDefault(); fechar() }
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      const itens = [...(menu.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])]
+      const i = itens.indexOf(document.activeElement as HTMLButtonElement)
+      itens[(i + (e.key === 'ArrowDown' ? 1 : -1) + itens.length) % itens.length]?.focus()
+    }
+  }
+  const rotulo = `Opções da raia ${nome || 'sem nome'}`
+  return (
+    <span>
+      <button ref={botao} type="button" aria-label={rotulo} title="Opções da raia" aria-haspopup="menu" aria-expanded={!!aberto}
+        onClick={abrir}
+        className={`${INTERATIVO} flex h-5 w-5 items-center justify-center rounded-md border-0 bg-transparent text-[#4F5F57] hover:bg-[rgba(20,36,32,0.08)] dark:text-[#9DB0A5] dark:hover:bg-white/5 ${FOCO}`}>
+        <MoreHorizontal aria-hidden className="h-3.5 w-3.5" />
+      </button>
+      {aberto && createPortal(
+        <div ref={menu} role="menu" aria-label={rotulo} onKeyDown={teclas} style={{ left: aberto.left, top: aberto.top }}
+          className={`${INTERATIVO} fixed z-50 w-[136px] rounded-[10px] bg-white p-1 shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[#0F1914] dark:shadow-[0_0_0_1px_#2A3B32,0_12px_24px_-12px_rgba(0,0,0,0.7)]`}>
+          <button type="button" role="menuitem" className={ITEM_MENU} onClick={() => escolher(onRenomear)}>Renomear</button>
+          <button type="button" role="menuitem" className={ITEM_MENU} disabled={primeira} onClick={() => escolher(() => mover(id, -1))}>Subir</button>
+          <button type="button" role="menuitem" className={ITEM_MENU} disabled={ultima} onClick={() => escolher(() => mover(id, 1))}>Descer</button>
+          <button type="button" role="menuitem" className={`${ITEM_MENU} !text-[#B42318] dark:!text-[#FDA29B]`} onClick={() => escolher(() => remover(id))}>Remover raia</button>
+        </div>,
+        document.body,
+      )}
+    </span>
+  )
+}
+
+/** Alça da borda de baixo: arrastar muda a altura (na grade, mínimo 60); com foco, ↑/↓ também. */
+function AlcaDaRaia({ id, nome, altura }: { id: string; nome: string; altura: number }) {
+  const { redimensionar, previa } = useContext(ContextoRaias)
+  const { getZoom } = useReactFlow()
+  const inicio = useRef<{ y: number; altura: number; zoom: number } | null>(null)
+  // o deslocamento na tela vira unidades do fluxo pelo zoom do começo do arrasto
+  const alturaNoPonto = (e: PointerEvent, i: NonNullable<typeof inicio.current>) => i.altura + (e.clientY - i.y) / i.zoom
+  return (
+    <div role="separator" aria-orientation="horizontal" tabIndex={0}
+      aria-label={`Altura da raia ${nome || 'sem nome'}`} aria-valuenow={altura} aria-valuemin={RAIA_ALTURA_MINIMA}
+      title="Arraste para mudar a altura (↑/↓ com o teclado)"
+      onPointerDown={(e) => {
+        if (e.button !== 0) return
+        e.preventDefault()
+        e.currentTarget.setPointerCapture(e.pointerId)
+        inicio.current = { y: e.clientY, altura, zoom: getZoom() || 1 }
+      }}
+      onPointerMove={(e) => { if (inicio.current) previa(id, alturaNoPonto(e, inicio.current)) }}
+      onPointerUp={(e) => {
+        const i = inicio.current
+        if (!i) return
+        inicio.current = null
+        previa(id, null)
+        redimensionar(id, alturaNoPonto(e, i))
+      }}
+      onPointerCancel={() => { inicio.current = null; previa(id, null) }}
+      onKeyDown={(e) => {
+        if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+        e.preventDefault(); e.stopPropagation()
+        redimensionar(id, altura + (e.key === 'ArrowDown' ? GRADE : -GRADE))
+      }}
+      className={`${INTERATIVO} group/alca absolute inset-x-0 -bottom-1 z-[1] flex h-2 cursor-ns-resize items-center justify-center outline-none`}>
+      <span aria-hidden className="h-[3px] w-10 rounded-full bg-[#11804F] opacity-0 transition-opacity group-hover/alca:opacity-60 group-focus-visible/alca:opacity-100 dark:bg-spark" />
+    </div>
+  )
+}
+
 /* ─── Raia (fundo) ────────────────────────────────────────────────────────── */
 export function FormaRaia({ data }: NodeProps<NoRaia>) {
+  const { editavel } = useContext(ContextoRaias)
+  const [editando, setEditando] = useState(false)
   const faixa = data.indice % 2 === 0
     ? 'bg-[rgba(255,255,255,0.75)] dark:bg-[rgba(255,255,255,0.02)]'
     : 'bg-[rgba(242,246,241,0.85)] dark:bg-[rgba(255,255,255,0.045)]'
@@ -181,22 +335,43 @@ export function FormaRaia({ data }: NodeProps<NoRaia>) {
       ? 'rounded-br-[10px] border-b border-b-[#B8C6BE] dark:border-b-[#2A3B32]'
       : 'border-b border-b-[#D2DCD5] dark:border-b-[#22332A]',
   ].join(' ')
+  const nome = data.nome || <span className="font-semibold italic opacity-70">Sem nome</span>
+  /* o corpo deixa o ponteiro passar (formas por cima, clique no fundo tira a seleção);
+     só o rótulo e a alça de baixo o recebem, e só quando o desenho é editável */
   return (
-    <div className={`pointer-events-none relative box-border overflow-hidden ${faixa} ${contorno}`} style={{ width: data.largura, height: data.altura }}>
-      <span className="absolute inset-y-0 left-0 box-border border-r border-r-[#D2DCD5] px-2.5 py-2 font-sans text-xs font-extrabold text-[#3E4E46] dark:border-r-[#22332A] dark:text-[#9DB0A5]"
+    <div className={`pointer-events-none relative box-border ${faixa} ${contorno}`} style={{ width: data.largura, height: data.altura }}>
+      <div className={`absolute inset-y-0 left-0 box-border border-r border-r-[#D2DCD5] px-2.5 py-2 font-sans text-xs font-extrabold text-[#3E4E46] dark:border-r-[#22332A] dark:text-[#9DB0A5] ${editavel ? '' : 'overflow-hidden'}`}
         style={{ width: RAIA_ROTULO_W }}>
-        {data.nome || <span className="font-semibold italic opacity-70">Sem nome</span>}
-      </span>
+        {!editavel ? nome : editando ? (
+          <NomeDaRaia id={data.id} nome={data.nome} onFim={() => setEditando(false)} />
+        ) : (
+          <div className="flex items-start gap-1">
+            <span className={`${INTERATIVO} line-clamp-4 min-w-0 flex-1 cursor-text break-words`} title="Duplo clique para renomear"
+              onDoubleClick={() => setEditando(true)}>{nome}</span>
+            <MenuDaRaia id={data.id} nome={data.nome} primeira={data.primeira} ultima={data.ultima} onRenomear={() => setEditando(true)} />
+          </div>
+        )}
+      </div>
+      {editavel && <AlcaDaRaia id={data.id} nome={data.nome} altura={data.altura} />}
     </div>
   )
 }
 
 /* ─── Piscina: faixa vertical com o nome do processo (fundo) ─────────────── */
 export function FormaPiscina({ data }: NodeProps<NoPiscina>) {
+  const { editavel, adicionar } = useContext(ContextoRaias)
   return (
-    <div className="pointer-events-none box-border flex items-center justify-center overflow-hidden rounded-l-[10px] border border-[#B8C6BE] bg-[#E6EDE8] text-[#2E3E36] dark:border-[#2A3B32] dark:bg-[#13211A] dark:text-[#C9D6CE]"
-      style={{ width: FAIXA_PISCINA, height: data.altura }}>
-      <span className="-rotate-90 whitespace-nowrap font-sans text-[11.5px] font-extrabold uppercase tracking-[0.04em]">{data.nome}</span>
+    <div className="pointer-events-none relative" style={{ width: FAIXA_PISCINA, height: data.altura }}>
+      <div className="box-border flex h-full w-full items-center justify-center overflow-hidden rounded-l-[10px] border border-[#B8C6BE] bg-[#E6EDE8] text-[#2E3E36] dark:border-[#2A3B32] dark:bg-[#13211A] dark:text-[#C9D6CE]">
+        <span className="-rotate-90 whitespace-nowrap font-sans text-[11.5px] font-extrabold uppercase tracking-[0.04em]">{data.nome}</span>
+      </div>
+      {/* "+ raia" ao pé da piscina */}
+      {editavel && (
+        <button type="button" onClick={adicionar} title="Cria uma raia no fim da piscina"
+          className={`${INTERATIVO} absolute left-0 top-full mt-2 flex items-center gap-1 whitespace-nowrap rounded-md border border-dashed border-[#9DB0A5] bg-white/80 px-2 py-1 font-sans text-[11px] font-bold text-[#2E3E36] hover:border-[#11804F] hover:text-[#11804F] dark:border-[#2E4238] dark:bg-[#0F1914]/80 dark:text-[#C9D6CE] dark:hover:border-spark dark:hover:text-spark ${FOCO}`}>
+          <Plus aria-hidden className="h-3 w-3" /> raia
+        </button>
+      )}
     </div>
   )
 }

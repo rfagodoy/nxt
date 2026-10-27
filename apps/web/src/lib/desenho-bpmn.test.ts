@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest'
 import type { GrafoGerado } from '@nxt/workflow-core'
 import type { DesenhoBpmn } from '@nxt/types'
 import { nodeSize } from './flow-layout'
-import { GRADE, desenhoInicial, organizar, completarPosicoes, raiaNaAltura, avisoDeRaia, setaSobPonto, polilinhaDaSeta } from './desenho-bpmn'
+import {
+  GRADE, RAIA_ALTURA_PADRAO, RAIA_ALTURA_MINIMA, desenhoInicial, organizar, completarPosicoes, raiaNaAltura, avisoDeRaia, setaSobPonto, polilinhaDaSeta,
+  adicionarRaia, renomearRaia, redimensionarRaia, moverRaia, removerRaia,
+} from './desenho-bpmn'
 
 const no = (id: string, type: string) => ({ id, type }) as GrafoGerado['nodes'][number]
 const seta = (from: string, to: string) => ({ id: `${from}>${to}`, from, to }) as GrafoGerado['edges'][number]
@@ -131,5 +134,70 @@ describe('polilinhaDaSeta', () => {
   it('o ponto no meio do trecho vertical acha a seta', () => {
     const pontos = polilinhaDaSeta({ x: 0, y: 0 }, 'direita', { x: 100, y: 200 }, 'esquerda')
     expect(setaSobPonto([{ id: 's', pontos }], { x: 52, y: 100 })).toBe('s')
+  })
+})
+
+describe('edição das raias', () => {
+  const base = (): DesenhoBpmn => ({
+    versao: 1,
+    posicoes: { A: { x: 32, y: 48 }, B: { x: 240, y: 176 } },
+    raias: [{ id: 'r1', nome: 'RH', altura: 140 }, { id: 'r2', nome: 'Contas', altura: 160 }],
+  })
+
+  it('adicionarRaia acrescenta "Nova raia" no fim, com id novo e altura padrão', () => {
+    const d = adicionarRaia(base())
+    expect(d.raias).toHaveLength(3)
+    const nova = d.raias[2]
+    expect(nova).toMatchObject({ nome: 'Nova raia', altura: RAIA_ALTURA_PADRAO })
+    expect(['r1', 'r2']).not.toContain(nova.id)
+    expect(nova.id).toMatch(/^raia_/)
+    expect(d.posicoes).toEqual(base().posicoes)
+    const outra = adicionarRaia(d)
+    expect(new Set(outra.raias.map((r) => r.id)).size).toBe(4)
+  })
+
+  it('adicionarRaia nunca repete um id que já existe', () => {
+    const d = adicionarRaia(base(), () => 'r1')
+    expect(new Set(d.raias.map((r) => r.id)).size).toBe(3)
+  })
+
+  it('renomearRaia troca só o nome (sem espaços nas pontas)', () => {
+    const d = renomearRaia(base(), 'r2', '  Financeiro ')
+    expect(d.raias.map((r) => r.nome)).toEqual(['RH', 'Financeiro'])
+    expect(d.raias[1].altura).toBe(160)
+  })
+
+  it('renomearRaia com o mesmo nome ou id desconhecido devolve o mesmo desenho', () => {
+    const b = base()
+    expect(renomearRaia(b, 'r1', 'RH')).toBe(b)
+    expect(renomearRaia(b, 'x', 'Y')).toBe(b)
+  })
+
+  it('redimensionarRaia prende ao mínimo e à grade', () => {
+    const b = base()
+    expect(redimensionarRaia(b, 'r1', 10).raias[0].altura).toBe(RAIA_ALTURA_MINIMA)
+    expect(RAIA_ALTURA_MINIMA).toBe(60)
+    expect(redimensionarRaia(b, 'r1', 203).raias[0].altura).toBe(208)
+    expect(redimensionarRaia(b, 'r1', 203).raias[0].altura % GRADE).toBe(0)
+    expect(redimensionarRaia(b, 'r2', 160)).toBe(b)
+    expect(redimensionarRaia(b, 'r1', 140).raias[0].altura).toBe(144)
+    expect(redimensionarRaia(b, 'r1', 300).posicoes).toEqual(b.posicoes)
+  })
+
+  it('moverRaia troca a ordem com a vizinha; nas pontas não faz nada', () => {
+    const b = base()
+    expect(moverRaia(b, 'r2', -1).raias.map((r) => r.id)).toEqual(['r2', 'r1'])
+    expect(moverRaia(b, 'r1', 1).raias.map((r) => r.id)).toEqual(['r2', 'r1'])
+    expect(moverRaia(b, 'r1', -1)).toBe(b)
+    expect(moverRaia(b, 'r2', 1)).toBe(b)
+    expect(moverRaia(b, 'r1', 1).posicoes).toEqual(b.posicoes)
+  })
+
+  it('removerRaia tira a raia e deixa as formas onde estão', () => {
+    const b = base()
+    const d = removerRaia(b, 'r1')
+    expect(d.raias.map((r) => r.id)).toEqual(['r2'])
+    expect(d.posicoes).toEqual(b.posicoes)
+    expect(removerRaia(b, 'x')).toBe(b)
   })
 })

@@ -6,7 +6,9 @@
    `DesenhoBpmn` por `onDesenho`; selecionar avisa `onSelecionar`. As intenções que mudam
    o fluxo só são AVISADAS: soltar uma forma da paleta (`onInserir`), arrastar uma forma
    para cima de uma seta (`onMoverItem`), puxar uma seta à mão (`onLigar`, depois de
-   `ligacaoPermitida`) e as ações rápidas da forma selecionada. Quem muda o fluxo é a página. */
+   `ligacaoPermitida`) e as ações rápidas da forma selecionada. Quem muda o fluxo é a página.
+   As raias são só visuais: renomear, mudar a altura, subir/descer, remover e "+ raia"
+   também saem por `onDesenho` (as formas ficam onde estão). */
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type DragEvent, type JSX } from 'react'
 import { useTheme } from 'next-themes'
 import {
@@ -21,13 +23,16 @@ import {
   SUFIXO_REENCONTRO, acharItem, ligacaoPermitida, localDoItem, pontoDaSeta,
   type FimCaminho, type FluxoBlocos, type GrafoGerado, type ItemFluxo, type PontoDeInsercao,
 } from '@nxt/workflow-core'
-import { GRADE, RAIA_ROTULO_W, avisoDeRaia, polilinhaDaSeta, raiaNaAltura, setaSobPonto, type LadoDaSeta } from '@/lib/desenho-bpmn'
+import {
+  GRADE, RAIA_ROTULO_W, adicionarRaia, avisoDeRaia, moverRaia, polilinhaDaSeta, raiaNaAltura, redimensionarRaia, removerRaia,
+  renomearRaia, setaSobPonto, type LadoDaSeta,
+} from '@/lib/desenho-bpmn'
 import { nodeSize, type FlowNodeType } from '@/lib/flow-layout'
 import { ZOOM_MAX, ZOOM_MIN } from '@/components/processes/flow-shared'
 import type { NovoItem } from '@/components/processes/workflow-blocos'
 import {
-  EVENTO_RECUO, FAIXA_PISCINA, MARCADOR_SETA, rotuloDaForma, tiposDeNo, tiposDeSeta,
-  type NoBpmn, type SetaBpmn, type TipoLosango,
+  ContextoRaias, EVENTO_RECUO, FAIXA_PISCINA, MARCADOR_SETA, rotuloDaForma, tiposDeNo, tiposDeSeta,
+  type AcoesDeRaia, type NoBpmn, type SetaBpmn, type TipoLosango,
 } from './formas'
 import { TIPO_ARRASTO_FORMA } from './paleta'
 
@@ -103,18 +108,21 @@ function projetarNos({ grafo, desenho, steps, selecionado, responsavelDe, prazoD
   const pos = (id: string) => desenho.posicoes[id] ?? { x: 0, y: 0 }
   const nos: NoBpmn[] = []
 
-  // piscina + raias: fundo empilhado a partir de y = 0. À esquerda do x = 0 ficam a coluna
-  // do rótulo das raias e, antes dela, a faixa vertical com o nome do processo.
+  // piscina + raias: fundo empilhado a partir de y = 0, na ordem de `desenho.raias`. À esquerda
+  // do x = 0 ficam a coluna do rótulo das raias e, antes dela, a faixa vertical com o nome do
+  // processo. A borda direita fica FOLGA_RAIA (160) depois da forma mais à direita.
   const direita = grafo.nodes.reduce((m, n) => Math.max(m, pos(n.id).x + tamanho(n).w), 0)
   const largura = Math.max(LARGURA_MINIMA_RAIA, RAIA_ROTULO_W + direita + FOLGA_RAIA)
   let topo = 0
   desenho.raias.forEach((r, i) => {
     nos.push({
       id: `raia:${r.id}`, type: 'raia', position: { x: -RAIA_ROTULO_W, y: topo },
-      data: { nome: r.nome, largura, altura: r.altura, indice: i, primeira: i === 0, ultima: i === desenho.raias.length - 1 },
+      data: { id: r.id, nome: r.nome, largura, altura: r.altura, indice: i, primeira: i === 0, ultima: i === desenho.raias.length - 1 },
       width: largura, height: r.altura, zIndex: -1,
       draggable: false, selectable: false, connectable: false, focusable: false, deletable: false,
-      style: { pointerEvents: 'none' }, // clique e arrasto passam para o fundo (tirar seleção, mover a vista)
+      // clique e arrasto passam para o fundo (tirar seleção, mover a vista); só o rótulo e a
+      // alça de baixo da raia religam o ponteiro (ver FormaRaia)
+      style: { pointerEvents: 'none' },
     })
     topo += r.altura
   })
@@ -278,11 +286,14 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
      refaz quando os DADOS mudam (grafo deriva do fluxo) ou quando `revisaoDasConsultas` muda. */
   const consultas = useRef({ responsavelDe: props.responsavelDe, prazoDe: props.prazoDe, problemasDe: props.problemasDe })
   consultas.current = { responsavelDe: props.responsavelDe, prazoDe: props.prazoDe, problemasDe: props.problemasDe }
+  /** Altura provisória da raia enquanto a alça é arrastada (só na tela; grava ao soltar). */
+  const [previa, setPrevia] = useState<{ id: string; altura: number } | null>(null)
+  const desenhoVisto = useMemo(() => (previa ? redimensionarRaia(desenho, previa.id, previa.altura) : desenho), [desenho, previa])
   const projetados = useMemo(
-    () => projetarNos({ grafo, desenho, steps, selecionado, nomeDoProcesso, ...consultas.current }),
+    () => projetarNos({ grafo, desenho: desenhoVisto, steps, selecionado, nomeDoProcesso, ...consultas.current }),
     // revisaoDasConsultas não é lida aqui: só sinaliza que as consultas passaram a responder outra coisa
     // eslint-disable-next-line react-hooks/exhaustive-deps -- revisão intencional (ver CanvasBpmnProps)
-    [grafo, desenho, steps, selecionado, nomeDoProcesso, revisaoDasConsultas],
+    [grafo, desenhoVisto, steps, selecionado, nomeDoProcesso, revisaoDasConsultas],
   )
   const setas = useMemo(() => projetarSetas(grafo, desenho, marcador), [grafo, desenho, marcador])
   const geo = useMemo(() => geometria(grafo, desenho), [grafo, desenho])
@@ -459,6 +470,21 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     onInserir({ ref: local.ref, indice: local.indice + 1 }, tipo, { x: naGrade(p.x + c.w + 3 * GRADE), y: naGrade(p.y + c.h / 2 - nova.h / 2) })
   }
 
+  /* ─── Edição das raias (só o desenho; nenhuma forma sai do lugar) ──────── */
+  const acoesDeRaia = useMemo<AcoesDeRaia>(() => {
+    // as funções puras devolvem o mesmo desenho quando nada muda: aí não grava
+    const aplicar = (novo: DesenhoBpmn) => { if (novo !== desenho) onDesenho(novo) }
+    return {
+      editavel: !somenteLeitura,
+      renomear: (id, nome) => aplicar(renomearRaia(desenho, id, nome)),
+      redimensionar: (id, altura) => aplicar(redimensionarRaia(desenho, id, altura)),
+      previa: (id, altura) => setPrevia(altura === null ? null : { id, altura }),
+      mover: (id, direcao) => aplicar(moverRaia(desenho, id, direcao)),
+      remover: (id) => aplicar(removerRaia(desenho, id)),
+      adicionar: () => onDesenho(adicionarRaia(desenho)),
+    }
+  }, [desenho, onDesenho, somenteLeitura])
+
   const rotulosDeAcesso = useMemo(() => rotulosAria(somenteLeitura), [somenteLeitura])
 
   const corNoMini = useCallback((n: NoBpmn) => {
@@ -484,70 +510,72 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
           </marker>
         </defs>
       </svg>
-      <ReactFlow<NoBpmn, SetaBpmn>
-        nodes={nos}
-        edges={setasVistas}
-        nodeTypes={tiposDeNo}
-        edgeTypes={tiposDeSeta}
-        onInit={(i) => { instancia.current = i }}
-        onNodesChange={onNodesChange}
-        onNodeDragStart={onNodeDragStart}
-        onNodeDrag={onNodeDrag}
-        onNodeDragStop={onNodeDragStop}
-        onPaneClick={onPaneClick}
-        isValidConnection={isValidConnection}
-        onConnect={onConnect}
-        onConnectEnd={onConnectEnd}
-        nodesDraggable={!somenteLeitura}
-        nodesConnectable={!somenteLeitura}
-        edgesReconnectable={false}
-        deleteKeyCode={null}
-        selectionKeyCode={null}
-        multiSelectionKeyCode={null}
-        snapToGrid
-        snapGrid={[GRADE, GRADE]}
-        fitView
-        fitViewOptions={{ padding: 0.15 }}
-        minZoom={ZOOM_MIN}
-        maxZoom={ZOOM_MAX}
-        colorMode={escuro ? 'dark' : 'light'}
-        ariaLabelConfig={rotulosDeAcesso}
-      >
-        <Background variant={BackgroundVariant.Dots} gap={GRADE} size={1.2} color={cor.ponto} bgColor={cor.fundo} />
-        <MiniMap<NoBpmn> pannable zoomable nodeColor={corNoMini} nodeStrokeWidth={0} maskColor={cor.mascara} bgColor={cor.mini}
-          className="!rounded-lg shadow-[0_0_0_1px_rgba(20,36,32,0.12)] dark:shadow-[0_0_0_1px_#2A3B32]" />
-        <Controls showInteractive={false} position="bottom-left" />
-        {recusa && (
-          <ViewportPortal>
-            <svg aria-hidden className="pointer-events-none absolute left-0 top-0 overflow-visible" width={1} height={1}>
-              <path d={'M' + recusa.pontos.map((q) => `${q.x} ${q.y}`).join(' L')} fill="none" stroke={COR_RECUSA}
-                strokeWidth={2} strokeDasharray="6 5" markerEnd={`url(#${marcadorRecusa})`} />
-            </svg>
-          </ViewportPortal>
-        )}
-        <NodeToolbar nodeId={acoes?.id} isVisible={!!acoes} position={Position.Right} offset={14}>
-          <div role="toolbar" aria-label="Ações rápidas" aria-orientation="vertical"
-            className="flex flex-col gap-1 rounded-[10px] bg-white p-1 shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[#0F1914] dark:shadow-[0_0_0_1px_#2A3B32,0_12px_24px_-12px_rgba(0,0,0,0.7)]">
-            <button type="button" title="Próxima: tarefa" aria-label="Próxima: tarefa" className={ACAO} onClick={() => proxima('userTask')}>
-              <span aria-hidden className="box-border h-[11px] w-4 rounded-[3px] border-[1.5px] border-[#0369A1] bg-[#E0F2FE] dark:border-[#7DD3FC] dark:bg-[rgba(56,189,248,0.12)]" />
-            </button>
-            <button type="button" title="Próxima: escolha" aria-label="Próxima: escolha" className={ACAO} onClick={() => proxima('escolha')}>
-              <span aria-hidden className="box-border h-2.5 w-2.5 rotate-45 border-[1.5px] border-[#6D28D9] bg-[#EDE9FE] dark:border-[#C4B5FD] dark:bg-[rgba(167,139,250,0.14)]" />
-            </button>
-            {podeLigar && (
-              <button type="button" title="Ligar com seta" aria-label="Ligar com seta" aria-pressed={ligandoDe === acoes?.id}
-                className={`${ACAO} text-[13px] text-[#142420] dark:text-white ${ligandoDe === acoes?.id ? 'bg-[rgba(198,242,78,0.35)] dark:bg-[rgba(198,242,78,0.14)]' : ''}`}
-                onClick={() => setLigandoDe((x) => (x === acoes?.id ? null : acoes?.id ?? null))}>
-                <span aria-hidden>→</span>
+      <ContextoRaias.Provider value={acoesDeRaia}>
+        <ReactFlow<NoBpmn, SetaBpmn>
+          nodes={nos}
+          edges={setasVistas}
+          nodeTypes={tiposDeNo}
+          edgeTypes={tiposDeSeta}
+          onInit={(i) => { instancia.current = i }}
+          onNodesChange={onNodesChange}
+          onNodeDragStart={onNodeDragStart}
+          onNodeDrag={onNodeDrag}
+          onNodeDragStop={onNodeDragStop}
+          onPaneClick={onPaneClick}
+          isValidConnection={isValidConnection}
+          onConnect={onConnect}
+          onConnectEnd={onConnectEnd}
+          nodesDraggable={!somenteLeitura}
+          nodesConnectable={!somenteLeitura}
+          edgesReconnectable={false}
+          deleteKeyCode={null}
+          selectionKeyCode={null}
+          multiSelectionKeyCode={null}
+          snapToGrid
+          snapGrid={[GRADE, GRADE]}
+          fitView
+          fitViewOptions={{ padding: 0.15 }}
+          minZoom={ZOOM_MIN}
+          maxZoom={ZOOM_MAX}
+          colorMode={escuro ? 'dark' : 'light'}
+          ariaLabelConfig={rotulosDeAcesso}
+        >
+          <Background variant={BackgroundVariant.Dots} gap={GRADE} size={1.2} color={cor.ponto} bgColor={cor.fundo} />
+          <MiniMap<NoBpmn> pannable zoomable nodeColor={corNoMini} nodeStrokeWidth={0} maskColor={cor.mascara} bgColor={cor.mini}
+            className="!rounded-lg shadow-[0_0_0_1px_rgba(20,36,32,0.12)] dark:shadow-[0_0_0_1px_#2A3B32]" />
+          <Controls showInteractive={false} position="bottom-left" />
+          {recusa && (
+            <ViewportPortal>
+              <svg aria-hidden className="pointer-events-none absolute left-0 top-0 overflow-visible" width={1} height={1}>
+                <path d={'M' + recusa.pontos.map((q) => `${q.x} ${q.y}`).join(' L')} fill="none" stroke={COR_RECUSA}
+                  strokeWidth={2} strokeDasharray="6 5" markerEnd={`url(#${marcadorRecusa})`} />
+              </svg>
+            </ViewportPortal>
+          )}
+          <NodeToolbar nodeId={acoes?.id} isVisible={!!acoes} position={Position.Right} offset={14}>
+            <div role="toolbar" aria-label="Ações rápidas" aria-orientation="vertical"
+              className="flex flex-col gap-1 rounded-[10px] bg-white p-1 shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[#0F1914] dark:shadow-[0_0_0_1px_#2A3B32,0_12px_24px_-12px_rgba(0,0,0,0.7)]">
+              <button type="button" title="Próxima: tarefa" aria-label="Próxima: tarefa" className={ACAO} onClick={() => proxima('userTask')}>
+                <span aria-hidden className="box-border h-[11px] w-4 rounded-[3px] border-[1.5px] border-[#0369A1] bg-[#E0F2FE] dark:border-[#7DD3FC] dark:bg-[rgba(56,189,248,0.12)]" />
               </button>
-            )}
-            <button type="button" title="Excluir" aria-label="Excluir" className={`${ACAO} text-[#B42318] dark:text-[#FDA29B]`}
-              onClick={() => acoes && onRemover(acoes.id)}>
-              <Trash2 aria-hidden className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </NodeToolbar>
-      </ReactFlow>
+              <button type="button" title="Próxima: escolha" aria-label="Próxima: escolha" className={ACAO} onClick={() => proxima('escolha')}>
+                <span aria-hidden className="box-border h-2.5 w-2.5 rotate-45 border-[1.5px] border-[#6D28D9] bg-[#EDE9FE] dark:border-[#C4B5FD] dark:bg-[rgba(167,139,250,0.14)]" />
+              </button>
+              {podeLigar && (
+                <button type="button" title="Ligar com seta" aria-label="Ligar com seta" aria-pressed={ligandoDe === acoes?.id}
+                  className={`${ACAO} text-[13px] text-[#142420] dark:text-white ${ligandoDe === acoes?.id ? 'bg-[rgba(198,242,78,0.35)] dark:bg-[rgba(198,242,78,0.14)]' : ''}`}
+                  onClick={() => setLigandoDe((x) => (x === acoes?.id ? null : acoes?.id ?? null))}>
+                  <span aria-hidden>→</span>
+                </button>
+              )}
+              <button type="button" title="Excluir" aria-label="Excluir" className={`${ACAO} text-[#B42318] dark:text-[#FDA29B]`}
+                onClick={() => acoes && onRemover(acoes.id)}>
+                <Trash2 aria-hidden className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </NodeToolbar>
+        </ReactFlow>
+      </ContextoRaias.Provider>
       {ligandoDe && (
         <p role="status" className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-[10px] bg-white px-3 py-2 text-xs font-semibold text-[#2E3E36] shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[#0F1914] dark:text-[#C9D6CE] dark:shadow-[0_0_0_1px_#2A3B32]">
           Clique na forma para onde a seta vai. Esc cancela.

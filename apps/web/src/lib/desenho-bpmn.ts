@@ -9,6 +9,8 @@ import { layoutGraph, LANE_SEM_RESPONSAVEL, type FlowGraph, type FlowNodeType } 
 export const GRADE = 16
 export const RAIA_ALTURA_PADRAO = 140
 export const RAIA_ROTULO_W = 120
+/** Menor altura a que a alça deixa encolher uma raia. */
+export const RAIA_ALTURA_MINIMA = 60
 /** Distância horizontal entre um nó e o que vem depois dele, ao completar posições. */
 const PASSO_X = 200
 
@@ -132,6 +134,53 @@ export function raiaNaAltura(raias: Array<Pick<RaiaDesenho, 'altura'>>, y: numbe
     topo += raias[i].altura
   }
   return -1
+}
+
+/* ─── Edição das raias ─────────────────────────────────────────────────────────
+   As raias são só visuais: nenhuma destas funções mexe em `posicoes`. Sem mudança
+   de fato, devolvem o MESMO desenho (o canvas não grava nada). */
+
+const idNovo = () => 'raia_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
+
+/** Acrescenta "Nova raia" no fim da piscina. `gerarId` só existe para os testes. */
+export function adicionarRaia(d: DesenhoBpmn, gerarId: () => string = idNovo): DesenhoBpmn {
+  const usados = new Set(d.raias.map((r) => r.id))
+  let id = gerarId()
+  for (let n = 2; usados.has(id); n++) id = `${gerarId()}_${n}`
+  return { ...d, raias: [...d.raias, { id, nome: 'Nova raia', altura: RAIA_ALTURA_PADRAO }] }
+}
+
+const trocarRaia = (d: DesenhoBpmn, id: string, muda: (r: RaiaDesenho) => RaiaDesenho): DesenhoBpmn => {
+  const i = d.raias.findIndex((r) => r.id === id)
+  if (i === -1) return d
+  const nova = muda(d.raias[i])
+  if (nova.nome === d.raias[i].nome && nova.altura === d.raias[i].altura) return d
+  return { ...d, raias: d.raias.map((r, j) => (j === i ? nova : r)) }
+}
+
+export function renomearRaia(d: DesenhoBpmn, id: string, nome: string): DesenhoBpmn {
+  return trocarRaia(d, id, (r) => ({ ...r, nome: nome.trim() }))
+}
+
+/** Nova altura na grade, nunca abaixo de `RAIA_ALTURA_MINIMA`. */
+export function redimensionarRaia(d: DesenhoBpmn, id: string, altura: number): DesenhoBpmn {
+  return trocarRaia(d, id, (r) => ({ ...r, altura: Math.max(RAIA_ALTURA_MINIMA, naGrade(altura)) }))
+}
+
+/** Troca a raia de lugar com a de cima (-1) ou a de baixo (1). As formas ficam onde estão. */
+export function moverRaia(d: DesenhoBpmn, id: string, direcao: -1 | 1): DesenhoBpmn {
+  const i = d.raias.findIndex((r) => r.id === id)
+  const j = i + direcao
+  if (i === -1 || j < 0 || j >= d.raias.length) return d
+  const raias = [...d.raias]
+  ;[raias[i], raias[j]] = [raias[j], raias[i]]
+  return { ...d, raias }
+}
+
+/** Tira a raia; as formas que estavam nela ficam onde estão. */
+export function removerRaia(d: DesenhoBpmn, id: string): DesenhoBpmn {
+  if (!d.raias.some((r) => r.id === id)) return d
+  return { ...d, raias: d.raias.filter((r) => r.id !== id) }
 }
 
 const normaliza = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
