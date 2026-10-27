@@ -1,0 +1,88 @@
+import { describe, it, expect } from 'vitest'
+import type { GrafoGerado } from '@nxt/workflow-core'
+import type { DesenhoBpmn } from '@nxt/types'
+import { GRADE, desenhoInicial, organizar, completarPosicoes, raiaNaAltura, avisoDeRaia, setaSobPonto } from './desenho-bpmn'
+
+const no = (id: string, type: string) => ({ id, type }) as GrafoGerado['nodes'][number]
+const seta = (from: string, to: string) => ({ id: `${from}>${to}`, from, to }) as GrafoGerado['edges'][number]
+const cadeia = (...ids: string[]): GrafoGerado => {
+  const nodes = [no('start', 'start'), ...ids.map((i) => no(i, 'userTask')), no('end', 'end')]
+  const seq = ['start', ...ids, 'end']
+  return { nodes, edges: seq.slice(1).map((id, i) => seta(seq[i], id)) } as GrafoGerado
+}
+
+describe('desenhoInicial', () => {
+  const resp: Record<string, string> = { A: 'RH', B: 'Contas' }
+  it('cria uma raia por responsável e põe cada nó dentro da sua', () => {
+    const g = cadeia('A', 'B')
+    const d = desenhoInicial(g, (id) => resp[id])
+    expect(d.versao).toBe(1)
+    expect(d.raias.map((r) => r.nome)).toEqual(['RH', 'Contas'])
+    for (const n of g.nodes) expect(d.posicoes[n.id]).toBeDefined()
+    expect(raiaNaAltura(d.raias, d.posicoes.A.y)).toBe(0)
+    expect(raiaNaAltura(d.raias, d.posicoes.B.y)).toBe(1)
+  })
+  it('sem responsável vira raia de nome vazio', () => {
+    const d = desenhoInicial(cadeia('A'), () => undefined)
+    expect(d.raias).toHaveLength(1)
+    expect(d.raias[0].nome).toBe('')
+  })
+})
+
+describe('organizar', () => {
+  it('mantém o nó na raia em que já está', () => {
+    const g = cadeia('A', 'B')
+    const base = desenhoInicial(g, (id) => ({ A: 'RH', B: 'Contas' })[id])
+    const d: DesenhoBpmn = { ...base, posicoes: { ...base.posicoes, A: { x: 500, y: base.raias[0].altura + 20 } } }
+    const o = organizar(g, d, (id) => ({ A: 'RH', B: 'Contas' })[id])
+    expect(raiaNaAltura(o.raias, o.posicoes.A.y)).toBe(1)
+  })
+  it('x cresce estritamente e tudo cai na grade', () => {
+    const g = cadeia('A', 'B', 'C')
+    const r = (id: string) => ({ A: 'RH', B: 'RH', C: 'RH' })[id]
+    const o = organizar(g, desenhoInicial(g, r), r)
+    const xs = ['start', 'A', 'B', 'C', 'end'].map((i) => o.posicoes[i].x)
+    for (let i = 1; i < xs.length; i++) expect(xs[i]).toBeGreaterThan(xs[i - 1])
+    for (const p of Object.values(o.posicoes)) { expect(p.x % GRADE).toBe(0); expect(p.y % GRADE).toBe(0) }
+  })
+})
+
+describe('completarPosicoes', () => {
+  const g: GrafoGerado = { nodes: [no('start', 'start'), no('A', 'userTask'), no('N', 'userTask')], edges: [seta('start', 'A'), seta('A', 'N')] } as GrafoGerado
+  const d: DesenhoBpmn = { versao: 1, posicoes: { start: { x: 0, y: 0 }, A: { x: 100, y: 48 } }, raias: [] }
+  it('põe o que falta à direita do antecessor', () => {
+    const o = completarPosicoes(g, d)
+    expect(o.posicoes.N).toEqual({ x: 300, y: 48 })
+  })
+  it('com "perto", encaixa na grade', () => {
+    expect(completarPosicoes(g, d, { x: 333, y: 107 }).posicoes.N).toEqual({ x: 336, y: 112 })
+  })
+})
+
+describe('raiaNaAltura', () => {
+  const raias = [{ altura: 140 }, { altura: 100 }] as never
+  it('acha o índice ou -1', () => {
+    expect(raiaNaAltura(raias, 139)).toBe(0)
+    expect(raiaNaAltura(raias, 140)).toBe(1)
+    expect(raiaNaAltura(raias, 240)).toBe(-1)
+    expect(raiaNaAltura(raias, -1)).toBe(-1)
+  })
+})
+
+describe('avisoDeRaia', () => {
+  it('avisa só quando o nome da raia não aparece no responsável', () => {
+    expect(avisoDeRaia('RH', 'Analista de RH')).toBeNull()
+    expect(avisoDeRaia('Patrimônio', 'Analista de Patrimonio')).toBeNull()
+    expect(avisoDeRaia('RH', 'Analista de Fluxo de Contas')).toBe('Está na raia “RH”, mas quem executa é Analista de Fluxo de Contas.')
+    expect(avisoDeRaia('', 'X')).toBeNull()
+    expect(avisoDeRaia('RH', undefined)).toBeNull()
+  })
+})
+
+describe('setaSobPonto', () => {
+  const setas = [{ id: 's1', pontos: [{ x: 0, y: 0 }, { x: 100, y: 0 }] }]
+  it('acha a seta dentro da tolerância', () => {
+    expect(setaSobPonto(setas, { x: 50, y: 10 })).toBe('s1')
+    expect(setaSobPonto(setas, { x: 50, y: 20 })).toBeNull()
+  })
+})
