@@ -11,7 +11,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type DragEven
 import { useTheme } from 'next-themes'
 import {
   ReactFlow, Background, BackgroundVariant, Controls, MiniMap, NodeToolbar, Position, ViewportPortal, applyNodeChanges,
-  type AriaLabelConfig, type Connection, type Edge, type NodeChange, type NodeMouseHandler, type OnConnectEnd,
+  type AriaLabelConfig, type Connection, type Edge, type NodeChange, type OnConnectEnd,
   type OnNodeDrag, type ReactFlowInstance,
 } from '@xyflow/react'
 import { Trash2 } from 'lucide-react'
@@ -220,11 +220,13 @@ function geometria(grafo: GrafoGerado, desenho: DesenhoBpmn) {
     const recuo = nos.get(id)?.type === 'start' || nos.get(id)?.type === 'end' ? EVENTO_RECUO : 0
     return pontoDaAlca(pos(id), caixa(id), lado, recuo)
   }
-  return { pos, caixa, alca }
+  const posicionado = (id: string) => !!desenho.posicoes[id]
+  return { pos, caixa, alca, posicionado }
 }
 
+/** Só as setas com as duas pontas já posicionadas: as outras ainda estariam em (0, 0). */
 function tracarSetas(setas: SetaBpmn[], g: ReturnType<typeof geometria>): Tracado[] {
-  return setas.map((s) => {
+  return setas.filter((s) => g.posicionado(s.source) && g.posicionado(s.target)).map((s) => {
     const ladoS = LADO_DA_ALCA[s.sourceHandle ?? 's-r'], ladoT = LADO_DA_ALCA[s.targetHandle ?? 'e-l']
     return { id: s.id, de: s.source, para: s.target, pontos: polilinhaDaSeta(g.alca(s.source, ladoS), ladoS, g.alca(s.target, ladoT), ladoT) }
   })
@@ -249,6 +251,10 @@ const caixaNova = (tipo: NovoItem): Caixa =>
 
 /** Tempo que o aviso de seta recusada fica na tela. */
 const RECUSA_MS = 4000
+/** Distância (px na tela) até a qual o ponteiro "está sobre" a seta; limites em unidades do fluxo. */
+const TOLERANCIA_TELA = 12
+const TOLERANCIA_MIN = 6
+const TOLERANCIA_MAX = 40
 const COR_RECUSA = '#D64535'
 
 type Recusa = { motivo: string; pontos: Pt[]; vez: number }
@@ -296,20 +302,24 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     [setas, destaque],
   )
 
-  /** Vaga do fluxo sob o ponto: a seta mais próxima que seja uma vaga. `sem` = forma
-   *  arrastada (as setas dela andam junto e um bloco não entra em si mesmo). */
-  const vagaNoPonto = useCallback((p: Pt, sem?: string): { setaId: string; ponto: PontoDeInsercao } | null => {
+  /** O que há sob o ponto: `vaga` = a seta mais próxima, se ela for uma vaga do fluxo;
+   *  `sobreSeta` = o ponto está em cima de alguma seta (vaga ou não — volta, encerra).
+   *  `sem` = forma arrastada (as setas dela andam junto e um bloco não entra em si mesmo).
+   *  A tolerância é de 12 px NA TELA: no fluxo ela cresce quando o desenho está afastado. */
+  const alvoNoPonto = useCallback((p: Pt, sem?: string): { vaga: { setaId: string; ponto: PontoDeInsercao } | null; sobreSeta: boolean } => {
     const internas = refsInternas(sem ? acharItem(fluxo, sem) : undefined)
     const candidatas = sem
       ? tracados.filter((t) => t.de !== sem && t.para !== sem && t.de !== sem + SUFIXO_REENCONTRO && t.para !== sem + SUFIXO_REENCONTRO)
       : tracados
-    const setaId = setaSobPonto(candidatas, p)
+    const zoom = instancia.current?.getZoom() ?? 1
+    const tolerancia = Math.min(TOLERANCIA_MAX, Math.max(TOLERANCIA_MIN, TOLERANCIA_TELA / zoom))
+    const setaId = setaSobPonto(candidatas, p, tolerancia)
     const t = setaId ? candidatas.find((x) => x.id === setaId) : undefined
     const ponto = t ? pontoDaSeta(fluxo, t.de, t.para) : null
-    return t && ponto && !internas.has(ponto.ref) ? { setaId: t.id, ponto } : null
+    return { vaga: t && ponto && !internas.has(ponto.ref) ? { setaId: t.id, ponto } : null, sobreSeta: !!t }
   }, [fluxo, tracados])
 
-  const naTela = useCallback((e: Parameters<typeof ponteiro>[0]): Pt | null => {
+  const noFluxo = useCallback((e: Parameters<typeof ponteiro>[0]): Pt | null => {
     const q = ponteiro(e)
     return q && instancia.current ? instancia.current.screenToFlowPosition({ x: q.clientX, y: q.clientY }) : null
   }, [])
@@ -321,20 +331,6 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     onDesenho({ ...desenho, posicoes: { ...desenho.posicoes, [id]: { x: p.x, y: p.y } } })
   }, [desenho, onDesenho])
 
-  const onNodesChange = useCallback((mudancas: NodeChange<NoBpmn>[]) => {
-    // seleção é controlada por fora: só repassa a intenção
-    const sel = mudancas.filter((m) => m.type === 'select')
-    const escolhido = sel.find((m) => m.selected)
-    if (escolhido) onSelecionar(escolhido.id)
-    else if (sel.length) onSelecionar(null)
-    // mover pelo teclado não passa por onNodeDragStop: grava aqui
-    if (!arrastando) {
-      for (const m of mudancas) if (m.type === 'position' && m.position && !m.dragging) gravar(m.id, m.position)
-    }
-    const resto = mudancas.filter((m) => m.type === 'position' || m.type === 'dimensions')
-    if (resto.length) setNos((atual) => applyNodeChanges(resto, atual))
-  }, [arrastando, gravar, onSelecionar])
-
   /* ─── Reordenar: arrastar uma atividade/bloco para cima de uma seta ─────── */
   /** Só atividades e blocos mudam de lugar no fluxo; início, fim e reencontro só andam. */
   const reordenavel = useCallback((id: string) => !!acharItem(fluxo, id), [fluxo])
@@ -342,19 +338,19 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   const onNodeDragStart = useCallback<OnNodeDrag<NoBpmn>>(() => setArrastando(true), [])
   const onNodeDrag = useCallback<OnNodeDrag<NoBpmn>>((e, no) => {
     if (!reordenavel(no.id)) return
-    const p = naTela(e)
-    setDestaque(p ? vagaNoPonto(p, no.id)?.setaId ?? null : null)
-  }, [naTela, reordenavel, vagaNoPonto])
+    const p = noFluxo(e)
+    setDestaque(p ? alvoNoPonto(p, no.id).vaga?.setaId ?? null : null)
+  }, [noFluxo, reordenavel, alvoNoPonto])
   const onNodeDragStop = useCallback<OnNodeDrag<NoBpmn>>((e, no) => {
     setArrastando(false) // o render seguinte ressincroniza, se a projeção mudou durante o arrasto
     setDestaque(null)
     if (no.type === 'raia' || no.type === 'piscina') return
     gravar(no.id, no.position)
     if (!reordenavel(no.id)) return
-    const p = naTela(e)
-    const vaga = p ? vagaNoPonto(p, no.id) : null
+    const p = noFluxo(e)
+    const vaga = p ? alvoNoPonto(p, no.id).vaga : null
     if (vaga) onMoverItem(no.id, vaga.ponto)
-  }, [gravar, naTela, onMoverItem, reordenavel, vagaNoPonto])
+  }, [gravar, noFluxo, onMoverItem, reordenavel, alvoNoPonto])
 
   /* ─── Soltar da paleta ─────────────────────────────────────────────────── */
   const aceitaArrasto = (e: DragEvent) => !somenteLeitura && e.dataTransfer.types.includes(TIPO_ARRASTO_FORMA)
@@ -362,8 +358,8 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     if (!aceitaArrasto(e)) return
     e.preventDefault()
     e.dataTransfer.dropEffect = 'copy'
-    const p = naTela(e)
-    setDestaque(p ? vagaNoPonto(p)?.setaId ?? null : null)
+    const p = noFluxo(e)
+    setDestaque(p ? alvoNoPonto(p).vaga?.setaId ?? null : null)
   }
   const onDragLeave = (e: DragEvent<HTMLDivElement>) => {
     if (!e.currentTarget.contains(e.relatedTarget as globalThis.Node | null)) setDestaque(null)
@@ -373,10 +369,13 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     e.preventDefault()
     setDestaque(null)
     const tipo = e.dataTransfer.getData(TIPO_ARRASTO_FORMA)
-    const p = naTela(e)
+    const p = noFluxo(e)
     if (!ehNovoItem(tipo) || !p) return
-    // em cima de uma seta entra naquela vaga; em área vazia, no fim do fluxo principal
-    const ponto = vagaNoPonto(p)?.ponto ?? { ref: 'raiz', indice: fluxo.itens.length }
+    // em cima de uma seta entra naquela vaga; em área vazia, no fim do fluxo principal;
+    // em cima de uma seta que não é vaga (volta, encerra) não faz nada
+    const { vaga, sobreSeta } = alvoNoPonto(p)
+    if (!vaga && sobreSeta) return
+    const ponto = vaga?.ponto ?? { ref: 'raiz', indice: fluxo.itens.length }
     const c = caixaNova(tipo)
     onInserir(ponto, tipo, { x: naGrade(p.x - c.w / 2), y: naGrade(p.y - c.h / 2) })
   }
@@ -397,11 +396,11 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   }, [geo])
 
   const tentarLigar = useCallback((de: string, para: string) => {
-    if (de === para) return
+    if (somenteLeitura || de === para) return
     const r = ligacaoPermitida(fluxo, de, para)
     if (r.ok) { setRecusa(null); onLigar(r.caminhoId, r.fim) }
     else setRecusa((antes) => ({ motivo: r.motivo, pontos: tracoRecusado(de, para), vez: (antes?.vez ?? 0) + 1 }))
-  }, [fluxo, onLigar, tracoRecusado])
+  }, [fluxo, onLigar, somenteLeitura, tracoRecusado])
 
   const isValidConnection = useCallback((c: Edge | Connection) =>
     c.source !== c.target && ligacaoPermitida(fluxo, c.source, c.target).ok, [fluxo])
@@ -418,7 +417,7 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     if (alvo && !alvo.startsWith('raia:') && alvo !== 'piscina') tentarLigar(estado.fromNode.id, alvo)
   }, [tentarLigar])
 
-  /* "Ligar com seta" nas ações rápidas: o próximo clique numa forma escolhe o destino. */
+  /* "Ligar com seta" nas ações rápidas: a próxima forma escolhida (clique ou teclado) é o destino. */
   const [ligandoDe, setLigandoDe] = useState<string | null>(null)
   useEffect(() => {
     if (!ligandoDe) return
@@ -426,12 +425,25 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     window.addEventListener('keydown', tecla)
     return () => window.removeEventListener('keydown', tecla)
   }, [ligandoDe])
-  const onNodeClick = useCallback<NodeMouseHandler<NoBpmn>>((_, no) => {
-    if (!ligandoDe) return
-    setLigandoDe(null)
-    if (no.type !== 'raia' && no.type !== 'piscina') tentarLigar(ligandoDe, no.id)
-  }, [ligandoDe, tentarLigar])
+  // só leitura desliga o modo (ajuste durante o render, como a cópia dos nós)
+  if (somenteLeitura && ligandoDe) setLigandoDe(null)
   const onPaneClick = useCallback(() => setLigandoDe(null), [])
+
+  const onNodesChange = useCallback((mudancas: NodeChange<NoBpmn>[]) => {
+    // seleção é controlada por fora: só repassa a intenção
+    const sel = mudancas.filter((m) => m.type === 'select')
+    const escolhido = sel.find((m) => m.selected)
+    // no modo "Ligar com seta", escolher uma forma (clique, ou Enter/espaço no teclado) é o destino
+    if (ligandoDe && escolhido) { setLigandoDe(null); tentarLigar(ligandoDe, escolhido.id) }
+    if (escolhido) onSelecionar(escolhido.id)
+    else if (sel.length) onSelecionar(null)
+    // mover pelo teclado não passa por onNodeDragStop: grava aqui
+    if (!arrastando) {
+      for (const m of mudancas) if (m.type === 'position' && m.position && !m.dragging) gravar(m.id, m.position)
+    }
+    const resto = mudancas.filter((m) => m.type === 'position' || m.type === 'dimensions')
+    if (resto.length) setNos((atual) => applyNodeChanges(resto, atual))
+  }, [arrastando, gravar, ligandoDe, onSelecionar, tentarLigar])
 
   /* ─── Ações rápidas da forma selecionada ───────────────────────────────── */
   const itemSel = selecionado ? acharItem(fluxo, selecionado) : undefined
@@ -482,7 +494,6 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
         onNodeDragStart={onNodeDragStart}
         onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
-        onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
         isValidConnection={isValidConnection}
         onConnect={onConnect}

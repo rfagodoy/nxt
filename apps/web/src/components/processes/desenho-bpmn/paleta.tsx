@@ -3,8 +3,9 @@
 /* ─── Paleta de formas do desenho BPMN ─────────────────────────────────────────
    Barra vertical à esquerda do canvas. Tarefa, Automática, Escolha e Ao mesmo tempo
    são arrastadas para o desenho (o tipo vai no `dataTransfer` em `TIPO_ARRASTO_FORMA`);
-   o canvas decide onde a forma entra. "Raia" é clique. A página monta a paleta ao lado
-   do canvas, como no mockup. */
+   o canvas decide onde a forma entra. Pelo clique ou pelo teclado (Enter/espaço) a forma
+   vai para `onEscolher`, e a página decide a vaga (depois do item selecionado ou no fim).
+   "Raia" é clique. A página monta a paleta ao lado do canvas, como no mockup. */
 import type { DragEvent, JSX, ReactNode } from 'react'
 import type { NovoItem } from '@/components/processes/workflow-blocos'
 
@@ -39,8 +40,10 @@ const FORMAS: Array<{ tipo: NovoItem; rotulo: string; icone: ReactNode; gap: str
 
 const Divisoria = () => <span aria-hidden className="my-1 h-px w-10 bg-[#DCE4DE] dark:bg-[#22332A]" />
 
-export function PaletaBpmn({ onAdicionarRaia, desabilitada = false }: {
+export function PaletaBpmn({ onAdicionarRaia, onEscolher, desabilitada = false }: {
   onAdicionarRaia: () => void
+  /** Forma escolhida por clique, Enter ou espaço (sem arrastar). */
+  onEscolher?: (tipo: NovoItem) => void
   /** Só leitura: nada se arrasta nem se cria. */
   desabilitada?: boolean
 }): JSX.Element {
@@ -51,16 +54,17 @@ export function PaletaBpmn({ onAdicionarRaia, desabilitada = false }: {
   return (
     <div role="toolbar" aria-label="Formas" aria-orientation="vertical"
       className="flex w-[76px] shrink-0 flex-col items-center gap-1 border-r border-r-[rgba(20,36,32,0.08)] bg-[#F7FAF7] px-1.5 py-2.5 dark:border-r-[#1C2A23] dark:bg-white/[0.02]">
-      <button type="button" aria-pressed="true" className={`${BOTAO} gap-1 bg-[#0C1410] text-spark dark:bg-[rgba(198,242,78,0.14)]`}>
+      {/* ferramenta atual (a única): indicação, não um botão de alternar */}
+      <span aria-current="true" className={`${BOTAO} gap-1 bg-[#0C1410] text-spark dark:bg-[rgba(198,242,78,0.14)]`}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinejoin="round" aria-hidden>
           <path d="M5 3l14 8-6 2-3 6z" />
         </svg>
         Selecionar
-      </button>
+      </span>
       <Divisoria />
       {FORMAS.map((f) => (
-        <button key={f.tipo} type="button" title="Arraste para o desenho" disabled={desabilitada}
-          draggable={!desabilitada} onDragStart={aoArrastar(f.tipo)} className={`${ITEM} ${f.gap}`}>
+        <button key={f.tipo} type="button" title="Arraste para o desenho ou pressione Enter" disabled={desabilitada}
+          draggable={!desabilitada} onDragStart={aoArrastar(f.tipo)} onClick={() => onEscolher?.(f.tipo)} className={`${ITEM} ${f.gap}`}>
           {f.icone}
           {f.rotulo}
         </button>
