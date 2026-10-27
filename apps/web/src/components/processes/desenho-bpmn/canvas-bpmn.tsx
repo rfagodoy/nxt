@@ -39,6 +39,10 @@ export interface CanvasBpmnProps {
   onRemover: (id: string) => void
   /** Nome do processo, na faixa vertical da piscina. */
   nomeDoProcesso?: string
+  /** Muda quando o que `responsavelDe`/`prazoDe`/`problemasDe` leem mudar (papéis e rótulos
+   *  carregados depois, pendências recalculadas). As funções em si podem trocar de identidade
+   *  a cada render sem reprojetar; é esta revisão que manda refazer os cartões e as marcas. */
+  revisaoDasConsultas?: unknown
 }
 
 /** Folga à direita da última forma, dentro da raia. */
@@ -173,19 +177,22 @@ function projetarSetas(grafo: GrafoGerado, desenho: DesenhoBpmn, marcador: strin
 
 /* ─── Componente ──────────────────────────────────────────────────────────── */
 export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
-  const { grafo, desenho, steps, selecionado, nomeDoProcesso, somenteLeitura = false, onSelecionar, onDesenho } = props
+  const { grafo, desenho, steps, selecionado, nomeDoProcesso, revisaoDasConsultas, somenteLeitura = false, onSelecionar, onDesenho } = props
   const { resolvedTheme } = useTheme()
   const escuro = resolvedTheme === 'dark'
   const cor = escuro ? CORES.escuro : CORES.claro
   const marcador = `${MARCADOR_SETA}-${useId().replace(/:/g, '')}`
 
   /* As funções de consulta costumam nascer a cada render do pai: ficam numa ref (sempre a
-     mais nova) e a projeção só refaz quando os DADOS mudam (grafo deriva do fluxo). */
+     mais nova, atribuída no render para a projeção nunca ler uma antiga) e a projeção só
+     refaz quando os DADOS mudam (grafo deriva do fluxo) ou quando `revisaoDasConsultas` muda. */
   const consultas = useRef({ responsavelDe: props.responsavelDe, prazoDe: props.prazoDe, problemasDe: props.problemasDe })
   consultas.current = { responsavelDe: props.responsavelDe, prazoDe: props.prazoDe, problemasDe: props.problemasDe }
   const projetados = useMemo(
     () => projetarNos({ grafo, desenho, steps, selecionado, nomeDoProcesso, ...consultas.current }),
-    [grafo, desenho, steps, selecionado, nomeDoProcesso],
+    // revisaoDasConsultas não é lida aqui: só sinaliza que as consultas passaram a responder outra coisa
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- revisão intencional (ver CanvasBpmnProps)
+    [grafo, desenho, steps, selecionado, nomeDoProcesso, revisaoDasConsultas],
   )
   const setas = useMemo(() => projetarSetas(grafo, desenho, marcador), [grafo, desenho, marcador])
 
