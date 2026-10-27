@@ -6,14 +6,16 @@
    com o rótulo do caminho numa pílula. As cores seguem o mockup aprovado: o tema
    claro é o padrão e o escuro vem pelas variantes `dark:`. */
 import { BaseEdge, EdgeLabelRenderer, Handle, Position, getSmoothStepPath, type Edge, type EdgeProps, type Node, type NodeProps } from '@xyflow/react'
-import { Settings } from 'lucide-react'
+import { Settings, UserSquare } from 'lucide-react'
 import { RAIA_ROTULO_W } from '@/lib/desenho-bpmn'
 
 /* ─── Medidas ─────────────────────────────────────────────────────────────── */
-export const TAREFA_W = 150
-export const TAREFA_H = 64
-/** Caixa dos símbolos (evento e losango) — a mesma que o layout reserva. */
+/* A caixa de cada forma é a que o layout (`nodeSize` de flow-layout) reserva: a tarefa
+   tem 190 de largura e altura pelas linhas do nome; evento e losango, `SYMBOL` (56). */
+/** Caixa dos símbolos (evento e losango). */
 export const SIMBOLO = 56
+/** Largura da faixa vertical da piscina, com o nome do processo. */
+export const FAIXA_PISCINA = 28
 /** Lado do quadrado do losango; girado 45°, a diagonal (~56) preenche a caixa. */
 const LOSANGO_LADO = 40
 const EVENTO_D = 32
@@ -21,18 +23,20 @@ const EVENTO_D = 32
 const EVENTO_RECUO = (SIMBOLO - EVENTO_D) / 2
 
 /* ─── Dados de cada forma ─────────────────────────────────────────────────── */
-export type DadosTarefa = { nome: string; automatica: boolean; meta: string; problemas: string[] }
+export type DadosTarefa = { nome: string; automatica: boolean; meta: string; problemas: string[]; largura: number; altura: number }
 export type TipoLosango = 'escolha' | 'paralelo' | 'inclusivo'
 export type DadosLosango = { tipo: TipoLosango; nome?: string; reencontro: boolean; problemas: string[] }
 export type DadosEvento = { tipo: 'inicio' | 'fim'; problemas: string[] }
 export type DadosRaia = { nome: string; largura: number; altura: number; indice: number; primeira: boolean; ultima: boolean }
+export type DadosPiscina = { nome: string; altura: number }
 export type DadosSeta = { rotulo?: string; senao: boolean }
 
 export type NoTarefa = Node<DadosTarefa, 'tarefa'>
 export type NoLosango = Node<DadosLosango, 'losango'>
 export type NoEvento = Node<DadosEvento, 'evento'>
 export type NoRaia = Node<DadosRaia, 'raia'>
-export type NoBpmn = NoTarefa | NoLosango | NoEvento | NoRaia
+export type NoPiscina = Node<DadosPiscina, 'piscina'>
+export type NoBpmn = NoTarefa | NoLosango | NoEvento | NoRaia | NoPiscina
 export type SetaBpmn = Edge<DadosSeta, 'seta'>
 
 /** Nome que o leitor de tela anuncia para a forma. */
@@ -49,6 +53,7 @@ export function rotuloDaForma(n: NoBpmn): string {
     }
     case 'evento': return comProblemas(n.data.tipo === 'inicio' ? 'Início do processo' : 'Fim do processo', n.data.problemas)
     case 'raia': return `Raia ${n.data.nome || 'sem nome'}`
+    case 'piscina': return `Processo ${n.data.nome || 'sem nome'}`
   }
 }
 
@@ -93,15 +98,17 @@ function RotuloExterno({ texto }: { texto?: string }) {
 /* ─── Tarefa ──────────────────────────────────────────────────────────────── */
 export function FormaTarefa({ data, selected, isConnectable }: NodeProps<NoTarefa>) {
   return (
-    <div className="group relative" style={{ width: TAREFA_W, height: TAREFA_H }}>
-      <div className={`flex h-full w-full flex-col justify-between rounded-[10px] px-[9px] py-[7px] font-sans
+    <div className="group relative" style={{ width: data.largura, height: data.altura }}>
+      <div className={`flex h-full w-full flex-col justify-between gap-1 rounded-[10px] px-[9px] py-[7px] font-sans
         bg-white dark:bg-[linear-gradient(180deg,#16251E,#111C17)]
         ${selected
           ? 'shadow-[0_0_0_2px_#11804F,0_0_0_6px_rgba(198,242,78,0.55)] dark:shadow-[0_0_0_2px_#C6F24E,0_0_24px_-6px_rgba(198,242,78,0.55)]'
           : 'shadow-[0_0_0_1px_#9DB0A5,0_8px_16px_-12px_rgba(12,20,16,0.45)] dark:shadow-[0_0_0_1px_#2E4238,0_8px_18px_-12px_rgba(0,0,0,0.6)]'}`}>
-        <span className="flex items-start gap-1">
-          {data.automatica && <Settings aria-hidden className="mt-[1px] h-3 w-3 shrink-0 text-[#075985] dark:text-[#7DD3FC]" />}
-          <span className="line-clamp-2 text-[11.5px] font-extrabold leading-[1.25] text-[#142420] dark:text-white">{data.nome}</span>
+        <span className="flex items-start gap-1.5">
+          {data.automatica
+            ? <Settings aria-hidden className="mt-[1px] h-3.5 w-3.5 shrink-0 text-[#075985] dark:text-[#7DD3FC]" />
+            : <UserSquare aria-hidden className="mt-[1px] h-3.5 w-3.5 shrink-0 text-[#075985] dark:text-[#7DD3FC]" />}
+          <span className="line-clamp-3 text-[11.5px] font-extrabold leading-[1.25] text-[#142420] dark:text-white">{data.nome}</span>
         </span>
         <span className="truncate text-[10px] text-[#4F5F57] dark:text-[#9DB0A5]">{data.meta}</span>
       </div>
@@ -163,12 +170,12 @@ export function FormaRaia({ data }: NodeProps<NoRaia>) {
   const faixa = data.indice % 2 === 0
     ? 'bg-[rgba(255,255,255,0.75)] dark:bg-[rgba(255,255,255,0.02)]'
     : 'bg-[rgba(242,246,241,0.85)] dark:bg-[rgba(255,255,255,0.045)]'
-  /* contorno da piscina por fora; entre raias, só a linha fina */
+  /* contorno da piscina por fora (a faixa do nome fecha à esquerda); entre raias, só a linha fina */
   const contorno = [
-    'border-x border-x-[#B8C6BE] dark:border-x-[#2A3B32]',
-    data.primeira ? 'rounded-t-[10px] border-t border-t-[#B8C6BE] dark:border-t-[#2A3B32]' : '',
+    'border-r border-r-[#B8C6BE] dark:border-r-[#2A3B32]',
+    data.primeira ? 'rounded-tr-[10px] border-t border-t-[#B8C6BE] dark:border-t-[#2A3B32]' : '',
     data.ultima
-      ? 'rounded-b-[10px] border-b border-b-[#B8C6BE] dark:border-b-[#2A3B32]'
+      ? 'rounded-br-[10px] border-b border-b-[#B8C6BE] dark:border-b-[#2A3B32]'
       : 'border-b border-b-[#D2DCD5] dark:border-b-[#22332A]',
   ].join(' ')
   return (
@@ -181,13 +188,24 @@ export function FormaRaia({ data }: NodeProps<NoRaia>) {
   )
 }
 
+/* ─── Piscina: faixa vertical com o nome do processo (fundo) ─────────────── */
+export function FormaPiscina({ data }: NodeProps<NoPiscina>) {
+  return (
+    <div className="pointer-events-none box-border flex items-center justify-center overflow-hidden rounded-l-[10px] border border-[#B8C6BE] bg-[#E6EDE8] text-[#2E3E36] dark:border-[#2A3B32] dark:bg-[#13211A] dark:text-[#C9D6CE]"
+      style={{ width: FAIXA_PISCINA, height: data.altura }}>
+      <span className="-rotate-90 whitespace-nowrap font-sans text-[11.5px] font-extrabold uppercase tracking-[0.04em]">{data.nome}</span>
+    </div>
+  )
+}
+
 /* ─── Seta ────────────────────────────────────────────────────────────────── */
 /** Id do marcador da ponta, desenhado uma vez pelo canvas. */
 export const MARCADOR_SETA = 'nxt-bpmn-seta'
 
 export function SetaComRotulo({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, markerEnd }: EdgeProps<SetaBpmn>) {
   const [caminho, lx, ly] = getSmoothStepPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, borderRadius: 0, offset: 20 })
-  const rotulo = data?.senao ? (data.rotulo || 'senão') : data?.rotulo
+  // a pílula mostra o rótulo do caminho; o "Senão" é sempre "senão" (nunca a expressão do motor)
+  const rotulo = data?.senao ? 'senão' : data?.rotulo
   return (
     <>
       <BaseEdge path={caminho} markerEnd={markerEnd} style={{ stroke: 'var(--bpmn-seta)', strokeWidth: 1.6, strokeLinejoin: 'round' }} />
@@ -208,5 +226,5 @@ export function SetaComRotulo({ sourceX, sourceY, targetX, targetY, sourcePositi
 }
 
 /* Fora de qualquer componente: o React Flow pede tipos estáveis entre renders. */
-export const tiposDeNo = { tarefa: FormaTarefa, losango: FormaLosango, evento: FormaEvento, raia: FormaRaia }
+export const tiposDeNo = { tarefa: FormaTarefa, losango: FormaLosango, evento: FormaEvento, raia: FormaRaia, piscina: FormaPiscina }
 export const tiposDeSeta = { seta: SetaComRotulo }

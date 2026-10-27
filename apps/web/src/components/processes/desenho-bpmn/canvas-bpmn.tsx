@@ -15,10 +15,11 @@ import '@xyflow/react/dist/style.css'
 import type { DesenhoBpmn, StepFormSchema } from '@nxt/types'
 import { SUFIXO_REENCONTRO, type FimCaminho, type FluxoBlocos, type GrafoGerado, type PontoDeInsercao } from '@nxt/workflow-core'
 import { GRADE, RAIA_ROTULO_W, avisoDeRaia, raiaNaAltura } from '@/lib/desenho-bpmn'
+import { nodeSize, type FlowNodeType } from '@/lib/flow-layout'
 import { ZOOM_MAX, ZOOM_MIN } from '@/components/processes/flow-shared'
 import type { NovoItem } from '@/components/processes/workflow-blocos'
 import {
-  MARCADOR_SETA, SIMBOLO, TAREFA_H, TAREFA_W, rotuloDaForma, tiposDeNo, tiposDeSeta,
+  FAIXA_PISCINA, MARCADOR_SETA, rotuloDaForma, tiposDeNo, tiposDeSeta,
   type NoBpmn, type SetaBpmn, type TipoLosango,
 } from './formas'
 
@@ -36,6 +37,8 @@ export interface CanvasBpmnProps {
   onMoverItem: (id: string, ponto: PontoDeInsercao) => void
   onLigar: (caminhoId: string, fim: FimCaminho) => void
   onRemover: (id: string) => void
+  /** Nome do processo, na faixa vertical da piscina. */
+  nomeDoProcesso?: string
 }
 
 /** Folga à direita da última forma, dentro da raia. */
@@ -47,15 +50,20 @@ const DESNIVEL = GRADE / 2
 type No = GrafoGerado['nodes'][number]
 const ehAtividade = (t: No['type']) => t === 'userTask' || t === 'serviceTask'
 const ehLosango = (t: No['type']) => t === 'exclusiveGateway' || t === 'inclusiveGateway' || t === 'parallelGateway'
-const tamanho = (t: No['type']) => (ehAtividade(t) ? { w: TAREFA_W, h: TAREFA_H } : { w: SIMBOLO, h: SIMBOLO })
+/** A mesma caixa que o layout reserva (tarefa 190 × altura pelas linhas do nome; símbolos 56). */
+const tamanho = (n: No) => nodeSize({ id: n.id, type: n.type as FlowNodeType, name: n.name }, 0, 0)
 
 const TIPO_LOSANGO: Partial<Record<No['type'], TipoLosango>> = {
   exclusiveGateway: 'escolha', inclusiveGateway: 'inclusivo', parallelGateway: 'paralelo',
 }
 
-const ROTULOS_ARIA: Partial<AriaLabelConfig> = {
+/* O React Flow usa a descrição "keyboardDisabled" justamente quando o teclado está LIGADO
+   (é a que fala das setas). Só leitura: as setas não movem nada, então o texto não promete. */
+const rotulosAria = (somenteLeitura: boolean): Partial<AriaLabelConfig> => ({
   'node.a11yDescription.default': 'Enter ou espaço seleciona a forma.',
-  'node.a11yDescription.keyboardDisabled': 'Enter ou espaço seleciona a forma; as setas do teclado a movem.',
+  'node.a11yDescription.keyboardDisabled': somenteLeitura
+    ? 'Enter ou espaço seleciona a forma.'
+    : 'Enter ou espaço seleciona a forma; depois, as setas do teclado a movem.',
   'node.a11yDescription.ariaLiveMessage': ({ direction, x, y }) => `Forma movida para ${direction}. Nova posição: x ${x}, y ${y}.`,
   'edge.a11yDescription.default': 'Seta do fluxo.',
   'controls.ariaLabel': 'Controles do desenho',
@@ -65,7 +73,7 @@ const ROTULOS_ARIA: Partial<AriaLabelConfig> = {
   'controls.interactive.ariaLabel': 'Travar ou destravar o desenho',
   'minimap.ariaLabel': 'Miniatura do desenho',
   'handle.ariaLabel': 'Ponto de ligação',
-}
+})
 
 /* Cores que o React Flow pinta por prop (não aceitam classe `dark:`). */
 const CORES = {
@@ -74,14 +82,15 @@ const CORES = {
 }
 
 /* ─── Projeção: grafo + desenho → nós e setas do React Flow ───────────────── */
-type Projecao = Pick<CanvasBpmnProps, 'grafo' | 'desenho' | 'steps' | 'selecionado' | 'responsavelDe' | 'prazoDe' | 'problemasDe'>
+type Projecao = Pick<CanvasBpmnProps, 'grafo' | 'desenho' | 'steps' | 'selecionado' | 'responsavelDe' | 'prazoDe' | 'problemasDe' | 'nomeDoProcesso'>
 
-function projetarNos({ grafo, desenho, steps, selecionado, responsavelDe, prazoDe, problemasDe }: Projecao): NoBpmn[] {
+function projetarNos({ grafo, desenho, steps, selecionado, responsavelDe, prazoDe, problemasDe, nomeDoProcesso }: Projecao): NoBpmn[] {
   const pos = (id: string) => desenho.posicoes[id] ?? { x: 0, y: 0 }
   const nos: NoBpmn[] = []
 
-  // raias: fundo empilhado a partir de y = 0, com o rótulo à esquerda do x = 0
-  const direita = grafo.nodes.reduce((m, n) => Math.max(m, pos(n.id).x + tamanho(n.type).w), 0)
+  // piscina + raias: fundo empilhado a partir de y = 0. À esquerda do x = 0 ficam a coluna
+  // do rótulo das raias e, antes dela, a faixa vertical com o nome do processo.
+  const direita = grafo.nodes.reduce((m, n) => Math.max(m, pos(n.id).x + tamanho(n).w), 0)
   const largura = Math.max(LARGURA_MINIMA_RAIA, RAIA_ROTULO_W + direita + FOLGA_RAIA)
   let topo = 0
   desenho.raias.forEach((r, i) => {
@@ -94,9 +103,18 @@ function projetarNos({ grafo, desenho, steps, selecionado, responsavelDe, prazoD
     })
     topo += r.altura
   })
+  if (desenho.raias.length) {
+    nos.push({
+      id: 'piscina', type: 'piscina', position: { x: -RAIA_ROTULO_W - FAIXA_PISCINA, y: 0 },
+      data: { nome: nomeDoProcesso?.trim() ?? '', altura: topo },
+      width: FAIXA_PISCINA, height: topo, zIndex: -1,
+      draggable: false, selectable: false, connectable: false, focusable: false, deletable: false,
+      style: { pointerEvents: 'none' },
+    })
+  }
 
   for (const n of grafo.nodes) {
-    const { w, h } = tamanho(n.type)
+    const { w, h } = tamanho(n)
     const comum = { id: n.id, position: pos(n.id), width: w, height: h, selected: n.id === selecionado, deletable: false }
     const problemas = [...problemasDe(n.id)]
     let no: NoBpmn
@@ -110,7 +128,7 @@ function projetarNos({ grafo, desenho, steps, selecionado, responsavelDe, prazoD
       }
       const nome = n.name?.trim() || steps[n.id]?.stepName?.trim() || (automatica ? 'Ação automática' : 'Tarefa sem nome')
       const meta = [responsavel ?? (automatica ? 'Automática' : 'Sem responsável'), prazoDe(n.id)].filter(Boolean).join(' · ')
-      no = { ...comum, type: 'tarefa', data: { nome, automatica, meta, problemas } }
+      no = { ...comum, type: 'tarefa', data: { nome, automatica, meta, problemas, largura: w, altura: h } }
     } else if (ehLosango(n.type)) {
       no = { ...comum, type: 'losango', data: { tipo: TIPO_LOSANGO[n.type]!, nome: n.name?.trim() || undefined, reencontro: n.id.endsWith(SUFIXO_REENCONTRO), problemas } }
     } else {
@@ -124,10 +142,11 @@ function projetarNos({ grafo, desenho, steps, selecionado, responsavelDe, prazoD
 
 function projetarSetas(grafo: GrafoGerado, desenho: DesenhoBpmn, marcador: string): SetaBpmn[] {
   const tipo = new Map(grafo.nodes.map((n) => [n.id, n.type]))
+  const caixa = new Map(grafo.nodes.map((n) => [n.id, tamanho(n)]))
   const nomes = new Map(grafo.nodes.map((n) => [n.id, n.name?.trim() || (n.type === 'start' ? 'Início' : n.type === 'end' ? 'Fim' : n.id)]))
   const centro = (id: string) => {
     const p = desenho.posicoes[id] ?? { x: 0, y: 0 }
-    const { w, h } = tamanho(tipo.get(id) ?? 'userTask')
+    const { w, h } = caixa.get(id) ?? { w: 0, h: 0 }
     return { x: p.x + w / 2, y: p.y + h / 2 }
   }
   return grafo.edges.map((e) => {
@@ -141,7 +160,8 @@ function projetarSetas(grafo: GrafoGerado, desenho: DesenhoBpmn, marcador: strin
       if (ehLosango(tipo.get(e.from)!) && Math.abs(para.y - de.y) > DESNIVEL) sourceHandle = para.y < de.y ? 's-t' : 's-b'
       if (ehLosango(tipo.get(e.to)!) && Math.abs(de.y - para.y) > DESNIVEL) targetHandle = de.y < para.y ? 'e-t' : 'e-b'
     }
-    const rotulo = e.label?.trim() || e.condition?.trim() || undefined
+    // só o rótulo do caminho; a expressão do motor (`condition`) nunca vai para a tela
+    const rotulo = e.isDefault ? 'senão' : e.label?.trim() || undefined
     return {
       id: e.id, source: e.from, target: e.to, sourceHandle, targetHandle, type: 'seta',
       data: { rotulo, senao: !!e.isDefault }, markerEnd: marcador,
@@ -153,26 +173,33 @@ function projetarSetas(grafo: GrafoGerado, desenho: DesenhoBpmn, marcador: strin
 
 /* ─── Componente ──────────────────────────────────────────────────────────── */
 export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
-  const { grafo, desenho, steps, selecionado, responsavelDe, prazoDe, problemasDe, somenteLeitura = false, onSelecionar, onDesenho } = props
+  const { grafo, desenho, steps, selecionado, nomeDoProcesso, somenteLeitura = false, onSelecionar, onDesenho } = props
   const { resolvedTheme } = useTheme()
   const escuro = resolvedTheme === 'dark'
   const cor = escuro ? CORES.escuro : CORES.claro
   const marcador = `${MARCADOR_SETA}-${useId().replace(/:/g, '')}`
 
+  /* As funções de consulta costumam nascer a cada render do pai: ficam numa ref (sempre a
+     mais nova) e a projeção só refaz quando os DADOS mudam (grafo deriva do fluxo). */
+  const consultas = useRef({ responsavelDe: props.responsavelDe, prazoDe: props.prazoDe, problemasDe: props.problemasDe })
+  consultas.current = { responsavelDe: props.responsavelDe, prazoDe: props.prazoDe, problemasDe: props.problemasDe }
   const projetados = useMemo(
-    () => projetarNos({ grafo, desenho, steps, selecionado, responsavelDe, prazoDe, problemasDe }),
-    [grafo, desenho, steps, selecionado, responsavelDe, prazoDe, problemasDe],
+    () => projetarNos({ grafo, desenho, steps, selecionado, nomeDoProcesso, ...consultas.current }),
+    [grafo, desenho, steps, selecionado, nomeDoProcesso],
   )
   const setas = useMemo(() => projetarSetas(grafo, desenho, marcador), [grafo, desenho, marcador])
 
   /* Cópia local dos nós só para o arrasto ficar fluido; a cada nova projeção ela é
-     substituída (ajuste durante o render, sem efeito). */
+     substituída (ajuste durante o render, sem efeito) — nunca no meio de um arrasto. */
   const [nos, setNos] = useState(projetados)
   const [base, setBase] = useState(projetados)
-  if (base !== projetados) { setBase(projetados); setNos(projetados) }
+  const [arrastando, setArrastando] = useState(false)
+  if (base !== projetados && !arrastando) { setBase(projetados); setNos(projetados) }
 
-  const arrastando = useRef(false)
+  /** Grava a posição; não faz nada se a forma ficou onde estava (clique sem mover). */
   const gravar = useCallback((id: string, p: { x: number; y: number }) => {
+    const antes = desenho.posicoes[id]
+    if (antes && antes.x === p.x && antes.y === p.y) return
     onDesenho({ ...desenho, posicoes: { ...desenho.posicoes, [id]: { x: p.x, y: p.y } } })
   }, [desenho, onDesenho])
 
@@ -183,21 +210,22 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     if (escolhido) onSelecionar(escolhido.id)
     else if (sel.length) onSelecionar(null)
     // mover pelo teclado não passa por onNodeDragStop: grava aqui
-    if (!arrastando.current) {
+    if (!arrastando) {
       for (const m of mudancas) if (m.type === 'position' && m.position && !m.dragging) gravar(m.id, m.position)
     }
     const resto = mudancas.filter((m) => m.type === 'position' || m.type === 'dimensions')
     if (resto.length) setNos((atual) => applyNodeChanges(resto, atual))
-  }, [gravar, onSelecionar])
+  }, [arrastando, gravar, onSelecionar])
 
-  const onNodeDragStart = useCallback<OnNodeDrag<NoBpmn>>(() => { arrastando.current = true }, [])
+  const onNodeDragStart = useCallback<OnNodeDrag<NoBpmn>>(() => setArrastando(true), [])
   const onNodeDragStop = useCallback<OnNodeDrag<NoBpmn>>((_, no) => {
-    arrastando.current = false
-    if (no.type !== 'raia') gravar(no.id, no.position)
+    setArrastando(false) // o render seguinte ressincroniza, se a projeção mudou durante o arrasto
+    if (no.type !== 'raia' && no.type !== 'piscina') gravar(no.id, no.position)
   }, [gravar])
+  const rotulosDeAcesso = useMemo(() => rotulosAria(somenteLeitura), [somenteLeitura])
 
   const corNoMini = useCallback((n: NoBpmn) => {
-    if (n.type === 'raia') return cor.miniRaia
+    if (n.type === 'raia' || n.type === 'piscina') return cor.miniRaia
     if (n.type === 'tarefa') return cor.miniTarefa
     if (n.type === 'evento') return cor.miniEvento
     return n.data.tipo === 'paralelo' ? cor.miniParalelo : cor.miniEscolha
@@ -221,7 +249,6 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
         onNodesChange={onNodesChange}
         onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
-        onPaneClick={() => onSelecionar(null)}
         nodesDraggable={!somenteLeitura}
         nodesConnectable={!somenteLeitura}
         edgesReconnectable={false}
@@ -235,7 +262,7 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
         minZoom={ZOOM_MIN}
         maxZoom={ZOOM_MAX}
         colorMode={escuro ? 'dark' : 'light'}
-        ariaLabelConfig={ROTULOS_ARIA}
+        ariaLabelConfig={rotulosDeAcesso}
       >
         <Background variant={BackgroundVariant.Dots} gap={GRADE} size={1.2} color={cor.ponto} bgColor={cor.fundo} />
         <MiniMap<NoBpmn> pannable zoomable nodeColor={corNoMini} nodeStrokeWidth={0} maskColor={cor.mascara} bgColor={cor.mini}
