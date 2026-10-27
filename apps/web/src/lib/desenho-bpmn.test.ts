@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { GrafoGerado } from '@nxt/workflow-core'
 import type { DesenhoBpmn } from '@nxt/types'
+import { nodeSize } from './flow-layout'
 import { GRADE, desenhoInicial, organizar, completarPosicoes, raiaNaAltura, avisoDeRaia, setaSobPonto } from './desenho-bpmn'
 
 const no = (id: string, type: string) => ({ id, type }) as GrafoGerado['nodes'][number]
@@ -47,12 +48,35 @@ describe('organizar', () => {
   })
 })
 
+describe('organizar com ramos paralelos', () => {
+  it('A e B na mesma raia não se sobrepõem e ficam dentro dela', () => {
+    const g = { nodes: [no('start', 'start'), no('g', 'exclusiveGateway'), no('A', 'userTask'), no('B', 'userTask'), no('gf', 'exclusiveGateway'), no('end', 'end')],
+      edges: [seta('start', 'g'), seta('g', 'A'), seta('g', 'B'), seta('A', 'gf'), seta('B', 'gf'), seta('gf', 'end')] } as GrafoGerado
+    const r = () => 'RH'
+    const o = organizar(g, desenhoInicial(g, r), r)
+    const caixa = (id: string) => ({ ...o.posicoes[id], ...nodeSize({ id, type: g.nodes.find((n) => n.id === id)!.type as never }, 1, 1) })
+    const a = caixa('A'), b = caixa('B')
+    expect(a.y).not.toBe(b.y)
+    expect(a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h).toBe(false)
+    for (const c of [a, b]) {
+      expect(raiaNaAltura(o.raias, c.y)).toBe(0)
+      expect(c.y + c.h).toBeLessThanOrEqual(o.raias[0].altura)
+    }
+  })
+})
+
 describe('completarPosicoes', () => {
   const g: GrafoGerado = { nodes: [no('start', 'start'), no('A', 'userTask'), no('N', 'userTask')], edges: [seta('start', 'A'), seta('A', 'N')] } as GrafoGerado
   const d: DesenhoBpmn = { versao: 1, posicoes: { start: { x: 0, y: 0 }, A: { x: 100, y: 48 } }, raias: [] }
   it('põe o que falta à direita do antecessor', () => {
     const o = completarPosicoes(g, d)
     expect(o.posicoes.N).toEqual({ x: 300, y: 48 })
+  })
+  it('segue as setas mesmo com a lista fora de ordem', () => {
+    const g2 = { nodes: [no('A', 'userTask'), no('N2', 'userTask'), no('N1', 'userTask')], edges: [seta('A', 'N1'), seta('N1', 'N2')] } as GrafoGerado
+    const o = completarPosicoes(g2, { versao: 1, posicoes: { A: { x: 64, y: 48 } }, raias: [] })
+    expect(o.posicoes.N1).toEqual({ x: 264, y: 48 })
+    expect(o.posicoes.N2).toEqual({ x: 464, y: 48 })
   })
   it('com "perto", encaixa na grade', () => {
     expect(completarPosicoes(g, d, { x: 333, y: 107 }).posicoes.N).toEqual({ x: 336, y: 112 })

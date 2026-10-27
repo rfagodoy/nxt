@@ -36,13 +36,8 @@ function topos(raias: RaiaDesenho[]): number[] {
   return t
 }
 
-/** Y (topo do nó) que o centraliza na raia, na grade e sem sair dela. */
-function yNaRaia(raias: RaiaDesenho[], i: number, h: number): number {
-  const top = topos(raias)[i]
-  const alt = raias[i].altura
-  const y = naGrade(top + (alt - h) / 2)
-  return Math.min(Math.max(y, top), Math.max(top, top + alt - GRADE))
-}
+/** Prende o topo `y` do nó (altura `h`) dentro da raia [top, top+alt). */
+const dentroDaRaia = (y: number, top: number, alt: number, h: number) => Math.min(Math.max(y, top), Math.max(top, top + alt - h))
 
 export function desenhoInicial(g: GrafoGerado, responsavelDe: Responsavel): DesenhoBpmn {
   const r = layoutGraph(paraFlow(g, responsavelDe, true), undefined, { swimlanes: true })
@@ -61,39 +56,71 @@ export function desenhoInicial(g: GrafoGerado, responsavelDe: Responsavel): Dese
     // mantém a linha que o layout deu ao nó dentro da banda, recentrada na raia
     const y = naGrade(novoTopo[i] + (p.y - b.y) + (raias[i].altura - b.h) / 2)
     const topo = novoTopo[i]
-    posicoes[n.id] = { x: naGrade(p.x), y: Math.min(Math.max(y, topo), topo + raias[i].altura - GRADE) }
+    posicoes[n.id] = { x: naGrade(p.x), y: dentroDaRaia(y, topo, raias[i].altura, p.h) }
   }
   return { versao: 1, posicoes, raias }
 }
 
 export function organizar(g: GrafoGerado, d: DesenhoBpmn, responsavelDe: Responsavel): DesenhoBpmn {
   if (d.raias.length === 0) return desenhoInicial(g, responsavelDe)
-  const r = layoutGraph(paraFlow(g, responsavelDe, false))
-  const posicoes: DesenhoBpmn['posicoes'] = {}
+  // raia de cada nó: a que já ocupa; sem posição, a sugerida pelo responsável
+  const indice: Record<string, number> = {}
   for (const n of g.nodes) {
-    const p = r.nodes[n.id]
     let i = d.posicoes[n.id] ? raiaNaAltura(d.raias, d.posicoes[n.id].y) : -1
     if (i === -1) {
       i = d.raias.findIndex((x) => x.nome === (responsavelDe(n.id) ?? ''))
       if (i === -1) i = 0
     }
-    posicoes[n.id] = { x: naGrade(p.x), y: yNaRaia(d.raias, i, p.h) }
+    indice[n.id] = i
   }
-  return { ...d, posicoes }
+  const chave = (i: number) => d.raias[i].nome || LANE_SEM_RESPONSAVEL
+  const fg = paraFlow(g, responsavelDe, false)
+  for (const n of fg.nodes) n.lane = chave(indice[n.id])
+  // o layout com raias empacota ramos paralelos em linhas diferentes dentro da faixa
+  const r = layoutGraph(fg, undefined, { swimlanes: true, laneOrder: d.raias.map((_, i) => chave(i)) })
+  const bandas = new Map((r.lanes ?? []).map((b) => [b.key, b]))
+  // a raia cresce se as linhas empacotadas não cabem na altura que ela tinha
+  const raias = d.raias.map((x, i) => ({ ...x, altura: Math.max(x.altura, bandas.get(chave(i))?.h ?? 0) }))
+  const topo = topos(raias)
+  const posicoes: DesenhoBpmn['posicoes'] = {}
+  for (const n of g.nodes) {
+    const p = r.nodes[n.id]
+    const i = indice[n.id]
+    const b = bandas.get(chave(i))!
+    const y = naGrade(topo[i] + (raias[i].altura - b.h) / 2 + (p.y - b.y))
+    posicoes[n.id] = { x: naGrade(p.x), y: dentroDaRaia(y, topo[i], raias[i].altura, p.h) }
+  }
+  return { ...d, raias, posicoes }
 }
 
 export function completarPosicoes(g: GrafoGerado, d: DesenhoBpmn, perto?: { x: number; y: number }): DesenhoBpmn {
   const posicoes = { ...d.posicoes }
-  let usouPerto = false
-  for (const n of g.nodes) {
-    if (posicoes[n.id]) continue
-    if (perto && !usouPerto) { usouPerto = true; posicoes[n.id] = { x: naGrade(perto.x), y: naGrade(perto.y) }; continue }
-    const ant = g.edges.map((e) => (e.to === n.id ? posicoes[e.from] : undefined)).find(Boolean)
-    const suc = g.edges.map((e) => (e.from === n.id ? posicoes[e.to] : undefined)).find(Boolean)
-    if (ant) posicoes[n.id] = { x: ant.x + PASSO_X, y: ant.y }
-    else if (suc) posicoes[n.id] = { x: Math.max(0, suc.x - PASSO_X), y: suc.y }
-    else posicoes[n.id] = { x: 0, y: 0 }
+  const faltam = g.nodes.filter((n) => !posicoes[n.id])
+  if (perto && faltam.length) posicoes[faltam[0].id] = { x: naGrade(perto.x), y: naGrade(perto.y) }
+  // segue as setas, não a ordem da lista: repete até nada mais mudar
+  for (let mudou = true; mudou; ) {
+    mudou = false
+    for (const n of g.nodes) {
+      if (posicoes[n.id]) continue
+      // antecessor já posicionado; havendo volta, o de menor x é o que vem "de trás"
+      const ants = g.edges.filter((e) => e.to === n.id && posicoes[e.from]).map((e) => posicoes[e.from])
+      if (!ants.length) continue
+      const ant = ants.reduce((a, b) => (b.x < a.x ? b : a))
+      posicoes[n.id] = { x: ant.x + PASSO_X, y: ant.y }
+      mudou = true
+    }
+    if (mudou) continue
+    for (const n of g.nodes) {
+      if (posicoes[n.id]) continue
+      const sucs = g.edges.filter((e) => e.from === n.id && posicoes[e.to]).map((e) => posicoes[e.to])
+      if (!sucs.length) continue
+      const suc = sucs.reduce((a, b) => (b.x > a.x ? b : a))
+      posicoes[n.id] = { x: Math.max(0, suc.x - PASSO_X), y: suc.y }
+      mudou = true
+      break
+    }
   }
+  for (const n of g.nodes) posicoes[n.id] ??= { x: 0, y: 0 } // sem nenhum vizinho alcançável
   return { ...d, posicoes }
 }
 
