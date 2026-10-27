@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import type { GrafoGerado } from '@nxt/workflow-core'
 import type { DesenhoBpmn } from '@nxt/types'
 import { nodeSize } from './flow-layout'
-import { GRADE, desenhoInicial, organizar, completarPosicoes, raiaNaAltura, avisoDeRaia, setaSobPonto } from './desenho-bpmn'
+import { GRADE, desenhoInicial, organizar, completarPosicoes, raiaNaAltura, avisoDeRaia, setaSobPonto, polilinhaDaSeta } from './desenho-bpmn'
 
 const no = (id: string, type: string) => ({ id, type }) as GrafoGerado['nodes'][number]
 const seta = (from: string, to: string) => ({ id: `${from}>${to}`, from, to }) as GrafoGerado['edges'][number]
@@ -108,5 +108,28 @@ describe('setaSobPonto', () => {
   it('acha a seta dentro da tolerância', () => {
     expect(setaSobPonto(setas, { x: 50, y: 10 })).toBe('s1')
     expect(setaSobPonto(setas, { x: 50, y: 20 })).toBeNull()
+  })
+})
+
+describe('polilinhaDaSeta', () => {
+  it('direita → esquerda para a frente: quebra no meio, como o smoothstep', () => {
+    expect(polilinhaDaSeta({ x: 0, y: 0 }, 'direita', { x: 100, y: 40 }, 'esquerda'))
+      .toEqual([{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 40 }, { x: 100, y: 40 }])
+  })
+  it('base → base (volta): desce além da mais baixa e sobe no destino', () => {
+    expect(polilinhaDaSeta({ x: 300, y: 50 }, 'base', { x: 0, y: 40 }, 'base'))
+      .toEqual([{ x: 300, y: 50 }, { x: 300, y: 70 }, { x: 0, y: 70 }, { x: 0, y: 40 }])
+  })
+  it('topo/base → esquerda: um cotovelo', () => {
+    expect(polilinhaDaSeta({ x: 0, y: 0 }, 'base', { x: 100, y: 80 }, 'esquerda'))
+      .toEqual([{ x: 0, y: 0 }, { x: 0, y: 80 }, { x: 100, y: 80 }])
+  })
+  it('direita → topo: um cotovelo', () => {
+    expect(polilinhaDaSeta({ x: 0, y: 0 }, 'direita', { x: 100, y: 80 }, 'topo'))
+      .toEqual([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 80 }])
+  })
+  it('o ponto no meio do trecho vertical acha a seta', () => {
+    const pontos = polilinhaDaSeta({ x: 0, y: 0 }, 'direita', { x: 100, y: 200 }, 'esquerda')
+    expect(setaSobPonto([{ id: 's', pontos }], { x: 52, y: 100 })).toBe('s')
   })
 })

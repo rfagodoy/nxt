@@ -164,3 +164,43 @@ export function setaSobPonto(setas: Array<{ id: string; pontos: Pt[] }>, p: Pt, 
   }
   return melhor
 }
+
+export type LadoDaSeta = 'esquerda' | 'direita' | 'topo' | 'base'
+
+/** Polilinha ortogonal que aproxima o traço da seta (o mesmo desenho "smoothstep" do canvas),
+ *  boa o bastante para achar a seta sob o ponteiro. `desvio` é o quanto ela sai da forma
+ *  antes de dobrar quando os lados não se encaram. */
+export function polilinhaDaSeta(s: Pt, ladoS: LadoDaSeta, t: Pt, ladoT: LadoDaSeta, desvio = 20): Pt[] {
+  const horizontal = (l: LadoDaSeta) => l === 'esquerda' || l === 'direita'
+  const passo = (p: Pt, l: LadoDaSeta): Pt => ({
+    x: p.x + (l === 'direita' ? desvio : l === 'esquerda' ? -desvio : 0),
+    y: p.y + (l === 'base' ? desvio : l === 'topo' ? -desvio : 0),
+  })
+  if (horizontal(ladoS) && horizontal(ladoT)) {
+    const frente = ladoS === 'direita' ? t.x >= s.x : t.x <= s.x
+    if (ladoS !== ladoT && frente) {
+      const mx = (s.x + t.x) / 2
+      return [s, { x: mx, y: s.y }, { x: mx, y: t.y }, t]
+    }
+    const s1 = passo(s, ladoS), t1 = passo(t, ladoT)
+    const x = ladoS === ladoT ? (ladoS === 'direita' ? Math.max(s1.x, t1.x) : Math.min(s1.x, t1.x)) : null
+    if (x !== null) return [s, { x, y: s.y }, { x, y: t.y }, t]
+    const my = (s.y + t.y) / 2
+    return [s, s1, { x: s1.x, y: my }, { x: t1.x, y: my }, t1, t]
+  }
+  if (!horizontal(ladoS) && !horizontal(ladoT)) {
+    if (ladoS === ladoT) {
+      const y = ladoS === 'base' ? Math.max(s.y, t.y) + desvio : Math.min(s.y, t.y) - desvio
+      return [s, { x: s.x, y }, { x: t.x, y }, t]
+    }
+    const frente = ladoS === 'base' ? t.y >= s.y : t.y <= s.y
+    if (frente) {
+      const my = (s.y + t.y) / 2
+      return [s, { x: s.x, y: my }, { x: t.x, y: my }, t]
+    }
+    const s1 = passo(s, ladoS), t1 = passo(t, ladoT), mx = (s.x + t.x) / 2
+    return [s, s1, { x: mx, y: s1.y }, { x: mx, y: t1.y }, t1, t]
+  }
+  // um lado vertical e o outro horizontal: um cotovelo
+  return horizontal(ladoS) ? [s, { x: t.x, y: s.y }, t] : [s, { x: s.x, y: t.y }, t]
+}

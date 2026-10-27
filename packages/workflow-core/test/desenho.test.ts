@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { lerDesenho, podarDesenho, pontoDaSeta, ligacaoPermitida, MSG_LOSANGO, MSG_PARALELO, MSG_ORDEM, MSG_DESTINO } from '../src/desenho'
+import { lerDesenho, podarDesenho, pontoDaSeta, ligacaoPermitida, localDoItem, MSG_LOSANGO, MSG_PARALELO, MSG_ORDEM, MSG_DESTINO } from '../src/desenho'
 import type { FluxoBlocos, ItemAtividade } from '../src/blocos'
 
 const at = (id: string): ItemAtividade => ({ kind: 'atividade', id, tipo: 'userTask', nome: id })
@@ -90,5 +90,30 @@ describe('ligacaoPermitida', () => {
     }
     expect(ligacaoPermitida(g, 'X', 'A')).toEqual({ ok: false, motivo: MSG_PARALELO })
     expect(ligacaoPermitida(g, 'X', 'end')).toEqual({ ok: false, motivo: MSG_PARALELO })
+  })
+})
+
+describe('localDoItem', () => {
+  const f: FluxoBlocos = {
+    versao: 1, inicioId: 'start', fimId: 'end',
+    itens: [
+      at('A'),
+      {
+        kind: 'escolha', id: 'E', modo: 'primeiro',
+        caminhos: [{ id: 'c1', itens: [at('X'), at('X2')], fim: { tipo: 'segue' } }],
+        casoContrario: { id: 'cc', itens: [at('W')], fim: { tipo: 'segue' } },
+      },
+      { kind: 'paralelo', id: 'P', caminhos: [{ id: 'f1', itens: [at('Y')] }] },
+      at('B'),
+    ],
+  }
+  it.each([
+    ['A', 'raiz', 0], ['E', 'raiz', 1], ['P', 'raiz', 2], ['B', 'raiz', 3],
+    ['X', 'c1', 0], ['X2', 'c1', 1], ['W', 'cc', 0], ['Y', 'f1', 0],
+  ])('%s mora em %s[%i]', (id, ref, indice) => {
+    expect(localDoItem(f, id)).toEqual({ ref, indice })
+  })
+  it('início, fim, reencontro e id desconhecido não moram em lista', () => {
+    for (const id of ['start', 'end', 'E__fim', 'nada']) expect(localDoItem(f, id)).toBeNull()
   })
 })

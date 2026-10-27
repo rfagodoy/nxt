@@ -20,7 +20,7 @@ export const FAIXA_PISCINA = 28
 const LOSANGO_LADO = 40
 const EVENTO_D = 32
 /** Folga entre a borda da caixa e a do círculo: é onde a seta encosta. */
-const EVENTO_RECUO = (SIMBOLO - EVENTO_D) / 2
+export const EVENTO_RECUO = (SIMBOLO - EVENTO_D) / 2
 
 /* ─── Dados de cada forma ─────────────────────────────────────────────────── */
 export type DadosTarefa = { nome: string; automatica: boolean; meta: string; problemas: string[]; largura: number; altura: number }
@@ -29,7 +29,7 @@ export type DadosLosango = { tipo: TipoLosango; nome?: string; reencontro: boole
 export type DadosEvento = { tipo: 'inicio' | 'fim'; problemas: string[] }
 export type DadosRaia = { nome: string; largura: number; altura: number; indice: number; primeira: boolean; ultima: boolean }
 export type DadosPiscina = { nome: string; altura: number }
-export type DadosSeta = { rotulo?: string; senao: boolean }
+export type DadosSeta = { rotulo?: string; senao: boolean; /** Seta sob o ponteiro durante um arrasto: a forma entra aqui. */ destacada?: boolean }
 
 export type NoTarefa = Node<DadosTarefa, 'tarefa'>
 export type NoLosango = Node<DadosLosango, 'losango'>
@@ -60,8 +60,9 @@ export function rotuloDaForma(n: NoBpmn): string {
 /* ─── Peças comuns ────────────────────────────────────────────────────────── */
 const ALCA = '!h-2 !w-2 !min-h-0 !min-w-0 !rounded-full !border-2 !border-[#11804F] !bg-white opacity-0 transition-opacity dark:!border-spark dark:!bg-[#0A110D]'
 
-/** Pontos de ligação: saída à direita/em cima/embaixo e chegada à esquerda/em cima/embaixo.
- *  Ficam invisíveis; aparecem ao passar o mouse quando o desenho aceita ligar. */
+/** Pontos de ligação nas 4 laterais: em cada uma há uma chegada (`e-*`) e, por cima dela,
+ *  uma saída (`s-*`) — puxar de qualquer lado começa uma seta; soltar perto de um lado a
+ *  termina. Ficam invisíveis; aparecem ao passar o mouse quando o desenho aceita ligar. */
 function Alcas({ conectavel, recuo = 0 }: { conectavel: boolean; recuo?: number }) {
   const cls = `${ALCA} ${conectavel ? 'group-hover:opacity-100' : ''}`
   return (
@@ -69,6 +70,8 @@ function Alcas({ conectavel, recuo = 0 }: { conectavel: boolean; recuo?: number 
       <Handle id="e-l" type="target" position={Position.Left} isConnectable={conectavel} className={cls} style={{ left: recuo }} />
       <Handle id="e-t" type="target" position={Position.Top} isConnectable={conectavel} className={cls} style={{ top: recuo }} />
       <Handle id="e-b" type="target" position={Position.Bottom} isConnectable={conectavel} className={cls} style={{ bottom: recuo }} />
+      <Handle id="e-r" type="target" position={Position.Right} isConnectable={conectavel} className={cls} style={{ right: recuo }} />
+      <Handle id="s-l" type="source" position={Position.Left} isConnectable={conectavel} className={cls} style={{ left: recuo }} />
       <Handle id="s-r" type="source" position={Position.Right} isConnectable={conectavel} className={cls} style={{ right: recuo }} />
       <Handle id="s-t" type="source" position={Position.Top} isConnectable={conectavel} className={cls} style={{ top: recuo }} />
       <Handle id="s-b" type="source" position={Position.Bottom} isConnectable={conectavel} className={cls} style={{ bottom: recuo }} />
@@ -208,7 +211,10 @@ export function SetaComRotulo({ sourceX, sourceY, targetX, targetY, sourcePositi
   const rotulo = data?.senao ? 'senão' : data?.rotulo
   return (
     <>
-      <BaseEdge path={caminho} markerEnd={markerEnd} style={{ stroke: 'var(--bpmn-seta)', strokeWidth: 1.6, strokeLinejoin: 'round' }} />
+      <BaseEdge path={caminho} markerEnd={markerEnd}
+        style={data?.destacada
+          ? { stroke: 'var(--bpmn-seta-destaque)', strokeWidth: 3, strokeLinejoin: 'round' }
+          : { stroke: 'var(--bpmn-seta)', strokeWidth: 1.6, strokeLinejoin: 'round' }} />
       {rotulo && (
         <EdgeLabelRenderer>
           <span

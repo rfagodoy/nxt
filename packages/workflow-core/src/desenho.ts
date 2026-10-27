@@ -111,3 +111,27 @@ export function ligacaoPermitida(f: FluxoBlocos, de: string, para: string): Liga
   const ehLosango = para.endsWith(SUFIXO_REENCONTRO) || paralelos.has(para) || listarEscolhas(f).some((e) => e.id === para)
   return { ok: false, motivo: ehLosango ? MSG_LOSANGO : MSG_DESTINO }
 }
+
+/** Onde mora o item `id`: a lista (`'raiz'` ou id do caminho/frente) e a posição dele nela.
+ *  `null` para início, fim, reencontro ou id desconhecido — eles não moram em lista. */
+export function localDoItem(f: FluxoBlocos, id: string): PontoDeInsercao | null {
+  const buscar = (ref: string, itens: ItemFluxo[]): PontoDeInsercao | null => {
+    for (let i = 0; i < itens.length; i++) {
+      const it = itens[i]
+      if (it.id === id) return { ref, indice: i }
+      if (it.kind === 'escolha') {
+        for (const c of [...it.caminhos, it.casoContrario]) {
+          const achado = buscar(c.id, c.itens)
+          if (achado) return achado
+        }
+      } else if (it.kind === 'paralelo') {
+        for (const c of it.caminhos) {
+          const achado = buscar(c.id, c.itens)
+          if (achado) return achado
+        }
+      }
+    }
+    return null
+  }
+  return buscar('raiz', f.itens)
+}
