@@ -30,6 +30,9 @@
       ],
       "@nxt/screens-core": [
         "../../packages/screens-core/index.ts"
+      ],
+      "@nxt/workflow-core": [
+        "../../packages/workflow-core/index.ts"
       ]
     },
     "allowJs": true,
