@@ -25,7 +25,7 @@
   },
   "overrides": {
     "sharp": "^0.35.5",
-    "multer": "^2.3.0",
+    "multer": "^2.5.0",
     "proxy-addr": "^2.0.8",
     "source-map-js": "^1.2.2",
     "postcss": "^8.5.19",

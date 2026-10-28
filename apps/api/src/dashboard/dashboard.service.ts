@@ -69,7 +69,7 @@ export class DashboardService {
         where:  { organizationId },
         select: {
           id: true, numero: true, titulo: true, situacao: true,
-          terminoVigencia: true, prazoIndeterminado: true, valorTotal: true, createdAt: true,
+          inicioVigencia: true, terminoVigencia: true, prazoIndeterminado: true, valorTotal: true, createdAt: true,
           /* `valorVigente` soma os deltas dos reajustes e o valorPeriodo das renovações —
              sem estes campos o dashboard mostrava o valor ORIGINAL do contrato. */
           aditivos: true, renovacoes: true, reajustesRealizados: true,
@@ -152,6 +152,7 @@ export class DashboardService {
       const externa = partesVigentes(contractFromApi(c as unknown as Record<string, unknown>)).find((p) => p.ref_tipo === 'PARCEIRO' && p.ref_id)
       return {
         situacao: d.situacao, termino: c.prazoIndeterminado ? '' : (d.termino ?? ''), valor: d.valor,
+        inicio: c.inicioVigencia ?? '',
         contraparte: externa ? { id: externa.ref_id, nome: externa.nome } : null,
         id: c.id, numero: c.numero, titulo: c.titulo,
       }
