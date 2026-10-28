@@ -52,7 +52,7 @@ export function GatewayGlyph({ kind, className }: { kind: 'exclusive' | 'paralle
 /** Pendências de ativação: pílula + painel clicável. DUAS classes, e a diferença é dita
  *  na tela — o que IMPEDE a ativação (triângulo) e o AVISO (i), que é desenho válido.
  *  A forma do ícone carrega a diferença; a cor só reforça. */
-export function PendenciasPill({ pendencias, aberto, onToggle, onItem, style, noTopo }: {
+export function PendenciasPill({ pendencias, aberto, onToggle, onItem, style, noTopo, compacta }: {
   pendencias: ProblemaAtivacao[]
   aberto: boolean
   onToggle: () => void
@@ -61,11 +61,13 @@ export function PendenciasPill({ pendencias, aberto, onToggle, onItem, style, no
   /** Na barra do topo (desenho BPMN): fica no fluxo da linha, o painel abre PARA BAIXO e,
    *  sem nada a dizer, a pílula afirma que está tudo certo (a saúde do workflow). */
   noTopo?: boolean
+  /** No topo apertado: só o ícone e o número (a frase vai para o leitor de tela). */
+  compacta?: boolean
 }) {
   if (!pendencias.length) {
     return noTopo
-      ? <span role="status" className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-          <Check className="h-3.5 w-3.5" /><span className="max-[1439px]:sr-only">Pronto para ativar</span>
+      ? <span role="status" title="Pronto para ativar" className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+          <Check className="h-3.5 w-3.5" /><span className={compacta ? 'sr-only' : undefined}>Pronto para ativar</span>
         </span>
       : null
   }
@@ -115,8 +117,8 @@ export function PendenciasPill({ pendencias, aberto, onToggle, onItem, style, no
         {erros.length ? <AlertTriangle className="h-3.5 w-3.5" /> : <Info className="h-3.5 w-3.5" />}
         {/* no topo, em tela estreita, fica só o número (a frase vai para o leitor de tela) */}
         {erros.length
-          ? <>{erros.length}<span className={noTopo ? 'max-[1439px]:sr-only' : undefined}> {erros.length === 1 ? 'pendência' : 'pendências'} para ativar</span></>
-          : <>{infos.length}<span className={noTopo ? 'max-[1439px]:sr-only' : undefined}> {infos.length === 1 ? 'aviso' : 'avisos'} no desenho</span></>}
+          ? <>{erros.length}<span className={compacta ? 'sr-only' : undefined}> {erros.length === 1 ? 'pendência' : 'pendências'} para ativar</span></>
+          : <>{infos.length}<span className={compacta ? 'sr-only' : undefined}> {infos.length === 1 ? 'aviso' : 'avisos'} no desenho</span></>}
       </button>
     </div>
   )

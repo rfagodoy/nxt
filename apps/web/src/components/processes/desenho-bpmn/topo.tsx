@@ -7,7 +7,7 @@
    o desenho ganhou a altura inteira.
    ⚠️ O nome continua sendo o que mais pede atenção: sem ele a API recusa salvar e ativar.
    Vazio, o campo mostra a ordem ("Dê um nome…") e fundo âmbar tracejado. */
-import { useEffect, useRef, useState, type JSX } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type JSX, type ReactNode, type RefObject } from 'react'
 import { ChevronDown, Download, FileImage, FileText, History, Loader2, MoreHorizontal, Rows3 } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { FloatingMenu } from '@/components/ui/floating-menu'
@@ -17,28 +17,85 @@ import { WorkflowKindIcon } from '../workflow-kind-icon'
 
 export interface TipoDeWorkflow { value: string; label: string }
 
+/* ─── Prioridade pela largura DISPONÍVEL ──────────────────────────────────────
+   O topo nunca transborda nem quebra linha: quando o que está nele não cabe na largura
+   do próprio topo (que muda com a barra lateral do app, não só com a janela), ele sobe um
+   NÍVEL de compactação e mede de novo, até caber. A ordem é a do PO: o que mais importa
+   (voltar, nome, Ativar, Salvar, ⋯, desfazer) é o último a encolher.
+     1 Organizar só com o ícone      5 "Salvar rascunho" vira "Salvar"; "Não salvo" só o ponto
+     2 Quem inicia só com o ícone    6 Organizar e Quem inicia vão para o ⋯
+     3 saúde só com ícone + número   7 "Ativar workflow" vira "Ativar" e o nome encolhe (até 200px)
+     4 Sobre só com o ícone
+   Mudou a largura ou o conteúdo (`chave`)? Recomeça do nível 0 e sobe de novo — tudo em
+   layout effect, antes de pintar, então não pisca. */
+export const NIVEL_MAXIMO_DO_TOPO = 7
+
+/** Nível de compactação do topo. Itens que ocupam o espaço que sobra levam `data-topo-espaco`
+ *  (não contam na medida). Os demais não podem encolher (`shrink-0`) — senão a medida mente. */
+export function useNivelDoTopo(topo: RefObject<HTMLElement | null>, chave: string): number {
+  const [largura, setLargura] = useState(0)
+  const [nivel, setNivel] = useState(0)
+  const visto = useRef<string | null>(null)
+  useEffect(() => {
+    const el = topo.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(([e]) => setLargura(Math.round(e.contentRect.width)))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [topo])
+  const atual = `${largura}|${chave}`
+  useLayoutEffect(() => {
+    const el = topo.current
+    if (!el) return
+    if (visto.current !== atual) {
+      visto.current = atual
+      if (nivel !== 0) { setNivel(0); return }
+    }
+    if (nivel >= NIVEL_MAXIMO_DO_TOPO) return
+    const estilo = getComputedStyle(el)
+    const vao = parseFloat(estilo.columnGap) || 0
+    const filhos = Array.from(el.children) as HTMLElement[]
+    const visiveis = filhos.filter((f) => f.offsetWidth > 0 || f.hasAttribute('data-topo-espaco'))
+    const ocupado = visiveis.filter((f) => !f.hasAttribute('data-topo-espaco')).reduce((s, f) => s + f.offsetWidth, 0)
+      + vao * Math.max(0, visiveis.length - 1)
+    const disponivel = el.clientWidth - (parseFloat(estilo.paddingLeft) || 0) - (parseFloat(estilo.paddingRight) || 0)
+    if (ocupado > disponivel + 0.5) setNivel(nivel + 1)
+  }, [topo, atual, nivel])
+  return nivel
+}
+
+/** Largura do campo do nome em caracteres, de 4 em 4: o topo só se remede quando ela muda
+ *  (a chave de `useNivelDoTopo` usa o mesmo valor), não a cada letra digitada. */
+export const tamanhoDoNome = (nome: string) => Math.min(48, Math.max(18, Math.ceil((nome.length + 2) / 4) * 4))
+
 /** Nome do workflow, editável no próprio topo. A largura acompanha o texto (com teto). */
-export function NomeNoTopo({ nome, onNome, autoFocus }: { nome: string; onNome: (v: string) => void; autoFocus?: boolean }): JSX.Element {
+export function NomeNoTopo({ nome, onNome, autoFocus, podeEncolher }: {
+  nome: string; onNome: (v: string) => void; autoFocus?: boolean
+  /** Último recurso do topo: o nome encolhe até 200px, com reticências. Antes disso, não. */
+  podeEncolher?: boolean
+}): JSX.Element {
   const vazio = !nome.trim()
   return (
     // eslint-disable-next-line jsx-a11y/no-autofocus -- workflow novo: dar o nome é a primeira coisa a fazer
     <input value={nome} onChange={(e) => onNome(e.target.value)} autoFocus={autoFocus}
       aria-label="Nome do workflow" placeholder="Dê um nome a este workflow" title={nome.trim() || undefined}
-      size={Math.min(48, Math.max(18, nome.length + 2))}
+      size={tamanhoDoNome(nome)}
       /* o nome é o que mais importa no topo: nunca fica abaixo de 200px (os chips encolhem antes) */
-      className={cn('h-8 min-w-[200px] shrink text-ellipsis rounded-md border bg-transparent px-2 text-[15px] font-extrabold tracking-tight outline-none transition-colors',
+      className={cn('h-8 min-w-[200px] text-ellipsis rounded-md', podeEncolher ? 'shrink' : 'shrink-0', ' border bg-transparent px-2 text-[15px] font-extrabold tracking-tight outline-none transition-colors',
         'placeholder:font-bold placeholder:text-muted-foreground/60 hover:bg-muted/50 focus:bg-muted/50 focus-visible:ring-2 focus-visible:ring-primary/40',
         vazio ? 'border-dashed border-amber-400/70 bg-amber-500/5' : 'border-transparent')} />
   )
 }
 
 /** "Sobre": tipo, descrição e o tamanho do fluxo, num balão ancorado no botão. */
-export function SobreDoWorkflow({ descricao, onDescricao, tipo, onTipo, tipos, resumo }: {
+export function SobreDoWorkflow({ descricao, onDescricao, tipo, onTipo, tipos, resumo, soIcone }: {
   descricao: string; onDescricao: (v: string) => void
   tipo: string; onTipo: (v: string) => void
   tipos: readonly TipoDeWorkflow[]
   /** "14 atividades · 3 escolhas" */
   resumo: string
+  /** Topo apertado: só o glifo do tipo (o resto vai no title e no nome acessível). */
+  soIcone?: boolean
 }): JSX.Element {
   const botao = useRef<HTMLButtonElement>(null)
   const [aberto, setAberto] = useState(false)
@@ -46,14 +103,14 @@ export function SobreDoWorkflow({ descricao, onDescricao, tipo, onTipo, tipos, r
   return (
     <>
       <button ref={botao} type="button" onClick={() => setAberto((v) => !v)} aria-haspopup="dialog" aria-expanded={aberto}
-        title={`Tipo e descrição do workflow${rotuloTipo ? ` · tipo: ${rotuloTipo}` : ' · sem tipo'}`}
-        className={cn('inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-xs font-semibold transition-colors',
+        title={`Sobre: tipo e descrição do workflow${rotuloTipo ? ` · tipo: ${rotuloTipo}` : ' · sem tipo'}`}
+        aria-label={soIcone ? `Sobre o workflow${rotuloTipo ? ` · ${rotuloTipo}` : ' · sem tipo'}` : undefined}
+        className={cn('inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border text-xs', soIcone ? 'px-2' : 'px-3', ' font-semibold transition-colors',
           /* sem tipo, PEDE (tracejado âmbar); com tipo, AFIRMA (sólido, com o glifo) */
           tipo ? 'border-primary/30 bg-primary/10 text-primary hover:bg-primary/15'
             : 'border-dashed border-amber-400/70 bg-amber-500/10 text-amber-700 hover:bg-amber-500/15 dark:text-amber-400')}>
         <WorkflowKindIcon kind={tipo || undefined} className="h-3.5 w-3.5" />
-        Sobre<span className="max-[1439px]:hidden">{rotuloTipo ? ` · ${rotuloTipo}` : ' · sem tipo'}</span>
-        <ChevronDown className="h-3 w-3 opacity-60" />
+        {!soIcone && <>Sobre{rotuloTipo ? ` · ${rotuloTipo}` : ' · sem tipo'}<ChevronDown className="h-3 w-3 opacity-60" /></>}
       </button>
       {aberto && (
         <FloatingMenu anchor={botao} onClose={() => setAberto(false)} role="dialog" aria-label="Sobre este workflow"
@@ -94,7 +151,7 @@ export function SobreDoWorkflow({ descricao, onDescricao, tipo, onTipo, tipos, r
 }
 
 /** ⋯ do topo: Histórico, Exportar (JPG/PDF) e "Ver por raia". */
-export function MenuMais({ onHistorico, onExportar, exportando, exportarDesabilitado, onVerPorRaia, verPorRaiaDesabilitado }: {
+export function MenuMais({ onHistorico, onExportar, exportando, exportarDesabilitado, onVerPorRaia, verPorRaiaDesabilitado, extras, botaoRef }: {
   /** ausente em workflow novo (ainda sem histórico) */
   onHistorico?: () => void
   onExportar: (f: FlowExportFormat) => void
@@ -102,8 +159,13 @@ export function MenuMais({ onHistorico, onExportar, exportando, exportarDesabili
   exportarDesabilitado?: boolean
   onVerPorRaia: () => void
   verPorRaiaDesabilitado?: boolean
+  /** Ações que saíram do topo por falta de espaço (Organizar, Quem inicia): no alto do menu. */
+  extras?: Array<{ rotulo: string; icone: ReactNode; onClick: () => void; disabled?: boolean }>
+  /** O botão ⋯ — quem abre um balão a partir de um item do menu ancora nele. */
+  botaoRef?: RefObject<HTMLButtonElement | null>
 }): JSX.Element {
-  const botao = useRef<HTMLButtonElement>(null)
+  const proprio = useRef<HTMLButtonElement>(null)
+  const botao = botaoRef ?? proprio
   const [aberto, setAberto] = useState(false)
   // exportando: o menu some (a captura não pode pegar o balão)
   useEffect(() => { if (exportando) setAberto(false) }, [exportando])
@@ -119,8 +181,15 @@ export function MenuMais({ onHistorico, onExportar, exportando, exportarDesabili
       {aberto && (
         <FloatingMenu anchor={botao} onClose={() => setAberto(false)} align="end" role="menu" aria-label="Mais ações"
           className="w-56 rounded-xl border bg-card p-1 text-card-foreground shadow-xl">
+          {extras?.map((x, i) => (
+            <button key={x.rotulo} type="button" role="menuitem" className={item} disabled={x.disabled} onClick={escolher(x.onClick)}
+              {...(i === 0 ? { 'data-autofocus': true } : {})}>
+              {x.icone}{x.rotulo}
+            </button>
+          ))}
+          {!!extras?.length && <span aria-hidden className="mx-1 my-1 block h-px bg-border" />}
           {onHistorico && (
-            <button type="button" role="menuitem" className={item} onClick={escolher(onHistorico)} data-autofocus>
+            <button type="button" role="menuitem" className={item} onClick={escolher(onHistorico)} {...(extras?.length ? {} : { 'data-autofocus': true })}>
               <History className="h-4 w-4 text-muted-foreground" />Histórico
             </button>
           )}
@@ -128,7 +197,7 @@ export function MenuMais({ onHistorico, onExportar, exportando, exportarDesabili
             <Download className="h-3 w-3" />Exportar
           </p>
           <button type="button" role="menuitem" className={item} disabled={exportarDesabilitado} onClick={escolher(() => onExportar('jpg'))}
-            {...(onHistorico ? {} : { 'data-autofocus': true })}>
+            {...(onHistorico || extras?.length ? {} : { 'data-autofocus': true })}>
             <FileImage className="h-4 w-4 text-sky-600 dark:text-sky-400" />Imagem (JPG)
           </button>
           <button type="button" role="menuitem" className={item} disabled={exportarDesabilitado} onClick={escolher(() => onExportar('pdf'))}>

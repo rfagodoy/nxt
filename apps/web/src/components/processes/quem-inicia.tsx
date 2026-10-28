@@ -21,14 +21,24 @@ const COM_CONTRATO = ['CONTRATO', 'ADITIVO', 'DISTRATO']
  * ou quem ocupa um dos papéis (em qualquer entidade do tipo, numa entidade fixa ou na parte do
  * contrato). A API confere na partida; administrador sempre pode.
  */
-export function QuemIniciaPill({ value, onChange, papeis, kind }: {
+export function QuemIniciaPill({ value, onChange, papeis, kind, soIcone, controle }: {
   value: QuemInicia | undefined
   onChange: (v: QuemInicia | undefined) => void
   papeis: LookupEntry[]
   kind: string
+  /** Topo apertado: só o ícone (o valor vai no title e no nome acessível). */
+  soIcone?: boolean
+  /** Sem o botão próprio (ele foi para o menu ⋯ do topo): quem abre é a página, e o balão
+   *  ancora em `controle.ancora`. */
+  controle?: { aberto: boolean; onAberto: (v: boolean) => void; ancora: React.RefObject<HTMLElement | null> }
 }) {
   const botao = useRef<HTMLButtonElement>(null)
-  const [aberto, setAberto] = useState(false)
+  const [abertoLocal, setAbertoLocal] = useState(false)
+  const aberto = controle ? controle.aberto : abertoLocal
+  const setAberto = (v: boolean | ((x: boolean) => boolean)) => {
+    const novo = typeof v === 'function' ? v(aberto) : v
+    if (controle) controle.onAberto(novo); else setAbertoLocal(novo)
+  }
   const cfg: QuemInicia = value ?? { modo: 'TODOS', regras: [] }
   const restrito = cfg.modo === 'PAPEIS'
   const nomeEntidade = useEntityLabels(['UNIDADE', 'EMPRESA', 'PARCEIRO', 'CONTRATO'])
@@ -52,10 +62,12 @@ export function QuemIniciaPill({ value, onChange, papeis, kind }: {
 
   return (
     <>
-      <button ref={botao} type="button" onClick={() => setAberto((v) => !v)} aria-haspopup="dialog" aria-expanded={aberto}
+      {!controle && <button ref={botao} type="button" onClick={() => setAberto((v) => !v)} aria-haspopup="dialog" aria-expanded={aberto}
         title={`Quem inicia: ${texto} — quem pode iniciar este workflow em “Novo processo”`}
+        aria-label={soIcone ? `Quem inicia: ${texto}` : undefined}
         className={cn(
-          'inline-flex max-w-[360px] shrink-0 items-center max-[1439px]:max-w-[200px] gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-colors',
+          'inline-flex max-w-[360px] shrink-0 items-center gap-1.5 rounded-full border py-1 text-xs font-semibold transition-colors',
+          soIcone ? 'px-2' : 'px-3',
           /* forma diz o estado (o PO é daltônico): tracejada = falta escolher; sólida = regra */
           vazio
             ? 'border-dashed border-amber-400/70 bg-amber-500/10 text-amber-700 dark:text-amber-400'
@@ -64,11 +76,11 @@ export function QuemIniciaPill({ value, onChange, papeis, kind }: {
               : 'border-border bg-card text-muted-foreground hover:bg-muted/60 hover:text-foreground',
         )}>
         <DoorOpen className="h-3.5 w-3.5 shrink-0" />
-        <span className="truncate"><span className="font-medium opacity-80 max-[1439px]:hidden">Quem inicia: </span>{texto}</span>
-        <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />
-      </button>
+        {!soIcone && <span className="truncate"><span className="font-medium opacity-80">Quem inicia: </span>{texto}</span>}
+        {!soIcone && <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />}
+      </button>}
       {aberto && (
-        <FloatingMenu anchor={botao} onClose={() => setAberto(false)} role="dialog" aria-label="Quem pode iniciar este workflow"
+        <FloatingMenu anchor={controle?.ancora ?? botao} onClose={() => setAberto(false)} role="dialog" aria-label="Quem pode iniciar este workflow"
           className="w-[420px] max-w-[calc(100vw-32px)] rounded-xl border bg-card p-3 text-card-foreground shadow-xl">
           <p className="text-[13px] font-bold tracking-tight">Quem pode iniciar este workflow</p>
           <div role="radiogroup" className="mt-2 grid grid-cols-2 gap-1">

@@ -6,7 +6,7 @@ import {
   ArrowLeft, Save, Zap, Trash2, User, Clock,
   CircleDot, Loader2, UserSquare, AlertTriangle, Building2,
   GripVertical, ChevronUp, Redo2, Plus, ChevronDown,
-  Undo2, Check, Info, Lock, Link2, LayoutGrid,
+  Undo2, Check, Info, Lock, Link2, LayoutGrid, DoorOpen,
 } from 'lucide-react'
 import {
   generateBpmn, compileBpmn, validarDesenho, validarDecisoes, validarAtividades, validarTelasDasAtividades,
@@ -43,7 +43,7 @@ import { NoticeDialog } from '@/components/ui/confirm-dialog'
 import { ATRIBUTO_GAVETA, GavetaLateral, ehEscDaGaveta } from './desenho-bpmn/gaveta'
 import { CanvasBpmn } from './desenho-bpmn/canvas-bpmn'
 import { PaletaBpmn } from './desenho-bpmn/paleta'
-import { MenuMais, NomeNoTopo, SobreDoWorkflow } from './desenho-bpmn/topo'
+import { MenuMais, NomeNoTopo, SobreDoWorkflow, tamanhoDoNome, useNivelDoTopo } from './desenho-bpmn/topo'
 import { cn } from '@/lib/utils'
 
 
@@ -929,19 +929,32 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   })()
   const noDesenho = !!fluxo && vista === 'desenho'
 
+  /* Topo: compacta pela largura DISPONÍVEL (ver useNivelDoTopo). A chave lista o que muda a
+     largura do conteúdo: mudou, mede de novo desde o nível 0. */
+  const topoRef = useRef<HTMLDivElement>(null)
+  const maisRef = useRef<HTMLButtonElement>(null)
+  const [quemIniciaAberto, setQuemIniciaAberto] = useState(false)
+  const nivelTopo = useNivelDoTopo(topoRef, [
+    tamanhoDoNome(name), !name.trim(), sujo, ativoNoServidor, pendencias.length, bloqueantes(pendencias).length, kind,
+    JSON.stringify(quemInicia ?? null), papeis.entries.length, exportError ?? '', editing,
+  ].join('|'))
+  const quemIniciaNoMenu = nivelTopo >= 6
+
   return (
     /* O editor é um cartão que ocupa a área toda, com cantos da mesma família das ilhas. */
     <div className="flex flex-col h-full overflow-hidden rounded-xl border bg-background">
       {/* TOPO numa linha só (spec "Topo"). `relative z-40`: o painel da saúde abre para
           baixo, por cima do desenho e da gaveta. */}
-      <div className="relative z-40 flex min-w-0 items-center gap-2 border-b bg-card px-3 py-2 shrink-0">
+      <div ref={topoRef} className="relative z-40 flex min-w-0 items-center gap-2 border-b bg-card px-3 py-2 shrink-0">
         <Button variant="ghost" size="icon" onClick={() => router.push('/workflows')} className="h-8 w-8 shrink-0" aria-label="Voltar para Workflows" title="Voltar para Workflows"><ArrowLeft className="h-4 w-4" /></Button>
-        <NomeNoTopo nome={name} onNome={setName} autoFocus={!editing} />
-        <SobreDoWorkflow descricao={description} onDescricao={setDescription} tipo={kind} onTipo={setKind} tipos={WORKFLOW_KINDS} resumo={resumo} />
-        <QuemIniciaPill value={quemInicia} onChange={setQuemInicia} papeis={papeis.entries} kind={kind} />
-        <PendenciasPill noTopo pendencias={pendencias} aberto={pendAberto} onToggle={() => setPendAberto((v) => !v)}
+        <NomeNoTopo nome={name} onNome={setName} autoFocus={!editing} podeEncolher={nivelTopo >= 7} />
+        <SobreDoWorkflow descricao={description} onDescricao={setDescription} tipo={kind} onTipo={setKind} tipos={WORKFLOW_KINDS} resumo={resumo} soIcone={nivelTopo >= 4} />
+        {/* no nível 6 o botão vai para o ⋯; o balão continua aqui, ancorado no ⋯ */}
+        <QuemIniciaPill value={quemInicia} onChange={setQuemInicia} papeis={papeis.entries} kind={kind} soIcone={nivelTopo >= 2}
+          controle={quemIniciaNoMenu ? { aberto: quemIniciaAberto, onAberto: setQuemIniciaAberto, ancora: maisRef } : undefined} />
+        <PendenciasPill noTopo compacta={nivelTopo >= 3} pendencias={pendencias} aberto={pendAberto} onToggle={() => setPendAberto((v) => !v)}
           onItem={(p) => { setPendAberto(false); if (fluxo) setVista('desenho'); focarPendencia(p) }} />
-        <div className="min-w-0 flex-1" />
+        <div data-topo-espaco className="min-w-0 flex-1" />
         {exportError && <span className="shrink-0 text-[11px] text-destructive font-medium">{exportError}</span>}
         {/* Frase CURTA: o detalhe fica no title. */}
         {sujo && (
@@ -950,7 +963,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
               ? 'Alterações não salvas. Ao sair, gravam sozinhas e o workflow volta a rascunho — sai do "Novo processo" até ser reativado. Processos em andamento não são afetados.'
               : 'Alterações não salvas. Gravam sozinhas ao sair.'}>
             <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-            <span className="max-[1439px]:sr-only">{ativoNoServidor ? 'Não salvo · volta a rascunho' : 'Não salvo'}</span>
+            <span className={nivelTopo >= 5 ? 'sr-only' : undefined}>{ativoNoServidor ? 'Não salvo · volta a rascunho' : 'Não salvo'}</span>
           </span>
         )}
         <div className="flex shrink-0 items-center rounded-md border bg-card shadow-sm">
@@ -964,21 +977,29 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
             <Redo2 className="h-4 w-4" />
           </button>
         </div>
-        <Button variant="outline" size="sm" className="shrink-0 max-[1439px]:px-2" onClick={organizarDesenho} disabled={!noDesenho || !desenhoVisto}
-          aria-label="Organizar" title="Organizar: arruma as formas na ordem do fluxo e cada uma na raia de quem a executa">
-          <LayoutGrid className="h-4 w-4" /><span className="max-[1439px]:hidden">Organizar</span>
-        </Button>
-        <MenuMais
+        {nivelTopo < 6 && (
+          <Button variant="outline" size="sm" className={cn('shrink-0', nivelTopo >= 1 && 'px-2')} onClick={organizarDesenho} disabled={!noDesenho || !desenhoVisto}
+            aria-label="Organizar" title="Organizar: arruma as formas na ordem do fluxo e cada uma na raia de quem a executa">
+            <LayoutGrid className="h-4 w-4" />{nivelTopo < 1 && 'Organizar'}
+          </Button>
+        )}
+        <MenuMais botaoRef={maisRef}
+          extras={nivelTopo >= 6 ? [
+            { rotulo: 'Organizar', icone: <LayoutGrid className="h-4 w-4 text-muted-foreground" />, onClick: organizarDesenho, disabled: !noDesenho || !desenhoVisto },
+            { rotulo: 'Quem inicia…', icone: <DoorOpen className="h-4 w-4 text-muted-foreground" />, onClick: () => setQuemIniciaAberto(true) },
+          ] : undefined}
           onHistorico={editing ? () => setHistoricoAberto(true) : undefined}
           onExportar={handleExport} exportando={exporting} exportarDesabilitado={saving || activating}
           onVerPorRaia={() => { aplicarGaveta(); setSelectedId(null); setVista('raia') }} verPorRaiaDesabilitado={vista === 'raia'} />
         {editing && <ProcessHistoryDrawer processId={initial!.id} aberto={historicoAberto} onFechar={() => setHistoricoAberto(false)} />}
         {/* ⚠️ `() =>` obrigatório: passar a função direto entregaria o MouseEvent como
             `confirmarReducao` — truthy — e a guarda seria burlada em TODO salvamento. */}
-        <Button variant="outline" size="sm" className="shrink-0" onClick={() => { aplicarGaveta(); void handleSaveDraft() }} disabled={saving || activating || somenteLeitura}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Salvar rascunho</Button>
+        <Button variant="outline" size="sm" className="shrink-0" onClick={() => { aplicarGaveta(); void handleSaveDraft() }} disabled={saving || activating || somenteLeitura}
+          aria-label="Salvar rascunho" title="Salvar rascunho">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}{nivelTopo >= 5 ? 'Salvar' : 'Salvar rascunho'}</Button>
         <Button size="sm" className="shrink-0" onClick={() => { aplicarGaveta(); void handleActivate() }} disabled={saving || activating || !name.trim() || somenteLeitura}
-          title={somenteLeitura ? 'Workflow do editor antigo: aberto só para leitura' : !name.trim() ? 'Dê um nome ao workflow para poder ativá-lo' : 'Ativar workflow'}>
-          {activating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}Ativar workflow</Button>
+          title={somenteLeitura ? 'Workflow do editor antigo: aberto só para leitura' : !name.trim() ? 'Dê um nome ao workflow para poder ativá-lo' : 'Ativar workflow'}
+          aria-label="Ativar workflow">
+          {activating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}{nivelTopo >= 7 ? 'Ativar' : 'Ativar workflow'}</Button>
       </div>
 
       {somenteLeitura && (
