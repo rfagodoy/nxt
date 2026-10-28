@@ -26,13 +26,13 @@ export interface TipoDeWorkflow { value: string; label: string }
      2 Quem inicia só com o ícone    6 Organizar e Quem inicia vão para o ⋯
      3 saúde só com ícone + número   7 "Ativar workflow" vira "Ativar" e o nome encolhe (até 200px)
      4 Sobre só com o ícone
-   Mudou a largura ou o conteúdo (`chave`)? Recomeça do nível 0 e sobe de novo — tudo em
-   layout effect, antes de pintar, então não pisca. */
+   Mudou a largura ou a `chave`? Recomeça do nível 0 e sobe de novo — tudo em layout
+   effect, antes de pintar, então não pisca. Com um balão do topo aberto, o nível congela. */
 export const NIVEL_MAXIMO_DO_TOPO = 7
 
 /** Nível de compactação do topo. Itens que ocupam o espaço que sobra levam `data-topo-espaco`
  *  (não contam na medida). Os demais não podem encolher (`shrink-0`) — senão a medida mente. */
-export function useNivelDoTopo(topo: RefObject<HTMLElement | null>, chave: string): number {
+export function useNivelDoTopo(topo: RefObject<HTMLElement | null>, chave: string, congelado = false): number {
   const [largura, setLargura] = useState(0)
   const [nivel, setNivel] = useState(0)
   const visto = useRef<string | null>(null)
@@ -44,9 +44,14 @@ export function useNivelDoTopo(topo: RefObject<HTMLElement | null>, chave: strin
     return () => ro.disconnect()
   }, [topo])
   const atual = `${largura}|${chave}`
+  /* Roda a cada render (sem lista de dependências) de propósito: o conteúdo pode crescer sem
+     mudar a chave (o texto de "Quem inicia", a lista de papéis que chega) e aí só SOBE de
+     nível. Descer (recomeçar do 0) só quando a largura ou a chave mudam. Com um balão do topo
+     aberto (Quem inicia, Sobre, ⋯) nada muda: mexer no nível desmontaria/realocaria o balão. */
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- sem lista de propósito (ver acima); só sobe até NIVEL_MAXIMO_DO_TOPO
   useLayoutEffect(() => {
     const el = topo.current
-    if (!el) return
+    if (!el || congelado) return
     if (visto.current !== atual) {
       visto.current = atual
       if (nivel !== 0) { setNivel(0); return }
@@ -60,7 +65,7 @@ export function useNivelDoTopo(topo: RefObject<HTMLElement | null>, chave: strin
       + vao * Math.max(0, visiveis.length - 1)
     const disponivel = el.clientWidth - (parseFloat(estilo.paddingLeft) || 0) - (parseFloat(estilo.paddingRight) || 0)
     if (ocupado > disponivel + 0.5) setNivel(nivel + 1)
-  }, [topo, atual, nivel])
+  })
   return nivel
 }
 
@@ -88,7 +93,7 @@ export function NomeNoTopo({ nome, onNome, autoFocus, podeEncolher }: {
 }
 
 /** "Sobre": tipo, descrição e o tamanho do fluxo, num balão ancorado no botão. */
-export function SobreDoWorkflow({ descricao, onDescricao, tipo, onTipo, tipos, resumo, soIcone }: {
+export function SobreDoWorkflow({ descricao, onDescricao, tipo, onTipo, tipos, resumo, soIcone, aberto: abertoProp, onAberto }: {
   descricao: string; onDescricao: (v: string) => void
   tipo: string; onTipo: (v: string) => void
   tipos: readonly TipoDeWorkflow[]
@@ -96,9 +101,17 @@ export function SobreDoWorkflow({ descricao, onDescricao, tipo, onTipo, tipos, r
   resumo: string
   /** Topo apertado: só o glifo do tipo (o resto vai no title e no nome acessível). */
   soIcone?: boolean
+  /** Controlado pela página (o topo congela a compactação enquanto o balão está aberto). */
+  aberto?: boolean
+  onAberto?: (v: boolean) => void
 }): JSX.Element {
   const botao = useRef<HTMLButtonElement>(null)
-  const [aberto, setAberto] = useState(false)
+  const [abertoLocal, setAbertoLocal] = useState(false)
+  const aberto = abertoProp ?? abertoLocal
+  const setAberto = (v: boolean | ((x: boolean) => boolean)) => {
+    const novo = typeof v === 'function' ? v(aberto) : v
+    if (abertoProp !== undefined) onAberto?.(novo); else setAbertoLocal(novo)
+  }
   const rotuloTipo = tipos.find((k) => k.value === tipo)?.label
   return (
     <>
@@ -151,7 +164,7 @@ export function SobreDoWorkflow({ descricao, onDescricao, tipo, onTipo, tipos, r
 }
 
 /** ⋯ do topo: Histórico, Exportar (JPG/PDF) e "Ver por raia". */
-export function MenuMais({ onHistorico, onExportar, exportando, exportarDesabilitado, onVerPorRaia, verPorRaiaDesabilitado, extras, botaoRef }: {
+export function MenuMais({ onHistorico, onExportar, exportando, exportarDesabilitado, onVerPorRaia, verPorRaiaDesabilitado, extras, botaoRef, aberto: abertoProp, onAberto, antesDeAlternar }: {
   /** ausente em workflow novo (ainda sem histórico) */
   onHistorico?: () => void
   onExportar: (f: FlowExportFormat) => void
@@ -163,17 +176,27 @@ export function MenuMais({ onHistorico, onExportar, exportando, exportarDesabili
   extras?: Array<{ rotulo: string; icone: ReactNode; onClick: () => void; disabled?: boolean }>
   /** O botão ⋯ — quem abre um balão a partir de um item do menu ancora nele. */
   botaoRef?: RefObject<HTMLButtonElement | null>
+  /** Controlado pela página (o topo congela a compactação enquanto o menu está aberto). */
+  aberto?: boolean
+  onAberto?: (v: boolean) => void
+  /** Clique no ⋯: devolve true para ficar só nisso (ex.: fechar o balão ancorado no ⋯). */
+  antesDeAlternar?: () => boolean
 }): JSX.Element {
   const proprio = useRef<HTMLButtonElement>(null)
   const botao = botaoRef ?? proprio
-  const [aberto, setAberto] = useState(false)
+  const [abertoLocal, setAbertoLocal] = useState(false)
+  const aberto = abertoProp ?? abertoLocal
+  const setAberto = (v: boolean | ((x: boolean) => boolean)) => {
+    const novo = typeof v === 'function' ? v(aberto) : v
+    if (abertoProp !== undefined) onAberto?.(novo); else setAbertoLocal(novo)
+  }
   // exportando: o menu some (a captura não pode pegar o balão)
-  useEffect(() => { if (exportando) setAberto(false) }, [exportando])
+  useEffect(() => { if (exportando) setAberto(false) }, [exportando]) // eslint-disable-line react-hooks/exhaustive-deps -- só a mudança de `exportando` fecha
   const item = 'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none disabled:pointer-events-none disabled:opacity-40'
   const escolher = (fn: () => void) => () => { setAberto(false); fn() }
   return (
     <>
-      <button ref={botao} type="button" onClick={() => setAberto((v) => !v)} aria-haspopup="menu" aria-expanded={aberto}
+      <button ref={botao} type="button" onClick={() => { if (antesDeAlternar?.()) return; setAberto((v) => !v) }} aria-haspopup="menu" aria-expanded={aberto}
         aria-label="Mais ações" title="Mais ações: histórico, exportar, ver por raia"
         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-card text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground">
         {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}

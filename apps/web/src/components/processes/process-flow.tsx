@@ -929,16 +929,29 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   })()
   const noDesenho = !!fluxo && vista === 'desenho'
 
-  /* Topo: compacta pela largura DISPONÍVEL (ver useNivelDoTopo). A chave lista o que muda a
-     largura do conteúdo: mudou, mede de novo desde o nível 0. */
+  /* Topo: compacta pela largura DISPONÍVEL (ver useNivelDoTopo). A chave lista o que pode
+     ENCOLHER o conteúdo (aí vale tentar um nível menor); o que só cresce (o texto de "Quem
+     inicia", os papéis que chegam) é pego pela medida a cada render, que só sobe. */
   const topoRef = useRef<HTMLDivElement>(null)
   const maisRef = useRef<HTMLButtonElement>(null)
+  /* Os balões do topo têm o estado AQUI: mudar de nível não pode fechá-los. E, com um deles
+     aberto, o nível congela (ver useNivelDoTopo). */
   const [quemIniciaAberto, setQuemIniciaAberto] = useState(false)
+  const [sobreAberto, setSobreAberto] = useState(false)
+  const [maisAberto, setMaisAberto] = useState(false)
   const nivelTopo = useNivelDoTopo(topoRef, [
     tamanhoDoNome(name), !name.trim(), sujo, ativoNoServidor, pendencias.length, bloqueantes(pendencias).length, kind,
-    JSON.stringify(quemInicia ?? null), papeis.entries.length, exportError ?? '', editing,
-  ].join('|'))
+    exportError ?? '', editing,
+    // fechar um balão do topo remede desde o 0 (o que mudou com ele aberto — ex.: "Quem inicia" — conta)
+    quemIniciaAberto || sobreAberto || maisAberto,
+  ].join('|'), quemIniciaAberto || sobreAberto || maisAberto)
   const quemIniciaNoMenu = nivelTopo >= 6
+  /* saiu do ⋯ (o nível desceu) com o balão fechado: nada de reabrir sozinho depois */
+  const [noMenuAntes, setNoMenuAntes] = useState(quemIniciaNoMenu)
+  if (noMenuAntes !== quemIniciaNoMenu) {
+    setNoMenuAntes(quemIniciaNoMenu)
+    if (!quemIniciaNoMenu && quemIniciaAberto) setQuemIniciaAberto(false)
+  }
 
   return (
     /* O editor é um cartão que ocupa a área toda, com cantos da mesma família das ilhas. */
@@ -948,10 +961,11 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       <div ref={topoRef} className="relative z-40 flex min-w-0 items-center gap-2 border-b bg-card px-3 py-2 shrink-0">
         <Button variant="ghost" size="icon" onClick={() => router.push('/workflows')} className="h-8 w-8 shrink-0" aria-label="Voltar para Workflows" title="Voltar para Workflows"><ArrowLeft className="h-4 w-4" /></Button>
         <NomeNoTopo nome={name} onNome={setName} autoFocus={!editing} podeEncolher={nivelTopo >= 7} />
-        <SobreDoWorkflow descricao={description} onDescricao={setDescription} tipo={kind} onTipo={setKind} tipos={WORKFLOW_KINDS} resumo={resumo} soIcone={nivelTopo >= 4} />
+        <SobreDoWorkflow descricao={description} onDescricao={setDescription} tipo={kind} onTipo={setKind} tipos={WORKFLOW_KINDS} resumo={resumo} soIcone={nivelTopo >= 4}
+          aberto={sobreAberto} onAberto={setSobreAberto} />
         {/* no nível 6 o botão vai para o ⋯; o balão continua aqui, ancorado no ⋯ */}
         <QuemIniciaPill value={quemInicia} onChange={setQuemInicia} papeis={papeis.entries} kind={kind} soIcone={nivelTopo >= 2}
-          controle={quemIniciaNoMenu ? { aberto: quemIniciaAberto, onAberto: setQuemIniciaAberto, ancora: maisRef } : undefined} />
+          aberto={quemIniciaAberto} onAberto={setQuemIniciaAberto} semBotao={quemIniciaNoMenu} ancora={maisRef} />
         <PendenciasPill noTopo compacta={nivelTopo >= 3} pendencias={pendencias} aberto={pendAberto} onToggle={() => setPendAberto((v) => !v)}
           onItem={(p) => { setPendAberto(false); if (fluxo) setVista('desenho'); focarPendencia(p) }} />
         <div data-topo-espaco className="min-w-0 flex-1" />
@@ -983,7 +997,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
             <LayoutGrid className="h-4 w-4" />{nivelTopo < 1 && 'Organizar'}
           </Button>
         )}
-        <MenuMais botaoRef={maisRef}
+        <MenuMais botaoRef={maisRef} aberto={maisAberto} onAberto={setMaisAberto}
+          // com o "Quem inicia" aberto a partir do ⋯, clicar no ⋯ só o fecha (não abre os dois)
+          antesDeAlternar={() => { if (quemIniciaNoMenu && quemIniciaAberto) { setQuemIniciaAberto(false); return true } return false }}
           extras={nivelTopo >= 6 ? [
             { rotulo: 'Organizar', icone: <LayoutGrid className="h-4 w-4 text-muted-foreground" />, onClick: organizarDesenho, disabled: !noDesenho || !desenhoVisto },
             { rotulo: 'Quem inicia…', icone: <DoorOpen className="h-4 w-4 text-muted-foreground" />, onClick: () => setQuemIniciaAberto(true) },
