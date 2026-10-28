@@ -4,7 +4,7 @@
    sendo o fluxo em blocos. */
 import type { DesenhoBpmn, RaiaDesenho } from '@nxt/types'
 import type { GrafoGerado } from '@nxt/workflow-core'
-import { layoutGraph, LANE_SEM_RESPONSAVEL, type FlowGraph, type FlowNodeType } from '@/lib/flow-layout'
+import { layoutGraph, nodeSize, LANE_SEM_RESPONSAVEL, type FlowGraph, type FlowNodeType } from '@/lib/flow-layout'
 
 export const GRADE = 16
 export const RAIA_ALTURA_PADRAO = 144
@@ -126,6 +126,30 @@ export function completarPosicoes(g: GrafoGerado, d: DesenhoBpmn, perto?: { x: n
   }
   for (const n of g.nodes) posicoes[n.id] ??= { x: 0, y: 0 } // sem nenhum vizinho alcançável
   return { ...d, posicoes }
+}
+
+/** Abre espaço para uma inserção: tudo que começa em `x ≥ aPartirDeX` anda `largura` para a
+ *  direita (arredondada PARA CIMA na grade), mantendo o y. `exceto` poupa ids (ex.: a forma
+ *  nova, já posta no lugar). Raias não mudam. */
+export function abrirEspaco(d: DesenhoBpmn, aPartirDeX: number, largura: number, exceto?: ReadonlySet<string>): DesenhoBpmn {
+  if (!(largura > 0)) return d
+  const passo = Math.ceil(largura / GRADE) * GRADE
+  const posicoes: DesenhoBpmn['posicoes'] = {}
+  for (const [id, p] of Object.entries(d.posicoes)) {
+    posicoes[id] = p.x >= aPartirDeX && !exceto?.has(id) ? { x: p.x + passo, y: p.y } : p
+  }
+  return { ...d, posicoes }
+}
+
+/** Largura que uma forma nova ocupa no desenho, já com a folga até a próxima: a tarefa é a
+ *  caixa dela; escolha / "ao mesmo tempo" são a divisão e o reencontro (que
+ *  `completarPosicoes` põe um PASSO_X à direita). Sempre na grade. */
+export function larguraDaInsercao(tipo: 'userTask' | 'serviceTask' | 'escolha' | 'paralelo'): number {
+  const bloco = tipo === 'escolha' || tipo === 'paralelo'
+  const w = bloco
+    ? PASSO_X + nodeSize({ id: 'x', type: 'exclusiveGateway' }, 0, 0).w
+    : nodeSize({ id: 'x', type: tipo }, 0, 0).w
+  return Math.ceil((w + 3 * GRADE) / GRADE) * GRADE
 }
 
 /** Índice da raia que contém a altura `y`, ou -1 se cai fora de todas. */

@@ -30,7 +30,7 @@ import type { ScreenSubject } from '@/lib/screen-types'
 import { fieldValueKey } from '@/lib/screen-types'
 import { PAPEIS_KEY, INIT_PAPEIS, REFERENCIA, ORIGEM, referenciaDoPapelEntry } from '@/lib/contract-roles'
 import { layoutGraph, nodeSize, titleLineCount, LABEL_W, LANE_SEM_RESPONSAVEL, type FlowNode as LNode, type FlowNodeType, type LaneBand } from '@/lib/flow-layout'
-import { GRADE, adicionarRaia, completarPosicoes, desenhoInicial, organizar } from '@/lib/desenho-bpmn'
+import { GRADE, abrirEspaco, adicionarRaia, completarPosicoes, desenhoInicial, larguraDaInsercao, organizar } from '@/lib/desenho-bpmn'
 import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, type ExportEdge } from '@/lib/flow-export'
 import { apiFetch } from '@/lib/http'
 import { ProcessHistoryDrawer } from './process-history-drawer'
@@ -101,8 +101,6 @@ interface Retrato {
   desenho: DesenhoBpmn | null
 }
 const MAX_HISTORIA = 60
-/** Distância do losango de divisão ao reencontro, a mesma de `completarPosicoes`. */
-const PASSO_DO_REENCONTRO = 200
 const naGrade = (v: number) => Math.round(v / GRADE) * GRADE
 /** Quanto a abertura espera os nomes de papéis/entidades para sugerir as raias. */
 const ESPERA_NOMES_MS = 2500
@@ -278,6 +276,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
      por quem executa. Desenho antigo que não cabe em blocos só tem a raia. */
   const [vista, setVista] = useState<'desenho' | 'raia'>(somenteLeitura ? 'raia' : 'desenho')
   const [historicoAberto, setHistoricoAberto] = useState(false)
+  /** Pedido de "enquadrar a vista" ao canvas (contador). */
+  const [enquadrar, setEnquadrar] = useState(0)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   /* "Testar decisão": os caminhos que serviriam acendem na configuração da escolha. */
   const [simulacao, setSimulacao] = useState<Simulacao | null>(null)
@@ -532,6 +532,28 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     setFluxo((f) => (f ? grupo.reduce((g, gid) => atualizarItem(g, gid, { tipo: t }), f) : f))
     setSteps((prev) => ({ ...prev, [id]: { ...(prev[id] ?? passoVazio(id, t)), stepType: t } }))
   }, [])
+  /* LUGAR da forma nova (B6): no meio do fluxo, tudo que começa a partir dela anda para a
+     direita o quanto ela precisa (`abrirEspaco`); no FIM do fluxo principal (inclusive
+     soltar em área vazia) só o Fim anda, para depois dela, na altura dela. O reencontro de
+     um bloco cai no espaço aberto (`completarPosicoes` o põe um passo à direita). */
+  const darLugar = useCallback((id: string, tipo: NovoItem, perto: { x: number; y: number }, ref: string, indice: number) => {
+    const noFim = !!fluxo && ref === 'raiz' && indice >= fluxo.itens.length
+    const fimId = fluxo?.fimId
+    const largura = larguraDaInsercao(tipo)
+    const altura = nodeSize({ id, type: tipo === 'escolha' ? 'exclusiveGateway' : tipo === 'paralelo' ? 'parallelGateway' : tipo }, 0, 0).h
+    setDesenho((d) => {
+      if (!d) return d
+      // a forma que começa um pouco antes dela também a cobriria: entra no empurrão
+      const aberto = noFim ? d : abrirEspaco(d, perto.x - 2 * GRADE, largura)
+      const posicoes = { ...aberto.posicoes, [id]: { x: perto.x, y: perto.y } }
+      const fim = fimId ? posicoes[fimId] : undefined
+      if (noFim && fimId && fim && fim.x < perto.x + largura) {
+        posicoes[fimId] = { x: naGrade(perto.x + largura), y: naGrade(perto.y + altura / 2 - nodeSize({ id: fimId, type: 'end' }, 0, 0).h / 2) }
+      }
+      return { ...aberto, posicoes }
+    })
+  }, [fluxo])
+
   /** Repete aqui uma atividade já configurada — mesma configuração, vinculada. `perto` é o
    *  lugar da forma nova no desenho (como em `inserir`). */
   const inserirVinculada = useCallback((ref: string, indice: number, origemId: string, perto?: { x: number; y: number }) => {
@@ -543,9 +565,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     const item = { ...novoItem(origem.tipo), vinculoDe: raiz } as ItemAtividade
     aplicarGaveta()
     setFluxo((f) => (f ? inserirItem(f, ref, indice, item) : f))
-    if (perto) setDesenho((d) => (d ? { ...d, posicoes: { ...d.posicoes, [item.id]: { x: perto.x, y: perto.y } } } : d))
+    if (perto) darLugar(item.id, origem.tipo, perto, ref, indice)
     setSelectedId(item.id)
-  }, [fluxo, aplicarGaveta])
+  }, [fluxo, aplicarGaveta, darLugar])
   /** Desfaz o vínculo: a atividade passa a ter configuração própria (cópia da atual). */
   const desvincular = useCallback((id: string) => {
     const raiz = raizRef.current.get(id)
@@ -562,12 +584,12 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     const item = novoItem(tipo)
     if (item.kind === 'atividade') setSteps((prev) => ({ ...prev, [item.id]: passoVazio(item.id, item.tipo) }))
     setFluxo((f) => (f ? inserirItem(f, ref, indice, item) : f))
-    if (perto) setDesenho((d) => (d ? { ...d, posicoes: { ...d.posicoes, [item.id]: { x: perto.x, y: perto.y } } } : d))
+    if (perto) darLugar(item.id, tipo, perto, ref, indice)
     aplicarGaveta()
     setSelectedId(item.id)
     setConfigId(item.kind === 'atividade' ? item.id : null)
     return item.id
-  }, [aplicarGaveta])
+  }, [aplicarGaveta, darLugar])
 
   /* Remover um bloco leva junto o que mora dentro dele. Os passos das atividades ficam no
      mapa (o desfazer os traz de volta inteiros); a gravação só leva os que existem. */
@@ -607,6 +629,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     if (!grafo || !desenhoVisto) return
     aplicarGaveta()
     setDesenho(organizar(grafo, desenhoVisto, responsavelDe))
+    setEnquadrar((n) => n + 1) // B7: depois de arrumar, a vista mostra o desenho todo
   }, [grafo, desenhoVisto, responsavelDe, aplicarGaveta])
 
   /* R12: "Próxima: mesma configuração de…" — as atividades que podem ser repetidas (as
@@ -635,13 +658,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     const p = desenhoVisto.posicoes[ancora] ?? { x: 0, y: 0 }, c = caixaDe(ancora)
     const perto = { x: naGrade(p.x + c.w + 3 * GRADE), y: naGrade(p.y + c.h / 2 - nova.h / 2) }
     if (local) { inserir(local.ref, local.indice + 1, tipo, perto); return }
-    inserir('raiz', fluxo.itens.length, tipo, perto)
-    // o bloco ocupa também o reencontro, um passo à direita
-    const direita = perto.x + (tipo === 'escolha' || tipo === 'paralelo' ? PASSO_DO_REENCONTRO : 0) + nova.w
-    const fim = desenhoVisto.posicoes[fluxo.fimId], cf = caixaDe(fluxo.fimId)
-    if (fim && fim.x < direita + 3 * GRADE) {
-      setDesenho((d) => (d ? { ...d, posicoes: { ...d.posicoes, [fluxo.fimId]: { x: naGrade(direita + 3 * GRADE), y: naGrade(perto.y + nova.h / 2 - cf.h / 2) } } } : d))
-    }
+    inserir('raiz', fluxo.itens.length, tipo, perto) // o Fim anda para depois dela (darLugar)
   }, [fluxo, grafo, desenhoVisto, selectedId, inserir])
 
   /* Registra um retrato quando a autoria para de mudar. A espera COALESCE o que é uma
@@ -731,6 +748,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     if (!desenho) {
       if (!consultasProntas && !esperaVenceu) return
       proximo = desenhoDaAbertura.current ??= desenhoInicial(grafo, responsavelDe)
+      setEnquadrar((n) => n + 1)
     } else if (desenhoVisto && desenhoVisto !== desenho) {
       proximo = desenhoVisto
     } else {
@@ -1059,7 +1077,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
                   responsavelDe={responsavelDe} prazoDe={prazoDe} problemasDe={problemasDe}
                   onSelecionar={abrir} onDesenho={aoMudarDesenho} onInserir={aoInserir} onMoverItem={aoMoverItem}
                   onLigar={aoLigar} onRemover={remover}
-                  vinculaveis={vinculaveis} onInserirVinculada={aoInserirVinculada} focoEm={focoEm} />
+                  vinculaveis={vinculaveis} onInserirVinculada={aoInserirVinculada} focoEm={focoEm} enquadrar={enquadrar} />
               ) : (
                 <div role="status" className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />Preparando o desenho…

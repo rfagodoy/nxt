@@ -4,7 +4,7 @@ import type { DesenhoBpmn } from '@nxt/types'
 import { nodeSize } from './flow-layout'
 import {
   GRADE, RAIA_ALTURA_PADRAO, RAIA_ALTURA_MINIMA, RAIA_ALTURA_MAXIMA, desenhoInicial, organizar, completarPosicoes, raiaNaAltura, avisoDeRaia, setaSobPonto, polilinhaDaSeta,
-  adicionarRaia, renomearRaia, redimensionarRaia, moverRaia, removerRaia,
+  adicionarRaia, renomearRaia, redimensionarRaia, moverRaia, removerRaia, abrirEspaco, larguraDaInsercao,
 } from './desenho-bpmn'
 
 const no = (id: string, type: string) => ({ id, type }) as GrafoGerado['nodes'][number]
@@ -210,5 +210,41 @@ describe('edição das raias', () => {
     expect(d.raias.map((r) => r.id)).toEqual(['r2'])
     expect(d.posicoes).toEqual(b.posicoes)
     expect(removerRaia(b, 'x')).toBe(b)
+  })
+})
+
+describe('abrirEspaco', () => {
+  const d: DesenhoBpmn = { versao: 1, raias: [], posicoes: { start: { x: 0, y: 32 }, A: { x: 96, y: 16 }, end: { x: 320, y: 32 }, B: { x: 320, y: 200 } } }
+  it('empurra para a direita, pela largura na grade, tudo que começa em x ≥ o limite; o y fica', () => {
+    const r = abrirEspaco(d, 300, 250)
+    expect(r.posicoes.end).toEqual({ x: 320 + 256, y: 32 })
+    expect(r.posicoes.B).toEqual({ x: 320 + 256, y: 200 })
+    expect(r.posicoes.A).toEqual(d.posicoes.A)
+    expect(r.posicoes.start).toEqual(d.posicoes.start)
+  })
+  it('não mexe nas raias nem no desenho original', () => {
+    const comRaia: DesenhoBpmn = { ...d, raias: [{ id: 'r', nome: 'RH', altura: 144 }] }
+    const r = abrirEspaco(comRaia, 0, 32)
+    expect(r.raias).toBe(comRaia.raias)
+    expect(comRaia.posicoes.A).toEqual({ x: 96, y: 16 })
+  })
+  it('largura zero ou negativa devolve o mesmo desenho', () => {
+    expect(abrirEspaco(d, 0, 0)).toBe(d)
+    expect(abrirEspaco(d, 0, -10)).toBe(d)
+  })
+  it('poupa os ids pedidos (a forma nova já posicionada)', () => {
+    const r = abrirEspaco(d, 300, 64, new Set(['B']))
+    expect(r.posicoes.B).toEqual(d.posicoes.B)
+    expect(r.posicoes.end.x).toBe(384)
+  })
+})
+
+describe('larguraDaInsercao', () => {
+  it('tarefa: a caixa dela mais a folga; bloco: divisão, reencontro e folga, sempre na grade', () => {
+    const tarefa = nodeSize({ id: 'x', type: 'userTask' }, 0, 0).w
+    expect(larguraDaInsercao('userTask')).toBe(Math.ceil((tarefa + 3 * GRADE) / GRADE) * GRADE)
+    expect(larguraDaInsercao('escolha') % GRADE).toBe(0)
+    expect(larguraDaInsercao('escolha')).toBeGreaterThanOrEqual(200 + 56 + 3 * GRADE)
+    expect(larguraDaInsercao('paralelo')).toBe(larguraDaInsercao('escolha'))
   })
 })

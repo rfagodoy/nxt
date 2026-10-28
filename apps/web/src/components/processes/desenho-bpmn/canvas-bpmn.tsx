@@ -65,6 +65,9 @@ export interface CanvasBpmnProps {
   onInserirVinculada?: (ponto: PontoDeInsercao, origemId: string, perto: { x: number; y: number }) => void
   /** Centra a vista nesta forma. `vez` muda a cada pedido (o mesmo id pode ser pedido de novo). */
   focoEm?: { id: string; vez: number } | null
+  /** Muda (contador) quando a página quer a vista enquadrada no desenho todo — depois do
+   *  "Organizar" e do desenho inicial. O valor da montagem não enquadra (o fitView já faz). */
+  enquadrar?: number
 }
 
 /** Preferência do usuário para a miniatura (ausente = automática: só quando o desenho não cabe). */
@@ -282,7 +285,7 @@ type Recusa = { motivo: string; pontos: Pt[]; vez: number }
 export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   const {
     fluxo, grafo, desenho, steps, selecionado, nomeDoProcesso, revisaoDasConsultas, somenteLeitura = false,
-    onSelecionar, onDesenho, onInserir, onMoverItem, onLigar, onRemover, vinculaveis, onInserirVinculada, focoEm,
+    onSelecionar, onDesenho, onInserir, onMoverItem, onLigar, onRemover, vinculaveis, onInserirVinculada, focoEm, enquadrar,
   } = props
   const { resolvedTheme } = useTheme()
   const escuro = resolvedTheme === 'dark'
@@ -527,6 +530,16 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     // só o pedido manda; mudar o desenho depois não recentraliza
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focoEm])
+
+  /* ─── Enquadrar a pedido (Organizar) ─────────────────────────────────── */
+  const enquadrarVisto = useRef(enquadrar)
+  useEffect(() => {
+    if (enquadrar === enquadrarVisto.current) return
+    enquadrarVisto.current = enquadrar
+    // um quadro depois: o React Flow já recebeu as posições novas
+    const raf = requestAnimationFrame(() => { void instancia.current?.fitView({ ...ENQUADRAR, duration: 300 }) })
+    return () => cancelAnimationFrame(raf)
+  }, [enquadrar])
 
   /* ─── Miniatura: automática (só quando o desenho não cabe na tela) ou a escolha do usuário */
   const [miniaturaPref, setMiniaturaPref] = useState<boolean | null>(null)
