@@ -100,6 +100,19 @@ export class ResolvedorDeExecutor {
     return { ...r, pessoas }
   }
 
+  /** "Quem recebe hoje" do editor de workflow, SEM processo: só quando a resposta não depende
+   *  dele — papel global ou de uma entidade fixa. `null` = depende de quem inicia ou do contrato
+   *  (o editor mostra o "Testar com um contrato" no lugar). Lista vazia = ninguém no papel hoje. */
+  async pessoasHoje(ex: Executor, organizationId: string): Promise<string[] | null> {
+    if (!ex.papelId || ex.papelId === EXECUTOR_QUEM_INICIOU || ex.mode === 'VARIAVEL') return null
+    if (ex.entityType !== 'ORG' && !ex.entityId) return null
+    const { assignees } = await this.resolver({ executor: ex }, organizationId, {})
+    if (!assignees.length) return []
+    return (await this.prisma.user.findMany({
+      where: { organizationId, id: { in: assignees }, status: 'ATIVO' }, select: { name: true }, orderBy: { name: 'asc' },
+    })).map(u => u.name)
+  }
+
   /** Executor "Quem iniciou o processo" (PO, 04/10/2026): a pessoa que clicou em "+ Novo processo",
    *  gravada em `__iniciadoPor` na partida. Inativa (ou instância antiga sem o dado) = administradores
    *  + aviso, a mesma regra do "sem executor". */

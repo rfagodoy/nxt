@@ -20,3 +20,9 @@ export class PreviewExecutorDto {
   @ApiProperty() @IsString()
   contratoId!: string
 }
+
+/** "Quem recebe hoje" do editor: executor fixo ou global, sem contrato. */
+export class PessoasDoExecutorDto {
+  @ApiProperty() @IsObject() @ValidateNested() @Type(() => ExecutorDto)
+  executor!: ExecutorDto
+}

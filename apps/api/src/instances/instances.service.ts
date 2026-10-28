@@ -163,6 +163,10 @@ export class InstancesService {
     return this.executores.prever(executor, organizationId, contratoId)
   }
 
+  async pessoasDoExecutor(organizationId: string, executor: NonNullable<WfNode['executor']>) {
+    return { pessoas: await this.executores.pessoasHoje(executor, organizationId) }
+  }
+
   /** Prazo (dueAt) de uma atividade: dias/horas ÚTEIS no calendário comercial da org
    *  (precede o slaMinutes legado). Sem prazo configurado → null. */
   private dueAtFor(node: WfNode, cal: StoredCalendar): Date | null {

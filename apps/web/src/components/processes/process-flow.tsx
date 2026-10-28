@@ -45,8 +45,6 @@ import { cn } from '@/lib/utils'
 /** Preferência de painel recolhido (por usuário desta máquina). */
 const PANEL_KEY = 'nxt:workflow:panel-collapsed'
 
-/** "unidade" → "Unidade": o mesmo nome serve de rótulo e de meio de frase. */
-const maiuscula = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 export const WORKFLOW_KINDS = [
   { value: 'CONTRATO', label: 'Contrato' },
@@ -930,7 +928,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       {/* Configuração da atividade: modal amplo (a coluna de 320px não comporta o
           formulário — ver o comentário em ActivityConfigModal). */}
       {configNode && configNode.step && fluxo && (
-        <ActivityConfigModal key={configNode.id} node={configNode} nodes={nodes} edges={edges} screens={screens} papeis={papeis}
+        <ActivityConfigModal key={configNode.id} node={configNode} nodes={nodes} edges={edges} screens={screens} papeis={papeis} resolveEntidade={resolveEntidade}
           secaoInicial={configSecao}
           onPatchStep={(p) => patchStep(configNode.id, p)}
           onChangeType={(t) => changeNodeType(configNode.id, t)}
@@ -1489,27 +1487,15 @@ function GField({ label, required, hint, wide, children }: { label: string; requ
   )
 }
 
-/** Bloco de uma seção do modal: título + grade de campos. */
-function GSection({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
-  return (
-    <section className="space-y-3">
-      <div>
-        <h3 className="text-sm font-semibold">{title}</h3>
-        {description && <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">{description}</p>}
-      </div>
-      <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">{children}</div>
-    </section>
-  )
-}
-
 /**
  * Configuração da atividade em MODAL amplo (decisão do PO em 30/07).
  *
  * Por que saiu da coluna lateral: ela tinha 319px e o conteúdo de uma atividade simples
  * já passava de 674px de altura contra 545 visíveis — ou seja, rolagem obrigatória para
  * ler a própria configuração, com um campo por linha e o nome da tela quebrando dentro
- * do select. Formulário de cadastro não cabe num tubo; aqui ele ganha largura, grade de
- * duas colunas e seções navegáveis, como o resto do sistema.
+ * do select. Formulário de cadastro não cabe num tubo; aqui ele ganha largura.
+ * Desde 27/10/2026 o conteúdo são PERGUNTAS numa coluna só, com o "Em resumo" ao lado
+ * (ver o bloco "Perguntas" abaixo).
  *
  * Cancelar RESTAURA o estado de quando o modal abriu (snapshot em `original`): o editor
  * aplica cada mudança ao vivo no grafo, então sem isso "Cancelar" seria só um "Fechar"
@@ -1533,13 +1519,15 @@ function predecessorasDe(edges: EEdge[], alvo: string): Set<string> {
   return preds
 }
 
-function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep, onChangeType, onRemove, onClose, secaoInicial, vinculo }: {
+function ActivityConfigModal({ node, nodes, edges, screens, papeis, resolveEntidade, onPatchStep, onChangeType, onRemove, onClose, secaoInicial, vinculo }: {
   node: ENode; nodes: ENode[]; edges: EEdge[]; screens: Screens; papeis: Papeis
+  /** nome da entidade fixa do executor, para a frase do "Em resumo" */
+  resolveEntidade: (kind: string | undefined, id: string | undefined) => string | undefined
   /** a mesma configuração vale em vários lugares do fluxo (atividade vinculada) */
   vinculo?: { lugares: number; ehCopia: boolean; desvincular: () => void }
   onPatchStep: (patch: Partial<StepFormSchema>) => void; onChangeType: (t: 'userTask' | 'serviceTask') => void; onRemove: () => void
   onClose: () => void
-  /** Seção em que o modal abre (ex.: 'formulario', vindo do aviso da escolha). */
+  /** Pergunta em que o modal abre (ex.: 'formulario', vindo do aviso da escolha). */
   secaoInicial?: string
 }) {
   const step = node.step!
@@ -1691,61 +1679,138 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
     return () => window.removeEventListener('keydown', onKey, true)
   })
 
-  /* Seções: as de tarefa e as de ação automática são conjuntos diferentes — mostrar
-     "Formulário" numa ação automática seria oferecer o que não existe. */
-  const secoes = type === 'userTask'
+  /* ── Perguntas ─────────────────────────────────────────────────────────────
+     A configuração deixou de ser um formulário em seções (Identificação, Quem executa…)
+     e virou PERGUNTAS em português, numa coluna só, na ordem em que a pessoa pensa a
+     etapa (mockup "Configurar a etapa por perguntas", PO 27/10/2026). Ao lado, o
+     "Em resumo" escreve a etapa numa frase — quem configura confere o que entendeu
+     sem precisar ler campo por campo. */
+  const faltaNome = !step.stepName?.trim()
+  const faltaQuem = type === 'userTask' && !porIniciador && (
+    !executor?.papelId
+    || (!!execOrigem && execOrigem !== ORIGEM.ORG && (executor.mode === 'FIXA' ? !executor.entityId : !(executor.stakeholder || executor.entityVar)))
+  )
+  const faltaPrazo = type === 'userTask' && !dueText(step)
+  const faltaDevolucao = type === 'userTask' && retorno.mode === 'SELECTED' && !(retorno.nodeIds ?? []).length
+  const perguntas = type === 'userTask'
     ? [
-        { id: 'identificacao', label: 'Identificação', Icon: CircleDot },
-        { id: 'executor',      label: 'Quem executa',  Icon: User },
-        { id: 'formulario',    label: 'Formulário',    Icon: LayoutTemplate },
-        { id: 'prazo',         label: 'Prazo',         Icon: Clock },
-        { id: 'devolucao',     label: 'Devolução',     Icon: Undo2 },
+        { id: 'identificacao', titulo: 'O que precisa ser feito?',          ok: !faltaNome },
+        { id: 'executor',      titulo: 'Quem faz?',                         ok: !faltaQuem },
+        { id: 'formulario',    titulo: 'O que a pessoa vê e preenche?',     ok: true },
+        { id: 'prazo',         titulo: 'Em quanto tempo?',                  ok: !faltaPrazo },
+        { id: 'devolucao',     titulo: 'Se precisar, pode devolver para…',  ok: !faltaDevolucao },
       ]
     : [
-        { id: 'identificacao', label: 'Identificação',   Icon: CircleDot },
-        { id: 'acao',          label: 'Ação automática', Icon: Zap },
+        { id: 'identificacao', titulo: 'O que precisa ser feito?', ok: !faltaNome },
+        { id: 'acao',          titulo: 'O que o sistema faz?',     ok: !!step.connector },
       ]
-  const [sec, setSec] = useState(secaoInicial ?? 'identificacao')
-  useEffect(() => { if (!secoes.some((s) => s.id === sec)) setSec('identificacao') }, [type]) // eslint-disable-line react-hooks/exhaustive-deps
+  const pendentes = perguntas.filter((p) => !p.ok).length
+  const nPergunta = (id: string) => perguntas.findIndex((p) => p.id === id) + 1
 
-  /* Resumo por seção: fechado, o menu ainda diz o que está configurado — sem isso a
-     navegação lateral esconde a informação que a coluna única ao menos mostrava. */
-  const resumo: Record<string, string> = {
-    identificacao: step.stepName || 'sem nome',
-    executor: executor?.papelId === EXECUTOR_QUEM_INICIOU ? 'Quem iniciou o processo' : papelSel?.label ?? 'sem papel',
-    formulario: step.screenRef ? `${ENTITY_MODE_LABEL[step.entityMode ?? 'CREATE']} ${entityWord}${extras.length ? ` · ${extras.length + 1} telas` : ''}` : 'sem tela',
-    prazo: dueText(step) ?? 'sem prazo',
-    acao: findConnector(step.connector)?.label ?? 'nenhuma',
-    devolucao: retorno.mode === 'NONE' ? 'não devolve'
-      : retorno.mode === 'SELECTED' ? `${(retorno.nodeIds ?? []).length} etapa(s)`
-      : 'qualquer anterior',
-  }
+  const [mostrarInstrucoes, setMostrarInstrucoes] = useState(!!step.instructions?.trim())
+  const [maisDaTela, setMaisDaTela] = useState(extras.length > 0 || travados.length > 0)
+
+  /* "Quem recebe hoje": só quando a resposta não depende do processo (papel global ou
+     entidade fixa). undefined = procurando; null = depende do processo / não se aplica. */
+  const [pessoasHoje, setPessoasHoje] = useState<string[] | null | undefined>(null)
+  const exPapel = executor?.papelId, exTipo = executor?.entityType, exModo = executor?.mode, exEntidade = executor?.entityId
+  useEffect(() => {
+    if (type !== 'userTask' || !exPapel || exPapel === EXECUTOR_QUEM_INICIOU || exModo === 'VARIAVEL' || (exTipo !== ORIGEM.ORG && !exEntidade)) {
+      setPessoasHoje(null); return
+    }
+    let vivo = true
+    setPessoasHoje(undefined)
+    const t = setTimeout(async () => {
+      try {
+        const res = await apiFetch('/api/instances/executor-pessoas', {
+          method: 'POST', body: JSON.stringify({ executor: { papelId: exPapel, entityType: exTipo, mode: exModo, entityId: exEntidade } }),
+        })
+        const corpo = res.ok ? await res.json() as { pessoas: string[] | null } : null
+        if (vivo) setPessoasHoje(corpo?.pessoas ?? null)
+      } catch { if (vivo) setPessoasHoje(null) }
+    }, 250)
+    return () => { vivo = false; clearTimeout(t) }
+  }, [type, exPapel, exTipo, exModo, exEntidade])
+
+  /* Abre já na pergunta pedida (ex.: 'formulario', vindo do aviso da escolha). */
+  useEffect(() => {
+    if (!mounted || !secaoInicial) return
+    document.getElementById(`pergunta-${secaoInicial}`)?.scrollIntoView({ block: 'start' })
+  }, [mounted]) // eslint-disable-line react-hooks/exhaustive-deps
+  const irPara = (id: string) => document.getElementById(`pergunta-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+
+  /* ── A frase do "Em resumo" ── */
+  const quem = porIniciador ? 'Quem iniciou o processo' : papelSel ? (() => {
+    if (!executor || !execOrigem || execOrigem === ORIGEM.ORG) return papelSel.label
+    if (executor.mode === 'FIXA') {
+      const nome = resolveEntidade(executor.entityType, executor.entityId)
+      return nome ? `${papelSel.label} de ${nome}` : papelSel.label
+    }
+    if (executor.stakeholder === EXECUTOR_CONTRATO_DO_PROCESSO) return `${papelSel.label} do contrato do processo`
+    if (executor.stakeholder) {
+      const parte = papeis.entries.find((p) => p.id === executor.stakeholder)?.label
+      return `${papelSel.label} da parte “${parte ?? 'escolhida'}” do contrato`
+    }
+    return papelSel.label
+  })() : null
+  const due = dueText(step)
+  const nomesDevolucao = (retorno.nodeIds ?? []).map((id) => destinosDevolucao.find((d) => d.id === id)?.nome).filter((x): x is string => !!x)
+  const frase = type === 'userTask' ? (
+    <>
+      {quem ? <ResumoForte>{quem}</ResumoForte> : <ResumoFalta>alguém (falta escolher quem)</ResumoFalta>}
+      {' recebe “'}<ResumoForte>{step.stepName?.trim() || 'esta tarefa'}</ResumoForte>{'”'}
+      {telaSel
+        ? <>, {VERBO_DO_MODO[step.entityMode ?? 'CREATE']} o {entityWord} na tela <ResumoForte>{telaSel.name}</ResumoForte></>
+        : ', sem tela: só conclui ou devolve'}
+      {due ? <> e tem <ResumoForte>{due}</ResumoForte> para concluir.</> : <> e <ResumoFalta>ainda não tem prazo</ResumoFalta>.</>}
+      {' '}
+      {retorno.mode === 'NONE' ? 'Não pode devolver o processo.'
+        : retorno.mode === 'SELECTED'
+          ? (nomesDevolucao.length
+              ? <>Se precisar, pode devolver para <ResumoForte>{listaPt(nomesDevolucao)}</ResumoForte>.</>
+              : <ResumoFalta>Falta marcar para onde pode devolver.</ResumoFalta>)
+          : 'Se precisar, pode devolver para qualquer etapa anterior.'}
+    </>
+  ) : (
+    <>
+      {'O sistema faz sozinho: '}
+      {step.connector
+        ? <ResumoForte>{findConnector(step.connector)?.label ?? step.connector}</ResumoForte>
+        : <ResumoFalta>falta escolher a ação</ResumoFalta>}.
+      {step.connector && <> {FRASE_RETORNO[step.onReturn ?? 'BLOCK']}</>}
+    </>
+  )
 
   if (!mounted) return null
+
+  const resumoCard = (
+    <div className="rounded-xl bg-[#0C1410] p-4 text-[#C9D6CE] shadow-[0_18px_40px_-24px_rgba(12,20,16,0.7)] ring-1 ring-white/5">
+      <span className="inline-block rounded bg-[#C6F24E] px-1.5 py-0.5 text-[10.5px] font-extrabold tracking-wide text-[#0C1410]">EM RESUMO</span>
+      <p className="mt-2 text-[13px] leading-relaxed" aria-live="polite">{frase}</p>
+    </div>
+  )
 
   return createPortal(
     <>
       <div className="fixed inset-0 z-[60] bg-black/40" onClick={cancelar} />
-      <div role="dialog" aria-modal="true"
-        className="fixed left-1/2 top-1/2 z-[70] w-[min(1000px,94vw)] h-[min(660px,90vh)] -translate-x-1/2 -translate-y-1/2 glass-panel rounded-xl border shadow-2xl flex flex-col overflow-hidden">
+      <div role="dialog" aria-modal="true" aria-labelledby="cfg-etapa-titulo"
+        className="fixed left-1/2 top-1/2 z-[70] flex h-[min(740px,92vh)] w-[min(1100px,95vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border shadow-2xl glass-panel">
 
         {/* Cabeçalho de identidade */}
-        <div className="flex items-start justify-between gap-4 px-5 py-3 border-b bg-muted/20 shrink-0">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b bg-muted/20 px-5 py-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className={cn('inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full', meta.tone)}>
-                <meta.Icon className="h-3 w-3" />{meta.label}
-              </span>
-            </div>
-            <h2 className="text-sm font-semibold mt-1 truncate">{step.stepName || 'Atividade sem nome'}</h2>
+            <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold', meta.tone)}>
+              <meta.Icon className="h-3 w-3" />{meta.label}
+            </span>
+            <h2 id="cfg-etapa-titulo" className="mt-1 truncate text-[15px] font-bold">{step.stepName?.trim() || 'Etapa sem nome'}</h2>
           </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <button onClick={onRemove} title="Remover atividade"
-              className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors">
+          <div className="flex shrink-0 items-center gap-1">
+            <button onClick={onRemove} title="Remover atividade" aria-label="Remover atividade"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive">
               <Trash2 className="h-4 w-4" />
             </button>
-            <button onClick={cancelar} title="Fechar sem aplicar"
-              className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors">
+            <button onClick={cancelar} title="Fechar sem aplicar" aria-label="Fechar sem aplicar"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted">
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -1763,320 +1828,308 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
             )}
           </div>
         )}
-        <div className="flex flex-1 min-h-0">
-          {/* Navegação de seções */}
-          <nav className="w-48 shrink-0 border-r bg-muted/10 p-2 space-y-0.5 overflow-y-auto rolagem-visivel">
-            {secoes.map((s) => (
-              <button key={s.id} type="button" onClick={() => setSec(s.id)}
-                className={cn('w-full text-left rounded-md px-2.5 py-2 transition-colors',
-                  sec === s.id ? 'bg-primary/10 text-primary' : 'hover:bg-muted/60')}>
-                <span className="flex items-center gap-1.5 text-xs font-medium"><s.Icon className="h-3.5 w-3.5" />{s.label}</span>
-                <span className="block text-[10.5px] text-muted-foreground truncate mt-0.5">{resumo[s.id]}</span>
-              </button>
-            ))}
-          </nav>
 
-          {/* Campos */}
-          <div className="flex-1 min-w-0 overflow-y-auto rolagem-visivel p-5">
-            {sec === 'identificacao' && (
-              <GSection title="Identificação" description="Como esta etapa aparece no fluxo e para quem vai executá-la.">
-                <GField label="O que esta etapa é" wide hint="Tarefa: uma pessoa executa. Ação automática: o motor executa sozinho.">
-                  <div className="flex gap-1 text-xs max-w-sm">
-                    {(['userTask', 'serviceTask'] as const).map((t) => (
-                      <button key={t} type="button" onClick={() => onChangeType(t)}
-                        className={cn('flex-1 rounded-md px-2 py-1.5 border transition-colors', type === t ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted text-muted-foreground')}>
-                        {t === 'serviceTask' ? 'Ação automática' : 'Tarefa'}
-                      </button>
-                    ))}
+        <div className="flex min-h-0 flex-1">
+          <div className="min-w-0 flex-1 overflow-y-auto rolagem-visivel">
+            <div className="mx-auto flex max-w-[700px] flex-col gap-7 px-6 py-5">
+              <div className="lg:hidden">{resumoCard}</div>
+
+              <Pergunta id="identificacao" n={nPergunta('identificacao')} titulo="O que precisa ser feito?" ok={!faltaNome}
+                ajuda="É o nome que aparece no fluxo e na caixa de tarefas de quem executa.">
+                <Input className={cn(CAMPO, 'max-w-lg')} aria-label="Nome da etapa" value={step.stepName}
+                  placeholder={type === 'serviceTask' ? 'Ex.: Cadastrar o contrato' : 'Ex.: Analisar os dados cadastrais'}
+                  onChange={(e) => onPatchStep({ stepName: e.target.value })} />
+                <div role="radiogroup" aria-label="Quem realiza esta etapa" className="grid gap-2 sm:grid-cols-2">
+                  <Opcao ativo={type === 'userTask'} onClick={() => onChangeType('userTask')} icone={<UserSquare className="h-4 w-4" />}
+                    titulo="Uma pessoa" descricao="A tarefa cai na caixa de alguém, que preenche, analisa ou aprova." />
+                  <Opcao ativo={type === 'serviceTask'} onClick={() => onChangeType('serviceTask')} icone={<Zap className="h-4 w-4" />}
+                    titulo="O sistema, sozinho" descricao="Uma ação automática, sem ninguém precisar clicar." />
+                </div>
+                {type === 'userTask' && (mostrarInstrucoes ? (
+                  <div className="flex flex-col gap-1">
+                    <label htmlFor="cfg-instrucoes" className="text-[length:var(--rotulo-fonte)] font-medium text-muted-foreground">Instruções para quem executa</label>
+                    <Textarea id="cfg-instrucoes" className="min-h-[80px] text-[length:var(--campo-fonte)]"
+                      placeholder="Ex.: confira se as certidões estão em dia antes de aprovar."
+                      value={step.instructions ?? ''} onChange={(e) => onPatchStep({ instructions: e.target.value })} />
                   </div>
-                </GField>
-                <GField label={type === 'serviceTask' ? 'Nome da ação' : 'Nome da tarefa'} required wide>
-                  <Input className="h-8 text-sm" placeholder={type === 'serviceTask' ? 'Ex.: Cadastrar contrato' : 'Ex.: Preencher dados'} value={step.stepName} onChange={(e) => onPatchStep({ stepName: e.target.value })} />
-                </GField>
-                <GField label="Instruções para execução" wide hint="Aparece para o executor ao abrir a tarefa.">
-                  <Textarea className="text-sm min-h-[90px]" placeholder="Oriente quem vai executar…" value={step.instructions ?? ''} onChange={(e) => onPatchStep({ instructions: e.target.value })} />
-                </GField>
-              </GSection>
-            )}
+                ) : (
+                  <button type="button" onClick={() => setMostrarInstrucoes(true)}
+                    className="inline-flex items-center gap-1 self-start text-xs font-semibold text-primary hover:underline">
+                    <Plus className="h-3 w-3" />Escrever instruções para quem executa
+                  </button>
+                ))}
+              </Pergunta>
 
-            {sec === 'executor' && type === 'userTask' && (
-              <GSection title="Quem executa" description="O papel resolve as pessoas na hora da execução — a tarefa cai na caixa de quem ocupa o papel na entidade escolhida.">
-                <GField label="Quem recebe a tarefa" wide>
-                  <div role="radiogroup" className="flex gap-1 text-xs max-w-md">
-                    {([['papel', 'Por papel'], ['iniciador', 'Quem iniciou o processo']] as const).map(([m, t]) => {
-                      const on = m === 'iniciador' ? porIniciador : !porIniciador
+              {type === 'userTask' && (
+                <Pergunta id="executor" n={nPergunta('executor')} titulo="Quem faz?" ok={!faltaQuem}
+                  ajuda="A tarefa vai para quem ocupar o papel na hora em que ela nascer.">
+                  <div role="radiogroup" aria-label="Quem recebe a tarefa" className="grid gap-2 sm:grid-cols-2">
+                    <Opcao ativo={!porIniciador} onClick={() => { if (porIniciador) onPatchStep({ executor: undefined }) }}
+                      icone={<User className="h-4 w-4" />} titulo="Quem ocupa um papel" descricao="Ex.: o Analista da Central de Contratos." />
+                    <Opcao ativo={porIniciador} onClick={() => onPatchStep({ executor: { papelId: EXECUTOR_QUEM_INICIOU, entityType: 'ORG', mode: 'FIXA' } })}
+                      icone={<CircleDot className="h-4 w-4" />} titulo="Quem iniciou o processo" descricao="A pessoa que clicou em “+ Novo processo”." />
+                  </div>
+                  {porIniciador ? (
+                    <p className="max-w-xl text-xs leading-relaxed text-muted-foreground">
+                      Na primeira etapa, a tarefa abre na hora, como aba; mais adiante, cai na caixa de tarefas dessa pessoa.
+                      Se ela estiver inativa quando a tarefa nascer, vai para os administradores, com aviso.
+                    </p>
+                  ) : (<>
+                    <div className="flex max-w-sm flex-col gap-1">
+                      <label htmlFor="cfg-papel" className="text-[length:var(--rotulo-fonte)] font-medium text-muted-foreground">Papel</label>
+                      <Select value={executor?.papelId ?? ''} onValueChange={pickPapel}>
+                        <SelectTrigger id="cfg-papel" className={CAMPO}><SelectValue placeholder="Escolha o papel" /></SelectTrigger>
+                        <SelectContent>
+                          {papeisPessoa.map((p) => <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      {papeisPessoa.length === 0 && (
+                        <p className="text-[11px] leading-snug text-muted-foreground">Nenhum papel de pessoa cadastrado. Crie em Configurações → Papéis (referência “Pessoa”).</p>
+                      )}
+                    </div>
+                    {executor && execOrigem && execOrigem !== ORIGEM.ORG && (() => {
+                      const tipo = entityKindLabel(execOrigem)
+                      const masc = execOrigem === ORIGEM.PARCEIRO || execOrigem === 'CONTRATO'
+                      return (<>
+                        <p className="text-[13px] font-semibold">{papelSel?.label ?? 'O papel'} de qual {tipo}?</p>
+                        <div role="radiogroup" aria-label={`De qual ${tipo}`} className="grid gap-2 sm:grid-cols-2">
+                          <Opcao ativo={executor.mode === 'FIXA'} onClick={() => setExec({ mode: 'FIXA' })}
+                            titulo={`Sempre ${masc ? 'o mesmo' : 'a mesma'}`} descricao={`Você escolhe agora qual ${tipo}.`} />
+                          <Opcao ativo={executor.mode === 'VARIAVEL'} onClick={() => setExec({ mode: 'VARIAVEL' })}
+                            titulo={execOrigem === ORIGEM.PARCEIRO ? 'Depende do processo' : 'A do contrato do processo'}
+                            descricao="Muda conforme o contrato que passa pelo processo." />
+                        </div>
+                        <div className="max-w-lg">
+                          {executor.mode === 'FIXA' ? (
+                            <EntitySelect entityType={execOrigem as EntityKind} value={executor.entityId}
+                              onChange={(id) => setExec({ entityId: id, entityVar: undefined, stakeholder: undefined })}
+                              placeholder={`Escolha ${masc ? 'o' : 'a'} ${tipo}…`} />
+                          ) : (
+                            <ExecutorDaVariavel executor={executor} papelLabel={papelSel?.label ?? 'o papel'} papeis={papeis.entries}
+                              variaveisTecnicas={availableVars} onChange={setExec} />
+                          )}
+                        </div>
+                      </>)
+                    })()}
+                    <PessoasHoje pessoas={pessoasHoje} />
+                  </>)}
+                </Pergunta>
+              )}
+
+              {type === 'userTask' && (
+                <Pergunta id="formulario" n={nPergunta('formulario')} titulo="O que a pessoa vê e preenche?" ok
+                  ajuda="Opcional. Sem tela, a pessoa só conclui ou devolve — bom para aprovações e ciência.">
+                  <Select value={step.screenRef || 'none'} onValueChange={pickScreen}>
+                    <SelectTrigger aria-label="Tela" className={cn(CAMPO, 'max-w-lg')}><SelectValue placeholder="Sem tela" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sem tela — só concluir ou devolver</SelectItem>
+                      {entityScreens.map((s) => <SelectItem key={s.id} value={s.id} className="text-xs">{SUBJECT_LABEL[s.subjectType] ?? s.subjectType} · {s.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  {step.screenRef && (<>
+                    <p className="text-[13px] font-semibold">E o que faz com o {entityWord}?</p>
+                    <div role="radiogroup" aria-label={`O que a atividade faz com o ${entityWord}`} className="grid gap-2 sm:grid-cols-3">
+                      {(['CREATE', 'EDIT', 'VIEW'] as const).map((m) => (
+                        <Opcao key={m} ativo={(step.entityMode ?? 'CREATE') === m}
+                          onClick={() => onPatchStep({ entityMode: m, entityVar: undefined, ...(m === 'CREATE' ? { lockedFields: undefined } : {}) })}
+                          titulo={`${ENTITY_MODE_LABEL[m]} ${entityWord}`} descricao={ENTITY_MODE_CURTO[m]} />
+                      ))}
+                    </div>
+                  </>)}
+                  {telaSel && (
+                    <div className="rounded-lg border bg-muted/20">
+                      <button type="button" aria-expanded={maisDaTela} onClick={() => setMaisDaTela((v) => !v)}
+                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold hover:bg-muted/40">
+                        <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 transition-transform', !maisDaTela && '-rotate-90')} />
+                        Mais opções da tela
+                        <span className="truncate font-normal text-muted-foreground">
+                          · {extras.length ? `${extras.length} aba${extras.length > 1 ? 's' : ''} a mais` : 'outras abas'}
+                          {step.entityMode === 'EDIT' ? `, ${travados.length} campo${travados.length === 1 ? '' : 's'} travado${travados.length === 1 ? '' : 's'}` : ''}
+                        </span>
+                      </button>
+                      {maisDaTela && (
+                        <div className="flex flex-col gap-4 border-t px-3 py-3">
+                          <GField label={`Telas adicionais (o mesmo ${entityWord})`} wide
+                            hint={`Na execução, cada tela vira uma aba depois da principal, mostrando o mesmo ${entityWord}. Serve para separar o que esta etapa altera do que ela só consulta.${(step.entityMode ?? 'CREATE') === 'CREATE' ? ` As abas adicionais liberam depois que o ${entityWord} for salvo na principal.` : ''}${atividadeSoConsulta ? ' Nesta atividade de consulta, todas abrem em leitura.' : ''}`}>
+                            <div className="space-y-1.5">
+                              {extras.map((e, i) => {
+                                const opcoes = telasDoTipo.filter((s) => s.id === e.screenRef || !usadas.has(s.id))
+                                const telaDaAba = entityScreens.find((s) => s.id === e.screenRef)
+                                const modoEfetivo = atividadeSoConsulta || telaDaAba?.readOnly ? 'VIEW' : e.mode
+                                return (
+                                  <div key={`${e.screenRef}-${i}`} className="flex items-center gap-1.5">
+                                    <span className="w-5 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">{i + 2}.</span>
+                                    <Select value={e.screenRef} onValueChange={(v) => setExtra(i, { screenRef: v })}>
+                                      <SelectTrigger className={cn(CAMPO, 'min-w-0 flex-1')}><SelectValue placeholder="Tela removida" /></SelectTrigger>
+                                      <SelectContent>
+                                        {opcoes.map((s) => <SelectItem key={s.id} value={s.id} className="text-xs">{s.name}{s.readOnly ? ' · somente consulta' : ''}</SelectItem>)}
+                                      </SelectContent>
+                                    </Select>
+                                    <div className="flex shrink-0 overflow-hidden rounded-md border text-xs" role="group" aria-label="O que esta aba faz">
+                                      {(['EDIT', 'VIEW'] as const).map((m) => (
+                                        <button key={m} type="button" aria-pressed={modoEfetivo === m}
+                                          disabled={atividadeSoConsulta || (m === 'EDIT' && !!telaDaAba?.readOnly)}
+                                          title={m === 'EDIT' && telaDaAba?.readOnly ? 'Esta tela é somente consulta' : undefined}
+                                          onClick={() => setExtra(i, { mode: m })}
+                                          className={cn('px-2 py-1.5 transition-colors disabled:cursor-not-allowed',
+                                            modoEfetivo === m ? 'bg-primary font-semibold text-primary-foreground' : 'text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:hover:bg-transparent')}>
+                                          {m === 'EDIT' ? 'Editar' : 'Consultar'}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <button type="button" title="Mostrar esta aba antes" aria-label="Subir aba" disabled={i === 0} onClick={() => moverExtra(i, -1)}
+                                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent">
+                                      <ChevronUp className="h-3.5 w-3.5" />
+                                    </button>
+                                    <button type="button" title="Mostrar esta aba depois" aria-label="Descer aba" disabled={i === extras.length - 1} onClick={() => moverExtra(i, 1)}
+                                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent">
+                                      <ChevronDown className="h-3.5 w-3.5" />
+                                    </button>
+                                    <button type="button" title="Remover esta tela" aria-label="Remover tela adicional" onClick={() => removerExtra(i)}
+                                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                )
+                              })}
+                              <button type="button" disabled={livres.length === 0} onClick={addExtra}
+                                className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-primary hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline">
+                                <Plus className="h-3 w-3" />{livres.length === 0 ? `Não há outra tela de ${entityWord} para adicionar` : 'Adicionar tela'}
+                              </button>
+                            </div>
+                          </GField>
+
+                          {/* A atividade APERTA a trava da tela — só na etapa que EDITA. Ao CRIAR
+                              vale a configuração da própria tela; na CONSULTA tudo já está travado. */}
+                          {step.entityMode === 'EDIT' && (
+                            <GField label="Campos travados nesta etapa" wide
+                              hint={camposPorTela.length === 0
+                                ? 'As telas que esta atividade edita são SOMENTE CONSULTA: todos os campos já estão travados nelas.'
+                                : `A trava da tela vale sempre; aqui você aperta mais. O que marcar não poderá ser alterado NESTA etapa — em outras, continua editável.${camposPorTela.length > 1 ? ' Vale para todas as abas desta atividade.' : ''}`}>
+                              {camposPorTela.length === 0 ? (
+                                <p className="text-xs text-muted-foreground">
+                                  Nada a marcar: a tela <b className="font-semibold text-foreground">{telaSel.name}</b> está em somente consulta.
+                                </p>
+                              ) : (
+                                <div className="max-h-64 divide-y overflow-y-auto rounded-md border bg-card">
+                                  {camposPorTela.map(({ tela, secoes }) => (
+                                    <Fragment key={tela.id}>
+                                      {camposPorTela.length > 1 && <p className="bg-muted/40 px-2.5 py-1 text-[11px] font-semibold">{tela.name}</p>}
+                                      {secoes.map(({ sec2, fs }) => (
+                                        <div key={sec2.id} className="p-1.5">
+                                          <p className="px-1 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                            {sec2.label}{sec2.locked && <span className="ml-1.5 normal-case tracking-normal text-amber-600 dark:text-amber-400">· somente consulta</span>}
+                                          </p>
+                                          <div className="grid grid-cols-2 gap-x-2">
+                                            {fs.map((f) => {
+                                              // já travado pela TELA (campo ou seção inteira): a atividade não afrouxa
+                                              const naTela = !!f.locked || !!sec2.locked
+                                              const marcado = naTela || travados.includes(fieldValueKey(f))
+                                              return (
+                                                <label key={f.id} title={naTela ? 'Travado na tela — a atividade não pode liberar' : undefined}
+                                                  className={cn('flex items-center gap-1.5 rounded px-1 py-0.5 text-xs',
+                                                    naTela ? 'cursor-not-allowed text-muted-foreground' : 'cursor-pointer hover:bg-muted')}>
+                                                  <input type="checkbox" checked={marcado} disabled={naTela}
+                                                    onChange={() => toggleTravado(fieldValueKey(f))}
+                                                    className="h-3.5 w-3.5 shrink-0 accent-primary disabled:opacity-60" />
+                                                  <span className="truncate">{f.label}</span>
+                                                  {naTela && <Lock className="h-2.5 w-2.5 shrink-0" />}
+                                                </label>
+                                              )
+                                            })}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </Fragment>
+                                  ))}
+                                </div>
+                              )}
+                            </GField>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </Pergunta>
+              )}
+
+              {type === 'userTask' && (
+                <Pergunta id="prazo" n={nPergunta('prazo')} titulo="Em quanto tempo?" ok={!faltaPrazo}
+                  ajuda="Conta só o expediente: pula fins de semana e feriados.">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input className={cn(CAMPO, 'w-20 text-center font-mono')} type="number" min={0} placeholder="0" aria-label="Prazo"
+                      value={slaValue} onChange={(e) => setSla(slaUnit, e.target.value)} />
+                    <Select value={slaUnit} onValueChange={(u) => setSla(u as 'DAYS' | 'HOURS' | 'MINUTES', slaValue)}>
+                      <SelectTrigger aria-label="Unidade do prazo" className={cn(CAMPO, 'w-40')}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="DAYS">dias úteis</SelectItem>
+                        <SelectItem value="HOURS">horas úteis</SelectItem>
+                        <SelectItem value="MINUTES">minutos úteis</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden />
+                    {ATALHOS_PRAZO.map((a) => {
+                      const on = slaUnit === a.unidade && Number(slaValue) === a.valor
                       return (
-                        <button key={m} type="button" role="radio" aria-checked={on}
-                          onClick={() => m === 'iniciador'
-                            ? onPatchStep({ executor: { papelId: EXECUTOR_QUEM_INICIOU, entityType: 'ORG', mode: 'FIXA' } })
-                            : porIniciador && onPatchStep({ executor: undefined })}
-                          className={cn('flex-1 rounded-md px-2 py-1.5 border transition-colors', on ? 'bg-primary text-primary-foreground border-primary font-semibold' : 'hover:bg-muted text-muted-foreground')}>
-                          {t}
+                        <button key={a.rotulo} type="button" aria-pressed={on} onClick={() => setSla(a.unidade, a.valor)}
+                          className={cn('h-[var(--campo-altura)] rounded-full border px-3 text-xs font-semibold transition-colors',
+                            on ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
+                          {a.rotulo}
                         </button>
                       )
                     })}
                   </div>
-                </GField>
-                {porIniciador ? (
-                  <p className="col-span-full max-w-xl text-xs leading-relaxed text-muted-foreground">
-                    A tarefa vai para a pessoa que clicou em “+ Novo processo”. Na primeira atividade, ela abre na hora,
-                    como aba; mais adiante, cai na caixa de tarefas dela (ex.: “o solicitante toma ciência da aprovação”).
-                    Se essa pessoa estiver inativa quando a tarefa nascer, ela vai para os administradores, com aviso.
-                  </p>
-                ) : (<>
-                <GField label="Executor (papel)" required hint={papeisPessoa.length === 0 ? 'Nenhum papel de pessoa cadastrado. Crie em Configurações → Papéis (referência “Pessoa”).' : undefined}>
-                  <Select value={executor?.papelId ?? ''} onValueChange={pickPapel}>
-                    <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Selecione o executor" /></SelectTrigger>
-                    <SelectContent>
-                      {papeisPessoa.map((p) => <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </GField>
-                {executor && execOrigem && execOrigem !== ORIGEM.ORG && (
-                  <>
-                    <GField label={`Responsável de qual ${entityKindLabel(execOrigem)}?`}>
-                      <div className="flex gap-1 text-[11px]">
-                        {(['FIXA', 'VARIAVEL'] as const).map((m) => (
-                          <button key={m} type="button" onClick={() => setExec({ mode: m })}
-                            className={cn('rounded px-2 py-1 border transition-colors', executor.mode === m ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted text-muted-foreground')}>
-                            {m === 'FIXA' ? 'Entidade fixa' : 'Da variável'}
-                          </button>
-                        ))}
-                      </div>
-                    </GField>
-                    <GField wide label={executor.mode === 'FIXA' ? maiuscula(entityKindLabel(execOrigem)) : execOrigem === ORIGEM.PARCEIRO ? 'Variável com o id' : 'A que estiver no contrato do processo como…'}>
-                      {executor.mode === 'FIXA' ? (
-                        <EntitySelect entityType={execOrigem as EntityKind} value={executor.entityId} onChange={(id) => setExec({ entityId: id, entityVar: undefined, stakeholder: undefined })} placeholder={`Selecionar ${entityKindLabel(execOrigem)}…`} />
-                      ) : (
-                        <ExecutorDaVariavel
-                          executor={executor}
-                          papelLabel={papelSel?.label ?? 'o papel'}
-                          papeis={papeis.entries}
-                          variaveisTecnicas={availableVars}
-                          onChange={setExec}
-                        />
-                      )}
-                    </GField>
-                  </>
-                )}
-                </>)}
-              </GSection>
-            )}
+                </Pergunta>
+              )}
 
-            {sec === 'formulario' && type === 'userTask' && (
-              <GSection title="Formulário" description="A tela que o executor preenche (ou apenas lê). Opcional: sem tela, a etapa é só de aprovação.">
-                <GField label="Tela do formulário" wide>
-                  <Select value={step.screenRef || 'none'} onValueChange={pickScreen}>
-                    <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Sem tela" /></SelectTrigger>
-                    <SelectContent><SelectItem value="none">Sem tela</SelectItem>{entityScreens.map((s) => <SelectItem key={s.id} value={s.id} className="text-xs">{SUBJECT_LABEL[s.subjectType] ?? s.subjectType} · {s.name}</SelectItem>)}</SelectContent>
-                  </Select>
-                </GField>
-                {step.screenRef && (
-                  <GField label={`O que a atividade faz com o ${entityWord}`} wide
-                    hint={ENTITY_MODE_HINT[step.entityMode ?? 'CREATE']}>
-                    <div className="flex gap-1 text-xs max-w-lg">
-                      {(['CREATE', 'EDIT', 'VIEW'] as const).map((m) => (
-                        <button key={m} type="button"
-                          onClick={() => onPatchStep({ entityMode: m, entityVar: undefined, ...(m === 'CREATE' ? { lockedFields: undefined } : {}) })}
-                          className={cn('flex-1 rounded-md px-2 py-1.5 border transition-colors', (step.entityMode ?? 'CREATE') === m ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted text-muted-foreground')}>
-                          {ENTITY_MODE_LABEL[m]} {entityWord}
-                        </button>
-                      ))}
-                    </div>
-                  </GField>
-                )}
-
-                {telaSel && (
-                  <GField label={`Telas adicionais (o mesmo ${entityWord})`} wide
-                    hint={`Na execução, cada tela vira uma aba depois da principal, mostrando o mesmo ${entityWord}. Serve para separar o que esta etapa altera do que ela só consulta.${(step.entityMode ?? 'CREATE') === 'CREATE' ? ` As abas adicionais liberam depois que o ${entityWord} for salvo na principal.` : ''}${atividadeSoConsulta ? ' Nesta atividade de consulta, todas abrem em leitura.' : ''}`}>
-                    <div className="space-y-1.5">
-                      {extras.map((e, i) => {
-                        const opcoes = telasDoTipo.filter((s) => s.id === e.screenRef || !usadas.has(s.id))
-                        const telaDaAba = entityScreens.find((s) => s.id === e.screenRef)
-                        const modoEfetivo = atividadeSoConsulta || telaDaAba?.readOnly ? 'VIEW' : e.mode
+              {type === 'userTask' && (
+                <Pergunta id="devolucao" n={nPergunta('devolucao')} titulo="Se precisar, pode devolver para…" ok={!faltaDevolucao}
+                  ajuda="Para onde quem executa pode mandar o processo de volta, com o botão Retroceder.">
+                  <div role="radiogroup" aria-label="Para onde pode devolver" className="grid gap-2 sm:grid-cols-3">
+                    <Opcao ativo={retorno.mode === 'ANY'} onClick={() => setRetornoMode('ANY')}
+                      titulo="Qualquer etapa anterior" descricao="O padrão: a pessoa escolhe para onde." />
+                    <Opcao ativo={retorno.mode === 'SELECTED'} onClick={() => setRetornoMode('SELECTED')}
+                      titulo="Só para algumas" descricao="Você marca as etapas permitidas." />
+                    <Opcao ativo={retorno.mode === 'NONE'} onClick={() => setRetornoMode('NONE')}
+                      titulo="Não pode devolver" descricao="O botão Retroceder não aparece." />
+                  </div>
+                  {retorno.mode === 'SELECTED' && (destinosDevolucao.length === 0 ? (
+                    <p className="rounded-md border border-dashed p-3 text-[11.5px] text-muted-foreground">
+                      Nada a marcar: não há tarefa de pessoa antes desta no fluxo.
+                    </p>
+                  ) : (
+                    <div className="grid gap-1 sm:grid-cols-2">
+                      {destinosDevolucao.map((d) => {
+                        const marcado = (retorno.nodeIds ?? []).includes(d.id)
                         return (
-                          <div key={`${e.screenRef}-${i}`} className="flex items-center gap-1.5">
-                            <span className="w-5 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">{i + 2}.</span>
-                            <Select value={e.screenRef} onValueChange={(v) => setExtra(i, { screenRef: v })}>
-                              <SelectTrigger className="h-8 min-w-0 flex-1 text-sm"><SelectValue placeholder="Tela removida" /></SelectTrigger>
-                              <SelectContent>
-                                {opcoes.map((s) => <SelectItem key={s.id} value={s.id} className="text-xs">{s.name}{s.readOnly ? ' · somente consulta' : ''}</SelectItem>)}
-                              </SelectContent>
-                            </Select>
-                            <div className="flex shrink-0 overflow-hidden rounded-md border text-xs" role="group" aria-label="O que esta aba faz">
-                              {(['EDIT', 'VIEW'] as const).map((m) => (
-                                <button key={m} type="button" aria-pressed={modoEfetivo === m}
-                                  disabled={atividadeSoConsulta || (m === 'EDIT' && !!telaDaAba?.readOnly)}
-                                  title={m === 'EDIT' && telaDaAba?.readOnly ? 'Esta tela é somente consulta' : undefined}
-                                  onClick={() => setExtra(i, { mode: m })}
-                                  className={cn('px-2 py-1.5 transition-colors disabled:cursor-not-allowed',
-                                    modoEfetivo === m ? 'bg-primary font-semibold text-primary-foreground' : 'text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:hover:bg-transparent')}>
-                                  {m === 'EDIT' ? 'Editar' : 'Consultar'}
-                                </button>
-                              ))}
-                            </div>
-                            <button type="button" title="Mostrar esta aba antes" aria-label="Subir aba" disabled={i === 0} onClick={() => moverExtra(i, -1)}
-                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent">
-                              <ChevronUp className="h-3.5 w-3.5" />
-                            </button>
-                            <button type="button" title="Mostrar esta aba depois" aria-label="Descer aba" disabled={i === extras.length - 1} onClick={() => moverExtra(i, 1)}
-                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent">
-                              <ChevronDown className="h-3.5 w-3.5" />
-                            </button>
-                            <button type="button" title="Remover esta tela" aria-label="Remover tela adicional" onClick={() => removerExtra(i)}
-                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
+                          <button key={d.id} type="button" role="checkbox" aria-checked={marcado} onClick={() => toggleDestino(d.id)}
+                            className={cn('flex w-full items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors',
+                              marcado ? 'border-primary bg-primary/5 font-medium' : 'text-muted-foreground hover:bg-muted')}>
+                            <span className={cn('flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border', marcado ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/40')}>
+                              {marcado && <Check className="h-2.5 w-2.5" />}
+                            </span>
+                            <span className="truncate">{d.nome}</span>
+                          </button>
                         )
                       })}
-                      <button type="button" disabled={livres.length === 0} onClick={addExtra}
-                        className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-primary hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline">
-                        <Plus className="h-3 w-3" />{livres.length === 0 ? `Não há outra tela de ${entityWord} para adicionar` : 'Adicionar tela'}
-                      </button>
                     </div>
-                  </GField>
-                )}
-
-                {/* Camada 2: a atividade APERTA a trava da tela — só na etapa que EDITA. Ao
-                    CRIAR vale a configuração da própria tela (pedido do PO: quem cria precisa
-                    preencher); na CONSULTA a tela inteira já está travada. */}
-                {telaSel && step.entityMode === 'EDIT' && (
-                  <GField label="Campos travados nesta atividade" wide
-                    hint={camposPorTela.length === 0
-                      ? 'As telas que esta atividade edita são SOMENTE CONSULTA: todos os campos já estão travados nelas.'
-                      : `A trava da tela vale sempre; aqui você aperta mais. O que marcar não poderá ser alterado NESTA etapa — em outras, continua editável.${camposPorTela.length > 1 ? ' Vale para todas as abas desta atividade.' : ''}`}>
-                    {camposPorTela.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">
-                        Nada a marcar: a tela <b className="font-semibold text-foreground">{telaSel.name}</b> está em somente consulta.
-                      </p>
-                    ) : (
-                      <div className="max-h-64 overflow-y-auto rounded-md border divide-y">
-                        {camposPorTela.map(({ tela, secoes }) => (
-                          <Fragment key={tela.id}>
-                            {camposPorTela.length > 1 && <p className="bg-muted/40 px-2.5 py-1 text-[11px] font-semibold">{tela.name}</p>}
-                            {secoes.map(({ sec2, fs }) => (
-                            <div key={sec2.id} className="p-1.5">
-                              <p className="px-1 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                                {sec2.label}{sec2.locked && <span className="ml-1.5 normal-case tracking-normal text-amber-600 dark:text-amber-400">· somente consulta</span>}
-                              </p>
-                              <div className="grid grid-cols-2 gap-x-2">
-                                {fs.map((f) => {
-                                  // já travado pela TELA (campo ou seção inteira): a atividade não afrouxa
-                                  const naTela = !!f.locked || !!sec2.locked
-                                  const marcado = naTela || travados.includes(fieldValueKey(f))
-                                  return (
-                                    <label key={f.id} title={naTela ? 'Travado na tela — a atividade não pode liberar' : undefined}
-                                      className={cn('flex items-center gap-1.5 rounded px-1 py-0.5 text-xs',
-                                        naTela ? 'text-muted-foreground cursor-not-allowed' : 'cursor-pointer hover:bg-muted')}>
-                                      <input type="checkbox" checked={marcado} disabled={naTela}
-                                        onChange={() => toggleTravado(fieldValueKey(f))}
-                                        className="h-3.5 w-3.5 accent-primary shrink-0 disabled:opacity-60" />
-                                      <span className="truncate">{f.label}</span>
-                                      {naTela && <Lock className="h-2.5 w-2.5 shrink-0" />}
-                                    </label>
-                                  )
-                                })}
-                              </div>
-                            </div>
-                            ))}
-                          </Fragment>
-                        ))}
-                      </div>
-                    )}
-                  </GField>
-                )}
-              </GSection>
-            )}
-
-            {sec === 'prazo' && type === 'userTask' && (
-              <GSection title="Prazo" description="Conta no expediente comercial e pula fins de semana e feriados.">
-                <GField label="Prazo (SLA)" required>
-                  <div className="flex gap-2">
-                    <Input className="h-8 text-sm flex-1" type="number" min={0} placeholder="0" value={slaValue} onChange={(e) => setSla(slaUnit, e.target.value)} />
-                    <Select value={slaUnit} onValueChange={(u) => setSla(u as 'DAYS' | 'HOURS' | 'MINUTES', slaValue)}>
-                      <SelectTrigger className="h-8 text-sm w-36 shrink-0"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="DAYS">Dias úteis</SelectItem>
-                        <SelectItem value="HOURS">Horas úteis</SelectItem>
-                        <SelectItem value="MINUTES">Minutos úteis</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </GField>
-              </GSection>
-            )}
-
-            {sec === 'devolucao' && type === 'userTask' && (
-              <GSection title="Devolução" description="Para onde quem executa esta tarefa pode devolver o processo.">
-                <GField label="Destinos permitidos" wide>
-                  <div className="flex gap-1 text-xs max-w-xl">
-                    {([
-                      ['ANY', 'Qualquer anterior'],
-                      ['SELECTED', 'Só as escolhidas'],
-                      ['NONE', 'Não devolve'],
-                    ] as const).map(([m, lbl]) => (
-                      <button key={m} type="button" onClick={() => setRetornoMode(m)}
-                        className={cn('flex-1 rounded-md px-2 py-1.5 border transition-colors', retorno.mode === m ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted text-muted-foreground')}>
-                        {lbl}
-                      </button>
-                    ))}
-                  </div>
-                </GField>
-
-                {retorno.mode === 'NONE' && (
-                  <GField label="" wide>
-                    <p className="text-[11.5px] text-muted-foreground">O botão <span className="font-medium text-foreground">Retroceder</span> não aparece para quem executa esta tarefa.</p>
-                  </GField>
-                )}
-
-                {retorno.mode === 'SELECTED' && (
-                  <GField label="Pode voltar para" required wide
-                    hint={destinosDevolucao.length === 0
-                      ? 'Esta tarefa não tem nenhuma tarefa humana antes dela no fluxo.'
-                      : 'Marque as etapas. Devolver só existe para tarefa de pessoa — ação automática não entra na lista.'}>
-                    {destinosDevolucao.length === 0 ? (
-                      <p className="text-[11.5px] text-muted-foreground rounded-md border border-dashed p-3">
-                        Nada a escolher: ligue esta tarefa depois de outra tarefa de usuário.
-                      </p>
-                    ) : (
-                      <div className="space-y-1">
-                        {destinosDevolucao.map((d) => {
-                          const marcado = (retorno.nodeIds ?? []).includes(d.id)
-                          return (
-                            <button key={d.id} type="button" onClick={() => toggleDestino(d.id)}
-                              className={cn('flex w-full items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs text-left transition-colors',
-                                marcado ? 'border-primary bg-primary/5 font-medium' : 'hover:bg-muted text-muted-foreground')}>
-                              <span className={cn('flex h-3.5 w-3.5 items-center justify-center rounded-sm border shrink-0', marcado ? 'bg-primary border-primary text-primary-foreground' : 'border-muted-foreground/40')}>
-                                {marcado && <Check className="h-2.5 w-2.5" />}
-                              </span>
-                              {d.nome}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </GField>
-                )}
-
-                {/* Dizer isto AQUI evita a conclusão errada de que a marcação garante o
-                    destino — o bloqueio por ação automática continua valendo por cima. */}
-                {retorno.mode !== 'NONE' && (
-                  <GField label="" wide>
-                    <p className="text-[11.5px] text-muted-foreground leading-snug">
-                      Em execução, uma etapa marcada ainda pode aparecer bloqueada se estiver atrás de
-                      uma ação automática já executada — quem decide o que é seguro refazer é o motor.
+                  ))}
+                  {/* Dizer isto AQUI evita a conclusão errada de que a marcação garante o
+                      destino — o bloqueio por ação automática continua valendo por cima. */}
+                  {retorno.mode !== 'NONE' && (
+                    <p className="flex gap-1.5 text-[11.5px] leading-snug text-muted-foreground">
+                      <Info className="mt-px h-3.5 w-3.5 shrink-0" />
+                      Uma etapa permitida ainda pode ficar bloqueada se estiver antes de uma ação automática já executada — quem decide o que é seguro refazer é o sistema.
                     </p>
-                  </GField>
-                )}
-              </GSection>
-            )}
+                  )}
+                </Pergunta>
+              )}
 
-            {sec === 'acao' && type === 'serviceTask' && (
-              <GSection title="Ação automática" description="O motor executa esta ação sozinho — grava a entidade de verdade.">
-                <GField label="Ação (conector)" wide>
+              {type === 'serviceTask' && (
+                <Pergunta id="acao" n={nPergunta('acao')} titulo="O que o sistema faz?" ok={!!step.connector}
+                  ajuda="O sistema executa esta ação sozinho e grava o registro de verdade.">
                   <Select value={step.connector || 'none'} onValueChange={(v) => onPatchStep({ connector: v && v !== 'none' ? v : undefined })}>
-                    <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Nenhuma (só passa)" /></SelectTrigger>
+                    <SelectTrigger aria-label="Ação automática" className={cn(CAMPO, 'max-w-lg')}><SelectValue placeholder="Escolha a ação" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">Nenhuma (só passa)</SelectItem>
                       {CONNECTORS.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
@@ -2087,40 +2140,55 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
                       )}
                     </SelectContent>
                   </Select>
-                </GField>
-                {isRetiredConnector(step.connector) && (
-                  <GField label="" wide>
-                    <p className="text-[11.5px] text-amber-700 dark:text-amber-400 leading-snug">
+                  {isRetiredConnector(step.connector) && (
+                    <p className="max-w-xl text-[11.5px] leading-snug text-amber-700 dark:text-amber-400">
                       Esta ação foi aposentada: criar {step.connector === 'contracts.create' ? 'contrato' : 'parceiro'} agora
-                      se faz por uma <span className="font-medium">tela</span> numa tarefa de usuário, que valida e mostra o
+                      se faz por uma <span className="font-medium">tela</span> numa tarefa de pessoa, que valida e mostra o
                       cadastro inteiro. O processo continua funcionando; troque quando for revisá-lo.
                     </p>
-                  </GField>
-                )}
-                {step.connector && (() => {
-                  const compensable = isCompensable(step.connector)
-                  return (
-                    <GField label="Se o processo for devolvido para trás daqui" wide hint={compensable
-                      ? 'Esta ação mexe em dados reais. Escolha o que fazer se alguém devolver o processo atravessando este passo.'
-                      : 'Esta ação não tem como ser desfeita, então devolver atravessando-a fica bloqueado.'}>
-                      <Select value={step.onReturn ?? 'BLOCK'} onValueChange={(v) => onPatchStep({ onReturn: v as StepFormSchema['onReturn'] })}>
-                        <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="BLOCK">Bloquear a devolução (padrão)</SelectItem>
-                          <SelectItem value="IDEMPOTENT">Liberar — refazer não causa dano</SelectItem>
-                          {compensable && <SelectItem value="COMPENSATE">Liberar — desfazer esta ação ao voltar</SelectItem>}
-                        </SelectContent>
-                      </Select>
-                    </GField>
-                  )
-                })()}
-              </GSection>
-            )}
+                  )}
+                  {step.connector && (() => {
+                    const compensable = isCompensable(step.connector)
+                    return (<>
+                      <p className="text-[13px] font-semibold">E se alguém devolver o processo para antes daqui?</p>
+                      <div role="radiogroup" aria-label="Se o processo for devolvido para trás daqui" className={cn('grid gap-2', compensable ? 'sm:grid-cols-3' : 'sm:grid-cols-2')}>
+                        <Opcao ativo={(step.onReturn ?? 'BLOCK') === 'BLOCK'} onClick={() => onPatchStep({ onReturn: 'BLOCK' })}
+                          titulo="Não deixar devolver" descricao={compensable ? 'O padrão, e o mais seguro.' : 'Esta ação não tem como ser desfeita.'} />
+                        <Opcao ativo={step.onReturn === 'IDEMPOTENT'} onClick={() => onPatchStep({ onReturn: 'IDEMPOTENT' })}
+                          titulo="Deixar e refazer" descricao="Refazer a ação não causa dano." />
+                        {compensable && (
+                          <Opcao ativo={step.onReturn === 'COMPENSATE'} onClick={() => onPatchStep({ onReturn: 'COMPENSATE' })}
+                            titulo="Deixar e desfazer" descricao="Ao voltar, a ação é desfeita." />
+                        )}
+                      </div>
+                    </>)
+                  })()}
+                </Pergunta>
+              )}
+            </div>
           </div>
+
+          <aside className="hidden w-[300px] shrink-0 flex-col gap-4 overflow-y-auto border-l bg-muted/10 p-4 lg:flex">
+            {resumoCard}
+            <nav aria-label="Perguntas da etapa" className="flex flex-col gap-0.5">
+              {perguntas.map((p, i) => (
+                <button key={p.id} type="button" onClick={() => irPara(p.id)}
+                  className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/60">
+                  <NumeroPergunta n={i + 1} ok={p.ok} pequeno />
+                  <span className={cn('min-w-0 flex-1 truncate', p.ok ? 'text-foreground' : 'font-semibold text-amber-800 dark:text-amber-300')}>{p.titulo}</span>
+                </button>
+              ))}
+            </nav>
+          </aside>
         </div>
 
-        <div className="px-5 py-3 border-t bg-muted/20 flex items-center justify-between gap-3 shrink-0">
-          <p className="text-[11px] text-muted-foreground">As alterações entram no workflow ao <span className="font-medium">Salvar rascunho</span> ou <span className="font-medium">Ativar</span>.</p>
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t bg-muted/20 px-5 py-3">
+          <p className="text-[11.5px] text-muted-foreground">
+            {pendentes > 0
+              ? <span className="font-semibold text-amber-800 dark:text-amber-300">Falta responder {pendentes} pergunta{pendentes > 1 ? 's' : ''}</span>
+              : <span className="inline-flex items-center gap-1 font-semibold text-primary"><Check className="h-3.5 w-3.5" />Tudo respondido</span>}
+            {' · '}As alterações entram no workflow ao <span className="font-medium">Salvar rascunho</span> ou <span className="font-medium">Ativar</span>.
+          </p>
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" onClick={cancelar}>Cancelar</Button>
             <Button size="sm" onClick={onClose}>Aplicar</Button>
@@ -2129,6 +2197,114 @@ function ActivityConfigModal({ node, nodes, edges, screens, papeis, onPatchStep,
       </div>
     </>,
     document.body,
+  )
+}
+
+/* ─── Peças do modal de perguntas ─────────────────────────────────────────── */
+
+/** Altura e letra dos campos seguem a DENSIDADE escolhida pelo usuário (lib/densidade). */
+const CAMPO = 'h-[var(--campo-altura)] text-[length:var(--campo-fonte)]'
+
+const VERBO_DO_MODO: Record<string, string> = { CREATE: 'cadastra', EDIT: 'altera', VIEW: 'consulta' }
+const ENTITY_MODE_CURTO: Record<string, string> = {
+  CREATE: 'Cadastra um novo, do zero.',
+  EDIT: 'Altera o que uma etapa anterior criou.',
+  VIEW: 'Só lê, sem alterar nada. Para análise e ciência.',
+}
+const FRASE_RETORNO: Record<string, string> = {
+  BLOCK: 'Se alguém devolver o processo para antes daqui, a devolução fica bloqueada.',
+  IDEMPOTENT: 'Se alguém devolver o processo para antes daqui, ela é refeita.',
+  COMPENSATE: 'Se alguém devolver o processo para antes daqui, ela é desfeita.',
+}
+const ATALHOS_PRAZO: Array<{ rotulo: string; unidade: 'DAYS' | 'HOURS'; valor: number }> = [
+  { rotulo: '4 horas', unidade: 'HOURS', valor: 4 },
+  { rotulo: '1 dia', unidade: 'DAYS', valor: 1 },
+  { rotulo: '2 dias', unidade: 'DAYS', valor: 2 },
+  { rotulo: '5 dias', unidade: 'DAYS', valor: 5 },
+]
+const listaPt = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} e ${xs[xs.length - 1]}`)
+
+function ResumoForte({ children }: { children: React.ReactNode }) {
+  return <b className="font-semibold text-white">{children}</b>
+}
+/** O que ainda falta, dito DENTRO da frase: quem lê o resumo vê o buraco no lugar dele. */
+function ResumoFalta({ children }: { children: React.ReactNode }) {
+  return <span className="font-semibold text-[#F5B971] underline decoration-dotted underline-offset-2">{children}</span>
+}
+
+function NumeroPergunta({ n, ok, pequeno }: { n: number; ok: boolean; pequeno?: boolean }) {
+  return (
+    <span className={cn('flex shrink-0 items-center justify-center rounded-full font-mono font-bold',
+      pequeno ? 'h-5 w-5 text-[10.5px]' : 'h-6 w-6 text-[11px]',
+      ok ? 'bg-primary text-primary-foreground' : 'bg-amber-500/15 text-amber-800 ring-1 ring-amber-500/50 dark:text-amber-300')}
+      aria-label={ok ? `Pergunta ${n}, respondida` : `Pergunta ${n}, falta responder`}>
+      {ok ? <Check className={pequeno ? 'h-3 w-3' : 'h-3.5 w-3.5'} /> : n}
+    </span>
+  )
+}
+
+/** Uma pergunta do modal: número (vira ✓ quando respondida), a pergunta, uma linha de ajuda. */
+function Pergunta({ id, n, titulo, ajuda, ok, children }: {
+  id: string; n: number; titulo: string; ajuda?: string; ok: boolean; children: React.ReactNode
+}) {
+  return (
+    <section id={`pergunta-${id}`} aria-labelledby={`pergunta-${id}-titulo`} className="flex scroll-mt-4 flex-col gap-[var(--form-gap)]">
+      <div className="flex items-start gap-3">
+        <NumeroPergunta n={n} ok={ok} />
+        <div className="min-w-0">
+          <h3 id={`pergunta-${id}-titulo`} className="text-[15px] font-bold leading-snug">{titulo}</h3>
+          {ajuda && <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{ajuda}</p>}
+        </div>
+      </div>
+      <div className="flex flex-col gap-[var(--form-gap)] pl-9">{children}</div>
+    </section>
+  )
+}
+
+/** Resposta em CARTÃO (rádio): título + uma linha que explica a consequência. */
+function Opcao({ ativo, onClick, titulo, descricao, icone, disabled }: {
+  ativo: boolean; onClick: () => void; titulo: string; descricao?: string; icone?: React.ReactNode; disabled?: boolean
+}) {
+  return (
+    <button type="button" role="radio" aria-checked={ativo} disabled={disabled} onClick={onClick}
+      className={cn('flex min-w-0 items-start gap-2.5 rounded-lg border bg-card px-3 py-[var(--secao-pad)] text-left transition-colors',
+        ativo ? 'border-primary bg-primary/[0.06] ring-1 ring-primary' : 'hover:border-foreground/25 hover:bg-muted/50',
+        disabled && 'cursor-not-allowed opacity-50')}>
+      <span className={cn('mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border',
+        ativo ? 'border-primary bg-primary' : 'border-muted-foreground/50')} aria-hidden>
+        {ativo && <span className="h-1.5 w-1.5 rounded-full bg-primary-foreground" />}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5 text-[length:var(--campo-fonte)] font-semibold">
+          {icone && <span className={cn('shrink-0', ativo ? 'text-primary' : 'text-muted-foreground')}>{icone}</span>}{titulo}
+        </span>
+        {descricao && <span className="mt-0.5 block text-[11.5px] leading-snug text-muted-foreground">{descricao}</span>}
+      </span>
+    </button>
+  )
+}
+
+/** "Quem recebe hoje": a consequência do papel escolhido, em nomes de gente. */
+function PessoasHoje({ pessoas }: { pessoas: string[] | null | undefined }) {
+  if (pessoas === null) return null
+  if (pessoas === undefined) return (
+    <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" />Vendo quem recebe esta tarefa hoje…</p>
+  )
+  if (pessoas.length === 0) return (
+    <p className="flex max-w-xl items-start gap-1.5 rounded-md bg-amber-500/10 px-2.5 py-2 text-xs leading-snug text-amber-900 dark:text-amber-200">
+      <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
+      Hoje ninguém ocupa este papel. Atribua alguém em Estrutura organizacional antes de ativar.
+    </p>
+  )
+  const mostra = pessoas.slice(0, 4)
+  const resto = pessoas.length - mostra.length
+  return (
+    <p className="flex max-w-xl items-start gap-1.5 rounded-md bg-primary/[0.07] px-2.5 py-2 text-xs leading-snug">
+      <User className="mt-px h-3.5 w-3.5 shrink-0 text-primary" />
+      <span>
+        Hoje {pessoas.length === 1 ? 'recebe' : 'recebem'} esta tarefa: <b className="font-semibold">{listaPt(resto > 0 ? [...mostra, `mais ${resto}`] : mostra)}</b>.
+      </span>
+    </p>
   )
 }
 
@@ -2194,8 +2370,3 @@ const RETURN_LABEL: Record<string, string> = {
 /** Rótulos e explicações do que a atividade faz com a entidade. VIEW é a etapa de
  *  análise: mostra o cadastro inteiro, não deixa alterar nada. */
 const ENTITY_MODE_LABEL: Record<string, string> = { CREATE: 'Criar', EDIT: 'Editar', VIEW: 'Consultar' }
-const ENTITY_MODE_HINT: Record<string, string> = {
-  CREATE: 'A atividade cria o registro deste processo, com os campos e as travas definidos na tela escolhida.',
-  EDIT:   'A atividade abre para alteração o registro deste processo — o que uma etapa anterior criou.',
-  VIEW:   'A atividade apenas MOSTRA o registro deste processo, em leitura: nenhum campo pode ser alterado e nada é gravado. Serve para etapas de análise, conferência e ciência.',
-}

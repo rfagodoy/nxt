@@ -8,7 +8,7 @@ import { ReturnTaskDto } from './dto/return-task.dto'
 import { AssignTaskDto } from './dto/assign-task.dto'
 import { CancelInstanceDto } from './dto/cancel-instance.dto'
 import { TransferTasksDto } from './dto/transfer-tasks.dto'
-import { PreviewExecutorDto } from './dto/preview-executor.dto'
+import { PreviewExecutorDto, PessoasDoExecutorDto } from './dto/preview-executor.dto'
 import { CurrentOrg } from '../auth/current-org.decorator'
 import { CurrentUser, type CurrentUserData } from '../auth/current-user.decorator'
 import { Roles } from '../auth/roles.decorator'
@@ -34,6 +34,16 @@ export class InstancesController {
   @ApiOperation({ summary: 'Prévia do executor pelo contrato (editor de workflow) — admin' })
   previewExecutor(@Body() dto: PreviewExecutorDto, @CurrentOrg() organizationId: string) {
     return this.instancesService.preverExecutor(organizationId, dto.executor, dto.contratoId)
+  }
+
+  /* "Quem recebe hoje" do editor de workflow (admin, como o editor): executor fixo ou global,
+     sem precisar de contrato. Responde `pessoas: null` quando depende do processo. */
+  @Post('executor-pessoas')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Quem receberia a atividade hoje (executor fixo) — admin' })
+  pessoasDoExecutor(@Body() dto: PessoasDoExecutorDto, @CurrentOrg() organizationId: string) {
+    return this.instancesService.pessoasDoExecutor(organizationId, dto.executor)
   }
 
   // Monitoramento (visão gerencial) — admin. Filtra por status (ex.: ?status=ERROR).
