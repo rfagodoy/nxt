@@ -118,8 +118,9 @@ function CountUp({ value, format }: { value: number; format?: (n: number) => str
    menu lateral e faixa do topo já são fixos no shell.
    Paleta "Neutro calmo": cartões opacos e neutros; cada significado tem uma cor,
    a mesma nos dois temas (só a claridade se ajusta). A Lima fica como acento
-   pequeno — número e botão da caixa, links no escuro. */
-const CARTAO = 'flex min-w-0 flex-col rounded-2xl border border-[#E1E7E3] bg-white p-4 shadow-[0_1px_2px_rgba(16,24,20,0.05)] lg:px-5 dark:border-[#252D29] dark:bg-[#161B18] dark:shadow-none'
+   pequeno — número e botão da caixa, links no escuro. O vidro é GROSSO (90% / 85%):
+   dá a textura e o realce das ilhas sem deixar o degradê tingir o fundo dos dados. */
+const CARTAO = 'vidro flex min-w-0 flex-col rounded-2xl bg-white/90 p-4 [--vidro-solido:#FFFFFF] lg:px-5 dark:bg-[#161B18]/85 dark:[--vidro-solido:#161B18]'
 const LINK = 'text-xs font-bold text-[#0E7A4B] hover:underline dark:text-[#C6F24E]'
 
 function CabecalhoCartao({ titulo, children }: { titulo: string; children?: React.ReactNode }) {
