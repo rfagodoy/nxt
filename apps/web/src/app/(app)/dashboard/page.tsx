@@ -119,8 +119,15 @@ function CountUp({ value, format }: { value: number; format?: (n: number) => str
    Paleta "Neutro calmo": cartões opacos e neutros; cada significado tem uma cor,
    a mesma nos dois temas (só a claridade se ajusta). A Lima fica como acento
    pequeno — número e botão da caixa, links no escuro. O vidro é MÉDIO (75% / 70%):
-   deixa o degradê aparecer de leve atrás dos cartões, como nas ilhas do shell. */
-const CARTAO = 'vidro flex min-w-0 flex-col rounded-2xl bg-white/75 p-4 [--vidro-solido:#FFFFFF] lg:px-5 dark:bg-[#161B18]/70 dark:[--vidro-solido:#161B18]'
+   deixa o degradê aparecer de leve atrás dos cartões, como nas ilhas do shell.
+   No hover o cartão sobe 2px, fica mais opaco, ganha borda esmeralda e sombra maior;
+   a sombra repete o realce interno do .vidro, que o utilitário substituiria. */
+const CARTAO = cn(
+  'vidro flex min-w-0 flex-col rounded-2xl bg-white/75 p-4 [--vidro-solido:#FFFFFF] lg:px-5 dark:bg-[#161B18]/70 dark:[--vidro-solido:#161B18]',
+  'transition-[transform,background-color,border-color,box-shadow] duration-200 ease-out hover:-translate-y-0.5 motion-reduce:transition-none motion-reduce:hover:translate-y-0',
+  'hover:border-[#159D62]/35 hover:bg-white/90 hover:shadow-[inset_0_1px_0_var(--vidro-spec),0_18px_36px_-14px_rgba(12,40,26,0.28)]',
+  'dark:hover:border-[#3DD68C]/40 dark:hover:bg-[#1E2723]/90 dark:hover:shadow-[inset_0_1px_0_var(--vidro-spec),0_18px_40px_-12px_rgba(0,0,0,0.6)]',
+)
 const LINK = 'text-xs font-bold text-[#0E7A4B] hover:underline dark:text-[#C6F24E]'
 
 function CabecalhoCartao({ titulo, children }: { titulo: string; children?: React.ReactNode }) {
