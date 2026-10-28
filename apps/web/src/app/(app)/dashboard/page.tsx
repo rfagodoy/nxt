@@ -3,10 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSession } from '@/lib/session-context'
-import {
-  FileText, Users, Loader2, Plus, CalendarClock, PieChart as PieIcon, AlertTriangle,
-} from 'lucide-react'
-import { ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
+import { Plus, ListChecks, CheckCircle2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch, apiJson } from '@/lib/http'
 import { useAoVivo } from '@/lib/realtime'
@@ -45,7 +42,7 @@ interface Summary {
       meses: { mes: string; qtd: number; valor: number }[]
       prox90: { qtd: number; valor: number }
       vencidos: { qtd: number; valor: number }
-      proximos: { id: string; numero: string; titulo: string; termino: string; valor: number; contraparte: string | null }[]
+      proximos: { id: string; numero: string; titulo: string; inicio: string; termino: string; valor: number; contraparte: string | null }[]
     }
     concentracao: {
       total: number
@@ -56,10 +53,22 @@ interface Summary {
     }
   }
 }
+type Vencimentos = NonNullable<Summary['carteira']>['vencimentos']
+type Concentracao = NonNullable<Summary['carteira']>['concentracao']
+type Proximo = Vencimentos['proximos'][number]
 
 /* ─────────────────────────── helpers ─────────────────────────────────────── */
 const NUM = new Intl.NumberFormat('pt-BR')
-
+const BRL_CURTO = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', notation: 'compact', maximumFractionDigits: 1 })
+const DIA = 86_400_000
+const pctFmt = (v: number) => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`
+const MES_CURTO = (ym: string) => {
+  const [a, m] = ym.split('-').map(Number)
+  const nome = new Date(a, m - 1, 1).toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')
+  return m === 1 ? `${nome} ${String(a).slice(2)}` : nome
+}
+/** meia-noite local de uma data YYYY-MM-DD — as contas de dias não sofrem com fuso */
+const diaLocal = (iso: string) => { const [a, m, d] = iso.split('-').map(Number); return new Date(a, m - 1, d).getTime() }
 
 function greeting(): string {
   const h = new Date().getHours()
@@ -95,39 +104,32 @@ function useCountUp(target: number, duration = 900): number {
   return val
 }
 
-/* ─────────────────────────── micro-componentes ───────────────────────────── */
 function CountUp({ value, format }: { value: number; format?: (n: number) => string }) {
   const v = useCountUp(value)
   const rounded = Math.round(v)
   return <>{format ? format(rounded) : NUM.format(rounded)}</>
 }
 
-/* ─────────────────────────── card base ───────────────────────────────────── */
-function Tile({ className, children, onClick, highlight }: { className?: string; children: React.ReactNode; onClick?: () => void; highlight?: boolean }) {
-  // Realce de hover (liquid glass) desacoplado do clique: aplica-se aos cards de
-  // estatística (highlight) e aos navegáveis (onClick); o cursor-pointer só nos que navegam.
+/* ─────────────────────────── visual (mockup "Bento + Floresta", PO 27/10/2026) ──
+   Cinco painéis numa tela só, sem abas: Contratos e Valor que vence por mês em cima,
+   Vencem em breve e Concentração embaixo, e "Sua caixa" (o que pede ação) na coluna
+   da direita, de cima a baixo. No lg+ a grade ocupa a altura da área e cabe em
+   1366×768 sem rolar; abaixo do mínimo de cada linha só a área de conteúdo rola —
+   menu lateral e faixa do topo já são fixos no shell.
+   No escuro o acento é a Lima (no claro ela não tem contraste como traço ou texto
+   fino, por isso lá o acento é a Esmeralda e a Lima fica nas superfícies cheias). */
+const CARTAO = 'vidro flex min-w-0 flex-col rounded-2xl bg-[var(--vidro-cartao)] p-4 lg:px-5'
+const LINK = 'text-xs font-bold text-[#0E7A4B] hover:underline dark:text-[#C6F24E]'
+
+function CabecalhoCartao({ titulo, children }: { titulo: string; children?: React.ReactNode }) {
   return (
-    <div
-      onClick={onClick}
-      className={cn(
-        'rounded-xl border bg-card p-4 shadow-sm transition-all duration-200',
-        (onClick || highlight) && 'hover:-translate-y-0.5 hover:shadow-md hover:border-primary/30',
-        onClick && 'cursor-pointer',
-        className,
-      )}
-    >
+    <div className="flex shrink-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+      <h2 className="text-[15px] font-bold">{titulo}</h2>
+      <span className="flex-1" />
       {children}
     </div>
   )
 }
-
-const ABAS = [
-  { id: 'geral', rotulo: 'Visão geral' },
-  { id: 'vencimentos', rotulo: 'Vencimentos' },
-  { id: 'concentracao', rotulo: 'Concentração por parceiro' },
-] as const
-type AbaId = (typeof ABAS)[number]['id']
-const ABA_KEY = 'nxt:dashboard:aba'
 
 /* ─────────────────────────── página ──────────────────────────────────────── */
 export default function DashboardPage() {
@@ -149,8 +151,7 @@ export default function DashboardPage() {
   const carregar = useCallback(async () => {
     try {
       /* As DUAS perguntas de quem abre o sistema, lado a lado: "como está a
-         carteira?" (resumo) e "o que preciso fazer?" (tarefas). A segunda vinha
-         sendo respondida só uma tela adiante. */
+         carteira?" (resumo) e "o que preciso fazer?" (tarefas). */
       const [res, tarefas] = await Promise.all([
         apiFetch('/api/dashboard/summary'),
         apiJson<Task[]>('/api/instances/tasks').catch(() => []),
@@ -173,50 +174,17 @@ export default function DashboardPage() {
      acontece — desta aba, de outro usuário ou do motor de datas. */
   useAoVivo(() => { void carregar() })
 
-  /* A faixa mostra o ESTADO da caixa, não a caixa: quantas esperam, quantas já
-     venceram e qual é a mais urgente. O detalhe vive em /tarefas. */
-  const atrasadas = minhasTarefas.filter((t) => dueInfo(t.dueAt).grp === 'crit').length
-  const maisUrgente = (() => {
-    const primeira = [...minhasTarefas]
-      .sort((a, b) => (a.dueAt ? new Date(a.dueAt).getTime() : Infinity) - (b.dueAt ? new Date(b.dueAt).getTime() : Infinity))[0]
-    return primeira ? dueInfo(primeira.dueAt).label : ''
-  })()
-
-  /* Aba ativa, lembrada neste navegador (preferência de visualização, não dado). */
-  const [aba, setAba] = useState<AbaId>('geral')
-  useEffect(() => {
-    try { const v = localStorage.getItem(ABA_KEY) as AbaId | null; if (v && ABAS.some((a) => a.id === v)) setAba(v) } catch { /* sem storage */ }
-  }, [])
-  const escolherAba = (id: AbaId) => { setAba(id); try { localStorage.setItem(ABA_KEY, id) } catch { /* sem storage */ } }
+  const novoContrato = () => ws.open({ id: 'contract:new', kind: 'contract', mode: 'new', label: 'Novo contrato' })
+  const abrirContrato = (e: Proximo) => ws.open({ id: `contract:${e.id}`, kind: 'contract', mode: 'detail', label: e.numero, data: { id: e.id, numero: e.numero, titulo: e.titulo, tipo: '', parte_principal: e.contraparte ?? '', inicio: e.inicio, termino: e.termino, valor_total: e.valor, situacao: 'VIGENTE', documento: '', papel: '', data_assinatura: '', moeda: '', valor_parcela: 0, condicao_pagamento: '' } })
 
   if (loading) return <DashboardSkeleton />
 
-  const c = data?.contracts
-  const p = data?.partners
-
   return (
-    /* Opção B dos mockups (PO, 11/10/2026): a tela empilhava sete blocos e nenhum
-       gráfico tinha espaço. Agora: cabeçalho FIXO (saudação, resumo das tarefas e os
-       atalhos de criação — sempre à mão ao rolar) e ABAS, cada uma com a altura toda. */
-    <div className="flex min-h-full flex-col gap-3 lg:h-full">
-
-      {/* Saudação numa LINHA, como no Conexos (PO, 18/10/2026 — opção B): o topo é a faixa
-          de abas, alinhada ao logo; aqui fica só quem está, o que espera por você e os atalhos. */}
+    <div className="flex min-h-full flex-col gap-3">
       <header className="flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-2 px-0.5">
-        <h1 className="text-[17px] font-extrabold tracking-tight">
+        <h1 className="text-[19px] font-extrabold tracking-tight">
           {greeting()}{firstName ? `, ${firstName}` : ''}
         </h1>
-        {/* O resumo da caixa de trabalho mora na saudação; o detalhe continua em /tarefas. */}
-        <button type="button" onClick={() => router.push('/tarefas')}
-          title={minhasTarefas.length ? (atrasadas > 0 ? `A mais antiga: ${maisUrgente}` : `A mais próxima ${maisUrgente}`) : 'Abrir a caixa de tarefas'}
-          className="text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline">
-          {minhasTarefas.length === 0 ? '· nenhuma tarefa aguardando' : (
-            <>
-              · {minhasTarefas.length} tarefa{minhasTarefas.length > 1 ? 's esperam' : ' espera'} por você
-              {atrasadas > 0 && <> · <span className="font-semibold text-[hsl(25_90%_32%)] dark:text-orange-300">{atrasadas} vencida{atrasadas > 1 ? 's' : ''}</span></>}
-            </>
-          )}
-        </button>
         <span className="flex-1" />
         <div className="flex flex-wrap items-center gap-2">
           <button onClick={() => ws.open({ id: 'partner:new', kind: 'partner', mode: 'new', label: 'Novo parceiro' })}
@@ -224,478 +192,375 @@ export default function DashboardPage() {
             <Plus className="h-3.5 w-3.5" />Novo parceiro
           </button>
           <StartProcessButton variant="outline" />
-          <button onClick={() => ws.open({ id: 'contract:new', kind: 'contract', mode: 'new', label: 'Novo contrato' })}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors">
+          <button onClick={novoContrato}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors dark:bg-[#C6F24E] dark:text-[#0C1410] dark:shadow-[0_0_22px_-6px_rgba(198,242,78,0.6)] dark:hover:bg-[#d4f76e]">
             <Plus className="h-3.5 w-3.5" />Novo contrato
           </button>
         </div>
       </header>
 
-      <div role="tablist" aria-label="Painéis do dashboard" className="vidro flex shrink-0 gap-1 self-start rounded-lg bg-[var(--vidro-cartao)] p-1">
-        {ABAS.map((a) => {
-          const vencidos = a.id === 'vencimentos' ? data?.carteira?.vencimentos.vencidos.qtd ?? 0 : 0
-          return (
-            <button key={a.id} type="button" role="tab" aria-selected={aba === a.id} onClick={() => escolherAba(a.id)}
-              className={cn('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition-colors',
-                aba === a.id ? 'bg-card font-semibold text-foreground shadow-sm' : 'font-medium text-muted-foreground hover:text-foreground')}>
-              {a.rotulo}
-              {vencidos > 0 && (
-                <span className="rounded-full bg-orange-500/15 px-1.5 py-px text-[10.5px] font-semibold text-[hsl(25_90%_27%)] dark:text-orange-300">
-                  {vencidos} vencido{vencidos > 1 ? 's' : ''}
-                </span>
-              )}
-            </button>
-          )
-        })}
+      <div className="grid flex-1 grid-cols-1 gap-3 lg:grid-cols-12 lg:grid-rows-[minmax(270px,1fr)_minmax(270px,1fr)]">
+        <CartaoContratos className="lg:col-span-4" dados={data?.contracts} vencimentos={data?.carteira?.vencimentos}
+          onAbrir={() => router.push('/modules/contratos')} onNovo={novoContrato} />
+        <CartaoValorPorMes className="lg:col-span-5" dados={data?.carteira?.vencimentos} />
+        <CartaoCaixa className="order-first lg:order-none lg:col-span-3 lg:col-start-10 lg:row-span-2 lg:row-start-1"
+          tarefas={minhasTarefas}
+          onAbrirTarefa={(t) => ws.open({ id: `task:${t.id}`, kind: 'task', mode: 'detail', label: t.name || t.nodeId, data: t })}
+          onAbrirCaixa={() => router.push('/tarefas')} />
+        <CartaoVencemEmBreve className="lg:col-span-5" dados={data?.carteira?.vencimentos}
+          onAbrirContrato={abrirContrato} onVerTodos={() => router.push('/modules/contratos')} />
+        <CartaoConcentracao className="lg:col-span-4" dados={data?.carteira?.concentracao} />
       </div>
-
-      <div role="tabpanel" className="flex min-h-[420px] flex-1 flex-col lg:min-h-0">
-        {aba === 'geral' && (
-          /* Composição da carteira: o TOTAL grande e a repartição — o número sozinho não
-             diz se 128 contratos são saúde ou problema. Agora com a altura da aba. */
-          <div className="grid flex-1 grid-cols-1 gap-3 sm:grid-cols-3 lg:min-h-0">
-            <Composicao
-              icon={<FileText className="h-4 w-4" />}
-              label="Contratos"
-              hint="Contratos cancelados não entram na carteira — por isso este total pode ser menor que o da listagem."
-              tipo="barras"
-              total={c?.total ?? 0}
-              onClick={() => router.push('/modules/contratos')}
-              ctaVazio={{ rotulo: 'Cadastrar contrato', acao: () => ws.open({ id: 'contract:new', kind: 'contract', mode: 'new', label: 'Novo contrato' }) }}
-              fatias={[
-                { nome: 'Vigentes',    valor: c?.byStatus.VIGENTE ?? 0,     cor: COR_FATIA.emDia      },
-                { nome: 'Vencidos',    valor: c?.byStatus.VENCIDO ?? 0,     cor: COR_FATIA.vencido    },
-                { nome: 'Em cadastro', valor: c?.byStatus.EM_CADASTRO ?? 0, cor: COR_FATIA.emCadastro },
-                { nome: 'Encerrados',  valor: c?.byStatus.ENCERRADO ?? 0,   cor: COR_FATIA.encerrado  },
-                { nome: 'Rescindidos', valor: c?.byStatus.RESCINDIDO ?? 0,  cor: COR_FATIA.rompido    },
-                /* Sem "Cancelados": o cancelado nunca chegou a valer e por decisão do PO
-                   (28/07) não entra na carteira — nem no Total, nem na composição. Ele
-                   continua na listagem de Contratos, que é onde se procura um registro. */
-              ]}
-            />
-            <Composicao
-              icon={<Users className="h-4 w-4" />}
-              label="Parceiros"
-              total={p?.total ?? 0}
-              onClick={() => router.push('/modules/parceiros')}
-              ctaVazio={{ rotulo: 'Cadastrar parceiro', acao: () => ws.open({ id: 'partner:new', kind: 'partner', mode: 'new', label: 'Novo parceiro' }) }}
-              fatias={[
-                { nome: 'Ativos',        valor: p?.byStatus.ATIVO ?? 0,             cor: COR_FATIA.emDia      },
-                { nome: 'Em cadastro',   valor: p?.byStatus.EM_CADASTRAMENTO ?? 0,  cor: COR_FATIA.emCadastro },
-                { nome: 'Inativos',      valor: p?.byStatus.INATIVO ?? 0,           cor: COR_FATIA.encerrado  },
-              ]}
-            />
-            <MedidorSaude
-              icon={<Loader2 className="h-4 w-4" />}
-              label="Processos"
-              emDia={data?.instances.emAndamentoNoPrazo ?? 0}
-              atrasados={data?.instances.emAndamentoAtrasadas ?? 0}
-              onClick={() => router.push('/processos')}
-              rodape={[
-                { nome: 'concluídos', valor: data?.instances.concluidas ?? 0 },
-                { nome: 'com erro',   valor: data?.instances.comErro ?? 0, alerta: true },
-                { nome: 'cancelados', valor: data?.instances.canceladas ?? 0 },
-                { nome: 'sem conclusão', valor: data?.instances.semConclusao ?? 0 },
-              ]}
-            />
-          </div>
-        )}
-        {aba === 'vencimentos' && (
-          <CartaoVencimentos dados={data?.carteira?.vencimentos}
-            onAbrirContrato={(e) => ws.open({ id: `contract:${e.id}`, kind: 'contract', mode: 'detail', label: e.numero, data: { id: e.id, numero: e.numero, titulo: e.titulo, tipo: '', parte_principal: e.contraparte ?? '', inicio: '', termino: e.termino, valor_total: e.valor, situacao: 'VIGENTE', documento: '', papel: '', data_assinatura: '', moeda: '', valor_parcela: 0, condicao_pagamento: '' } })} />
-        )}
-        {aba === 'concentracao' && (
-          <CartaoConcentracao dados={data?.carteira?.concentracao} />
-        )}
-      </div>
-
     </div>
   )
 }
 
+/* ─────────────────────────── Contratos ───────────────────────────────────── */
 
-/* ─────────────────────────── sub-componentes ─────────────────────────────── */
+/* Fatias da rosca. A MATIZ diz o que é; a CLARIDADE separa uma fatia da outra (em
+   escala de cinza continuam distintas). Cada tema tem a sua escada: no escuro a Lima
+   assume os vigentes, o que mais importa. Fatia nova entra num degrau livre.
+   Sem "Cancelados": o cancelado nunca chegou a valer e por decisão do PO (28/07) não
+   entra na carteira — nem no total, nem na composição. */
+const FATIAS = [
+  { chave: 'VIGENTE',     nome: 'Vigentes',    traco: 'stroke-[#159D62] dark:stroke-[#C6F24E]', ponto: 'bg-[#159D62] dark:bg-[#C6F24E]' },
+  { chave: 'VENCIDO',     nome: 'Vencidos',    traco: 'stroke-[#B45309] dark:stroke-[#F7B37A]', ponto: 'bg-[#B45309] dark:bg-[#F7B37A]' },
+  { chave: 'EM_CADASTRO', nome: 'Em cadastro', traco: 'stroke-[#C6F24E] dark:stroke-[#3DBE84]', ponto: 'bg-[#C6F24E] ring-1 ring-inset ring-black/20 dark:bg-[#3DBE84] dark:ring-0' },
+  { chave: 'ENCERRADO',   nome: 'Encerrados',  traco: 'stroke-[#8A9A91] dark:stroke-[#5C6E64]', ponto: 'bg-[#8A9A91] dark:bg-[#5C6E64]' },
+  { chave: 'RESCINDIDO',  nome: 'Rescindidos', traco: 'stroke-[#DDBFBF] dark:stroke-[#8E6F6F]', ponto: 'bg-[#DDBFBF] dark:bg-[#8E6F6F]' },
+] as const
 
-/* Paleta das fatias. A MATIZ diz o que é (verde = em dia, vermelho = rompido); a
-   CLARIDADE é que separa uma fatia da outra, em degraus de ~12 pontos de L*.
-   Antes as cinco variavam quase só em matiz — "Encerrados" e "Em cadastro" tinham 1,0
-   de diferença em L* —, então para quem não distingue as matizes a rosca virava um
-   disco de uma cor só e não dava para casar fatia com legenda.
-   Em escala de cinza elas agora viram 34%, 46%, 58%, 70% e 82%: uma escada.
-
-   O PESO segue a urgência, não o acaso: "Vencidos" ocupa o degrau mais ESCURO — é o que
-   exige ação — e "Rescindidos" o mais claro, porque já é assunto encerrado. A primeira
-   versão tinha o oposto e deixava o vencido num âmbar pálido, suave demais para o que ele
-   quer dizer. A matiz do vencido também saiu do âmbar (38) para o laranja queimado (25):
-   âmbar escuro vira marrom e lê como sujeira, não como urgência.
-   ⚠️ Fatia nova entra ENCAIXANDO num degrau livre, não escolhendo uma cor bonita. */
-const COR_FATIA = {
-  vencido:    'hsl(25 90% 27%)',  // L* 34 — Vencidos (laranja queimado)
-  encerrado:  'hsl(215 14% 44%)', // L* 46 — Encerrados, Inativos
-  emDia:      'hsl(154 62% 38%)', // L* 58 — Vigentes, Ativos
-  emCadastro: 'hsl(210 88% 69%)', // L* 70 — Em cadastro
-  rompido:    'hsl(0 48% 84%)',   // L* 82 — Rescindidos (rosa acinzentado)
-} as const
-
-interface Fatia { nome: string; valor: number; cor: string }
-
-/** Card de composição: o total em número grande e a repartição em rosca.
- *
- *  Rosca (e não barra ou pizza cheia) por dois motivos: o buraco do meio abriga o
- *  total, então o número e a composição ocupam o mesmo espaço; e a leitura aqui é
- *  "quanto de cada", não "qual é maior" — comparação fina fica na tela do módulo.
- *
- *  Fatia zerada é OMITIDA do gráfico e da legenda: uma situação sem nenhum registro
- *  não é informação, é ruído — e com seis situações possíveis a legenda ficaria mais
- *  alta que o próprio gráfico. */
-function Composicao({ icon, label, hint, total, fatias, onClick, tipo = 'rosca', ctaVazio }: {
-  icon: React.ReactNode; label: string; total: number; fatias: Fatia[]
-  /** Explica no hover uma diferença que o número sozinho não conta (ex.: por que o
-   *  Total daqui não bate com o da listagem). */
-  hint?: string
-  onClick?: () => void
-  /** Rosca para POUCAS categorias (parte/todo); barras quando são muitas — com seis
-   *  fatias a rosca vira um mosaico de lascas que ninguém consegue comparar. */
-  tipo?: 'rosca' | 'barras'
-  /** Primeiro passo quando o card está zerado (ex.: "Cadastrar contrato"). */
-  ctaVazio?: { rotulo: string; acao: () => void }
+function CartaoContratos({ className, dados, vencimentos, onAbrir, onNovo }: {
+  className?: string
+  dados?: Summary['contracts']
+  vencimentos?: Vencimentos
+  onAbrir: () => void
+  onNovo: () => void
 }) {
-  const visiveis = fatias.filter((f) => f.valor > 0)
-  const soma = visiveis.reduce((acc, f) => acc + f.valor, 0)
-  const maior = Math.max(1, ...visiveis.map((f) => f.valor))
+  const total = dados?.total ?? 0
+  /* Fatia zerada sai do gráfico e da legenda: uma situação sem registro é ruído. */
+  const fatias = FATIAS.map((f) => ({ ...f, valor: dados?.byStatus[f.chave] ?? 0 })).filter((f) => f.valor > 0)
+  const R = 80
+  const C = 2 * Math.PI * R
+  const folga = fatias.length > 1 ? 4 : 0
+  let acumulado = 0
+  const arcos = fatias.map((f) => {
+    const tam = (f.valor / Math.max(1, total)) * C
+    const arco = { ...f, dash: `${Math.max(0, tam - folga)} ${C}`, offset: -acumulado }
+    acumulado += tam
+    return arco
+  })
+  const vencidos = vencimentos?.vencidos
+  const prox90 = vencimentos?.prox90
 
   return (
-    <Tile onClick={onClick} highlight className="flex flex-col gap-2 lg:min-h-0">
-      <div className="flex shrink-0 items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">{icon}</span>
-          <p className="truncate text-xs font-medium text-muted-foreground" title={hint}>{label}</p>
-        </div>
-        {/* Nas barras o total sai do miolo do gráfico e vem para o cabeçalho. */}
-        {tipo === 'barras' && soma > 0 && (
-          <p className="shrink-0 text-xl font-bold leading-none tabular-nums"><CountUp value={total} /></p>
-        )}
-      </div>
-
-      {soma === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-1.5 py-2 text-center">
-          <p className="text-3xl font-bold leading-none tabular-nums text-muted-foreground/40">0</p>
-          <p className="text-[11px] text-muted-foreground">Nenhum registro ainda.</p>
-          {/* O vazio aponta o primeiro passo — o card inteiro navega para a LISTA;
-             este botão vai direto ao FORMULÁRIO (por isso o stopPropagation). */}
-          {ctaVazio && (
-            <button type="button" onClick={(e) => { e.stopPropagation(); ctaVazio.acao() }}
-              className="mt-1 inline-flex items-center gap-1 rounded-md border border-primary/40 px-2.5 py-1 text-[11px] font-medium text-primary hover:bg-primary/10 transition-colors">
-              <Plus className="h-3 w-3" />{ctaVazio.rotulo}
-            </button>
-          )}
-        </div>
-      ) : tipo === 'rosca' ? (
-        <div className="flex flex-1 flex-col gap-2 lg:min-h-0">
-          {/* Raios em % para o gráfico ESCALAR com a altura do card. */}
-          <div className="relative min-h-[104px] flex-1">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={visiveis} dataKey="valor" nameKey="nome"
-                  innerRadius="58%" outerRadius="88%" paddingAngle={visiveis.length > 1 ? 2 : 0}
-                  stroke="none" isAnimationActive
-                >
-                  {visiveis.map((f) => <Cell key={f.nome} fill={f.cor} />)}
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-2xl font-bold leading-none tabular-nums"><CountUp value={total} /></span>
-              <span className="text-[9px] uppercase tracking-wide text-muted-foreground">total</span>
-            </div>
-          </div>
-          <ul className="grid shrink-0 grid-cols-2 gap-x-3 gap-y-0.5">
-            {visiveis.map((f) => (
-              <li key={f.nome} className="flex items-center gap-1.5 text-[11px]">
-                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: f.cor }} />
-                <span className="min-w-0 flex-1 truncate text-muted-foreground">{f.nome}</span>
-                <span className="shrink-0 font-semibold tabular-nums">{f.valor}</span>
-              </li>
-            ))}
-          </ul>
+    <section className={cn(CARTAO, 'gap-3', className)}>
+      <CabecalhoCartao titulo="Contratos">
+        <button type="button" onClick={onAbrir} className={LINK}>Abrir lista</button>
+      </CabecalhoCartao>
+      {total === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+          <p className="text-xs text-muted-foreground">Nenhum contrato na carteira ainda.</p>
+          <button type="button" onClick={onNovo} className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground">Cadastrar contrato</button>
         </div>
       ) : (
-        /* Barras horizontais em CSS: o rótulo fica LEGÍVEL ao lado do valor (numa rosca
-           com seis fatias ele vira legenda, e a pessoa passa a comparar cores em vez de
-           grandezas). Proporcionais à MAIOR fatia, não ao total — o que se compara aqui
-           é uma situação com a outra. */
-        <div className="flex flex-1 flex-col justify-center gap-1.5 lg:min-h-0">
-          {visiveis.map((f) => (
-            <div key={f.nome} className="flex items-center gap-2 text-[11px]">
-              <span className="w-[86px] shrink-0 truncate text-muted-foreground" title={f.nome}>{f.nome}</span>
-              <span className="h-3 flex-1 overflow-hidden rounded-sm bg-muted/60">
-                <span className="block h-full rounded-sm transition-all duration-500"
-                  style={{ width: `${Math.max(4, (f.valor / maior) * 100)}%`, background: f.cor }} />
-              </span>
-              <span className="w-7 shrink-0 text-right font-semibold tabular-nums">{f.valor}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </Tile>
-  )
-}
-
-/** Medidor de saúde dos processos EM ANDAMENTO.
- *
- *  Aqui a rosca de composição não servia: "em dia x atrasado" não é uma repartição
- *  para contemplar — é um indicador com meta implícita (quanto mais perto de 100%,
- *  melhor). O arco comunica isso de relance; a composição, não.
- *
- *  Concluídos, cancelados e com erro NÃO entram no cálculo: são casos encerrados, e
- *  incluí-los diluiria o atraso — mil processos concluídos fariam seis atrasados
- *  sumirem numa porcentagem bonita. Eles ficam no rodapé, como contexto.
- */
-function MedidorSaude({ icon, label, emDia, atrasados, rodape, onClick }: {
-  icon: React.ReactNode
-  label: string
-  emDia: number
-  atrasados: number
-  rodape?: Array<{ nome: string; valor: number; alerta?: boolean }>
-  onClick?: () => void
-}) {
-  const andamento = emDia + atrasados
-  const pct = andamento === 0 ? 0 : Math.round((emDia / andamento) * 100)
-
-  /* A COR é o diagnóstico: um medidor sempre verde vira enfeite. */
-  const cor = pct >= 90 ? 'hsl(154 70% 40%)' : pct >= 70 ? 'hsl(38 92% 50%)' : 'hsl(0 72% 55%)'
-
-  /* Semicírculo de raio 50 → comprimento π·50 ≈ 157. O quanto do arco fica "apagado"
-     é o que falta para 100%. */
-  const ARCO = 157
-  const restante = ARCO * (1 - pct / 100)
-
-  return (
-    <Tile onClick={onClick} highlight className="flex flex-col gap-2 lg:min-h-0">
-      <div className="flex shrink-0 items-center gap-2">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">{icon}</span>
-        <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
-      </div>
-
-      {andamento === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-1 py-2 text-center">
-          <p className="text-3xl font-bold leading-none tabular-nums text-muted-foreground/40">—</p>
-          <p className="text-[11px] text-muted-foreground">Nenhum processo em andamento.</p>
-        </div>
-      ) : (
-        <div className="flex flex-1 flex-col items-center justify-center gap-1 lg:min-h-0">
-          <svg viewBox="0 0 120 66" className="w-full max-w-[190px]" role="img"
-               aria-label={`${pct}% dos processos em andamento estão em dia`}>
-            <path d="M10,60 A50,50 0 0,1 110,60" fill="none" stroke="currentColor"
-                  className="text-muted" strokeWidth="11" strokeLinecap="round" />
-            <path d="M10,60 A50,50 0 0,1 110,60" fill="none" stroke={cor}
-                  strokeWidth="11" strokeLinecap="round"
-                  strokeDasharray={ARCO} strokeDashoffset={restante}
-                  style={{ transition: 'stroke-dashoffset .7s ease-out' }} />
-            <text x="60" y="52" textAnchor="middle" fontSize="22" fontWeight="800" fill="currentColor">{pct}%</text>
-          </svg>
-
-          <p className="text-[11.5px] font-medium">
-            <span className="tabular-nums">{emDia}</span> de <span className="tabular-nums">{andamento}</span> em dia
-          </p>
-          {atrasados > 0 ? (
-            <p className="text-[11.5px] font-semibold text-red-600 dark:text-red-400">
-              <span className="tabular-nums">{atrasados}</span> atrasado{atrasados > 1 ? 's' : ''}
-            </p>
-          ) : (
-            <p className="text-[11.5px] text-muted-foreground">Nenhum atrasado</p>
-          )}
-
-          {/* Casos encerrados: contexto, fora da conta do indicador. */}
-          {rodape && rodape.some((r) => r.valor > 0) && (
-            <p className="mt-1 flex flex-wrap justify-center gap-x-2.5 gap-y-0.5 text-[10.5px] text-muted-foreground">
-              {rodape.filter((r) => r.valor > 0).map((r) => (
-                <span key={r.nome} className={cn(r.alerta && 'text-amber-600 dark:text-amber-400 font-medium')}>
-                  <span className="font-semibold tabular-nums">{r.valor}</span> {r.nome}
-                </span>
+        <div className="flex min-h-0 flex-1 flex-wrap items-center justify-center gap-x-5 gap-y-3">
+          <div className="relative h-[150px] w-[150px] shrink-0">
+            <svg viewBox="0 0 200 200" className="h-full w-full -rotate-90" role="img"
+              aria-label={`${total} contratos: ${fatias.map((f) => `${f.valor} ${f.nome.toLowerCase()}`).join(', ')}`}>
+              <circle cx="100" cy="100" r={R} fill="none" strokeWidth="24" className="stroke-foreground/[0.07]" />
+              {arcos.map((a) => (
+                <circle key={a.chave} cx="100" cy="100" r={R} fill="none" strokeWidth="24"
+                  strokeDasharray={a.dash} strokeDashoffset={a.offset} className={cn(a.traco, 'transition-all duration-700')} />
               ))}
-            </p>
-          )}
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <span className="font-mono text-[34px] font-bold leading-none tabular-nums"><CountUp value={total} /></span>
+              <span className="mt-1 text-[10px] font-bold tracking-[0.1em] text-muted-foreground">CONTRATOS</span>
+            </div>
+          </div>
+          <div className="flex min-w-[170px] flex-1 flex-col gap-3">
+            <div>
+              <p className="text-xs text-muted-foreground" title="Vigentes e vencidos ainda não renovados — o que a organização tem em mãos.">Valor vigente</p>
+              <p className="mt-0.5 whitespace-nowrap font-mono text-[26px] font-bold leading-tight tracking-tight">
+                <CountUp value={dados?.valorAtivos ?? 0} format={(n) => BRL_CURTO.format(n)} />
+              </p>
+              {vencidos && vencidos.qtd > 0 ? (
+                <span className="mt-1.5 inline-block rounded-full bg-[#FEF3E2] px-2 py-0.5 text-[11.5px] font-extrabold text-[#8A5200] dark:bg-orange-400/15 dark:text-orange-300">
+                  {vencidos.qtd} vencido{vencidos.qtd === 1 ? '' : 's'} sem renovação
+                </span>
+              ) : prox90 && prox90.qtd > 0 ? (
+                <span className="mt-1.5 inline-block rounded-full bg-[#0C1410] px-2 py-0.5 text-[11.5px] font-extrabold text-[#C6F24E] dark:bg-[#C6F24E]/15">
+                  {prox90.qtd} vence{prox90.qtd === 1 ? '' : 'm'} em 90 dias
+                </span>
+              ) : null}
+            </div>
+            <ul className="flex flex-col gap-1.5 text-[13px]">
+              {fatias.map((f) => (
+                <li key={f.chave} className="flex items-center gap-2">
+                  <span className={cn('h-2.5 w-2.5 shrink-0 rounded-[3px]', f.ponto)} />
+                  <span className="flex-1">{f.nome}</span>
+                  <b className="font-mono tabular-nums">{NUM.format(f.valor)}</b>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       )}
-    </Tile>
+    </section>
   )
 }
 
-/* ─────────────────────────── vencimentos e concentração ───────────────────── */
+/* ─────────────────────────── Valor que vence por mês ─────────────────────── */
 
-const BRL_CURTO = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', notation: 'compact', maximumFractionDigits: 1 })
-const MES_CURTO = (ym: string) => {
-  const [a, m] = ym.split('-').map(Number)
-  const nome = new Date(a, m - 1, 1).toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')
-  return m === 1 ? `${nome} ${String(a).slice(2)}` : nome
-}
-/* Uma cor só (Esmeralda), validada no claro e no escuro (validador dataviz: o primário
-   do tema escuro, mais claro, sai da faixa — por isso o tom fixo). Os 3 primeiros meses
-   (≈ 90 dias) vão mais fortes e o texto diz isso: a cor nunca carrega sozinha. */
-const BARRA_FORTE = 'bg-[#159d62] dark:bg-[#1fa565]'
-const BARRA_FRACA = 'bg-[#159d62]/40 dark:bg-[#1fa565]/45'
-/* "outros" com TEXTURA listrada: distingue-se por forma, não só por tom */
-const TEXTURA_OUTROS = 'bg-[repeating-linear-gradient(135deg,hsl(var(--foreground)/0.22)_0_3px,hsl(var(--foreground)/0.07)_3px_7px)]'
+/* Os 3 primeiros meses (≈ 90 dias) vão em destaque e o cabeçalho diz isso: a cor
+   nunca carrega sozinha. O maior mês ganha rótulo, mesmo fora dos 90 dias. */
+const BARRA_FORTE = 'bg-gradient-to-b from-[#3DBE84] to-[#11804F] shadow-[0_8px_18px_-8px_rgba(17,128,79,0.6)] dark:from-[#C6F24E] dark:to-[#3DBE84] dark:shadow-[0_0_18px_-6px_rgba(198,242,78,0.7)]'
+const BARRA_FRACA = 'bg-[#B9DEC9] dark:bg-[#2F5544]'
 
-function CabecalhoCartao({ icon, label }: { icon: React.ReactNode; label: string }) {
-  return (
-    <div className="flex shrink-0 items-center gap-2">
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">{icon}</span>
-      <p className="text-xs font-medium text-muted-foreground">{label}</p>
-    </div>
-  )
-}
-
-/** Vencimentos: quanto vence nos próximos 90 dias (o número), a forma dos 12 meses
- *  (barras por VALOR) e os já vencidos à parte, com ícone + texto. */
-function CartaoVencimentos({ dados, onAbrirContrato }: {
-  dados?: NonNullable<Summary['carteira']>['vencimentos']
-  onAbrirContrato: (c: NonNullable<Summary['carteira']>['vencimentos']['proximos'][number]) => void
-}) {
+function CartaoValorPorMes({ className, dados }: { className?: string; dados?: Vencimentos }) {
   const meses = dados?.meses ?? []
   const maior = Math.max(1, ...meses.map((m) => m.valor))
-  const vazio = !dados || (meses.every((m) => m.qtd === 0) && dados.vencidos.qtd === 0)
-  const dataCurta = (iso: string) => iso.slice(8, 10) + '/' + iso.slice(5, 7)
+  const vazio = meses.every((m) => m.valor === 0)
   return (
-    <Tile className="flex flex-1 flex-col gap-3 lg:min-h-0">
-      <CabecalhoCartao icon={<CalendarClock className="h-4 w-4" />} label="Vencimentos" />
-      {vazio || !dados ? (
-        <p className="flex flex-1 items-center justify-center text-[11px] text-muted-foreground">Nenhum contrato vigente vence nos próximos 12 meses.</p>
+    <section className={cn(CARTAO, 'gap-2', className)}>
+      <CabecalhoCartao titulo="Valor que vence por mês">
+        {dados && dados.prox90.valor > 0 && (
+          <span className="text-[12.5px] text-muted-foreground">
+            <b className="font-mono text-foreground dark:text-[#C6F24E]">{BRL_CURTO.format(dados.prox90.valor)}</b> em 90 dias
+          </span>
+        )}
+      </CabecalhoCartao>
+      {vazio ? (
+        <p className="flex flex-1 items-center justify-center text-center text-xs text-muted-foreground">Nenhum contrato vigente vence nos próximos 12 meses.</p>
       ) : (
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="flex min-h-[260px] flex-col gap-2">
-            <div className="shrink-0">
-              <p className="text-2xl font-bold leading-none tabular-nums">{BRL_CURTO.format(dados.prox90.valor)}</p>
-              <p className="mt-1 text-[11.5px] text-muted-foreground">
-                vencem nos próximos 90 dias (barras em destaque) · <span className="font-semibold text-foreground">{dados.prox90.qtd} contrato{dados.prox90.qtd === 1 ? '' : 's'}</span>
-              </p>
-            </div>
-            <div className="flex min-h-0 flex-1 items-end gap-1.5 border-b border-foreground/15" role="img"
-              aria-label={`Valor que vence por mês: ${meses.map((m) => `${MES_CURTO(m.mes)} ${BRL_CURTO.format(m.valor)}`).join(', ')}`}>
-              {meses.map((m, i) => (
-                <div key={m.mes} className="flex h-full flex-1 flex-col items-center justify-end gap-1" title={`${MES_CURTO(m.mes)}: ${m.qtd} contrato${m.qtd === 1 ? '' : 's'} · ${BRL_CURTO.format(m.valor)}`}>
-                  {m.valor > 0 && <span className="text-[10.5px] font-semibold tabular-nums">{BRL_CURTO.format(m.valor)}</span>}
-                  <div className={cn('w-full max-w-[56px] rounded-t-[3px]', i < 3 ? BARRA_FORTE : BARRA_FRACA)}
-                    style={{ height: m.valor > 0 ? `${Math.max(4, (m.valor / maior) * 85)}%` : '0' }} />
+        <>
+          <div className="flex min-h-[150px] flex-1 gap-1.5 border-b border-foreground/15" role="img"
+            aria-label={`Valor que vence por mês: ${meses.map((m) => `${MES_CURTO(m.mes)} ${BRL_CURTO.format(m.valor)}`).join(', ')}`}>
+            {meses.map((m, i) => {
+              const perto = i < 3
+              const pico = m.valor === maior
+              const rotulo = m.valor > 0 && (perto || pico)
+              return (
+                <div key={m.mes} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1"
+                  title={`${MES_CURTO(m.mes)}: ${m.qtd} contrato${m.qtd === 1 ? '' : 's'} · ${BRL_CURTO.format(m.valor)}`}>
+                  {rotulo && (
+                    <span className={cn('whitespace-nowrap font-mono text-[10px] font-bold tabular-nums',
+                      perto ? 'text-[#0E7A4B] dark:text-[#C6F24E]' : 'rounded bg-[#0C1410] px-1 text-[#C6F24E] dark:bg-transparent dark:text-foreground')}>
+                      {BRL_CURTO.format(m.valor).replace('R$', '').trim()}
+                    </span>
+                  )}
+                  <div className={cn('w-full max-w-[52px] rounded-t-md transition-all duration-700', perto ? BARRA_FORTE : BARRA_FRACA)}
+                    style={{ height: m.valor > 0 ? `${Math.max(3, (m.valor / maior) * 84)}%` : '0' }} />
                 </div>
-              ))}
-            </div>
-            <div className="flex gap-1.5">
-              {meses.map((m) => <span key={m.mes} className="flex-1 truncate text-center text-[11px] text-muted-foreground">{MES_CURTO(m.mes)}</span>)}
-            </div>
-            {dados.vencidos.qtd > 0 && (
-              <p className="flex shrink-0 items-center gap-1.5 text-[11.5px] text-[hsl(25_90%_27%)] dark:text-orange-300">
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                <span><span className="font-semibold">{dados.vencidos.qtd} já vencido{dados.vencidos.qtd === 1 ? '' : 's'}</span> sem renovação · {BRL_CURTO.format(dados.vencidos.valor)}</span>
-              </p>
-            )}
+              )
+            })}
           </div>
-          {/* A lista transforma o gráfico em ação: cada linha abre o contrato. */}
-          <aside className="flex min-h-0 flex-col gap-1 lg:border-l lg:pl-5">
-            <p className="text-xs font-semibold">Vencem primeiro</p>
-            {dados.proximos.length === 0 ? <p className="text-[11px] text-muted-foreground">Nenhum nos próximos 12 meses.</p> : dados.proximos.map((e) => (
-              <button key={e.id} type="button" onClick={() => onAbrirContrato(e)}
-                className="grid grid-cols-[38px_minmax(0,1fr)_auto] items-baseline gap-2 rounded px-1.5 py-1.5 text-left text-[11.5px] hover:bg-muted">
-                <span className="font-mono text-[10.5px] text-muted-foreground">{dataCurta(e.termino)}</span>
-                <span className="min-w-0">
-                  <span className="block truncate font-semibold">{e.numero}</span>
-                  <span className="block truncate text-[10.5px] text-muted-foreground">{e.contraparte ?? e.titulo}</span>
-                </span>
-                <span className="font-semibold tabular-nums">{BRL_CURTO.format(e.valor)}</span>
-              </button>
-            ))}
-          </aside>
-        </div>
+          <div className="flex gap-1.5">
+            {meses.map((m) => <span key={m.mes} className="min-w-0 flex-1 truncate text-center text-[10.5px] text-muted-foreground">{MES_CURTO(m.mes)}</span>)}
+          </div>
+        </>
       )}
-    </Tile>
+    </section>
   )
 }
 
-/** Concentração: quanto da carteira está nos maiores parceiros (o número), a barra de
- *  100% em três grupos (o "outros" com TEXTURA, não só cor) e, ao lado, o ranking com uma
- *  barra por parceiro — proporcional ao MAIOR, para comparar um com o outro. */
-function CartaoConcentracao({ dados }: { dados?: NonNullable<Summary['carteira']>['concentracao'] }) {
-  if (!dados || dados.total === 0) return (
-    <Tile className="flex flex-1 flex-col gap-2 lg:min-h-0">
-      <CabecalhoCartao icon={<PieIcon className="h-4 w-4" />} label="Concentração por parceiro" />
-      <p className="flex flex-1 items-center justify-center text-center text-[11px] text-muted-foreground">Nenhum contrato em mãos tem parceiro como contraparte.</p>
-    </Tile>
-  )
-  const n = Math.min(3, dados.parceiros.length)
-  const grupoMeio = dados.parceiros.slice(3).reduce((s, p) => s + p.pct, 0)
-  const pctFmt = (v: number) => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`
-  const quem = n === 1 ? 'no maior parceiro' : `nos ${n} maiores parceiros`
-  const valorTop = dados.parceiros.slice(0, 3).reduce((s, p) => s + p.valor, 0)
-  const maiorParceiro = Math.max(1, ...dados.parceiros.map((p) => p.valor))
-  const grupos = [
-    { chave: 'top', pct: dados.top3Pct, rotulo: n === 1 ? 'maior' : `${n} maiores`, cls: 'bg-[#0f7a4c] dark:bg-[#1fa565]' },
-    { chave: 'meio', pct: grupoMeio, rotulo: '4º–5º', cls: BARRA_FRACA },
-    { chave: 'outros', pct: dados.outros.pct, rotulo: `outros ${dados.outros.qtd}`, cls: TEXTURA_OUTROS },
-  ].filter((g) => g.pct > 0)
+/* ─────────────────────────── Sua caixa ───────────────────────────────────── */
+
+/** O que pede ação, na superfície cheia de Lima. As 4 mais urgentes: atrasadas
+ *  primeiro e, depois, pelo prazo; o resto vira "+ N outras" (decisão do PO, 27/10). */
+function CartaoCaixa({ className, tarefas, onAbrirTarefa, onAbrirCaixa }: {
+  className?: string
+  tarefas: Task[]
+  onAbrirTarefa: (t: Task) => void
+  onAbrirCaixa: () => void
+}) {
+  const ordenadas = [...tarefas].sort((a, b) =>
+    (a.dueAt ? new Date(a.dueAt).getTime() : Infinity) - (b.dueAt ? new Date(b.dueAt).getTime() : Infinity))
+  const visiveis = ordenadas.slice(0, 4)
+  const outras = ordenadas.length - visiveis.length
   return (
-    <Tile className="flex flex-1 flex-col gap-3 lg:min-h-0">
-      <CabecalhoCartao icon={<PieIcon className="h-4 w-4" />} label="Concentração por parceiro" />
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-8 lg:grid-cols-2">
-        <div className="flex flex-col gap-4">
-          <div>
-            <p className="text-3xl font-bold leading-none tabular-nums">{pctFmt(dados.top3Pct)}</p>
-            <p className="mt-1.5 text-[12px] text-muted-foreground">
-              da carteira está <span className="font-semibold text-foreground">{quem}</span> · {BRL_CURTO.format(valorTop)} de {BRL_CURTO.format(dados.total)}
-            </p>
-          </div>
-          <div>
-            <div className="flex h-5 gap-0.5 overflow-hidden rounded" role="img"
-              aria-label={`Participação na carteira: ${grupos.map((g) => `${g.rotulo} ${pctFmt(g.pct)}`).join(', ')}`}>
-              {grupos.map((g) => <div key={g.chave} className={g.cls} style={{ width: `${g.pct}%` }} />)}
-            </div>
-            <div className="mt-1 flex gap-0.5 text-[10.5px]">
-              {grupos.map((g) => (
-                <span key={g.chave} className="truncate" style={{ width: `${g.pct}%`, minWidth: '4rem' }}>
-                  <span className="font-semibold">{g.rotulo}</span> <span className="text-muted-foreground">{pctFmt(g.pct)}</span>
-                </span>
-              ))}
-            </div>
-          </div>
-          {dados.semParceiro > 0 && (
-            <p className="text-[11px] text-muted-foreground">
-              {dados.semParceiro} contrato{dados.semParceiro === 1 ? '' : 's'} sem parceiro externo {dados.semParceiro === 1 ? 'fica' : 'ficam'} fora desta conta.
-            </p>
-          )}
-        </div>
-        <ol className="flex min-h-0 flex-col gap-2.5 lg:border-l lg:pl-8" aria-label="Maiores parceiros por valor vigente">
-          {dados.parceiros.map((p, i) => (
-            <li key={p.id} className="flex flex-col gap-1 text-[12px]">
-              <div className="flex items-baseline gap-2">
-                <span className="min-w-0 flex-1 truncate" title={p.nome}><span className="text-muted-foreground">{i + 1} ·</span> {p.nome}</span>
-                <span className="shrink-0 tabular-nums"><span className="font-semibold">{pctFmt(p.pct)}</span> · {BRL_CURTO.format(p.valor)}</span>
-              </div>
-              <div className="h-2 rounded bg-foreground/[0.06]">
-                <div className={cn('h-2 rounded', i < 3 ? 'bg-[#0f7a4c] dark:bg-[#1fa565]' : BARRA_FRACA)} style={{ width: `${(p.valor / maiorParceiro) * 100}%` }} />
-              </div>
-            </li>
-          ))}
-          {dados.outros.qtd > 0 && (
-            <li className="flex items-baseline gap-2 border-t pt-2 text-[12px] text-muted-foreground">
-              <span className="min-w-0 flex-1">outros {dados.outros.qtd} parceiro{dados.outros.qtd === 1 ? '' : 's'}</span>
-              <span className="shrink-0 tabular-nums"><span className="font-semibold text-foreground">{pctFmt(dados.outros.pct)}</span> · {BRL_CURTO.format(dados.outros.valor)}</span>
-            </li>
-          )}
-        </ol>
+    <section className={cn('flex min-w-0 flex-col gap-3 rounded-2xl bg-[#C6F24E] p-5 text-[#0C1410]',
+      'shadow-[0_22px_44px_-26px_rgba(80,110,0,0.55)] dark:shadow-[0_0_48px_-12px_rgba(198,242,78,0.45)]', className)}>
+      <div className="flex items-center justify-between">
+        <h2 className="text-[15px] font-extrabold">Sua caixa</h2>
+        <ListChecks className="h-5 w-5" aria-hidden />
       </div>
-    </Tile>
+      {tarefas.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+          <CheckCircle2 className="h-10 w-10" aria-hidden />
+          <p className="text-sm font-bold">Nada esperando por você</p>
+          <p className="text-xs font-medium text-[#2F3D12]">Quando um processo chegar a você, ele aparece aqui.</p>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-baseline gap-2.5">
+            <span className="font-mono text-[56px] font-bold leading-none tracking-tighter tabular-nums"><CountUp value={tarefas.length} /></span>
+            <span className="text-sm font-bold leading-snug">{tarefas.length === 1 ? 'tarefa espera' : 'tarefas esperam'}<br />por você</span>
+          </div>
+          <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+            {visiveis.map((t) => {
+              const prazo = dueInfo(t.dueAt)
+              const titulo = [t.name || t.nodeId, t.assunto?.titulo].filter(Boolean).join(' · ')
+              return (
+                <li key={t.id}>
+                  <button type="button" onClick={() => onAbrirTarefa(t)} title={titulo}
+                    className="w-full rounded-xl bg-[#0C1410]/[0.08] px-3 py-2.5 text-left transition-colors hover:bg-[#0C1410]/[0.14]">
+                    <span className="block truncate text-[13px] font-bold">{titulo}</span>
+                    <span className={cn('mt-0.5 block text-xs font-bold', prazo.grp === 'crit' ? 'text-[#7A1E10]' : 'text-[#2F3D12]')}>{prazo.label}</span>
+                  </button>
+                </li>
+              )
+            })}
+            {outras > 0 && (
+              <li>
+                <button type="button" onClick={onAbrirCaixa} className="px-1 text-xs font-bold text-[#2F3D12] hover:underline">
+                  + {outras} outra{outras === 1 ? '' : 's'}
+                </button>
+              </li>
+            )}
+          </ul>
+        </>
+      )}
+      <button type="button" onClick={onAbrirCaixa}
+        className="flex h-11 shrink-0 items-center justify-center rounded-xl bg-[#0C1410] text-[13.5px] font-bold text-[#C6F24E] transition-opacity hover:opacity-90">
+        Abrir minhas tarefas
+      </button>
+    </section>
+  )
+}
+
+/* ─────────────────────────── Vencem em breve ─────────────────────────────── */
+
+/** Urgência pelos dias que faltam: até 7 vermelho, até 15 laranja, depois verde. */
+function urgencia(dias: number) {
+  if (dias <= 7) return { barra: 'bg-[#D64535] dark:bg-[#FF8A7A]', texto: 'text-[#B42318] dark:text-[#FF9B8C]' }
+  if (dias <= 15) return { barra: 'bg-[#E8833A] dark:bg-[#F7B37A]', texto: 'text-[#8A5200] dark:text-[#F7B37A]' }
+  return { barra: 'bg-[#159D62] dark:bg-[#3DBE84]', texto: 'text-muted-foreground' }
+}
+
+/** Os 4 que vencem primeiro. A barra é quanto do prazo do contrato já passou (do início
+ *  da vigência ao término vigente) — sem início cadastrado, fica só o trilho. */
+function CartaoVencemEmBreve({ className, dados, onAbrirContrato, onVerTodos }: {
+  className?: string
+  dados?: Vencimentos
+  onAbrirContrato: (e: Proximo) => void
+  onVerTodos: () => void
+}) {
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0)
+  const lista = (dados?.proximos ?? []).slice(0, 4)
+  const totalAno = (dados?.meses ?? []).reduce((s, m) => s + m.qtd, 0)
+  return (
+    <section className={cn(CARTAO, 'gap-1', className)}>
+      <CabecalhoCartao titulo="Vencem em breve">
+        {totalAno > lista.length && <button type="button" onClick={onVerTodos} className={LINK}>Ver os {totalAno}</button>}
+      </CabecalhoCartao>
+      {lista.length === 0 ? (
+        <p className="flex flex-1 items-center justify-center text-center text-xs text-muted-foreground">Nenhum contrato vigente vence nos próximos 12 meses.</p>
+      ) : (
+        <ul className="flex min-h-0 flex-1 flex-col justify-evenly">
+          {lista.map((e) => {
+            const fim = diaLocal(e.termino)
+            const dias = Math.max(0, Math.round((fim - hoje.getTime()) / DIA))
+            const ini = e.inicio ? diaLocal(e.inicio) : null
+            const decorrido = ini != null && fim > ini ? Math.min(100, Math.max(0, ((hoje.getTime() - ini) / (fim - ini)) * 100)) : null
+            const u = urgencia(dias)
+            return (
+              <li key={e.id} className="border-t border-foreground/[0.08] first:border-t-0">
+                <button type="button" onClick={() => onAbrirContrato(e)}
+                  className="-mx-2 flex w-[calc(100%+1rem)] items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-foreground/[0.04]">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-semibold">{e.contraparte ?? e.titulo}</span>
+                    <span className="block truncate text-[11.5px] text-muted-foreground">{[e.numero, e.titulo].filter(Boolean).join(' · ')}</span>
+                  </span>
+                  <span className="h-1.5 w-[22%] shrink-0 rounded-full bg-foreground/[0.08]" role="img"
+                    aria-label={decorrido == null ? 'Início da vigência não informado' : `${Math.round(decorrido)}% do prazo já passou`}>
+                    {decorrido != null && <span className={cn('block h-1.5 rounded-full', u.barra)} style={{ width: `${decorrido}%` }} />}
+                  </span>
+                  <span className={cn('w-[54px] shrink-0 text-right text-xs font-extrabold', u.texto)}>
+                    {dias === 0 ? 'hoje' : `${dias} dia${dias === 1 ? '' : 's'}`}
+                  </span>
+                  <span className="w-[74px] shrink-0 text-right font-mono text-xs tabular-nums">{BRL_CURTO.format(e.valor)}</span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+/* ─────────────────────────── Concentração ────────────────────────────────── */
+
+/* Uma cor por parceiro do top 5, em degraus de claridade; "outros" com TEXTURA
+   listrada — distingue-se por forma, não só por tom. */
+const COR_PARCEIRO = [
+  'bg-[#0C1410] dark:bg-[#C6F24E]',
+  'bg-[#11804F] dark:bg-[#7FE0B0]',
+  'bg-[#3DBE84] dark:bg-[#2E9E6A]',
+  'bg-[#9ED9B8] dark:bg-[#1D5E41]',
+  'bg-[#C6F24E] dark:bg-[#A8B8AE]',
+]
+const TEXTURA_OUTROS = 'bg-[repeating-linear-gradient(135deg,hsl(var(--foreground)/0.22)_0_3px,hsl(var(--foreground)/0.07)_3px_7px)]'
+
+function CartaoConcentracao({ className, dados }: { className?: string; dados?: Concentracao }) {
+  const vazio = !dados || dados.total === 0
+  const n = Math.min(3, dados?.parceiros.length ?? 0)
+  return (
+    <section className={cn(CARTAO, 'gap-3', className)}>
+      <CabecalhoCartao titulo="Concentração">
+        {!vazio && (
+          <span className="text-[12.5px] text-muted-foreground"
+            title={dados.semParceiro > 0 ? `${dados.semParceiro} contrato${dados.semParceiro === 1 ? '' : 's'} sem parceiro externo ${dados.semParceiro === 1 ? 'fica' : 'ficam'} fora desta conta.` : undefined}>
+            {n === 1 ? 'maior' : `top ${n}`} = <b className="font-mono text-foreground">{pctFmt(dados.top3Pct)}</b>
+          </span>
+        )}
+      </CabecalhoCartao>
+      {vazio ? (
+        <p className="flex flex-1 items-center justify-center text-center text-xs text-muted-foreground">Nenhum contrato em mãos tem parceiro como contraparte.</p>
+      ) : (
+        <>
+          <div className="flex h-[22px] shrink-0 gap-[3px] overflow-hidden rounded-lg" role="img"
+            aria-label={`Participação na carteira: ${dados.parceiros.map((p) => `${p.nome} ${pctFmt(p.pct)}`).join(', ')}${dados.outros.qtd ? `, outros ${pctFmt(dados.outros.pct)}` : ''}`}>
+            {dados.parceiros.map((p, i) => <span key={p.id} className={COR_PARCEIRO[i]} style={{ flex: p.pct }} />)}
+            {dados.outros.pct > 0 && <span className={TEXTURA_OUTROS} style={{ flex: dados.outros.pct }} />}
+          </div>
+          <ol className="flex min-h-0 flex-1 flex-col justify-evenly text-[12.5px]" aria-label="Maiores parceiros por valor vigente">
+            {dados.parceiros.map((p, i) => (
+              <li key={p.id} className="flex items-center gap-2">
+                <span className={cn('h-2.5 w-2.5 shrink-0 rounded-[3px]', COR_PARCEIRO[i], i === 4 && 'ring-1 ring-inset ring-black/20 dark:ring-0')} />
+                <span className="min-w-0 flex-1 truncate" title={p.nome}>{p.nome}</span>
+                <span className="font-mono text-[11.5px] text-muted-foreground tabular-nums">{BRL_CURTO.format(p.valor)}</span>
+                <b className="w-10 text-right tabular-nums">{pctFmt(p.pct)}</b>
+              </li>
+            ))}
+            {dados.outros.qtd > 0 && (
+              <li className="flex items-center gap-2 text-muted-foreground">
+                <span className={cn('h-2.5 w-2.5 shrink-0 rounded-[3px]', TEXTURA_OUTROS)} />
+                <span className="min-w-0 flex-1 truncate">Outros {dados.outros.qtd} parceiro{dados.outros.qtd === 1 ? '' : 's'}</span>
+                <span className="font-mono text-[11.5px] tabular-nums">{BRL_CURTO.format(dados.outros.valor)}</span>
+                <b className="w-10 text-right tabular-nums text-foreground">{pctFmt(dados.outros.pct)}</b>
+              </li>
+            )}
+          </ol>
+        </>
+      )}
+    </section>
   )
 }
 
 function DashboardSkeleton() {
   return (
-    <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 animate-pulse">
-      <div className="h-36 rounded-xl bg-muted/60 sm:col-span-2" />
-      <div className="h-36 rounded-xl bg-muted/60 sm:col-span-2" />
-      {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-28 rounded-xl bg-muted/60" />)}
-      <div className="h-44 rounded-xl bg-muted/60 sm:col-span-2" />
-      <div className="h-44 rounded-xl bg-muted/60 sm:col-span-2" />
+    <div className="flex min-h-full flex-col gap-3 animate-pulse">
+      <div className="h-8 w-64 rounded-lg bg-muted/60" />
+      <div className="grid flex-1 grid-cols-1 gap-3 lg:grid-cols-12 lg:grid-rows-[minmax(270px,1fr)_minmax(270px,1fr)]">
+        <div className="h-64 rounded-2xl bg-muted/60 lg:col-span-4 lg:h-auto" />
+        <div className="h-64 rounded-2xl bg-muted/60 lg:col-span-5 lg:h-auto" />
+        <div className="h-64 rounded-2xl bg-muted/60 lg:col-span-3 lg:col-start-10 lg:row-span-2 lg:row-start-1 lg:h-auto" />
+        <div className="h-64 rounded-2xl bg-muted/60 lg:col-span-5 lg:h-auto" />
+        <div className="h-64 rounded-2xl bg-muted/60 lg:col-span-4 lg:h-auto" />
+      </div>
     </div>
   )
 }
