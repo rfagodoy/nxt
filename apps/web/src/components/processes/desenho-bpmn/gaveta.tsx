@@ -50,8 +50,9 @@ export function GavetaLateral({ titulo, rotulo, onFechar, rodape, children, rotu
     }
   }, [])
   return (
-    <aside aria-labelledby={idTitulo} {...{ [ATRIBUTO_GAVETA]: '' }}
-      className="absolute inset-y-0 right-0 z-30 flex w-[440px] max-w-full flex-col border-l border-border bg-card text-card-foreground shadow-[-12px_0_32px_-18px_rgba(12,20,16,0.45)] dark:shadow-[-12px_0_32px_-18px_rgba(0,0,0,0.8)]">
+    /* tabIndex -1: clicar no vazio da gaveta a deixa com o foco — o Esc continua sendo dela */
+    <aside aria-labelledby={idTitulo} tabIndex={-1} {...{ [ATRIBUTO_GAVETA]: '' }}
+      className="absolute inset-y-0 right-0 z-30 flex outline-none w-[440px] max-w-full flex-col border-l border-border bg-card text-card-foreground shadow-[-12px_0_32px_-18px_rgba(12,20,16,0.45)] dark:shadow-[-12px_0_32px_-18px_rgba(0,0,0,0.8)]">
       <header className="flex shrink-0 items-start gap-3 border-b bg-muted/20 px-4 py-3">
         <div className="min-w-0 flex-1">
           {rotuloTom

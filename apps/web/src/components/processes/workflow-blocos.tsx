@@ -1,18 +1,18 @@
 'use client'
 
-/* ─── Editor em BLOCOS ─────────────────────────────────────────────────────────
+/* ─── Blocos do fluxo: criação e configuração ──────────────────────────────────
  *
- * O fluxo é uma SEQUÊNCIA que corre da esquerda para a direita: Início → itens → Fim.
- * Cada item é uma atividade ou um bloco que já nasce completo — "Escolher um caminho"
- * (caminhos com condição + caso contrário) ou "Fazer ao mesmo tempo". Não há seta para
- * ligar à mão: o `+` entre dois itens insere, e os caminhos se reencontram sozinhos na
- * saída do bloco. O grafo que o motor executa é gerado disso (@nxt/workflow-core/blocos).
+ * O fluxo em blocos (@nxt/workflow-core/blocos) é a fonte da autoria: o desenho BPMN é
+ * uma projeção dele. Aqui ficam a criação de itens novos (`novoItem`), os nomes das
+ * atividades para gravar (`comNomes`) e a configuração de uma escolha / "ao mesmo tempo"
+ * que a gaveta lateral do desenho mostra (`ConfiguracaoDoBloco`). O trilho "Montar"
+ * que morava aqui saiu com o desenho BPMN (27/10/2026).
  */
 
-import { createContext, Fragment, useContext, useEffect, useMemo, useRef, useState, type JSX } from 'react'
-import { AlertTriangle, ArrowDown, ArrowUp, Building2, ChevronDown, ChevronsDownUp, ChevronsUpDown, Clock, CornerDownRight, GripVertical, Info, Link2, Map as MapIcon, Play, Plus, SlidersHorizontal, Trash2, User, UserSquare, X, Zap } from 'lucide-react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { AlertTriangle, ArrowDown, ArrowUp, CornerDownRight, Info, Play, Plus, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import {
-  acharItem, adicionarCaminho, atualizarCaminho, atualizarItem, destinosDeVolta, gruposDeVinculo, listarAtividades, modoDaEscolha, moverCaminho, moverItem, removerCaminho, senaoParaCaminho, temSenaoAntigo,
+  acharItem, adicionarCaminho, atualizarCaminho, atualizarItem, destinosDeVolta, modoDaEscolha, moverCaminho, removerCaminho, senaoParaCaminho, temSenaoAntigo,
   type BlocoEscolha, type ModoEscolha, type BlocoParalelo, type CaminhoCondicional, type FimCaminho, type FluxoBlocos,
   type ItemAtividade, type ItemFluxo, type ProblemaAtivacao,
 } from '@nxt/workflow-core'
@@ -24,13 +24,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import type { useScreens } from '@/hooks/use-screens'
 import { FloatingMenu } from '@/components/ui/floating-menu'
 import { CondBuilder } from './condition-builder'
-import { GatewayGlyph, PendenciasPill, ZoomBar, ZOOM_MAX, ZOOM_MIN } from './flow-shared'
+import { GatewayGlyph } from './flow-shared'
 import { cn } from '@/lib/utils'
 
 /* ─── modelo ─────────────────────────────────────────────────────────────────── */
-
-const PREF_EXPANDIR = 'nxt:workflow:expandir-tudo'
-const PREF_MAPA = 'nxt:workflow:mapa-recolhido'
 
 const novoId = (prefixo: string) => `${prefixo}_${Math.random().toString(36).slice(2, 9)}`
 
@@ -101,23 +98,17 @@ function textoFim(fim: FimCaminho, nomeDe: (id: string) => string): string {
   return 'segue'
 }
 
-/* ─── trilho ─────────────────────────────────────────────────────────────────── */
+/* ─── contexto da configuração do bloco ─────────────────────────────────────── */
 
 export type MetaAtividade = { kind: 'exec' | 'entidade' | 'prazo'; text: string }
 /** "Testar": quais caminhos da escolha serviriam com os valores de exemplo (vários no "todos"). */
 export type Simulacao = { blocoId: string; caminhoIds: string[] }
 type Screens = ReturnType<typeof useScreens>['screens']
 
-interface TrilhoProps {
+interface BlocoProps {
   fluxo: FluxoBlocos
   steps: Record<string, StepFormSchema>
-  selectedId: string | null
   simulacao: Simulacao | null
-  metaDe: (id: string) => MetaAtividade[]
-  onAbrir: (id: string | null) => void
-  onInserir: (ref: string, indice: number, tipo: NovoItem) => void
-  /** insere uma atividade VINCULADA a outra já configurada (mesma configuração) */
-  onInserirVinculada: (ref: string, indice: number, origemId: string) => void
   onRemover: (id: string) => void
   onFluxo: (fn: (f: FluxoBlocos) => FluxoBlocos) => void
   /** telas — de onde saem os campos que o filtro de cada caminho pode usar */
@@ -126,298 +117,16 @@ interface TrilhoProps {
   /** abre a configuração de uma atividade (o conserto de "caminho sem campos") */
   onConfigurarAtividade?: (atividadeId: string) => void
 }
-interface TrilhoCtx extends TrilhoProps {
-  /** blocos abertos em gaveta, de fora para dentro */
-  abertos: string[]
-  alternarBloco: (id: string) => void
-  /** tudo aberto no próprio trilho (o desenho antigo) */
-  expandirTudo: boolean
-  /** raiz → atividades vinculadas a ela */
-  vinculos: Map<string, string[]>
-  arrastando: string | null
-  setArrastando: (id: string | null) => void
+interface BlocoCtx extends BlocoProps {
   problemas: Map<string, ProblemaAtivacao[]>
   emParalelo: Set<string>
   nomeDe: (id: string) => string
-  /** Só a CONFIGURAÇÃO do bloco (gaveta lateral do desenho BPMN): as `Sequencia`s
-   *  aninhadas não aparecem — as etapas moram no desenho. */
-  soConfiguracao?: boolean
 }
-const Ctx = createContext<TrilhoCtx | null>(null)
-function useTrilho(): TrilhoCtx {
+const Ctx = createContext<BlocoCtx | null>(null)
+function useTrilho(): BlocoCtx {
   const c = useContext(Ctx)
-  if (!c) throw new Error('useTrilho fora do BlocosTrilho')
+  if (!c) throw new Error('useTrilho fora da ConfiguracaoDoBloco')
   return c
-}
-
-export function BlocosTrilho({ pendencias, pendAberto, onTogglePend, onFocar, ...props }: TrilhoProps & {
-  pendencias: ProblemaAtivacao[]; pendAberto: boolean; onTogglePend: () => void; onFocar: (p: ProblemaAtivacao) => void
-}) {
-  const [arrastando, setArrastando] = useState<string | null>(null)
-  /* Mapa (opção A): blocos recolhidos em cartões; os abertos viram gavetas embaixo. */
-  const [expandirTudo, setExpandirTudoState] = useState(false)
-  useEffect(() => { try { setExpandirTudoState(localStorage.getItem(PREF_EXPANDIR) === '1') } catch { /* sem storage */ } }, [])
-  const setExpandirTudo = (v: boolean) => { setExpandirTudoState(v); try { localStorage.setItem(PREF_EXPANDIR, v ? '1' : '0') } catch { /* sem storage */ } }
-  /* Mapa do fluxo: recolhível (fica por cima do canto do desenho); aberto, o desenho ganha
-     folga à direita para nada ficar preso embaixo dele. */
-  const [mapaRecolhido, setMapaRecolhidoState] = useState(false)
-  useEffect(() => { try { setMapaRecolhidoState(localStorage.getItem(PREF_MAPA) === '1') } catch { /* sem storage */ } }, [])
-  const setMapaRecolhido = (v: boolean) => { setMapaRecolhidoState(v); try { localStorage.setItem(PREF_MAPA, v ? '1' : '0') } catch { /* sem storage */ } }
-  const [mapaVisivel, setMapaVisivel] = useState(false)
-  const [abertosBrutos, setAbertos] = useState<string[]>([])
-  const abertos = useMemo(() => abertosBrutos.filter((id) => { const b = acharItem(props.fluxo, id); return !!b && b.kind !== 'atividade' }), [abertosBrutos, props.fluxo])
-  const alternarBloco = (id: string) => {
-    if (abertos.includes(id)) { setAbertos(abertos.slice(0, abertos.indexOf(id))); return } // recolher não mexe na seleção
-    setAbertos([...blocosAcimaDe(props.fluxo, id), id])
-    props.onAbrir(id)
-  }
-  /* Seleção vinda de FORA (bloco recém-inserido, pendência clicada): abre a gaveta dele —
-     ou a do bloco onde a atividade mora — para ela não ficar escondida num cartão. */
-  useEffect(() => {
-    const id = props.selectedId
-    if (!id) return
-    const it = acharItem(props.fluxo, id)
-    if (!it) return
-    const cadeia = [...blocosAcimaDe(props.fluxo, id), ...(it.kind !== 'atividade' ? [id] : [])]
-    // só ABRE: selecionar algo no trilho principal não fecha as gavetas abertas
-    setAbertos((atual) => (!cadeia.length || cadeia.every((x, i) => atual[i] === x) ? atual : cadeia))
-  }, [props.selectedId]) // eslint-disable-line react-hooks/exhaustive-deps
-  const problemas = useMemo(() => {
-    const m = new Map<string, ProblemaAtivacao[]>()
-    for (const p of pendencias) if (p.nodeId) m.set(p.nodeId, [...(m.get(p.nodeId) ?? []), p])
-    return m
-  }, [pendencias])
-  const emParalelo = useMemo(() => escolhasEmParalelo(props.fluxo), [props.fluxo])
-  const vinculos = useMemo(() => gruposDeVinculo(props.fluxo), [props.fluxo])
-  const nomeDe = (id: string) => props.steps[id]?.stepName?.trim() || 'Atividade sem nome'
-
-  /* Zoom por `zoom` do CSS (e não transform): o trilho reflui no tamanho novo, então a
-     rolagem continua certa sem espaçador medido à mão. */
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const medidaRef = useRef<HTMLDivElement>(null)
-  const [scale, setScale] = useState(1)
-  const [ajustado, setAjustado] = useState(false)
-  const zoom = (s: number) => { setScale(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, s))); setAjustado(false) }
-  const ajustar = () => {
-    const el = scrollRef.current, m = medidaRef.current
-    if (!el || !m) return
-    const w = m.offsetWidth / scale, h = m.offsetHeight / scale
-    if (!w || !h) return
-    setScale(Math.max(ZOOM_MIN, Math.min(1, (el.clientWidth - 16) / w, (el.clientHeight - 16) / h)))
-    setAjustado(true)
-  }
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey && !e.metaKey) return
-      e.preventDefault()
-      setScale((s) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, s * (e.deltaY < 0 ? 1.12 : 1 / 1.12))))
-      setAjustado(false)
-    }
-    el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
-  }, [])
-
-  const irAte = (id: string) => {
-    const it = acharItem(props.fluxo, id)
-    if (it) setAbertos([...blocosAcimaDe(props.fluxo, id), ...(it.kind !== 'atividade' ? [id] : [])])
-    setTimeout(() => scrollRef.current?.querySelector(`[data-item-id="${CSS.escape(id)}"]`)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }), 60)
-  }
-
-  return (
-    <Ctx.Provider value={{ ...props, abertos, alternarBloco, expandirTudo, vinculos, arrastando, setArrastando, problemas, emParalelo, nomeDe }}>
-      <div className="flex-1 min-w-0 min-h-0 relative">
-        <ZoomBar scale={scale} autoFit={ajustado} onZoom={zoom} onFit={ajustar} />
-        <button type="button" onClick={() => { setExpandirTudo(!expandirTudo); setAbertos([]) }}
-          title={expandirTudo ? 'Mostrar os blocos como cartões; cada um abre numa gaveta' : 'Desenhar todos os blocos abertos no trilho'}
-          className="absolute right-3 top-3 z-10 inline-flex h-8 items-center gap-1.5 rounded-lg border bg-card/95 px-2.5 text-[11.5px] font-semibold shadow-sm backdrop-blur hover:bg-muted">
-          {expandirTudo ? <><ChevronsDownUp className="h-3.5 w-3.5" />Recolher blocos</> : <><ChevronsUpDown className="h-3.5 w-3.5" />Expandir tudo</>}
-        </button>
-        <Minimapa scrollRef={scrollRef} versao={`${abertos.join(',')}|${expandirTudo}|${scale}|${props.fluxo.itens.length}`}
-          recolhido={mapaRecolhido} onRecolher={setMapaRecolhido} onVisivel={setMapaVisivel} />
-        <PendenciasPill pendencias={pendencias} aberto={pendAberto} onToggle={onTogglePend} style={{ left: 12 }}
-          onItem={(p) => { if (p.nodeId) irAte(p.nodeId); onFocar(p) }} />
-        {props.fluxo.itens.length === 0 && (
-          <p className="absolute left-1/2 top-6 z-10 -translate-x-1/2 rounded-full border bg-card px-3 py-1 text-[11.5px] text-muted-foreground shadow-sm pointer-events-none">
-            Clique no <span className="font-semibold text-foreground">+</span> para inserir a primeira atividade
-          </p>
-        )}
-        <div ref={scrollRef}
-          className="absolute inset-0 overflow-auto bg-muted/20 [background-image:radial-gradient(circle_at_1px_1px,hsl(var(--border))_1px,transparent_0)] [background-size:24px_24px]"
-          onClick={(e) => {
-            // o clique de uma opção de Select (portal) também chega aqui pela árvore do React
-            if (!e.currentTarget.contains(e.target as Node)) return
-            if (!(e.target as HTMLElement).closest('[data-item-id],[data-trilho-menu]')) props.onAbrir(null)
-          }}>
-          <div className={cn('min-h-full min-w-full w-max flex', abertos.length && !expandirTudo ? 'items-start' : 'items-center')}>
-            <div ref={medidaRef} className="w-max">
-              <div className={cn('flex flex-col gap-6 px-8 pt-14 pb-24', mapaVisivel && !mapaRecolhido && 'pr-[248px] pb-56')} style={{ zoom: scale }}>
-                <div className="flex items-center">
-                  <Evento fim={false} />
-                  <Sequencia refId="raiz" itens={props.fluxo.itens} />
-                  <Evento fim />
-                </div>
-                {!expandirTudo && abertos.map((id) => <Gaveta key={id} id={id} />)}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Ctx.Provider>
-  )
-}
-
-/** Início e fim: mesma notação da raia — anel fino começa, anel grosso termina. */
-function Evento({ fim }: { fim: boolean }) {
-  return (
-    <div className="relative shrink-0 flex flex-col items-center">
-      <span className={cn('block h-8 w-8 rounded-full border-emerald-600 dark:border-emerald-400 bg-emerald-500/10', fim ? 'border-[4px]' : 'border-2')} />
-      <span className="absolute top-full mt-1 whitespace-nowrap text-[10.5px] font-semibold">{fim ? 'Fim' : 'Início'}</span>
-    </div>
-  )
-}
-
-function Sequencia({ refId, itens }: { refId: string; itens: ItemFluxo[] }) {
-  if (itens.length === 0 && refId !== 'raiz') return <Vaga refId={refId} indice={0} vazia />
-  return (
-    <div className="flex items-center">
-      <Vaga refId={refId} indice={0} />
-      {itens.map((it, i) => (
-        <Fragment key={it.id}>
-          <ItemDoTrilho item={it} />
-          <Vaga refId={refId} indice={i + 1} />
-        </Fragment>
-      ))}
-    </div>
-  )
-}
-
-function ItemDoTrilho({ item }: { item: ItemFluxo }) {
-  const t = useTrilho()
-  if (item.kind === 'atividade') return <CartaoAtividade item={item} />
-  if (!t.expandirTudo) return <BlocoResumo bloco={item} />
-  return item.kind === 'escolha' ? <BlocoEscolhaView bloco={item} /> : <BlocoParaleloView bloco={item} />
-}
-
-/** Ligação entre dois itens: a seta do fluxo + o `+` que insere ali. Durante um arrasto,
- *  vira o lugar onde soltar. */
-function Vaga({ refId, indice, vazia }: { refId: string; indice: number; vazia?: boolean }) {
-  const t = useTrilho()
-  const [menu, setMenu] = useState(false)
-  const [sobre, setSobre] = useState(false)
-  const soltavel = t.arrastando !== null
-  const alvo = {
-    onDragOver: (e: React.DragEvent) => { if (!soltavel) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move' },
-    onDragEnter: () => { if (soltavel) setSobre(true) },
-    onDragLeave: (e: React.DragEvent) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setSobre(false) },
-    onDrop: (e: React.DragEvent) => {
-      e.preventDefault(); e.stopPropagation(); setSobre(false)
-      const id = e.dataTransfer.getData('text/plain') || t.arrastando
-      t.setArrastando(null)
-      if (id) t.onFluxo((f) => moverItem(f, id, refId, indice))
-    },
-  }
-  const ancora = useRef<HTMLButtonElement>(null)
-  const abrirMenu = (e: React.MouseEvent) => { e.stopPropagation(); setMenu((v) => !v) }
-  const menuEl = menu && (
-    <MenuInserir ancora={ancora} onClose={() => setMenu(false)}
-      onPick={(tipo) => { setMenu(false); t.onInserir(refId, indice, tipo) }}
-      vinculaveis={listarAtividades(t.fluxo).filter((a) => !a.vinculoDe).map((a) => ({ id: a.id, nome: t.nomeDe(a.id), tipo: a.tipo }))}
-      onVincular={(origemId) => { setMenu(false); t.onInserirVinculada(refId, indice, origemId) }} />
-  )
-
-  if (vazia) {
-    return (
-      <div className="relative shrink-0" data-trilho-menu {...alvo}>
-        <button ref={ancora} type="button" onClick={abrirMenu} aria-expanded={menu}
-          className={cn('h-9 px-3 rounded-lg border border-dashed inline-flex items-center gap-1 text-[11.5px] font-medium transition-colors',
-            sobre ? 'border-primary bg-primary/10 text-primary' : 'border-foreground/25 bg-card/50 text-muted-foreground hover:text-foreground hover:border-foreground/45')}>
-          <Plus className="h-3 w-3" />{soltavel ? 'Soltar aqui' : 'Atividade'}
-        </button>
-        {menuEl}
-      </div>
-    )
-  }
-  return (
-    <div data-trilho-menu {...alvo}
-      className={cn('group/vaga relative h-10 shrink-0 flex items-center justify-center transition-[width]', soltavel ? 'w-16' : 'w-11')}>
-      <span className="absolute left-0 right-1.5 top-1/2 h-[1.5px] -translate-y-1/2 bg-foreground/35" />
-      <span className="absolute right-0 top-1/2 -translate-y-1/2 border-y-[4px] border-y-transparent border-l-[6px] border-l-foreground/35" />
-      {soltavel ? (
-        <span className={cn('relative h-7 w-10 rounded-md border border-dashed', sobre ? 'border-primary bg-primary/15' : 'border-foreground/30 bg-card/70')} />
-      ) : (
-        <button ref={ancora} type="button" onClick={abrirMenu} aria-expanded={menu} title="Inserir aqui" aria-label="Inserir aqui"
-          className={cn('relative h-5 w-5 rounded-full border bg-card flex items-center justify-center text-muted-foreground shadow-sm transition',
-            'hover:border-primary hover:text-primary focus-visible:opacity-100', menu ? 'opacity-100 border-primary text-primary' : 'opacity-70 group-hover/vaga:opacity-100')}>
-          <Plus className="h-3 w-3" />
-        </button>
-      )}
-      {menuEl}
-    </div>
-  )
-}
-
-/** Menu do `+`. Flutua no <body>: dentro do trilho (rolável e com zoom) ele saía
- *  cortado quando o `+` ficava perto da borda — foi o que o PO viu no primeiro `+`. */
-function MenuInserir({ ancora, onPick, onClose, vinculaveis, onVincular }: {
-  ancora: React.RefObject<HTMLElement | null>; onPick: (t: NovoItem) => void; onClose: () => void
-  /** atividades já configuradas que podem ser repetidas aqui (mesma configuração) */
-  vinculaveis: Array<{ id: string; nome: string; tipo: 'userTask' | 'serviceTask' }>
-  onVincular: (origemId: string) => void
-}) {
-  const [repetir, setRepetir] = useState(false)
-  const opcoes: Array<{ tipo: NovoItem; rotulo: string; dica: string; icone: React.ReactNode }> = [
-    { tipo: 'userTask', rotulo: 'Tarefa', dica: 'Uma pessoa executa', icone: <UserSquare className="h-4 w-4 text-sky-600 dark:text-sky-400" /> },
-    { tipo: 'serviceTask', rotulo: 'Ação automática', dica: 'O sistema executa sozinho', icone: <Zap className="h-4 w-4 text-amber-600 dark:text-amber-400" /> },
-    { tipo: 'escolha', rotulo: 'Escolher um caminho', dica: 'Segue por um caminho só, conforme uma condição', icone: <GatewayGlyph kind="exclusive" className="h-4 w-4 text-violet-600 dark:text-violet-400" /> },
-    { tipo: 'paralelo', rotulo: 'Fazer ao mesmo tempo', dica: 'Vários caminhos juntos; segue quando todos terminarem', icone: <GatewayGlyph kind="parallel" className="h-4 w-4 text-rose-600 dark:text-rose-400" /> },
-  ]
-  return (
-    <FloatingMenu anchor={ancora} onClose={onClose} align="center" data-trilho-menu role="menu"
-      className="w-72 rounded-xl border bg-card p-1 text-card-foreground shadow-xl">
-      {repetir ? (
-        <>
-          <button type="button" onClick={(e) => { e.stopPropagation(); setRepetir(false) }}
-            className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11.5px] font-semibold text-muted-foreground hover:bg-accent">
-            <ArrowUp className="h-3 w-3 -rotate-90" />Voltar
-          </button>
-          <p className="px-2 pb-1 text-[10.5px] leading-snug text-muted-foreground">
-            A atividade repetida usa a <span className="font-semibold text-foreground">mesma configuração</span> — mudou numa, muda em todas. Na execução, cada lugar gera a sua tarefa.
-          </p>
-          <div className="max-h-64 overflow-y-auto">
-            {vinculaveis.map((v) => (
-              <button key={v.id} type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); onVincular(v.id) }}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent">
-                {v.tipo === 'serviceTask' ? <Zap className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" /> : <UserSquare className="h-4 w-4 shrink-0 text-sky-600 dark:text-sky-400" />}
-                <span className="truncate text-[12.5px] font-medium">{v.nome}</span>
-              </button>
-            ))}
-          </div>
-        </>
-      ) : opcoes.map((o) => (
-        <button key={o.tipo} type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); onPick(o.tipo) }}
-          className="w-full flex items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent">
-          <span className="mt-0.5 shrink-0">{o.icone}</span>
-          <span className="min-w-0">
-            <span className="block text-[12.5px] font-medium">{o.rotulo}</span>
-            <span className="block text-[10.5px] leading-snug text-muted-foreground">{o.dica}</span>
-          </span>
-        </button>
-      ))}
-      {!repetir && vinculaveis.length > 0 && (
-        <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setRepetir(true) }}
-          className="mt-0.5 flex w-full items-start gap-2 rounded-md border-t px-2 py-1.5 pt-2 text-left hover:bg-accent">
-          <span className="mt-0.5 shrink-0"><Link2 className="h-4 w-4 text-primary" /></span>
-          <span className="min-w-0">
-            <span className="block text-[12.5px] font-medium">Repetir uma atividade já configurada</span>
-            <span className="block text-[10.5px] leading-snug text-muted-foreground">Mesma configuração em outra frente — muda junto</span>
-          </span>
-        </button>
-      )}
-    </FloatingMenu>
-  )
 }
 
 /** Marca de pendência no próprio item. A FORMA diz a gravidade (triângulo impede a
@@ -429,97 +138,6 @@ function MarcaProblema({ id }: { id: string }) {
   return ps.some((p) => p.severidade !== 'aviso')
     ? <span title={texto} aria-label={texto} className="shrink-0 text-amber-500"><AlertTriangle className="h-3.5 w-3.5" /></span>
     : <span title={texto} aria-label={texto} className="shrink-0 text-sky-500"><Info className="h-3.5 w-3.5" /></span>
-}
-
-const META_ICONE = { exec: User, entidade: Building2, prazo: Clock }
-
-function CartaoAtividade({ item }: { item: ItemAtividade }) {
-  const t = useTrilho()
-  const auto = item.tipo === 'serviceTask'
-  const Icone = auto ? Zap : UserSquare
-  const nome = t.steps[item.id]?.stepName?.trim()
-  const raiz = item.vinculoDe ?? item.id
-  const grupo = t.vinculos.get(raiz)
-  const vinculada = !!grupo?.length
-  return (
-    <div data-item-id={item.id} draggable title="Clique para configurar · arraste para mudar de lugar"
-      onDragStart={(e) => { e.stopPropagation(); e.dataTransfer.setData('text/plain', item.id); e.dataTransfer.effectAllowed = 'move'; t.setArrastando(item.id) }}
-      onDragEnd={() => t.setArrastando(null)}
-      onClick={() => t.onAbrir(item.id)}
-      className={cn('group/cartao w-[190px] shrink-0 cursor-pointer overflow-hidden rounded-xl border bg-card shadow-sm transition-shadow hover:shadow-md',
-        t.selectedId === item.id && 'ring-2 ring-primary', t.arrastando === item.id && 'opacity-40')}>
-      <div className={cn('h-1', auto ? 'bg-amber-500/70' : 'bg-sky-500/70')} />
-      <div className="p-2.5">
-        <div className="flex items-center gap-1.5">
-          <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center rounded-md',
-            auto ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' : 'bg-sky-500/10 text-sky-600 dark:text-sky-400')}>
-            <Icone className="h-3 w-3" />
-          </span>
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{auto ? 'Ação automática' : 'Tarefa'}</span>
-          {vinculada && (
-            <span title={`Mesma configuração em ${grupo!.length + 1} lugares — mudou numa, muda em todas`}
-              className="inline-flex items-center gap-0.5 rounded-full bg-primary/10 px-1.5 py-px text-[9.5px] font-semibold text-primary">
-              <Link2 className="h-2.5 w-2.5" />{grupo!.length + 1}×
-            </span>
-          )}
-          <span className="ml-auto flex items-center gap-0.5">
-            <MarcaProblema id={item.id} />
-            <button type="button" title="Remover atividade" aria-label="Remover atividade"
-              onClick={(e) => { e.stopPropagation(); t.onRemover(item.id) }}
-              className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground opacity-0 transition-opacity group-hover/cartao:opacity-100 focus-visible:opacity-100 hover:bg-destructive/10 hover:text-destructive">
-              <Trash2 className="h-3 w-3" />
-            </button>
-          </span>
-        </div>
-        <p className="mt-1.5 line-clamp-2 text-[12.5px] font-semibold leading-tight">
-          {nome || <span className="font-normal italic text-muted-foreground">Sem nome</span>}
-        </p>
-        {(() => {
-          const meta = t.metaDe(item.id)
-          if (!meta.length) return null
-          return (
-            <div className="mt-1.5 space-y-0.5">
-              {meta.map((m, i) => {
-                const I = m.kind === 'exec' && auto ? Zap : META_ICONE[m.kind]
-                return (
-                  <div key={i} className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-                    <I className="h-3 w-3 shrink-0" /><span className="truncate">{m.text}</span>
-                  </div>
-                )
-              })}
-            </div>
-          )
-        })()}
-      </div>
-    </div>
-  )
-}
-
-/** Arrasto de bloco só pela ALÇA: o bloco inteiro arrastável roubaria a seleção de texto
- *  do nome e o clique dos menus que moram dentro dele. */
-function useArrastoPelaAlca(id: string) {
-  const t = useTrilho()
-  const [armado, setArmado] = useState(false)
-  useEffect(() => {
-    if (!armado) return
-    const desarmar = () => setArmado(false)
-    window.addEventListener('pointerup', desarmar)
-    return () => window.removeEventListener('pointerup', desarmar)
-  }, [armado])
-  return {
-    alca: {
-      onPointerDown: () => setArmado(true),
-      onClick: (e: React.MouseEvent) => e.stopPropagation(),
-      title: 'Arraste para mudar o bloco de lugar',
-    },
-    bloco: {
-      draggable: armado,
-      onDragStart: (e: React.DragEvent) => {
-        e.stopPropagation(); e.dataTransfer.setData('text/plain', id); e.dataTransfer.effectAllowed = 'move'; t.setArrastando(id)
-      },
-      onDragEnd: () => { setArmado(false); t.setArrastando(null) },
-    },
-  }
 }
 
 function BotaoIcone({ title, onClick, perigo, disabled, children }: { title: string; onClick: () => void; perigo?: boolean; disabled?: boolean; children: React.ReactNode }) {
@@ -711,8 +329,6 @@ function TestarEscolha({ bloco }: { bloco: BlocoEscolha }) {
 
 function BlocoEscolhaView({ bloco }: { bloco: BlocoEscolha }) {
   const t = useTrilho()
-  const { alca, bloco: arrasto } = useArrastoPelaAlca(bloco.id)
-  const so = !!t.soConfiguracao
   const dentroParalelo = t.emParalelo.has(bloco.id)
   const todos = modoDaEscolha(bloco) === 'todos'
   const ordemConta = !todos && bloco.caminhos.length > 1
@@ -721,21 +337,17 @@ function BlocoEscolhaView({ bloco }: { bloco: BlocoEscolha }) {
   const senao = bloco.casoContrario
   const senaoAntigo = temSenaoAntigo(bloco)
   return (
-    <section {...(so ? {} : { 'data-item-id': bloco.id, ...arrasto })} aria-label="Escolher um caminho"
-      className={cn('flex flex-col rounded-2xl border-[1.5px] border-violet-500/55 bg-card shadow-sm', so ? 'w-full' : 'shrink-0',
-        !so && t.selectedId === bloco.id && 'ring-2 ring-primary', t.arrastando === bloco.id && 'opacity-40')}>
-      <header onClick={so ? undefined : () => t.onAbrir(bloco.id)}
-        className={cn('flex flex-wrap items-center gap-x-2 gap-y-1 rounded-t-2xl border-b bg-violet-500/[0.07] px-2 py-1.5', !so && 'cursor-pointer')}>
-        {!so && <span {...alca} className="cursor-grab text-muted-foreground/70 hover:text-foreground"><GripVertical className="h-3.5 w-3.5" /></span>}
+    <section aria-label="Escolher um caminho" className="flex w-full flex-col rounded-2xl border-[1.5px] border-violet-500/55 bg-card shadow-sm">
+      <header className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-t-2xl border-b bg-violet-500/[0.07] px-2 py-1.5">
         <GatewayGlyph kind="exclusive" className="h-4 w-4 shrink-0 text-violet-600 dark:text-violet-400" />
-        <div className={cn('min-w-0', so && 'flex-1')}>
+        <div className="min-w-0 flex-1">
           <span className="block text-[9.5px] font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300">{todos ? 'Escolher caminhos' : 'Escolher um caminho'}</span>
           <input value={bloco.pergunta ?? ''} placeholder="Qual é a pergunta?" aria-label="Pergunta da escolha"
             onClick={(e) => e.stopPropagation()}
             onChange={(e) => { const pergunta = e.target.value; t.onFluxo((f) => atualizarItem(f, bloco.id, { pergunta })) }}
-            className={cn('block bg-transparent text-[12.5px] font-semibold leading-tight outline-none placeholder:font-normal placeholder:italic placeholder:text-muted-foreground focus:underline focus:decoration-dotted', so ? 'w-full' : 'w-[300px]')} />
+            className={cn('block bg-transparent text-[12.5px] font-semibold leading-tight outline-none placeholder:font-normal placeholder:italic placeholder:text-muted-foreground focus:underline focus:decoration-dotted w-full')} />
         </div>
-        <div className={cn('flex items-center gap-1.5 text-[11px] text-muted-foreground', so ? 'order-last basis-full pl-6' : 'pl-2')} onClick={(e) => e.stopPropagation()}>
+        <div className="order-last flex basis-full items-center gap-1.5 pl-6 text-[11px] text-muted-foreground">
           <span>Se mais de um servir:</span>
           <Select value={todos ? 'todos' : 'primeiro'} onValueChange={(v) => t.onFluxo((f) => atualizarItem(f, bloco.id, { modo: v as ModoEscolha }))}>
             <SelectTrigger className="h-6 w-[175px] whitespace-nowrap text-[11px]" aria-label="Quando mais de um filtro servir"><SelectValue /></SelectTrigger>
@@ -756,16 +368,14 @@ function BlocoEscolhaView({ bloco }: { bloco: BlocoEscolha }) {
         {bloco.caminhos.map((c, i) => {
           const { acesa, apagada } = luz(c.id)
           return (
-            <div key={c.id} className={cn('flex items-center gap-1.5 rounded-lg bg-muted/45 px-2 py-1 transition-opacity', so && 'flex-wrap py-1.5', acesa && 'bg-primary/5 ring-2 ring-primary', apagada && 'opacity-40')}>
+            <div key={c.id} className={cn('flex flex-wrap items-center gap-1.5 rounded-lg bg-muted/45 px-2 py-1.5 transition-opacity', acesa && 'bg-primary/5 ring-2 ring-primary', apagada && 'opacity-40')}>
               <span className="shrink-0 text-[11.5px] font-bold text-violet-700 dark:text-violet-300">Se</span>
               <CondicaoNaFrase bloco={bloco} caminho={c} indice={i} />
               <span className="shrink-0 text-[11.5px] font-semibold">então</span>
               {acesa && <span className="shrink-0 text-[10.5px] font-bold text-primary">✓ por aqui</span>}
-              {so
-                /* as etapas do caminho estão no desenho: aqui só o resumo delas */
-                ? <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground" title={resumoItens(c.itens, t.nomeDe)}>{resumoItens(c.itens, t.nomeDe)}</span>
-                : <div className="flex min-w-0 flex-1 items-center"><Sequencia refId={c.id} itens={c.itens} /></div>}
-              <div className={cn('flex shrink-0 items-center gap-1 pl-1', so && 'ml-auto')}>
+              {/* as etapas do caminho estão no desenho: aqui só o resumo delas */}
+              <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground" title={resumoItens(c.itens, t.nomeDe)}>{resumoItens(c.itens, t.nomeDe)}</span>
+              <div className="ml-auto flex shrink-0 items-center gap-1 pl-1">
                 <span className="text-[11px] text-muted-foreground">e depois</span>
                 {todos || dentroParalelo
                   /* em "todos" (e dentro de um paralelo) um caminho com filtro só segue */
@@ -773,7 +383,7 @@ function BlocoEscolhaView({ bloco }: { bloco: BlocoEscolha }) {
                       ? <span className="text-[11px] font-semibold">segue</span>
                       : <FimSelect fluxo={t.fluxo} escolhaId={bloco.id} caminhoId={c.id} fim={c.fim} nomeDe={t.nomeDe} onFluxo={t.onFluxo} soSegue />)
                   : <FimSelect fluxo={t.fluxo} escolhaId={bloco.id} caminhoId={c.id} fim={c.fim} nomeDe={t.nomeDe} onFluxo={t.onFluxo} />}
-                {so && ordemConta && (<>
+                {ordemConta && (<>
                   {/* no "primeiro que servir" a ORDEM decide: vence o primeiro verdadeiro */}
                   <BotaoIcone title="Testar este caminho antes do anterior" disabled={i === 0} onClick={() => t.onFluxo((f) => moverCaminho(f, bloco.id, c.id, -1))}><ArrowUp className="h-3.5 w-3.5" /></BotaoIcone>
                   <BotaoIcone title="Testar este caminho depois do seguinte" disabled={i === bloco.caminhos.length - 1} onClick={() => t.onFluxo((f) => moverCaminho(f, bloco.id, c.id, 1))}><ArrowDown className="h-3.5 w-3.5" /></BotaoIcone>
@@ -803,7 +413,7 @@ function BlocoEscolhaView({ bloco }: { bloco: BlocoEscolha }) {
         )}
       </div>
 
-      <footer className={cn('flex items-center gap-3 border-t px-2.5 py-1.5', so && 'flex-wrap gap-y-1')}>
+      <footer className="flex flex-wrap items-center gap-3 gap-y-1 border-t px-2.5 py-1.5">
         <button type="button" onClick={() => { const id = novoId('Caminho'); t.onFluxo((f) => adicionarCaminho(f, bloco.id, id)) }}
           className="inline-flex shrink-0 items-center gap-1 text-[11.5px] font-semibold text-violet-700 hover:underline dark:text-violet-300">
           <Plus className="h-3 w-3" />outra condição
@@ -819,22 +429,16 @@ function BlocoEscolhaView({ bloco }: { bloco: BlocoEscolha }) {
 
 function BlocoParaleloView({ bloco }: { bloco: BlocoParalelo }) {
   const t = useTrilho()
-  const { alca, bloco: arrasto } = useArrastoPelaAlca(bloco.id)
-  const so = !!t.soConfiguracao
   return (
-    <section {...(so ? {} : { 'data-item-id': bloco.id, ...arrasto })} aria-label="Fazer ao mesmo tempo"
-      className={cn('flex flex-col rounded-2xl border-[1.5px] border-rose-500/55 bg-card shadow-sm', so ? 'w-full' : 'shrink-0',
-        !so && t.selectedId === bloco.id && 'ring-2 ring-primary', t.arrastando === bloco.id && 'opacity-40')}>
-      <header onClick={so ? undefined : () => t.onAbrir(bloco.id)}
-        className={cn('flex items-center gap-2 rounded-t-2xl border-b bg-rose-500/[0.07] px-2 py-1.5', !so && 'cursor-pointer')}>
-        {!so && <span {...alca} className="cursor-grab text-muted-foreground/70 hover:text-foreground"><GripVertical className="h-3.5 w-3.5" /></span>}
+    <section aria-label="Fazer ao mesmo tempo" className="flex w-full flex-col rounded-2xl border-[1.5px] border-rose-500/55 bg-card shadow-sm">
+      <header className="flex items-center gap-2 rounded-t-2xl border-b bg-rose-500/[0.07] px-2 py-1.5">
         <GatewayGlyph kind="parallel" className="h-4 w-4 shrink-0 text-rose-600 dark:text-rose-400" />
-        <div className={cn('min-w-0', so && 'flex-1')}>
+        <div className="min-w-0 flex-1">
           <span className="block text-[9.5px] font-bold uppercase tracking-wider text-rose-700 dark:text-rose-300">Fazer ao mesmo tempo</span>
           <input value={bloco.nome ?? ''} placeholder="Dê um nome (ex.: Pareceres)" aria-label="Nome do bloco"
             onClick={(e) => e.stopPropagation()}
             onChange={(e) => { const nome = e.target.value; t.onFluxo((f) => atualizarItem(f, bloco.id, { nome })) }}
-            className={cn('block bg-transparent text-[12.5px] font-semibold leading-tight outline-none placeholder:font-normal placeholder:italic placeholder:text-muted-foreground focus:underline focus:decoration-dotted', so ? 'w-full' : 'w-[220px]')} />
+            className={cn('block bg-transparent text-[12.5px] font-semibold leading-tight outline-none placeholder:font-normal placeholder:italic placeholder:text-muted-foreground focus:underline focus:decoration-dotted w-full')} />
         </div>
         <span className="ml-auto flex items-center gap-0.5 pl-3">
           <MarcaProblema id={bloco.id} />
@@ -847,9 +451,7 @@ function BlocoParaleloView({ bloco }: { bloco: BlocoParalelo }) {
         {bloco.caminhos.map((c, i) => (
           <div key={c.id} className="flex items-center gap-1.5 rounded-lg bg-muted/45 px-2 py-1">
             <span className="w-[64px] shrink-0 text-[11px] font-semibold text-muted-foreground">{i === 0 ? 'Frente 1' : `e frente ${i + 1}`}</span>
-            {so
-              ? <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground" title={resumoItens(c.itens, t.nomeDe)}>{resumoItens(c.itens, t.nomeDe)}</span>
-              : <div className="flex min-w-0 flex-1 items-center"><Sequencia refId={c.id} itens={c.itens} /></div>}
+            <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground" title={resumoItens(c.itens, t.nomeDe)}>{resumoItens(c.itens, t.nomeDe)}</span>
             {bloco.caminhos.length > 1 && (
               <BotaoIcone title="Remover esta frente" perigo onClick={() => t.onFluxo((f) => removerCaminho(f, bloco.id, c.id))}><X className="h-3.5 w-3.5" /></BotaoIcone>
             )}
@@ -900,15 +502,13 @@ function FimSelect({ fluxo, escolhaId, caminhoId, fim, nomeDe, onFluxo, soSegue 
 }
 
 /* ─── configuração do bloco na gaveta lateral (desenho BPMN) ─────────────────────
-   As MESMAS vistas do trilho (BlocoEscolhaView / BlocoParaleloView) sob o mesmo Ctx,
-   com `soConfiguracao`: sem as Sequencias aninhadas (as etapas estão no desenho), sem
-   arrasto e na largura da gaveta. Escolha: pergunta, modo "todos / só o primeiro",
+   O trilho "Montar" saiu (as etapas moram no desenho): as vistas de bloco ficaram só
+   com a configuração, na largura da gaveta. Escolha: pergunta, modo "todos / só o primeiro",
    caminhos com condição, fim, Testar, adicionar/remover/mover caminho. Paralelo: nome
    e frentes. Renomear e remover o bloco moram no cabeçalho da própria vista. */
 
-export function ConfiguracaoDoBloco({ blocoId, ...props }: TrilhoProps & { blocoId: string }): JSX.Element {
+export function ConfiguracaoDoBloco({ blocoId, ...props }: BlocoProps & { blocoId: string }): JSX.Element {
   const emParalelo = useMemo(() => escolhasEmParalelo(props.fluxo), [props.fluxo])
-  const vinculos = useMemo(() => gruposDeVinculo(props.fluxo), [props.fluxo])
   const problemas = useMemo(() => new Map<string, ProblemaAtivacao[]>(), [])
   const nomeDe = (id: string) => props.steps[id]?.stepName?.trim() || 'Atividade sem nome'
   const b = acharItem(props.fluxo, blocoId)
@@ -916,10 +516,7 @@ export function ConfiguracaoDoBloco({ blocoId, ...props }: TrilhoProps & { bloco
     return <p className="p-4 text-xs text-muted-foreground">Este bloco não existe mais no fluxo.</p>
   }
   return (
-    <Ctx.Provider value={{
-      ...props, abertos: [], alternarBloco: () => {}, expandirTudo: false, vinculos,
-      arrastando: null, setArrastando: () => {}, problemas, emParalelo, nomeDe, soConfiguracao: true,
-    }}>
+    <Ctx.Provider value={{ ...props, problemas, emParalelo, nomeDe }}>
       <div className="flex flex-col gap-3 p-4">
         {b.kind === 'escolha' ? <BlocoEscolhaView bloco={b} /> : <BlocoParaleloView bloco={b} />}
         <p className="text-[11px] leading-snug text-muted-foreground">
@@ -932,247 +529,3 @@ export function ConfiguracaoDoBloco({ blocoId, ...props }: TrilhoProps & { bloco
   )
 }
 
-/* ─── painel lateral de um bloco ─────────────────────────────────────────────── */
-
-export function BlocoInspector({ bloco, nomeDe, onRenomear, onRemove }: {
-  bloco: BlocoEscolha | BlocoParalelo
-  nomeDe: (id: string) => string
-  onRenomear: (nome: string) => void
-  onRemove: () => void
-}) {
-  const escolha = bloco.kind === 'escolha'
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center justify-between border-b px-4 py-3">
-        <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold',
-          escolha ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400')}>
-          <GatewayGlyph kind={escolha ? 'exclusive' : 'parallel'} className="h-3 w-3" />{escolha ? (bloco.kind === 'escolha' && modoDaEscolha(bloco) === 'todos' ? 'Escolher caminhos' : 'Escolher um caminho') : 'Fazer ao mesmo tempo'}
-        </span>
-        <button onClick={onRemove} title="Remover o bloco" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
-      </div>
-      <div className="flex-1 space-y-3 overflow-y-auto p-4">
-        {bloco.kind === 'escolha' ? (
-          <>
-            <h3 className="text-sm font-semibold leading-snug">{bloco.pergunta?.trim() || 'Escolha sem pergunta'}</h3>
-            <dl className="divide-y rounded-md border bg-muted/20">
-              {bloco.caminhos.map((c) => (
-                <div key={c.id} className="px-2.5 py-1.5">
-                  <dt className="truncate text-[10.5px] text-muted-foreground">{c.rotulo?.trim() || c.condition?.trim() || '— sem condição'}</dt>
-                  <dd className="truncate text-[11px] font-medium">{resumoItens(c.itens, nomeDe)} · {textoFim(c.fim, nomeDe)}</dd>
-                </div>
-              ))}
-              {/* Mesma regra do rodapé do bloco: sem Senão, nenhum filtro serviu = o processo para.
-                  Um Senão antigo ainda aparece, marcado como descontinuado. */}
-              <div className="px-2.5 py-1.5">
-                <dt className="text-[10.5px] text-muted-foreground">Se nenhum servir</dt>
-                {temSenaoAntigo(bloco) ? (
-                  <dd className="text-[11px] font-medium text-amber-800 dark:text-amber-300">
-                    <AlertTriangle className="mr-1 inline h-3 w-3 align-[-2px]" />“Senão” antigo (descontinuado): {resumoItens(bloco.casoContrario.itens, nomeDe)} · {textoFim(bloco.casoContrario.fim, nomeDe)}
-                  </dd>
-                ) : (
-                  <dd className="text-[11px] font-medium">o processo para e avisa</dd>
-                )}
-              </div>
-            </dl>
-            <p className="text-[11px] leading-snug text-muted-foreground">
-              Configure direto no desenho: clique na <span className="font-medium">condição</span> de um caminho para montar o filtro,
-              e use <span className="font-medium">Testar</span> para ver por onde o processo seguiria.
-            </p>
-          </>
-        ) : (
-          <>
-            <div>
-              <label htmlFor="paralelo-nome" className="mb-1.5 block text-xs font-medium">Nome do bloco</label>
-              <Input id="paralelo-nome" className="h-8 text-sm" placeholder="Ex.: Pareceres" value={bloco.nome ?? ''} onChange={(e) => onRenomear(e.target.value)} />
-            </div>
-            <p className="text-[11px] leading-snug text-muted-foreground">
-              As {bloco.caminhos.length} frentes começam juntas, e o processo só segue quando todas terminarem.
-              Use o <span className="font-medium">+</span> dentro de cada caminho para inserir atividades.
-            </p>
-          </>
-        )}
-      </div>
-    </div>
-  )
-}
-
-/* ─── MAPA: blocos que recolhem (opção A do PO, 04/10/2026) ──────────────────────
-   Em workflow grande, escolhas e "ao mesmo tempo" dentro de outros viravam uma parede
-   horizontal. Agora cada bloco aparece no trilho como um CARTÃO-RESUMO; clicar abre o
-   bloco numa GAVETA logo abaixo do trilho (um bloco dentro dele abre a gaveta seguinte),
-   sem empurrar o resto para os lados. "Expandir tudo" volta a desenhar tudo aberto. */
-
-/** Blocos que contêm `id`, de fora para dentro (o próprio id não entra). */
-function blocosAcimaDe(f: FluxoBlocos, id: string): string[] {
-  let achado: string[] | null = null
-  const visitar = (itens: ItemFluxo[], acima: string[]) => {
-    for (const it of itens) {
-      if (achado) return
-      if (it.id === id) { achado = acima; return }
-      if (it.kind === 'escolha') {
-        for (const c of [...it.caminhos, it.casoContrario]) { if (c.id === id) { achado = [...acima, it.id]; return } visitar(c.itens, [...acima, it.id]) }
-      } else if (it.kind === 'paralelo') {
-        for (const c of it.caminhos) { if (c.id === id) { achado = [...acima, it.id]; return } visitar(c.itens, [...acima, it.id]) }
-      }
-    }
-  }
-  visitar(f.itens, [])
-  return achado ?? []
-}
-
-/** Tudo que mora dentro de um bloco (ids de atividades e blocos), para somar pendências. */
-function idsDentro(b: BlocoEscolha | BlocoParalelo): string[] {
-  const out: string[] = []
-  const visitar = (itens: ItemFluxo[]) => {
-    for (const it of itens) {
-      out.push(it.id)
-      if (it.kind === 'escolha') [...it.caminhos, it.casoContrario].forEach((c) => visitar(c.itens))
-      else if (it.kind === 'paralelo') it.caminhos.forEach((c) => visitar(c.itens))
-    }
-  }
-  const caminhos: Array<{ itens: ItemFluxo[] }> = b.kind === 'escolha' ? [...b.caminhos, b.casoContrario] : b.caminhos
-  caminhos.forEach((c) => visitar(c.itens))
-  return out
-}
-
-const nomeDoBloco = (b: BlocoEscolha | BlocoParalelo) =>
-  (b.kind === 'escolha' ? b.pergunta?.trim() : b.nome?.trim()) || (b.kind === 'escolha' ? 'Escolha sem pergunta' : 'Bloco sem nome')
-
-/** O bloco recolhido: o que ele é, quanto há dentro e se há pendência — num cartão do
- *  tamanho de uma atividade. Clicar abre (ou fecha) a gaveta dele. */
-function BlocoResumo({ bloco }: { bloco: BlocoEscolha | BlocoParalelo }) {
-  const t = useTrilho()
-  const escolha = bloco.kind === 'escolha'
-  const aberto = t.abertos.includes(bloco.id)
-  const caminhos = escolha ? bloco.caminhos.length : bloco.caminhos.length
-  const dentro = idsDentro(bloco)
-  const atividades = atividadesDentro(escolha ? [...bloco.caminhos, bloco.casoContrario].flatMap((c) => c.itens) : bloco.caminhos.flatMap((c) => c.itens)).length
-  const blocos = dentro.length - atividades
-  const pend = [bloco.id, ...dentro].reduce((n, id) => n + (t.problemas.get(id)?.filter((p) => p.severidade !== 'aviso').length ?? 0), 0)
-  const resumo = [
-    `${caminhos} ${escolha ? (caminhos === 1 ? 'caminho' : 'caminhos') : (caminhos === 1 ? 'frente' : 'frentes')}`,
-    `${atividades} ${atividades === 1 ? 'atividade' : 'atividades'}`,
-    ...(blocos > 0 ? [`${blocos} ${blocos === 1 ? 'bloco' : 'blocos'} dentro`] : []),
-  ].join(' · ')
-  return (
-    <button type="button" data-item-id={bloco.id} draggable aria-expanded={aberto}
-      title={aberto ? 'Clique para recolher · arraste para mudar de lugar' : 'Clique para abrir · arraste para mudar de lugar'}
-      onDragStart={(e) => { e.stopPropagation(); e.dataTransfer.setData('text/plain', bloco.id); e.dataTransfer.effectAllowed = 'move'; t.setArrastando(bloco.id) }}
-      onDragEnd={() => t.setArrastando(null)}
-      onClick={(e) => { e.stopPropagation(); t.alternarBloco(bloco.id) }}
-      className={cn('w-[230px] shrink-0 rounded-xl border-[1.5px] bg-card p-2.5 text-left shadow-sm transition-shadow hover:shadow-md',
-        escolha ? 'border-violet-500/55' : 'border-rose-500/55',
-        aberto && (escolha ? 'bg-violet-500/[0.06] ring-2 ring-violet-500/40' : 'bg-rose-500/[0.06] ring-2 ring-rose-500/40'),
-        t.selectedId === bloco.id && !aberto && 'ring-2 ring-primary', t.arrastando === bloco.id && 'opacity-40')}>
-      <span className="flex items-center gap-1.5">
-        <GatewayGlyph kind={escolha ? 'exclusive' : 'parallel'} className={cn('h-3.5 w-3.5 shrink-0', escolha ? 'text-violet-600 dark:text-violet-400' : 'text-rose-600 dark:text-rose-400')} />
-        <span className={cn('text-[9.5px] font-bold uppercase tracking-wider', escolha ? 'text-violet-700 dark:text-violet-300' : 'text-rose-700 dark:text-rose-300')}>
-          {escolha ? (bloco.kind === 'escolha' && modoDaEscolha(bloco) === 'todos' ? 'Escolher caminhos' : 'Escolher um caminho') : 'Ao mesmo tempo'}
-        </span>
-        <ChevronDown className={cn('ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', !aberto && '-rotate-90')} aria-hidden />
-      </span>
-      <span className="mt-1 line-clamp-2 block text-[12.5px] font-semibold leading-tight">{nomeDoBloco(bloco)}</span>
-      <span className="mt-1 block text-[11px] text-muted-foreground">{resumo}</span>
-      {pend > 0 && (
-        <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-800 dark:text-amber-300">
-          <AlertTriangle className="h-3 w-3" />{pend} {pend === 1 ? 'pendência' : 'pendências'}
-        </span>
-      )}
-    </button>
-  )
-}
-
-/** Gaveta: o bloco aberto, por inteiro, embaixo do trilho — com a trilha de onde ele mora. */
-function Gaveta({ id }: { id: string }) {
-  const t = useTrilho()
-  const b = acharItem(t.fluxo, id)
-  if (!b || b.kind === 'atividade') return null
-  const acima = blocosAcimaDe(t.fluxo, id).map((x) => acharItem(t.fluxo, x)).filter((x): x is BlocoEscolha | BlocoParalelo => !!x && x.kind !== 'atividade')
-  return (
-    <div className="w-max min-w-[640px]">
-      <div className="mb-1.5 flex items-center gap-1.5 px-1 text-[11px] text-muted-foreground">
-        <span>Fluxo</span>
-        {acima.map((a) => <Fragment key={a.id}><span aria-hidden>›</span><span className="max-w-[220px] truncate">{nomeDoBloco(a)}</span></Fragment>)}
-        <span aria-hidden>›</span><span className="max-w-[260px] truncate font-semibold text-foreground">{nomeDoBloco(b)}</span>
-        <button type="button" onClick={() => t.alternarBloco(id)}
-          className="ml-2 inline-flex items-center gap-1 rounded-md border bg-card px-2 py-0.5 font-semibold text-foreground hover:bg-muted">
-          <ChevronDown className="h-3 w-3 rotate-180" />Recolher
-        </button>
-      </div>
-      {b.kind === 'escolha' ? <BlocoEscolhaView bloco={b} /> : <BlocoParaleloView bloco={b} />}
-    </div>
-  )
-}
-
-/** Minimapa: o desenho inteiro em miniatura com a janela visível; clicar ou arrastar navega.
- *  Só aparece quando o desenho é maior que a tela. */
-function Minimapa({ scrollRef, versao, recolhido, onRecolher, onVisivel }: {
-  scrollRef: React.RefObject<HTMLDivElement | null>; versao: unknown
-  recolhido: boolean; onRecolher: (v: boolean) => void; onVisivel: (v: boolean) => void
-}) {
-  const [m, setM] = useState<{ W: number; H: number; vx: number; vy: number; vw: number; vh: number; itens: Array<{ x: number; y: number; w: number; h: number; tipo: string }> } | null>(null)
-  const LARG = 200
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    const medir = () => {
-      const base = el.getBoundingClientRect()
-      const itens = [...el.querySelectorAll<HTMLElement>('[data-item-id]')].map((n) => {
-        const r = n.getBoundingClientRect()
-        return { x: r.left - base.left + el.scrollLeft, y: r.top - base.top + el.scrollTop, w: r.width, h: r.height, tipo: n.getAttribute('aria-label') ?? (n.tagName === 'BUTTON' ? 'bloco' : 'atividade') }
-      })
-      setM({ W: el.scrollWidth, H: el.scrollHeight, vx: el.scrollLeft, vy: el.scrollTop, vw: el.clientWidth, vh: el.clientHeight, itens })
-    }
-    medir()
-    el.addEventListener('scroll', medir, { passive: true })
-    const ro = new ResizeObserver(medir)
-    ro.observe(el)
-    if (el.firstElementChild) ro.observe(el.firstElementChild)
-    return () => { el.removeEventListener('scroll', medir); ro.disconnect() }
-  }, [scrollRef, versao])
-  const visivel = !!m && (m.W > m.vw * 1.05 || m.H > m.vh * 1.05)
-  useEffect(() => { onVisivel(visivel) }, [visivel, onVisivel])
-  if (!m || !visivel) return null
-  if (recolhido) {
-    return (
-      <button type="button" onClick={() => onRecolher(false)} title="Mostrar o mapa do fluxo"
-        className="absolute bottom-16 right-3 z-10 inline-flex h-8 items-center gap-1.5 rounded-lg border bg-card/95 px-2.5 text-[11.5px] font-semibold shadow-sm backdrop-blur hover:bg-muted">
-        <MapIcon className="h-3.5 w-3.5" />Mapa
-      </button>
-    )
-  }
-  const s = LARG / m.W
-  const alt = Math.max(40, Math.min(140, m.H * s))
-  const sy = alt / m.H
-  const irPara = (e: React.PointerEvent<HTMLDivElement>) => {
-    const r = e.currentTarget.getBoundingClientRect()
-    const el = scrollRef.current
-    if (!el) return
-    el.scrollTo({ left: (e.clientX - r.left) / s - m.vw / 2, top: (e.clientY - r.top) / sy - m.vh / 2 })
-  }
-  return (
-    <div className="absolute bottom-16 right-3 z-10 rounded-xl border bg-card/95 p-2 shadow-lg backdrop-blur">
-      <div className="mb-1 flex items-center justify-between">
-        <p className="text-[9.5px] font-bold uppercase tracking-wider text-muted-foreground">Mapa do fluxo</p>
-        <button type="button" onClick={() => onRecolher(true)} title="Recolher o mapa" aria-label="Recolher o mapa"
-          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground">
-          <X className="h-3 w-3" />
-        </button>
-      </div>
-      <div role="slider" aria-label="Mapa do fluxo — arraste para navegar" aria-valuenow={Math.round(m.vx)} tabIndex={0}
-        className="relative cursor-pointer overflow-hidden rounded-md bg-muted/50" style={{ width: LARG, height: alt }}
-        onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); irPara(e) }}
-        onPointerMove={(e) => { if (e.buttons === 1) irPara(e) }}>
-        {m.itens.map((it, i) => (
-          <span key={i} className={cn('absolute rounded-[2px]',
-            it.tipo === 'Escolher um caminho' ? 'bg-violet-500/50' : it.tipo === 'Fazer ao mesmo tempo' ? 'bg-rose-500/40' : 'bg-foreground/30')}
-            style={{ left: it.x * s, top: it.y * sy, width: Math.max(2, it.w * s), height: Math.max(2, it.h * sy) }} />
-        ))}
-        <span className="pointer-events-none absolute rounded-sm border-2 border-primary bg-primary/10"
-          style={{ left: m.vx * s, top: m.vy * sy, width: m.vw * s, height: m.vh * sy }} />
-      </div>
-    </div>
-  )
-}
