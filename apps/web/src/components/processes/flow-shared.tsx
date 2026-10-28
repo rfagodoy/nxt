@@ -65,7 +65,7 @@ export function PendenciasPill({ pendencias, aberto, onToggle, onItem, style, no
   if (!pendencias.length) {
     return noTopo
       ? <span role="status" className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-          <Check className="h-3.5 w-3.5" />Pronto para ativar
+          <Check className="h-3.5 w-3.5" /><span className="max-[1439px]:sr-only">Pronto para ativar</span>
         </span>
       : null
   }
@@ -113,9 +113,10 @@ export function PendenciasPill({ pendencias, aberto, onToggle, onItem, style, no
             ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20'
             : 'border-sky-500/40 bg-sky-500/10 text-sky-600 dark:text-sky-400 hover:bg-sky-500/20')}>
         {erros.length ? <AlertTriangle className="h-3.5 w-3.5" /> : <Info className="h-3.5 w-3.5" />}
+        {/* no topo, em tela estreita, fica só o número (a frase vai para o leitor de tela) */}
         {erros.length
-          ? `${erros.length} ${erros.length === 1 ? 'pendência' : 'pendências'} para ativar`
-          : `${infos.length} ${infos.length === 1 ? 'aviso' : 'avisos'} no desenho`}
+          ? <>{erros.length}<span className={noTopo ? 'max-[1439px]:sr-only' : undefined}> {erros.length === 1 ? 'pendência' : 'pendências'} para ativar</span></>
+          : <>{infos.length}<span className={noTopo ? 'max-[1439px]:sr-only' : undefined}> {infos.length === 1 ? 'aviso' : 'avisos'} no desenho</span></>}
       </button>
     </div>
   )

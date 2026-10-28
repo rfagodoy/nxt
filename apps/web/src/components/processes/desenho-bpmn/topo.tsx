@@ -23,9 +23,10 @@ export function NomeNoTopo({ nome, onNome, autoFocus }: { nome: string; onNome: 
   return (
     // eslint-disable-next-line jsx-a11y/no-autofocus -- workflow novo: dar o nome é a primeira coisa a fazer
     <input value={nome} onChange={(e) => onNome(e.target.value)} autoFocus={autoFocus}
-      aria-label="Nome do workflow" placeholder="Dê um nome a este workflow"
+      aria-label="Nome do workflow" placeholder="Dê um nome a este workflow" title={nome.trim() || undefined}
       size={Math.min(48, Math.max(18, nome.length + 2))}
-      className={cn('h-8 min-w-0 shrink rounded-md border bg-transparent px-2 text-[15px] font-extrabold tracking-tight outline-none transition-colors',
+      /* o nome é o que mais importa no topo: nunca fica abaixo de 200px (os chips encolhem antes) */
+      className={cn('h-8 min-w-[200px] shrink text-ellipsis rounded-md border bg-transparent px-2 text-[15px] font-extrabold tracking-tight outline-none transition-colors',
         'placeholder:font-bold placeholder:text-muted-foreground/60 hover:bg-muted/50 focus:bg-muted/50 focus-visible:ring-2 focus-visible:ring-primary/40',
         vazio ? 'border-dashed border-amber-400/70 bg-amber-500/5' : 'border-transparent')} />
   )
@@ -45,13 +46,13 @@ export function SobreDoWorkflow({ descricao, onDescricao, tipo, onTipo, tipos, r
   return (
     <>
       <button ref={botao} type="button" onClick={() => setAberto((v) => !v)} aria-haspopup="dialog" aria-expanded={aberto}
-        title="Tipo e descrição do workflow"
+        title={`Tipo e descrição do workflow${rotuloTipo ? ` · tipo: ${rotuloTipo}` : ' · sem tipo'}`}
         className={cn('inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-xs font-semibold transition-colors',
           /* sem tipo, PEDE (tracejado âmbar); com tipo, AFIRMA (sólido, com o glifo) */
           tipo ? 'border-primary/30 bg-primary/10 text-primary hover:bg-primary/15'
             : 'border-dashed border-amber-400/70 bg-amber-500/10 text-amber-700 hover:bg-amber-500/15 dark:text-amber-400')}>
         <WorkflowKindIcon kind={tipo || undefined} className="h-3.5 w-3.5" />
-        {rotuloTipo ? `Sobre · ${rotuloTipo}` : 'Sobre · sem tipo'}
+        Sobre<span className="max-[1439px]:hidden">{rotuloTipo ? ` · ${rotuloTipo}` : ' · sem tipo'}</span>
         <ChevronDown className="h-3 w-3 opacity-60" />
       </button>
       {aberto && (

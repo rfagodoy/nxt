@@ -9,14 +9,14 @@
    `ligacaoPermitida`) e as ações rápidas da forma selecionada. Quem muda o fluxo é a página.
    As raias são só visuais: renomear, mudar a altura, subir/descer, remover e "+ raia"
    também saem por `onDesenho` (as formas ficam onde estão). */
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type DragEvent, type JSX } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type DragEvent, type JSX, type KeyboardEvent as TeclaReact } from 'react'
 import { useTheme } from 'next-themes'
 import {
-  ReactFlow, Background, BackgroundVariant, Controls, MiniMap, NodeToolbar, Position, ViewportPortal, applyNodeChanges,
+  ReactFlow, Background, BackgroundVariant, Controls, MiniMap, NodeToolbar, Panel, Position, ViewportPortal, applyNodeChanges,
   type AriaLabelConfig, type Connection, type Edge, type NodeChange, type OnConnectEnd,
   type OnNodeDrag, type ReactFlowInstance,
 } from '@xyflow/react'
-import { Trash2 } from 'lucide-react'
+import { Link2, Map as MapIcon, Trash2 } from 'lucide-react'
 import '@xyflow/react/dist/style.css'
 import type { DesenhoBpmn, StepFormSchema } from '@nxt/types'
 import {
@@ -59,8 +59,19 @@ export interface CanvasBpmnProps {
    *  carregados depois, pendências recalculadas). As funções em si podem trocar de identidade
    *  a cada render sem reprojetar; é esta revisão que manda refazer os cartões e as marcas. */
   revisaoDasConsultas?: unknown
+  /** Atividades que podem ser repetidas com a MESMA configuração (vinculadas). Com
+   *  `onInserirVinculada`, as ações rápidas ganham "Próxima: mesma configuração de…". */
+  vinculaveis?: Array<{ id: string; nome: string }>
+  onInserirVinculada?: (ponto: PontoDeInsercao, origemId: string, perto: { x: number; y: number }) => void
+  /** Centra a vista nesta forma. `vez` muda a cada pedido (o mesmo id pode ser pedido de novo). */
+  focoEm?: { id: string; vez: number } | null
 }
 
+/** Preferência do usuário para a miniatura (ausente = automática: só quando o desenho não cabe). */
+const PREF_MINIATURA = 'nxt:desenho-bpmn:miniatura'
+
+/** Enquadrar deixa folga embaixo para a miniatura e os controles não cobrirem formas. */
+const ENQUADRAR = { padding: { top: '48px', left: '48px', right: '48px', bottom: '170px' } } as const
 /** Folga à direita da última forma, dentro da raia. */
 const FOLGA_RAIA = 160
 const LARGURA_MINIMA_RAIA = 640
@@ -271,7 +282,7 @@ type Recusa = { motivo: string; pontos: Pt[]; vez: number }
 export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   const {
     fluxo, grafo, desenho, steps, selecionado, nomeDoProcesso, revisaoDasConsultas, somenteLeitura = false,
-    onSelecionar, onDesenho, onInserir, onMoverItem, onLigar, onRemover,
+    onSelecionar, onDesenho, onInserir, onMoverItem, onLigar, onRemover, vinculaveis, onInserirVinculada, focoEm,
   } = props
   const { resolvedTheme } = useTheme()
   const escuro = resolvedTheme === 'dark'
@@ -462,14 +473,72 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   const itemSel = selecionado ? acharItem(fluxo, selecionado) : undefined
   const acoes = !somenteLeitura && !arrastando && itemSel ? itemSel : null
   const podeLigar = !!acoes && ligacaoPermitida(fluxo, acoes.id, fluxo.fimId).ok
-  const proxima = (tipo: NovoItem) => {
-    if (!acoes) return
+  /** Vaga logo depois do item selecionado e o lugar da forma nova: à direita do item (do
+   *  reencontro, se for um bloco), centrada na altura dele. */
+  const depoisDoSelecionado = (tipo: NovoItem): { ponto: PontoDeInsercao; perto: Pt } | null => {
+    if (!acoes) return null
     const local = localDoItem(fluxo, acoes.id)
-    if (!local) return
-    // a forma nova nasce à direita do item (do reencontro, se for um bloco), centrada na altura dele
+    if (!local) return null
     const ancora = acoes.kind === 'atividade' ? acoes.id : acoes.id + SUFIXO_REENCONTRO
     const p = geo.pos(ancora), c = geo.caixa(ancora), nova = caixaNova(tipo)
-    onInserir({ ref: local.ref, indice: local.indice + 1 }, tipo, { x: naGrade(p.x + c.w + 3 * GRADE), y: naGrade(p.y + c.h / 2 - nova.h / 2) })
+    return { ponto: { ref: local.ref, indice: local.indice + 1 }, perto: { x: naGrade(p.x + c.w + 3 * GRADE), y: naGrade(p.y + c.h / 2 - nova.h / 2) } }
+  }
+  const proxima = (tipo: NovoItem) => {
+    const v = depoisDoSelecionado(tipo)
+    if (v) onInserir(v.ponto, tipo, v.perto)
+  }
+
+  /* "Próxima: mesma configuração de…": menu com as atividades que podem ser repetidas. */
+  /* aberto PARA uma forma: selecionar outra fecha o menu */
+  const [menuVinculoDe, setMenuVinculoDe] = useState<string | null>(null)
+  const podeVincular = !!onInserirVinculada && !!vinculaveis?.length
+  const menuVinculo = !!acoes && podeVincular && menuVinculoDe === acoes.id
+  const setMenuVinculo = (v: boolean | ((x: boolean) => boolean)) => {
+    const novo = typeof v === 'function' ? v(menuVinculo) : v
+    setMenuVinculoDe(novo && acoes ? acoes.id : null)
+  }
+  const vincular = (origemId: string) => {
+    setMenuVinculo(false)
+    const v = depoisDoSelecionado('userTask')
+    if (v && onInserirVinculada) onInserirVinculada(v.ponto, origemId, v.perto)
+  }
+  const listaVinculo = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (menuVinculo) listaVinculo.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+  }, [menuVinculo])
+  const teclasDoVinculo = (e: TeclaReact<HTMLDivElement>) => {
+    const itens = Array.from(listaVinculo.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])
+    const i = itens.indexOf(document.activeElement as HTMLElement)
+    if (e.key === 'Escape') {
+      e.preventDefault(); e.stopPropagation(); setMenuVinculo(false)
+      document.querySelector<HTMLElement>(`[data-vinculo-de="${sufixoId}"]`)?.focus()
+    } else if (e.key === 'ArrowDown') { e.preventDefault(); itens[(i + 1) % itens.length]?.focus() }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); itens[(i - 1 + itens.length) % itens.length]?.focus() }
+    else if (e.key === 'Home') { e.preventDefault(); itens[0]?.focus() }
+    else if (e.key === 'End') { e.preventDefault(); itens[itens.length - 1]?.focus() }
+  }
+
+  /* ─── Centrar numa forma (ex.: item da saúde clicado) ──────────────────── */
+  useEffect(() => {
+    const i = instancia.current
+    if (!focoEm || !i) return
+    const p = geo.pos(focoEm.id), c = geo.caixa(focoEm.id)
+    void i.setCenter(p.x + c.w / 2, p.y + c.h / 2, { zoom: Math.max(i.getZoom(), 0.8), duration: 300 })
+    // só o pedido manda; mudar o desenho depois não recentraliza
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focoEm])
+
+  /* ─── Miniatura: automática (só quando o desenho não cabe na tela) ou a escolha do usuário */
+  const [miniaturaPref, setMiniaturaPref] = useState<boolean | null>(null)
+  const [naoCabe, setNaoCabe] = useState(false)
+  useEffect(() => {
+    try { const v = localStorage.getItem(PREF_MINIATURA); if (v === '1' || v === '0') setMiniaturaPref(v === '1') } catch { /* sem storage */ }
+  }, [])
+  const miniatura = miniaturaPref ?? naoCabe
+  const alternarMiniatura = () => {
+    const v = !miniatura
+    setMiniaturaPref(v)
+    try { localStorage.setItem(PREF_MINIATURA, v ? '1' : '0') } catch { /* sem storage */ }
   }
 
   /* ─── Edição das raias (só o desenho; nenhuma forma sai do lugar) ──────── */
@@ -518,7 +587,11 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
           edges={setasVistas}
           nodeTypes={tiposDeNo}
           edgeTypes={tiposDeSeta}
-          onInit={(i) => { instancia.current = i }}
+          onInit={(i) => {
+            instancia.current = i
+            // depois do enquadramento inicial: abaixo de 85% o desenho não cabe — a miniatura ajuda
+            requestAnimationFrame(() => setNaoCabe(i.getZoom() < 0.85))
+          }}
           onNodesChange={onNodesChange}
           onNodeDragStart={onNodeDragStart}
           onNodeDrag={onNodeDrag}
@@ -536,15 +609,25 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
           snapToGrid
           snapGrid={[GRADE, GRADE]}
           fitView
-          fitViewOptions={{ padding: 0.15 }}
+          fitViewOptions={ENQUADRAR}
           minZoom={ZOOM_MIN}
           maxZoom={ZOOM_MAX}
           colorMode={escuro ? 'dark' : 'light'}
           ariaLabelConfig={rotulosDeAcesso}
         >
           <Background variant={BackgroundVariant.Dots} gap={GRADE} size={1.2} color={cor.ponto} bgColor={cor.fundo} />
-          <MiniMap<NoBpmn> pannable zoomable nodeColor={corNoMini} nodeStrokeWidth={0} maskColor={cor.mascara} bgColor={cor.mini}
-            className="!rounded-lg shadow-[0_0_0_1px_rgba(20,36,32,0.12)] dark:shadow-[0_0_0_1px_#2A3B32]" />
+          {miniatura && (
+            <MiniMap<NoBpmn> pannable zoomable nodeColor={corNoMini} nodeStrokeWidth={0} maskColor={cor.mascara} bgColor={cor.mini}
+              style={{ width: 168, height: 108, marginBottom: 44 }}
+              className="!rounded-lg shadow-[0_0_0_1px_rgba(20,36,32,0.12)] dark:shadow-[0_0_0_1px_#2A3B32]" />
+          )}
+          <Panel position="bottom-right">
+            <button type="button" onClick={alternarMiniatura} aria-pressed={miniatura}
+              title={miniatura ? 'Esconder a miniatura' : 'Mostrar a miniatura do desenho'}
+              className="flex h-7 items-center gap-1.5 rounded-md bg-white px-2 font-sans text-[11px] font-bold text-[#2E3E36] shadow-[0_0_0_1px_rgba(20,36,32,0.12)] hover:bg-[#F2F6F1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#11804F] dark:bg-[#0F1914] dark:text-[#C9D6CE] dark:shadow-[0_0_0_1px_#2A3B32] dark:hover:bg-white/5 dark:focus-visible:outline-spark">
+              <MapIcon aria-hidden className="h-3.5 w-3.5" />Miniatura
+            </button>
+          </Panel>
           <Controls showInteractive={false} position="bottom-left" />
           {recusa && (
             <ViewportPortal>
@@ -563,6 +646,14 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
               <button type="button" title="Próxima: escolha" aria-label="Próxima: escolha" className={ACAO} onClick={() => proxima('escolha')}>
                 <span aria-hidden className="box-border h-2.5 w-2.5 rotate-45 border-[1.5px] border-[#6D28D9] bg-[#EDE9FE] dark:border-[#C4B5FD] dark:bg-[rgba(167,139,250,0.14)]" />
               </button>
+              {podeVincular && (
+                <button type="button" title="Próxima: mesma configuração de…" aria-label="Próxima: mesma configuração de…"
+                  aria-haspopup="menu" aria-expanded={menuVinculo} data-vinculo-de={sufixoId}
+                  className={`${ACAO} text-[#0369A1] dark:text-[#7DD3FC] ${menuVinculo ? 'bg-[rgba(20,36,32,0.08)] dark:bg-white/10' : ''}`}
+                  onClick={() => setMenuVinculo((v) => !v)}>
+                  <Link2 aria-hidden className="h-3.5 w-3.5" />
+                </button>
+              )}
               {podeLigar && (
                 <button type="button" title="Ligar com seta" aria-label="Ligar com seta" aria-pressed={ligandoDe === acoes?.id}
                   className={`${ACAO} text-[13px] text-[#142420] dark:text-white ${ligandoDe === acoes?.id ? 'bg-[rgba(198,242,78,0.35)] dark:bg-[rgba(198,242,78,0.14)]' : ''}`}
@@ -575,6 +666,19 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
                 <Trash2 aria-hidden className="h-3.5 w-3.5" />
               </button>
             </div>
+            {menuVinculo && podeVincular && (
+              <div ref={listaVinculo} role="menu" aria-label="Repetir com a mesma configuração de" onKeyDown={teclasDoVinculo}
+                className="absolute left-full top-0 ml-2 max-h-[260px] w-[240px] overflow-y-auto rounded-[10px] bg-white p-1 font-sans shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[#0F1914] dark:shadow-[0_0_0_1px_#2A3B32,0_12px_24px_-12px_rgba(0,0,0,0.7)]">
+                <p className="px-2 pb-1 pt-1.5 text-[10.5px] font-bold uppercase tracking-wide text-[#5E6F66] dark:text-[#9DB0A5]">Mesma configuração de</p>
+                {vinculaveis!.map((v) => (
+                  <button key={v.id} type="button" role="menuitem" tabIndex={-1} onClick={() => vincular(v.id)}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs font-semibold text-[#142420] hover:bg-[rgba(20,36,32,0.06)] focus-visible:bg-[rgba(20,36,32,0.06)] focus-visible:outline-none dark:text-[#E3ECE6] dark:hover:bg-white/5 dark:focus-visible:bg-white/5">
+                    <Link2 aria-hidden className="h-3 w-3 shrink-0 text-[#0369A1] dark:text-[#7DD3FC]" />
+                    <span className="truncate">{v.nome}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </NodeToolbar>
         </ReactFlow>
       </ContextoRaias.Provider>

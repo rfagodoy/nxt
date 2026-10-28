@@ -486,10 +486,16 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     setRetornoEscolha(selectedId); setSelectedId(id); setConfigSecao('formulario'); setConfigId(id)
   }, [selectedId])
 
+  /* Pedido para o canvas centrar numa forma (`vez` muda a cada pedido). */
+  const [focoEm, setFocoEm] = useState<{ id: string; vez: number } | null>(null)
   const focarPendencia = useCallback((p: ProblemaAtivacao) => {
     if (!p.nodeId || p.tipo === 'inicio-desligado' || p.tipo === 'fim-inalcancavel') return
-    abrir(p.nodeId)
-  }, [abrir])
+    const id = p.nodeId
+    abrir(id)
+    // desenho antigo: a atividade abre a gaveta de leitura (abrir só seleciona sem blocos)
+    if (!fluxo && isActivity(nodeById[id]?.type ?? 'start')) setConfigId(id)
+    setFocoEm((f) => ({ id, vez: (f?.vez ?? 0) + 1 }))
+  }, [abrir, fluxo, nodeById])
 
   /* VER POR RAIA: layout automático sempre. Posição manual deixou de existir com os
      blocos — a ordem vem do fluxo, e a raia, de quem executa. */
@@ -507,18 +513,6 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     undefined,
     { swimlanes: true, laneOrder },
   ), [nodes, edges, laneOrder, resolvePapel, resolveEntidade])
-
-  /* Reordenar RAIAS: a banda inteira sobe/desce e as atividades vão junto. */
-  const reordenarRaias = useCallback((chave: string, destino: number) => {
-    const ordem = layout.lanes?.map((b) => b.key) ?? []
-    const de = ordem.indexOf(chave)
-    if (de < 0) return
-    const alvo = Math.max(0, Math.min(ordem.length - 1, destino > de ? destino - 1 : destino))
-    if (alvo === de) return
-    const nova = [...ordem]
-    nova.splice(alvo, 0, ...nova.splice(de, 1))
-    setLaneOrder(nova)
-  }, [layout])
 
   const activityCount = nodes.filter((n) => isActivity(n.type)).length
 
@@ -538,6 +532,20 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     setFluxo((f) => (f ? grupo.reduce((g, gid) => atualizarItem(g, gid, { tipo: t }), f) : f))
     setSteps((prev) => ({ ...prev, [id]: { ...(prev[id] ?? passoVazio(id, t)), stepType: t } }))
   }, [])
+  /** Repete aqui uma atividade já configurada — mesma configuração, vinculada. `perto` é o
+   *  lugar da forma nova no desenho (como em `inserir`). */
+  const inserirVinculada = useCallback((ref: string, indice: number, origemId: string, perto?: { x: number; y: number }) => {
+    if (!fluxo) return
+    const raiz = raizRef.current.get(origemId) ?? origemId
+    const origem = listarAtivs(fluxo).find((a) => a.id === raiz)
+    if (!origem) return
+    // o item nasce FORA do updater: o id é um só (o StrictMode chama o updater duas vezes)
+    const item = { ...novoItem(origem.tipo), vinculoDe: raiz } as ItemAtividade
+    aplicarGaveta()
+    setFluxo((f) => (f ? inserirItem(f, ref, indice, item) : f))
+    if (perto) setDesenho((d) => (d ? { ...d, posicoes: { ...d.posicoes, [item.id]: { x: perto.x, y: perto.y } } } : d))
+    setSelectedId(item.id)
+  }, [fluxo, aplicarGaveta])
   /** Desfaz o vínculo: a atividade passa a ter configuração própria (cópia da atual). */
   const desvincular = useCallback((id: string) => {
     const raiz = raizRef.current.get(id)
@@ -596,8 +604,19 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   }, [mudarFluxo])
   const aoAdicionarRaia = useCallback(() => setDesenho((d) => (d ? adicionarRaia(d) : d)), [])
   const organizarDesenho = useCallback(() => {
-    if (grafo && desenhoVisto) setDesenho(organizar(grafo, desenhoVisto, responsavelDe))
-  }, [grafo, desenhoVisto, responsavelDe])
+    if (!grafo || !desenhoVisto) return
+    aplicarGaveta()
+    setDesenho(organizar(grafo, desenhoVisto, responsavelDe))
+  }, [grafo, desenhoVisto, responsavelDe, aplicarGaveta])
+
+  /* R12: "Próxima: mesma configuração de…" — as atividades que podem ser repetidas (as
+     raízes; uma cópia vinculada repete a raiz dela). */
+  const vinculaveis = useMemo(() => (fluxo
+    ? listarAtivs(fluxo).filter((a) => !a.vinculoDe).map((a) => ({ id: a.id, nome: stepsEfetivos[a.id]?.stepName?.trim() || 'Atividade sem nome' }))
+    : []), [fluxo, stepsEfetivos])
+  const aoInserirVinculada = useCallback((ponto: PontoDeInsercao, origemId: string, perto: { x: number; y: number }) => {
+    inserirVinculada(ponto.ref, ponto.indice, origemId, perto)
+  }, [inserirVinculada])
 
   /* Forma escolhida na paleta por clique/teclado: entra DEPOIS do item selecionado (na
      mesma lista) ou, sem seleção (ou com início/fim/reencontro selecionado), no fim do
@@ -678,8 +697,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
      ao gravar mudança, e a barra avisa ANTES. A gravação que apagaria grande parte do
      desenho (409) não é feita sozinha: ela existe para pedir confirmação. */
   const assinatura = useMemo(
-    () => (fluxo ? JSON.stringify({ name, description, kind, quemInicia, fluxo: comNomes(fluxo, steps), steps, laneOrder, desenho }) : ''),
-    [name, description, kind, quemInicia, fluxo, steps, laneOrder, desenho],
+    () => (fluxo ? JSON.stringify({ name, description, kind, quemInicia, fluxo: comNomes(fluxo, steps), steps, laneOrder, desenho: desenhoVisto }) : ''),
+    // desenhoVisto: o mesmo que `persist` grava — senão "Não salvo" voltaria depois de salvar
+    [name, description, kind, quemInicia, fluxo, steps, laneOrder, desenhoVisto],
   )
   const assinaturaRef = useRef(assinatura)
   assinaturaRef.current = assinatura
@@ -893,7 +913,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
       // dentro da gaveta lateral (um botão, uma lista) a tecla é dela, não do desenho
-      if (t?.closest?.(`[${ATRIBUTO_GAVETA}],[data-floating-menu]`)) return
+      if (t?.closest?.(`[${ATRIBUTO_GAVETA}],[data-floating-menu],[role="menu"]`)) return
       if (!selectedId || !fluxo || configId || vista !== 'desenho') return
       if (acharItem(fluxo, selectedId)) { e.preventDefault(); remover(selectedId) }
     }
@@ -930,7 +950,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
               ? 'Alterações não salvas. Ao sair, gravam sozinhas e o workflow volta a rascunho — sai do "Novo processo" até ser reativado. Processos em andamento não são afetados.'
               : 'Alterações não salvas. Gravam sozinhas ao sair.'}>
             <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-            {ativoNoServidor ? 'Não salvo · volta a rascunho' : 'Não salvo'}
+            <span className="max-[1439px]:sr-only">{ativoNoServidor ? 'Não salvo · volta a rascunho' : 'Não salvo'}</span>
           </span>
         )}
         <div className="flex shrink-0 items-center rounded-md border bg-card shadow-sm">
@@ -944,9 +964,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
             <Redo2 className="h-4 w-4" />
           </button>
         </div>
-        <Button variant="outline" size="sm" className="shrink-0" onClick={organizarDesenho} disabled={!noDesenho || !desenhoVisto}
-          title="Arruma as formas: na ordem do fluxo e cada uma na raia de quem a executa">
-          <LayoutGrid className="h-4 w-4" />Organizar
+        <Button variant="outline" size="sm" className="shrink-0 max-[1439px]:px-2" onClick={organizarDesenho} disabled={!noDesenho || !desenhoVisto}
+          aria-label="Organizar" title="Organizar: arruma as formas na ordem do fluxo e cada uma na raia de quem a executa">
+          <LayoutGrid className="h-4 w-4" /><span className="max-[1439px]:hidden">Organizar</span>
         </Button>
         <MenuMais
           onHistorico={editing ? () => setHistoricoAberto(true) : undefined}
@@ -1001,7 +1021,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
                   nomeDoProcesso={name} revisaoDasConsultas={revisaoDasConsultas}
                   responsavelDe={responsavelDe} prazoDe={prazoDe} problemasDe={problemasDe}
                   onSelecionar={abrir} onDesenho={aoMudarDesenho} onInserir={aoInserir} onMoverItem={aoMoverItem}
-                  onLigar={aoLigar} onRemover={remover} />
+                  onLigar={aoLigar} onRemover={remover}
+                  vinculaveis={vinculaveis} onInserirVinculada={aoInserirVinculada} focoEm={focoEm} />
               ) : (
                 <div role="status" className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />Preparando o desenho…
@@ -1018,8 +1039,15 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
                 <p className="text-[11.5px] text-muted-foreground">Vista por raia: o mesmo fluxo organizado por quem executa, só para leitura.</p>
               </div>
             )}
-            <FlowCanvas canvasRef={canvasRef} nodes={nodes} edges={edges} layout={layout} selectedId={selectedId} onSelect={setSelectedId}
-              resolvePapel={resolvePapel} resolveEntidade={resolveEntidade} onReorderLanes={reordenarRaias} pendencias={pendencias} />
+            <FlowCanvas canvasRef={canvasRef} nodes={nodes} edges={edges} layout={layout} selectedId={selectedId}
+              onSelect={(id) => {
+                // só leitura: no desenho antigo a atividade abre a gaveta de leitura (R13); no
+                // "Ver por raia" de um fluxo editável, só destaca (configurar é no desenho)
+                setSelectedId(id)
+                const n = id ? nodeById[id] : undefined
+                setConfigId(!fluxo && n && isActivity(n.type) ? n.id : null)
+              }}
+              resolvePapel={resolvePapel} resolveEntidade={resolveEntidade} pendencias={pendencias} />
           </div>
         )}
 
@@ -1041,6 +1069,12 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         )}
 
         {/* Configuração da atividade: perguntas numa gaveta lateral de 440 px. */}
+        {somenteLeitura && configNode && configNode.step && (
+          <PerguntasDaEtapa key={configNode.id} node={configNode} nodes={nodes} edges={edges} screens={screens} papeis={papeis} resolveEntidade={resolveEntidade}
+            somenteLeitura onPatchStep={() => {}} onChangeType={() => {}} onRemove={() => {}}
+            onClose={() => setConfigId(null)} />
+        )}
+
         {noDesenho && configNode && configNode.step && fluxo && (
           <PerguntasDaEtapa key={configNode.id} node={configNode} nodes={nodes} edges={edges} screens={screens} papeis={papeis} resolveEntidade={resolveEntidade}
             secaoInicial={configSecao}
@@ -1085,9 +1119,11 @@ function LaneHeader({ bandas, largura, scale, scrollTop, arrastando, onStartDrag
   scrollTop: number
   arrastando: string | null
   onStartDrag: (key: string, ev: React.PointerEvent) => void
-  onReorder: (key: string, destino: number) => void
+  /** Ausente = só leitura: sem arrastar e sem as setas de subir/descer. */
+  onReorder?: (key: string, destino: number) => void
 }) {
   if (!bandas?.length) return null
+  const reordena = !!onReorder
   /* ⚠️ O CONTÊINER é transparente. Pintar a faixa toda (`inset-y-0` com fundo) fazia a
      área acima da primeira banda e abaixo da última receber a mesma cor — e a primeira e
      a última raia pareciam maiores que a banda a que correspondem. Cor e bordas
@@ -1102,10 +1138,10 @@ function LaneHeader({ bandas, largura, scale, scrollTop, arrastando, onStartDrag
         const alt = b.h * scale
         const semDono = b.key === LANE_SEM_RESPONSAVEL
         return (
-          <div key={b.key} data-lane-handle onPointerDown={(e) => onStartDrag(b.key, e)}
-            title="Arraste para cima ou para baixo para reordenar a raia"
+          <div key={b.key} data-lane-handle onPointerDown={reordena ? (e) => onStartDrag(b.key, e) : undefined}
+            title={reordena ? 'Arraste para cima ou para baixo para reordenar a raia' : undefined}
             className={cn('absolute left-0 right-0 flex items-stretch group/lane pointer-events-auto',
-              arrastando === b.key ? 'cursor-grabbing' : 'cursor-grab')}
+              !reordena ? 'cursor-default' : arrastando === b.key ? 'cursor-grabbing' : 'cursor-grab')}
             style={{
               top, height: alt,
               background: arrastando === b.key ? 'hsl(var(--primary) / 0.12)' : 'hsl(var(--foreground) / 0.075)',
@@ -1115,6 +1151,7 @@ function LaneHeader({ bandas, largura, scale, scrollTop, arrastando, onStartDrag
             {/* calha dos controles — largura fixa, nunca sobrepõe o texto */}
             <div className="flex flex-col items-center justify-center shrink-0" style={{ width: LANE_CTRL_W }}
               onPointerDown={(e) => e.stopPropagation()}>
+              {onReorder && (<>
               <button type="button" disabled={i === 0} title="Subir a raia"
                 onClick={() => onReorder(b.key, i - 1)}
                 className="h-4 w-4 flex items-center justify-center rounded text-muted-foreground opacity-0 group-hover/lane:opacity-100 hover:text-foreground hover:bg-muted disabled:opacity-0 transition-opacity">
@@ -1126,6 +1163,7 @@ function LaneHeader({ bandas, largura, scale, scrollTop, arrastando, onStartDrag
                 className="h-4 w-4 flex items-center justify-center rounded text-muted-foreground opacity-0 group-hover/lane:opacity-100 hover:text-foreground hover:bg-muted disabled:opacity-0 transition-opacity">
                 <ChevronDown className="h-3 w-3" />
               </button>
+              </>)}
             </div>
             {/* nome — SEM truncar: quebra inclusive em "/" (papel composto é comum) */}
             {/* ⚠️ A faixa é MOLDURA, não conteúdo: o rótulo usa `muted-foreground`, o mesmo
@@ -1163,7 +1201,8 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, res
   selectedId: string | null; onSelect: (id: string | null) => void
   resolvePapel: (id: string) => string | undefined
   resolveEntidade: (kind: string | undefined, id: string | undefined) => string | undefined
-  onReorderLanes: (key: string, destino: number) => void
+  /** Ausente = só leitura: as raias não se reordenam. */
+  onReorderLanes?: (key: string, destino: number) => void
   /** Pendências de ativação: os avisos marcam o quadro (a pílula mora no topo). */
   pendencias: ProblemaAtivacao[]
 }) {
@@ -1261,6 +1300,7 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, res
      outras, e as atividades acompanham porque o y delas deriva do topo da banda. */
   const [laneDrag, setLaneDrag] = useState<{ key: string; destino: number; linha: number | null } | null>(null)
   const startLaneDrag = (key: string, ev: React.PointerEvent) => {
+    if (!onReorderLanes) return
     ev.preventDefault(); ev.stopPropagation()
     const bandas = layout.lanes
     if (!bandas || bandas.length < 2) return
@@ -1280,7 +1320,7 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, res
     }
     const up = (e: PointerEvent) => {
       window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
-      onReorderLanes(key, alvoDe(e.clientY))
+      onReorderLanes?.(key, alvoDe(e.clientY))
       setLaneDrag(null)
     }
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
@@ -1569,7 +1609,7 @@ function predecessorasDe(edges: EEdge[], alvo: string): Set<string> {
   return preds
 }
 
-function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveEntidade, onPatchStep, onChangeType, onRemove, onClose, secaoInicial, vinculo }: {
+function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveEntidade, onPatchStep, onChangeType, onRemove, onClose, secaoInicial, vinculo, somenteLeitura }: {
   node: ENode; nodes: ENode[]; edges: EEdge[]; screens: Screens; papeis: Papeis
   /** nome da entidade fixa do executor, para a frase do "Em resumo" */
   resolveEntidade: (kind: string | undefined, id: string | undefined) => string | undefined
@@ -1579,6 +1619,8 @@ function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveEntidade
   onClose: () => void
   /** Pergunta em que a gaveta abre (ex.: 'formulario', vindo do aviso da escolha). */
   secaoInicial?: string
+  /** Workflow antigo aberto só para leitura: só o "Em resumo" e as respostas, sem campos. */
+  somenteLeitura?: boolean
 }) {
   const step = node.step!
   const type = node.type as 'userTask' | 'serviceTask'
@@ -1834,6 +1876,48 @@ function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveEntidade
       {step.connector && <> {FRASE_RETORNO[step.onReturn ?? 'BLOCK']}</>}
     </>
   )
+
+  if (somenteLeitura) {
+    const respostas: Array<{ rotulo: string; valor: string }> = type === 'userTask'
+      ? [
+          { rotulo: 'Quem faz', valor: quem ?? '— sem executor' },
+          { rotulo: 'Tela', valor: telaSel ? `${ENTITY_MODE_LABEL[step.entityMode ?? 'CREATE']} ${entityWord} · ${telaSel.name}` : '— sem tela' },
+          { rotulo: 'Prazo', valor: due ?? '— sem prazo' },
+          { rotulo: 'Devolução', valor: retorno.mode === 'NONE' ? 'Não devolve'
+            : retorno.mode === 'SELECTED' ? (nomesDevolucao.length ? listaPt(nomesDevolucao) : '— nenhuma etapa marcada')
+              : 'Qualquer etapa anterior' },
+        ]
+      : [
+          { rotulo: 'Ação', valor: findConnector(step.connector)?.label ?? step.connector ?? '— nenhuma' },
+          { rotulo: 'Se devolvido', valor: FRASE_RETORNO[step.onReturn ?? 'BLOCK'] },
+        ]
+    return (
+      <GavetaLateral rotulo={`${meta.label} · só leitura`} rotuloTom={meta.tone} rotuloIcone={<meta.Icon className="h-3 w-3" />}
+        titulo={step.stepName?.trim() || 'Etapa sem nome'} onFechar={onClose}>
+        <div className="flex flex-col gap-4 px-4 py-4">
+          <div className="rounded-xl bg-[#0C1410] p-4 text-[#C9D6CE] shadow-[0_18px_40px_-24px_rgba(12,20,16,0.7)] ring-1 ring-white/5">
+            <span className="inline-block rounded bg-[#C6F24E] px-1.5 py-0.5 text-[10.5px] font-extrabold tracking-wide text-[#0C1410]">EM RESUMO</span>
+            <p className="mt-2 text-[13px] leading-relaxed">{frase}</p>
+          </div>
+          <dl className="divide-y rounded-lg border bg-muted/20">
+            {respostas.map((r) => (
+              <div key={r.rotulo} className="flex items-baseline justify-between gap-3 px-3 py-2">
+                <dt className="shrink-0 text-xs text-muted-foreground">{r.rotulo}</dt>
+                <dd className="min-w-0 text-right text-xs font-medium">{r.valor}</dd>
+              </div>
+            ))}
+          </dl>
+          {step.instructions?.trim() && (
+            <div>
+              <p className="text-xs font-semibold">Instruções para quem executa</p>
+              <p className="mt-1 whitespace-pre-line text-xs text-muted-foreground">{step.instructions}</p>
+            </div>
+          )}
+          <p className="text-[11px] leading-snug text-muted-foreground">Workflow do editor antigo: aberto só para leitura.</p>
+        </div>
+      </GavetaLateral>
+    )
+  }
 
   const rodape = (
     <div className="flex flex-col gap-2.5">

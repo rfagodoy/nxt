@@ -53,9 +53,9 @@ export function QuemIniciaPill({ value, onChange, papeis, kind }: {
   return (
     <>
       <button ref={botao} type="button" onClick={() => setAberto((v) => !v)} aria-haspopup="dialog" aria-expanded={aberto}
-        title="Quem pode iniciar este workflow em “Novo processo”"
+        title={`Quem inicia: ${texto} — quem pode iniciar este workflow em “Novo processo”`}
         className={cn(
-          'inline-flex max-w-[360px] shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-colors',
+          'inline-flex max-w-[360px] shrink-0 items-center max-[1439px]:max-w-[200px] gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-colors',
           /* forma diz o estado (o PO é daltônico): tracejada = falta escolher; sólida = regra */
           vazio
             ? 'border-dashed border-amber-400/70 bg-amber-500/10 text-amber-700 dark:text-amber-400'
@@ -64,7 +64,7 @@ export function QuemIniciaPill({ value, onChange, papeis, kind }: {
               : 'border-border bg-card text-muted-foreground hover:bg-muted/60 hover:text-foreground',
         )}>
         <DoorOpen className="h-3.5 w-3.5 shrink-0" />
-        <span className="truncate"><span className="font-medium opacity-80">Quem inicia:</span> {texto}</span>
+        <span className="truncate"><span className="font-medium opacity-80 max-[1439px]:hidden">Quem inicia: </span>{texto}</span>
         <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />
       </button>
       {aberto && (

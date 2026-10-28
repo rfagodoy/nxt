@@ -372,12 +372,12 @@ export function FormaRaia({ data }: NodeProps<NoRaia>) {
       : 'border-b border-b-[#D2DCD5] dark:border-b-[#22332A]',
   ].join(' ')
   const nome = data.nome || <span className="font-semibold italic opacity-70">Sem nome</span>
-  const cortado = 'line-clamp-4 min-w-0 flex-1 break-words'
+  const cortado = 'line-clamp-4 min-w-0 flex-1 [overflow-wrap:normal] [word-break:normal] hyphens-auto leading-[1.25]'
   /* o corpo deixa o ponteiro passar (formas por cima, clique no fundo tira a seleção);
      só o rótulo e a alça de baixo o recebem, e só quando o desenho é editável */
   return (
     <div className={`pointer-events-none relative box-border ${faixa} ${contorno}`} style={{ width: data.largura, height: data.altura }}>
-      <div ref={coluna} className="absolute inset-y-0 left-0 box-border overflow-hidden border-r border-r-[#D2DCD5] px-2.5 py-2 font-sans text-xs font-extrabold text-[#3E4E46] dark:border-r-[#22332A] dark:text-[#9DB0A5]"
+      <div ref={coluna} lang="pt-BR" className="absolute inset-y-0 left-0 box-border overflow-hidden border-r border-r-[#D2DCD5] px-2.5 py-2 font-sans text-xs font-extrabold text-[#3E4E46] dark:border-r-[#22332A] dark:text-[#9DB0A5]"
         style={{ width: RAIA_ROTULO_W }}>
         {!editavel ? <span className={cortado} style={{ WebkitLineClamp: linhas }}>{nome}</span> : editando ? (
           <NomeDaRaia id={data.id} nome={data.nome} onFim={(devolverFoco) => {
@@ -417,11 +417,38 @@ export function FormaPiscina({ data }: NodeProps<NoPiscina>) {
 }
 
 /* ─── Seta ────────────────────────────────────────────────────────────────── */
+/** Acima das formas (o React Flow eleva a selecionada a 1000). */
+const Z_ROTULO = 1100
 /** Id do marcador da ponta, desenhado uma vez pelo canvas. */
 export const MARCADOR_SETA = 'nxt-bpmn-seta'
 
+/** Onde a pílula do caminho fica: logo depois de a seta sair do losango — no começo do
+ *  trecho que segue a dobra (ali as setas irmãs já se separaram), ou a um passo da saída
+ *  quando a seta é reta. No meio da seta ela caía atrás das formas e sobre as vizinhas. */
+export function pontoDoRotulo(caminho: string): { x: number; y: number } | null {
+  const nums = (caminho.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number)
+  const pts: Array<{ x: number; y: number }> = []
+  // as dobras com raio 0 repetem o ponto do canto (L + Q): fica um ponto por canto
+  for (let i = 0; i + 1 < nums.length; i += 2) {
+    const q = { x: nums[i], y: nums[i + 1] }, u = pts[pts.length - 1]
+    if (!u || Math.abs(u.x - q.x) > 0.5 || Math.abs(u.y - q.y) > 0.5) pts.push(q)
+  }
+  if (pts.length < 2) return null
+  const passo = (a: { x: number; y: number }, b: { x: number; y: number }, d: number) => {
+    const len = Math.hypot(b.x - a.x, b.y - a.y) || 1
+    const t = Math.min(1, d / len) * (d > len ? 0.5 : 1)
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }
+  }
+  // seta reta (ou quase): a 34 px da saída
+  if (pts.length === 2) return passo(pts[0], pts[1], 34)
+  // depois da 1ª dobra: 30 px adiante (no meio do trecho, se ele for curto)
+  return passo(pts[1], pts[2], 30)
+}
+
 export function SetaComRotulo({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, markerEnd }: EdgeProps<SetaBpmn>) {
-  const [caminho, lx, ly] = getSmoothStepPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, borderRadius: 0, offset: 20 })
+  const [caminho, mx, my] = getSmoothStepPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, borderRadius: 0, offset: 20 })
+  const perto = pontoDoRotulo(caminho)
+  const lx = perto?.x ?? mx, ly = perto?.y ?? my
   // a pílula mostra o rótulo do caminho; o "Senão" é sempre "senão" (nunca a expressão do motor)
   const rotulo = data?.senao ? 'senão' : data?.rotulo
   return (
@@ -437,7 +464,7 @@ export function SetaComRotulo({ sourceX, sourceY, targetX, targetY, sourcePositi
               ${data?.senao
                 ? 'bg-white text-[#3E4E46] shadow-[0_0_0_1px_#D2DCD5] dark:bg-[#13211A] dark:text-[#B5C5BB] dark:shadow-[0_0_0_1px_#2A3B32]'
                 : 'bg-[#F5F2FF] text-[#5B21B6] shadow-[0_0_0_1px_#DDD3FB] dark:bg-[#1A1530] dark:text-[#DDD6FE] dark:shadow-[0_0_0_1px_rgba(167,139,250,0.35)]'}`}
-            style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)` }}>
+            style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)`, zIndex: Z_ROTULO }}>
             {rotulo}
           </span>
         </EdgeLabelRenderer>

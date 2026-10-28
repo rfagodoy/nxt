@@ -8,7 +8,7 @@ import { layoutGraph, LANE_SEM_RESPONSAVEL, type FlowGraph, type FlowNodeType } 
 
 export const GRADE = 16
 export const RAIA_ALTURA_PADRAO = 144
-export const RAIA_ROTULO_W = 120
+export const RAIA_ROTULO_W = 160
 /** Menor altura a que a alça deixa encolher uma raia. Alturas sempre múltiplas da GRADE. */
 export const RAIA_ALTURA_MINIMA = 64
 /** Maior altura que a alça aceita (o separador anuncia mínimo e máximo). */
