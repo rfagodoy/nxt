@@ -116,9 +116,18 @@ function CountUp({ value, format }: { value: number; format?: (n: number) => str
    da direita, de cima a baixo. No lg+ a grade ocupa a altura da área e cabe em
    1366×768 sem rolar; abaixo do mínimo de cada linha só a área de conteúdo rola —
    menu lateral e faixa do topo já são fixos no shell.
-   No escuro o acento é a Lima (no claro ela não tem contraste como traço ou texto
-   fino, por isso lá o acento é a Esmeralda e a Lima fica nas superfícies cheias). */
-const CARTAO = 'vidro flex min-w-0 flex-col rounded-2xl bg-[var(--vidro-cartao)] p-4 lg:px-5'
+   Paleta "Neutro calmo": cartões opacos e neutros; cada significado tem uma cor,
+   a mesma nos dois temas (só a claridade se ajusta). A Lima fica como acento
+   pequeno — número e botão da caixa, links no escuro. O vidro é MÉDIO (75% / 70%):
+   deixa o degradê aparecer de leve atrás dos cartões, como nas ilhas do shell.
+   No hover o cartão sobe 2px, fica mais opaco, ganha borda esmeralda e sombra maior;
+   a sombra repete o realce interno do .vidro, que o utilitário substituiria. */
+const CARTAO = cn(
+  'vidro flex min-w-0 flex-col rounded-2xl bg-white/75 p-4 [--vidro-solido:#FFFFFF] lg:px-5 dark:bg-[#161B18]/70 dark:[--vidro-solido:#161B18]',
+  'transition-[transform,background-color,border-color,box-shadow] duration-200 ease-out hover:-translate-y-0.5 motion-reduce:transition-none motion-reduce:hover:translate-y-0',
+  'hover:border-[#159D62]/35 hover:bg-white/90 hover:shadow-[inset_0_1px_0_var(--vidro-spec),0_18px_36px_-14px_rgba(12,40,26,0.28)]',
+  'dark:hover:border-[#3DD68C]/40 dark:hover:bg-[#1E2723]/90 dark:hover:shadow-[inset_0_1px_0_var(--vidro-spec),0_18px_40px_-12px_rgba(0,0,0,0.6)]',
+)
 const LINK = 'text-xs font-bold text-[#0E7A4B] hover:underline dark:text-[#C6F24E]'
 
 function CabecalhoCartao({ titulo, children }: { titulo: string; children?: React.ReactNode }) {
@@ -193,7 +202,7 @@ export default function DashboardPage() {
           </button>
           <StartProcessButton variant="outline" />
           <button onClick={novoContrato}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors dark:bg-[#C6F24E] dark:text-[#0C1410] dark:shadow-[0_0_22px_-6px_rgba(198,242,78,0.6)] dark:hover:bg-[#d4f76e]">
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors dark:bg-[#34C77B] dark:text-[#06130C] dark:hover:bg-[#45D488]">
             <Plus className="h-3.5 w-3.5" />Novo contrato
           </button>
         </div>
@@ -223,11 +232,11 @@ export default function DashboardPage() {
    Sem "Cancelados": o cancelado nunca chegou a valer e por decisão do PO (28/07) não
    entra na carteira — nem no total, nem na composição. */
 const FATIAS = [
-  { chave: 'VIGENTE',     nome: 'Vigentes',    traco: 'stroke-[#159D62] dark:stroke-[#C6F24E]', ponto: 'bg-[#159D62] dark:bg-[#C6F24E]' },
-  { chave: 'VENCIDO',     nome: 'Vencidos',    traco: 'stroke-[#B45309] dark:stroke-[#F7B37A]', ponto: 'bg-[#B45309] dark:bg-[#F7B37A]' },
-  { chave: 'EM_CADASTRO', nome: 'Em cadastro', traco: 'stroke-[#C6F24E] dark:stroke-[#3DBE84]', ponto: 'bg-[#C6F24E] ring-1 ring-inset ring-black/20 dark:bg-[#3DBE84] dark:ring-0' },
-  { chave: 'ENCERRADO',   nome: 'Encerrados',  traco: 'stroke-[#8A9A91] dark:stroke-[#5C6E64]', ponto: 'bg-[#8A9A91] dark:bg-[#5C6E64]' },
-  { chave: 'RESCINDIDO',  nome: 'Rescindidos', traco: 'stroke-[#DDBFBF] dark:stroke-[#8E6F6F]', ponto: 'bg-[#DDBFBF] dark:bg-[#8E6F6F]' },
+  { chave: 'VIGENTE',     nome: 'Vigentes',    traco: 'stroke-[#159D62] dark:stroke-[#3DD68C]', ponto: 'bg-[#159D62] dark:bg-[#3DD68C]' },
+  { chave: 'VENCIDO',     nome: 'Vencidos',    traco: 'stroke-[#C2410C] dark:stroke-[#F59E0B]', ponto: 'bg-[#C2410C] dark:bg-[#F59E0B]' },
+  { chave: 'EM_CADASTRO', nome: 'Em cadastro', traco: 'stroke-[#2F7FD6] dark:stroke-[#5FA8F0]', ponto: 'bg-[#2F7FD6] dark:bg-[#5FA8F0]' },
+  { chave: 'ENCERRADO',   nome: 'Encerrados',  traco: 'stroke-[#A3B0A9] dark:stroke-[#5E6B64]', ponto: 'bg-[#A3B0A9] dark:bg-[#5E6B64]' },
+  { chave: 'RESCINDIDO',  nome: 'Rescindidos', traco: 'stroke-[#C2416B] dark:stroke-[#F07A9F]', ponto: 'bg-[#C2416B] dark:bg-[#F07A9F]' },
 ] as const
 
 function CartaoContratos({ className, dados, vencimentos, onAbrir, onNovo }: {
@@ -268,7 +277,7 @@ function CartaoContratos({ className, dados, vencimentos, onAbrir, onNovo }: {
           <div className="relative h-[150px] w-[150px] shrink-0">
             <svg viewBox="0 0 200 200" className="h-full w-full -rotate-90" role="img"
               aria-label={`${total} contratos: ${fatias.map((f) => `${f.valor} ${f.nome.toLowerCase()}`).join(', ')}`}>
-              <circle cx="100" cy="100" r={R} fill="none" strokeWidth="24" className="stroke-foreground/[0.07]" />
+              <circle cx="100" cy="100" r={R} fill="none" strokeWidth="24" className="stroke-[#EDF1EE] dark:stroke-[#232A26]" />
               {arcos.map((a) => (
                 <circle key={a.chave} cx="100" cy="100" r={R} fill="none" strokeWidth="24"
                   strokeDasharray={a.dash} strokeDashoffset={a.offset} className={cn(a.traco, 'transition-all duration-700')} />
@@ -290,7 +299,7 @@ function CartaoContratos({ className, dados, vencimentos, onAbrir, onNovo }: {
                   {vencidos.qtd} vencido{vencidos.qtd === 1 ? '' : 's'} sem renovação
                 </span>
               ) : prox90 && prox90.qtd > 0 ? (
-                <span className="mt-1.5 inline-block rounded-full bg-[#0C1410] px-2 py-0.5 text-[11.5px] font-extrabold text-[#C6F24E] dark:bg-[#C6F24E]/15">
+                <span className="mt-1.5 inline-block rounded-full bg-[#EEF6F1] px-2 py-0.5 text-[11.5px] font-extrabold text-[#0E7A4B] dark:bg-[#3DD68C]/15 dark:text-[#3DD68C]">
                   {prox90.qtd} vence{prox90.qtd === 1 ? '' : 'm'} em 90 dias
                 </span>
               ) : null}
@@ -315,8 +324,8 @@ function CartaoContratos({ className, dados, vencimentos, onAbrir, onNovo }: {
 
 /* Os 3 primeiros meses (≈ 90 dias) vão em destaque e o cabeçalho diz isso: a cor
    nunca carrega sozinha. O maior mês ganha rótulo, mesmo fora dos 90 dias. */
-const BARRA_FORTE = 'bg-gradient-to-b from-[#3DBE84] to-[#11804F] shadow-[0_8px_18px_-8px_rgba(17,128,79,0.6)] dark:from-[#C6F24E] dark:to-[#3DBE84] dark:shadow-[0_0_18px_-6px_rgba(198,242,78,0.7)]'
-const BARRA_FRACA = 'bg-[#B9DEC9] dark:bg-[#2F5544]'
+const BARRA_FORTE = 'bg-[#159D62] dark:bg-[#3DD68C]'
+const BARRA_FRACA = 'bg-[#CDE8D9] dark:bg-[#21443A]'
 
 function CartaoValorPorMes({ className, dados }: { className?: string; dados?: Vencimentos }) {
   const meses = dados?.meses ?? []
@@ -327,7 +336,7 @@ function CartaoValorPorMes({ className, dados }: { className?: string; dados?: V
       <CabecalhoCartao titulo="Valor que vence por mês">
         {dados && dados.prox90.valor > 0 && (
           <span className="text-[12.5px] text-muted-foreground">
-            <b className="font-mono text-foreground dark:text-[#C6F24E]">{BRL_CURTO.format(dados.prox90.valor)}</b> em 90 dias
+            <b className="font-mono text-foreground">{BRL_CURTO.format(dados.prox90.valor)}</b> em 90 dias
           </span>
         )}
       </CabecalhoCartao>
@@ -346,7 +355,7 @@ function CartaoValorPorMes({ className, dados }: { className?: string; dados?: V
                   title={`${MES_CURTO(m.mes)}: ${m.qtd} contrato${m.qtd === 1 ? '' : 's'} · ${BRL_CURTO.format(m.valor)}`}>
                   {rotulo && (
                     <span className={cn('whitespace-nowrap font-mono text-[10px] font-bold tabular-nums',
-                      perto ? 'text-[#0E7A4B] dark:text-[#C6F24E]' : 'rounded bg-[#0C1410] px-1 text-[#C6F24E] dark:bg-transparent dark:text-foreground')}>
+                      perto ? 'text-[#0E7A4B] dark:text-[#3DD68C]' : 'rounded bg-[#142420] px-1 text-white dark:bg-[#F1F5F2] dark:text-[#0E1210]')}>
                       {BRL_CURTO.format(m.valor).replace('R$', '').trim()}
                     </span>
                   )}
@@ -380,22 +389,21 @@ function CartaoCaixa({ className, tarefas, onAbrirTarefa, onAbrirCaixa }: {
   const visiveis = ordenadas.slice(0, 4)
   const outras = ordenadas.length - visiveis.length
   return (
-    <section className={cn('flex min-w-0 flex-col gap-3 rounded-2xl bg-[#C6F24E] p-5 text-[#0C1410]',
-      'shadow-[0_22px_44px_-26px_rgba(80,110,0,0.55)] dark:shadow-[0_0_48px_-12px_rgba(198,242,78,0.45)]', className)}>
+    <section className={cn(CARTAO, 'gap-3 lg:p-5', className)}>
       <div className="flex items-center justify-between">
         <h2 className="text-[15px] font-extrabold">Sua caixa</h2>
-        <ListChecks className="h-5 w-5" aria-hidden />
+        <ListChecks className="h-5 w-5 text-muted-foreground" aria-hidden />
       </div>
       {tarefas.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-          <CheckCircle2 className="h-10 w-10" aria-hidden />
+          <CheckCircle2 className="h-10 w-10 text-[#159D62] dark:text-[#3DD68C]" aria-hidden />
           <p className="text-sm font-bold">Nada esperando por você</p>
-          <p className="text-xs font-medium text-[#2F3D12]">Quando um processo chegar a você, ele aparece aqui.</p>
+          <p className="text-xs text-muted-foreground">Quando um processo chegar a você, ele aparece aqui.</p>
         </div>
       ) : (
         <>
           <div className="flex items-baseline gap-2.5">
-            <span className="font-mono text-[56px] font-bold leading-none tracking-tighter tabular-nums"><CountUp value={tarefas.length} /></span>
+            <span className="rounded-lg bg-[#C6F24E] px-1.5 font-mono text-[56px] font-bold leading-none tracking-tighter text-[#0C1410] tabular-nums"><CountUp value={tarefas.length} /></span>
             <span className="text-sm font-bold leading-snug">{tarefas.length === 1 ? 'tarefa espera' : 'tarefas esperam'}<br />por você</span>
           </div>
           <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
@@ -405,16 +413,16 @@ function CartaoCaixa({ className, tarefas, onAbrirTarefa, onAbrirCaixa }: {
               return (
                 <li key={t.id}>
                   <button type="button" onClick={() => onAbrirTarefa(t)} title={titulo}
-                    className="w-full rounded-xl bg-[#0C1410]/[0.08] px-3 py-2.5 text-left transition-colors hover:bg-[#0C1410]/[0.14]">
+                    className="w-full rounded-xl bg-[#F4F7F5] px-3 py-2.5 text-left transition-colors hover:bg-[#EAF0EC] dark:bg-[#1D2420] dark:hover:bg-[#242C28]">
                     <span className="block truncate text-[13px] font-bold">{titulo}</span>
-                    <span className={cn('mt-0.5 block text-xs font-bold', prazo.grp === 'crit' ? 'text-[#7A1E10]' : 'text-[#2F3D12]')}>{prazo.label}</span>
+                    <span className={cn('mt-0.5 block text-xs font-bold', prazo.grp === 'crit' ? 'text-[#B42318] dark:text-[#FF9B8C]' : 'text-muted-foreground')}>{prazo.label}</span>
                   </button>
                 </li>
               )
             })}
             {outras > 0 && (
               <li>
-                <button type="button" onClick={onAbrirCaixa} className="px-1 text-xs font-bold text-[#2F3D12] hover:underline">
+                <button type="button" onClick={onAbrirCaixa} className="px-1 text-xs font-bold text-muted-foreground hover:underline">
                   + {outras} outra{outras === 1 ? '' : 's'}
                 </button>
               </li>
@@ -423,7 +431,7 @@ function CartaoCaixa({ className, tarefas, onAbrirTarefa, onAbrirCaixa }: {
         </>
       )}
       <button type="button" onClick={onAbrirCaixa}
-        className="flex h-11 shrink-0 items-center justify-center rounded-xl bg-[#0C1410] text-[13.5px] font-bold text-[#C6F24E] transition-opacity hover:opacity-90">
+        className="flex h-11 shrink-0 items-center justify-center rounded-xl bg-[#0C1410] text-[13.5px] font-bold text-[#C6F24E] transition-opacity hover:opacity-90 dark:bg-[#C6F24E] dark:text-[#0C1410]">
         Abrir minhas tarefas
       </button>
     </section>
@@ -434,9 +442,9 @@ function CartaoCaixa({ className, tarefas, onAbrirTarefa, onAbrirCaixa }: {
 
 /** Urgência pelos dias que faltam: até 7 vermelho, até 15 laranja, depois verde. */
 function urgencia(dias: number) {
-  if (dias <= 7) return { barra: 'bg-[#D64535] dark:bg-[#FF8A7A]', texto: 'text-[#B42318] dark:text-[#FF9B8C]' }
-  if (dias <= 15) return { barra: 'bg-[#E8833A] dark:bg-[#F7B37A]', texto: 'text-[#8A5200] dark:text-[#F7B37A]' }
-  return { barra: 'bg-[#159D62] dark:bg-[#3DBE84]', texto: 'text-muted-foreground' }
+  if (dias <= 7) return { barra: 'bg-[#D64535] dark:bg-[#FF7A6B]', texto: 'text-[#B42318] dark:text-[#FF9B8C]' }
+  if (dias <= 15) return { barra: 'bg-[#E08A2C] dark:bg-[#F2B544]', texto: 'text-[#8A5200] dark:text-[#F2B544]' }
+  return { barra: 'bg-[#159D62] dark:bg-[#3DD68C]', texto: 'text-muted-foreground' }
 }
 
 /** Os 4 que vencem primeiro. A barra é quanto do prazo do contrato já passou (do início
@@ -493,14 +501,14 @@ function CartaoVencemEmBreve({ className, dados, onAbrirContrato, onVerTodos }: 
 
 /* ─────────────────────────── Concentração ────────────────────────────────── */
 
-/* Uma cor por parceiro do top 5, em degraus de claridade; "outros" com TEXTURA
-   listrada — distingue-se por forma, não só por tom. */
+/* Uma cor distinta por parceiro do top 5 (matiz, não só claridade); "outros" com
+   TEXTURA listrada — distingue-se por forma, não só por tom. */
 const COR_PARCEIRO = [
-  'bg-[#0C1410] dark:bg-[#C6F24E]',
-  'bg-[#11804F] dark:bg-[#7FE0B0]',
-  'bg-[#3DBE84] dark:bg-[#2E9E6A]',
-  'bg-[#9ED9B8] dark:bg-[#1D5E41]',
-  'bg-[#C6F24E] dark:bg-[#A8B8AE]',
+  'bg-[#159D62] dark:bg-[#3DD68C]',
+  'bg-[#2F7FD6] dark:bg-[#5FA8F0]',
+  'bg-[#C77A0A] dark:bg-[#F2B544]',
+  'bg-[#7C8B83] dark:bg-[#8A9A92]',
+  'bg-[#C2416B] dark:bg-[#F07A9F]',
 ]
 const TEXTURA_OUTROS = 'bg-[repeating-linear-gradient(135deg,hsl(var(--foreground)/0.22)_0_3px,hsl(var(--foreground)/0.07)_3px_7px)]'
 
@@ -529,7 +537,7 @@ function CartaoConcentracao({ className, dados }: { className?: string; dados?: 
           <ol className="flex min-h-0 flex-1 flex-col justify-evenly text-[12.5px]" aria-label="Maiores parceiros por valor vigente">
             {dados.parceiros.map((p, i) => (
               <li key={p.id} className="flex items-center gap-2">
-                <span className={cn('h-2.5 w-2.5 shrink-0 rounded-[3px]', COR_PARCEIRO[i], i === 4 && 'ring-1 ring-inset ring-black/20 dark:ring-0')} />
+                <span className={cn('h-2.5 w-2.5 shrink-0 rounded-[3px]', COR_PARCEIRO[i])} />
                 <span className="min-w-0 flex-1 truncate" title={p.nome}>{p.nome}</span>
                 <span className="font-mono text-[11.5px] text-muted-foreground tabular-nums">{BRL_CURTO.format(p.valor)}</span>
                 <b className="w-10 text-right tabular-nums">{pctFmt(p.pct)}</b>
