@@ -1,8 +1,8 @@
 'use client'
 
-/* Peças usadas pelas DUAS vistas do workflow — montar em blocos e ver por raia. */
+/* Peças do editor de workflow: zoom da vista por raia, glifo de gateway e a pílula de saúde (topo). */
 
-import { AlertTriangle, Info, Maximize2, Minus, Plus } from 'lucide-react'
+import { AlertTriangle, Check, Info, Maximize2, Minus, Plus } from 'lucide-react'
 import { bloqueantes, avisos as avisosDe, type ProblemaAtivacao } from '@nxt/workflow-core'
 import { cn } from '@/lib/utils'
 
@@ -52,14 +52,25 @@ export function GatewayGlyph({ kind, className }: { kind: 'exclusive' | 'paralle
 /** Pendências de ativação: pílula + painel clicável. DUAS classes, e a diferença é dita
  *  na tela — o que IMPEDE a ativação (triângulo) e o AVISO (i), que é desenho válido.
  *  A forma do ícone carrega a diferença; a cor só reforça. */
-export function PendenciasPill({ pendencias, aberto, onToggle, onItem, style }: {
+export function PendenciasPill({ pendencias, aberto, onToggle, onItem, style, noTopo, compacta }: {
   pendencias: ProblemaAtivacao[]
   aberto: boolean
   onToggle: () => void
   onItem: (p: ProblemaAtivacao) => void
   style?: React.CSSProperties
+  /** Na barra do topo (desenho BPMN): fica no fluxo da linha, o painel abre PARA BAIXO e,
+   *  sem nada a dizer, a pílula afirma que está tudo certo (a saúde do workflow). */
+  noTopo?: boolean
+  /** No topo apertado: só o ícone e o número (a frase vai para o leitor de tela). */
+  compacta?: boolean
 }) {
-  if (!pendencias.length) return null
+  if (!pendencias.length) {
+    return noTopo
+      ? <span role="status" title="Pronto para ativar" className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+          <Check className="h-3.5 w-3.5" /><span className={compacta ? 'sr-only' : undefined}>Pronto para ativar</span>
+        </span>
+      : null
+  }
   const erros = bloqueantes(pendencias)
   const infos = avisosDe(pendencias)
   const item = (p: ProblemaAtivacao, i: number, erro: boolean) => (
@@ -74,9 +85,9 @@ export function PendenciasPill({ pendencias, aberto, onToggle, onItem, style }: 
     </li>
   )
   return (
-    <div className="absolute bottom-3 z-20" style={style}>
+    <div className={noTopo ? 'relative shrink-0' : 'absolute bottom-3 z-20'} style={style}>
       {aberto && (
-        <div className="mb-2 w-[400px] max-w-[calc(100vw-2rem)] max-h-[60vh] overflow-y-auto rounded-xl border bg-card shadow-lg">
+        <div className={cn(noTopo ? 'absolute left-0 top-full z-40 mt-2' : 'mb-2', 'w-[400px] max-w-[calc(100vw-2rem)] max-h-[60vh] overflow-y-auto rounded-xl border bg-card shadow-lg')}>
           <div className="sticky top-0 px-3 py-2 border-b bg-card/95 backdrop-blur-sm">
             <p className="text-xs font-semibold flex items-center gap-1.5">
               {erros.length
@@ -98,14 +109,16 @@ export function PendenciasPill({ pendencias, aberto, onToggle, onItem, style }: 
       )}
       <button type="button" onClick={onToggle}
         title={aberto ? 'Recolher' : erros.length ? 'Ver o que falta para ativar' : 'Ver os avisos do desenho'}
-        className={cn('inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm backdrop-blur-sm transition-colors',
+        aria-expanded={aberto}
+        className={cn('inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-xs font-semibold shadow-sm backdrop-blur-sm transition-colors', noTopo ? 'py-1' : 'py-1.5',
           erros.length
             ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20'
             : 'border-sky-500/40 bg-sky-500/10 text-sky-600 dark:text-sky-400 hover:bg-sky-500/20')}>
         {erros.length ? <AlertTriangle className="h-3.5 w-3.5" /> : <Info className="h-3.5 w-3.5" />}
+        {/* no topo, em tela estreita, fica só o número (a frase vai para o leitor de tela) */}
         {erros.length
-          ? `${erros.length} ${erros.length === 1 ? 'pendência' : 'pendências'} para ativar`
-          : `${infos.length} ${infos.length === 1 ? 'aviso' : 'avisos'} no desenho`}
+          ? <>{erros.length}<span className={compacta ? 'sr-only' : undefined}> {erros.length === 1 ? 'pendência' : 'pendências'} para ativar</span></>
+          : <>{infos.length}<span className={compacta ? 'sr-only' : undefined}> {infos.length === 1 ? 'aviso' : 'avisos'} no desenho</span></>}
       </button>
     </div>
   )

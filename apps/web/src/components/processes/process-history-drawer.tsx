@@ -38,8 +38,13 @@ const SITUACAO: Record<string, string> = {
 const quando = (iso: string) =>
   new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
-export function ProcessHistoryDrawer({ processId }: { processId: string }) {
-  const [open, setOpen] = useState(false)
+/** Sem `aberto`, traz o próprio botão "Histórico". Com `aberto`, quem abre é a página (o
+ *  editor o põe no menu ⋯) e `onFechar` devolve o controle a ela. */
+export function ProcessHistoryDrawer({ processId, aberto, onFechar }: { processId: string; aberto?: boolean; onFechar?: () => void }) {
+  const controlado = aberto !== undefined
+  const [openLocal, setOpenLocal] = useState(false)
+  const open = controlado ? aberto : openLocal
+  const setOpen = (v: boolean) => { if (controlado) { if (!v) onFechar?.() } else setOpenLocal(v) }
   const [mounted, setMounted] = useState(false)
   const [aba, setAba] = useState<'versoes' | 'auditoria'>('versoes')
   const [versoes, setVersoes] = useState<Versao[]>([])
@@ -66,6 +71,8 @@ export function ProcessHistoryDrawer({ processId }: { processId: string }) {
   }, [processId])
 
   const abrir = () => { setOpen(true); setConfirmando(null); carregar() }
+  // controlado: carrega cada vez que a página abre
+  useEffect(() => { if (controlado && aberto) { setConfirmando(null); void carregar() } }, [controlado, aberto, carregar])
 
   /* Restaurar recarrega a página: o editor guarda o desenho em memória e continuaria
      mostrando o antigo. Alterações não salvas se perdem — por isso a confirmação. */
@@ -84,9 +91,11 @@ export function ProcessHistoryDrawer({ processId }: { processId: string }) {
 
   return (
     <>
-      <Button variant="outline" size="sm" onClick={abrir} title="Ver versões anteriores do desenho e quem o alterou">
-        <History className="h-4 w-4" />Histórico
-      </Button>
+      {!controlado && (
+        <Button variant="outline" size="sm" onClick={abrir} title="Ver versões anteriores do desenho e quem o alterou">
+          <History className="h-4 w-4" />Histórico
+        </Button>
+      )}
 
       {open && mounted && createPortal(
         <>

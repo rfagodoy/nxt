@@ -280,8 +280,19 @@ export const EXECUTOR_QUEM_INICIOU = '@iniciador'
 /** Variável do processo com o id de quem o iniciou (gravada na partida). */
 export const VAR_INICIADO_POR = '__iniciadoPor'
 
+/** Raia do desenho BPMN: faixa horizontal nomeada, só visual. */
+export interface RaiaDesenho { id: string; nome: string; altura: number }
+/** Desenho BPMN do workflow (posição dos nós e raias). Só visual: não afeta o motor. */
+export interface DesenhoBpmn {
+  versao: 1
+  posicoes: Record<string, { x: number; y: number }>
+  raias: RaiaDesenho[]
+}
+
 export interface ProcessFormSchema {
   steps: StepFormSchema[]
+  /** Desenho BPMN do editor por blocos (posições e raias). Ausente = layout automático. */
+  desenho?: DesenhoBpmn
   /** Quem pode iniciar este workflow. Ausente = qualquer usuário. */
   quemInicia?: QuemInicia
   /** Posições MANUAIS por id de nó (editor Storyboard). Quando presente para um nó,
