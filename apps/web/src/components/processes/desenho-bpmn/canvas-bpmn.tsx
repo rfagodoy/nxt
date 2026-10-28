@@ -304,7 +304,12 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   const [previa, setPrevia] = useState<{ id: string; altura: number } | null>(null)
   // a raia da prévia sumiu ou o desenho virou só leitura: descarta (ajuste durante o render)
   if (previa && (somenteLeitura || !desenho.raias.some((r) => r.id === previa.id))) setPrevia(null)
-  const desenhoVisto = useMemo(() => (previa ? redimensionarRaia(desenho, previa.id, previa.altura) : desenho), [desenho, previa])
+  /** Altura de cada forma: as edições de raia levam as formas pelo CENTRO delas. */
+  const alturaDe = useMemo(() => {
+    const h = new Map(grafo.nodes.map((n) => [n.id, tamanho(n).h]))
+    return (id: string) => h.get(id) ?? 0
+  }, [grafo])
+  const desenhoVisto = useMemo(() => (previa ? redimensionarRaia(desenho, previa.id, previa.altura, alturaDe) : desenho), [desenho, previa, alturaDe])
   const projetados = useMemo(
     () => projetarNos({ grafo, desenho: desenhoVisto, steps, selecionado, nomeDoProcesso, ...consultas.current }),
     // revisaoDasConsultas não é lida aqui: só sinaliza que as consultas passaram a responder outra coisa
@@ -455,6 +460,17 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   // só leitura desliga o modo (ajuste durante o render, como a cópia dos nós)
   if (somenteLeitura && ligandoDe) setLigandoDe(null)
   const onPaneClick = useCallback(() => setLigandoDe(null), [])
+  /* Clicar (ou Enter/espaço) na forma que JÁ está selecionada: o React Flow não emite mudança
+     de seleção, mas a pessoa quer a gaveta de volta (fechada pelo X, por exemplo). */
+  const ehForma = (id: string | null | undefined) => !!id && !id.startsWith('raia:') && id !== 'piscina'
+  const onNodeClick = useCallback((_e: unknown, n: NoBpmn) => {
+    if (n.id === selecionado && ehForma(n.id) && !ligandoDe) onSelecionar(n.id)
+  }, [selecionado, ligandoDe, onSelecionar])
+  const teclaNaForma = (e: TeclaReact<HTMLDivElement>) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return
+    const id = (e.target as HTMLElement).closest?.('.react-flow__node')?.getAttribute('data-id')
+    if (id && id === selecionado && ehForma(id) && !ligandoDe) onSelecionar(id)
+  }
 
   const onNodesChange = useCallback((mudancas: NodeChange<NoBpmn>[]) => {
     // seleção é controlada por fora: só repassa a intenção
@@ -561,13 +577,13 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     return {
       editavel: !somenteLeitura,
       renomear: (id, nome) => aplicar(renomearRaia(desenho, id, nome)),
-      redimensionar: (id, altura) => aplicar(redimensionarRaia(desenho, id, altura)),
+      redimensionar: (id, altura) => aplicar(redimensionarRaia(desenho, id, altura, alturaDe)),
       previa: (id, altura) => setPrevia(altura === null ? null : { id, altura }),
-      mover: (id, direcao) => aplicar(moverRaia(desenho, id, direcao)),
-      remover: (id) => aplicar(removerRaia(desenho, id)),
+      mover: (id, direcao) => aplicar(moverRaia(desenho, id, direcao, alturaDe)),
+      remover: (id) => aplicar(removerRaia(desenho, id, alturaDe)),
       adicionar: () => onDesenho(adicionarRaia(desenho)),
     }
-  }, [desenho, onDesenho, somenteLeitura])
+  }, [desenho, onDesenho, somenteLeitura, alturaDe])
 
   const rotulosDeAcesso = useMemo(() => rotulosAria(somenteLeitura), [somenteLeitura])
 
@@ -582,7 +598,7 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
 
   return (
     <div className="relative h-full w-full font-sans [--bpmn-seta:#5E6F66] [--bpmn-seta-destaque:#11804F] dark:[--bpmn-seta:#7B8F84] dark:[--bpmn-seta-destaque:#C6F24E]"
-      onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
+      onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop} onKeyDown={teclaNaForma}>
       {/* pontas das setas, uma vez por canvas; a cor vem da mesma variável do traço */}
       <svg aria-hidden className="absolute h-0 w-0">
         <defs>
@@ -610,6 +626,7 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
           onNodeDrag={onNodeDrag}
           onNodeDragStop={onNodeDragStop}
           onPaneClick={onPaneClick}
+          onNodeClick={onNodeClick}
           isValidConnection={isValidConnection}
           onConnect={onConnect}
           onConnectEnd={onConnectEnd}

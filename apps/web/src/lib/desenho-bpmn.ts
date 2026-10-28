@@ -70,14 +70,17 @@ export function organizar(g: GrafoGerado, d: DesenhoBpmn, responsavelDe: Respons
   // raia de cada nó: a que já ocupa; sem posição, a sugerida pelo responsável
   const indice: Record<string, number> = {}
   for (const n of g.nodes) {
-    let i = d.posicoes[n.id] ? raiaNaAltura(d.raias, d.posicoes[n.id].y) : -1
+    // pelo CENTRO, como o canvas: a forma que começa numa raia e cai na de baixo é da de baixo
+    const h = nodeSize({ id: n.id, type: n.type as FlowNodeType, name: n.name }, 0, 0).h
+    let i = d.posicoes[n.id] ? raiaNaAltura(d.raias, d.posicoes[n.id].y + h / 2) : -1
     if (i === -1) {
       i = d.raias.findIndex((x) => x.nome === (responsavelDe(n.id) ?? ''))
       if (i === -1) i = 0
     }
     indice[n.id] = i
   }
-  const chave = (i: number) => d.raias[i].nome || LANE_SEM_RESPONSAVEL
+  // a faixa do layout é a RAIA (id): duas raias com o mesmo nome não se fundem
+  const chave = (i: number) => d.raias[i].id
   const fg = paraFlow(g, responsavelDe, false)
   for (const n of fg.nodes) n.lane = chave(indice[n.id])
   // o layout com raias empacota ramos paralelos em linhas diferentes dentro da faixa
@@ -191,25 +194,58 @@ export function renomearRaia(d: DesenhoBpmn, id: string, nome: string): DesenhoB
   return trocarRaia(d, id, (r) => ({ ...r, nome: limpo }))
 }
 
-/** Nova altura na grade, entre `RAIA_ALTURA_MINIMA` e `RAIA_ALTURA_MAXIMA`. */
-export function redimensionarRaia(d: DesenhoBpmn, id: string, altura: number): DesenhoBpmn {
-  return trocarRaia(d, id, (r) => ({ ...r, altura: Math.min(RAIA_ALTURA_MAXIMA, Math.max(RAIA_ALTURA_MINIMA, naGrade(altura))) }))
+/** Altura da forma `id`, para achar o CENTRO dela (o canvas decide a raia pelo centro).
+ *  Sem a função, conta o topo. */
+type AlturaDe = (id: string) => number
+
+/** Move em y as formas cujo centro está em [de, ate) — `ate` ausente = até o fim. */
+function moverFormas(d: DesenhoBpmn, alturaDe: AlturaDe, de: number, ate: number, dy: number): DesenhoBpmn['posicoes'] {
+  const posicoes: DesenhoBpmn['posicoes'] = {}
+  for (const [id, p] of Object.entries(d.posicoes)) {
+    const c = p.y + alturaDe(id) / 2
+    posicoes[id] = dy !== 0 && c >= de && c < ate ? { x: p.x, y: p.y + dy } : p
+  }
+  return posicoes
 }
 
-/** Troca a raia de lugar com a de cima (-1) ou a de baixo (1). As formas ficam onde estão. */
-export function moverRaia(d: DesenhoBpmn, id: string, direcao: -1 | 1): DesenhoBpmn {
+/** Nova altura na grade, entre `RAIA_ALTURA_MINIMA` e `RAIA_ALTURA_MAXIMA`. As formas das
+ *  raias de BAIXO (e as abaixo da piscina) andam junto com a borda; as desta raia ficam. */
+export function redimensionarRaia(d: DesenhoBpmn, id: string, altura: number, alturaDe: AlturaDe = () => 0): DesenhoBpmn {
+  const novo = trocarRaia(d, id, (r) => ({ ...r, altura: Math.min(RAIA_ALTURA_MAXIMA, Math.max(RAIA_ALTURA_MINIMA, naGrade(altura))) }))
+  if (novo === d) return d
+  const i = d.raias.findIndex((r) => r.id === id)
+  const base = topos(d.raias)[i] + d.raias[i].altura
+  return { ...novo, posicoes: moverFormas(d, alturaDe, base, Infinity, novo.raias[i].altura - d.raias[i].altura) }
+}
+
+/** Troca a raia de lugar com a de cima (-1) ou a de baixo (1), e as formas das duas trocam
+ *  de faixa junto (pelo centro). As das outras raias ficam. */
+export function moverRaia(d: DesenhoBpmn, id: string, direcao: -1 | 1, alturaDe: AlturaDe = () => 0): DesenhoBpmn {
   const i = d.raias.findIndex((r) => r.id === id)
   const j = i + direcao
   if (i === -1 || j < 0 || j >= d.raias.length) return d
   const raias = [...d.raias]
   ;[raias[i], raias[j]] = [raias[j], raias[i]]
-  return { ...d, raias }
+  const cima = Math.min(i, j), baixo = Math.max(i, j)
+  const t = topos(d.raias)
+  const hCima = d.raias[cima].altura, hBaixo = d.raias[baixo].altura
+  const posicoes: DesenhoBpmn['posicoes'] = {}
+  for (const [fid, p] of Object.entries(d.posicoes)) {
+    const c = p.y + alturaDe(fid) / 2
+    if (c >= t[cima] && c < t[cima] + hCima) posicoes[fid] = { x: p.x, y: p.y + hBaixo }
+    else if (c >= t[baixo] && c < t[baixo] + hBaixo) posicoes[fid] = { x: p.x, y: p.y - hCima }
+    else posicoes[fid] = p
+  }
+  return { ...d, raias, posicoes }
 }
 
-/** Tira a raia; as formas que estavam nela ficam onde estão. */
-export function removerRaia(d: DesenhoBpmn, id: string): DesenhoBpmn {
-  if (!d.raias.some((r) => r.id === id)) return d
-  return { ...d, raias: d.raias.filter((r) => r.id !== id) }
+/** Tira a raia. As formas que estavam nela ficam onde estão; as das raias de baixo sobem a
+ *  altura dela (a piscina fecha o buraco). */
+export function removerRaia(d: DesenhoBpmn, id: string, alturaDe: AlturaDe = () => 0): DesenhoBpmn {
+  const i = d.raias.findIndex((r) => r.id === id)
+  if (i === -1) return d
+  const base = topos(d.raias)[i] + d.raias[i].altura
+  return { ...d, raias: d.raias.filter((r) => r.id !== id), posicoes: moverFormas(d, alturaDe, base, Infinity, -d.raias[i].altura) }
 }
 
 const normaliza = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()

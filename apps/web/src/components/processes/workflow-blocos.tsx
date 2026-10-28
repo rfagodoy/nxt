@@ -116,6 +116,8 @@ interface BlocoProps {
   onSimulacao: (s: Simulacao | null) => void
   /** abre a configuração de uma atividade (o conserto de "caminho sem campos") */
   onConfigurarAtividade?: (atividadeId: string) => void
+  /** pendências de ativação por nó (as mesmas da pílula de saúde) — a marca no cabeçalho */
+  problemas?: Map<string, ProblemaAtivacao[]>
 }
 interface BlocoCtx extends BlocoProps {
   problemas: Map<string, ProblemaAtivacao[]>
@@ -509,7 +511,8 @@ function FimSelect({ fluxo, escolhaId, caminhoId, fim, nomeDe, onFluxo, soSegue 
 
 export function ConfiguracaoDoBloco({ blocoId, ...props }: BlocoProps & { blocoId: string }): JSX.Element {
   const emParalelo = useMemo(() => escolhasEmParalelo(props.fluxo), [props.fluxo])
-  const problemas = useMemo(() => new Map<string, ProblemaAtivacao[]>(), [])
+  const vazio = useMemo(() => new Map<string, ProblemaAtivacao[]>(), [])
+  const problemas = props.problemas ?? vazio
   const nomeDe = (id: string) => props.steps[id]?.stepName?.trim() || 'Atividade sem nome'
   const b = acharItem(props.fluxo, blocoId)
   if (!b || b.kind === 'atividade') {

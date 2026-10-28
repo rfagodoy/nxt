@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Save, Zap, Trash2, User, Clock,
   CircleDot, Loader2, UserSquare, AlertTriangle, Building2,
-  GripVertical, ChevronUp, Redo2, Plus, ChevronDown,
+  ChevronUp, Redo2, Plus, ChevronDown,
   Undo2, Check, Info, Lock, Link2, LayoutGrid, DoorOpen,
 } from 'lucide-react'
 import {
@@ -443,6 +443,12 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     return m
   }, [pendencias])
   const problemasDe = useCallback((id: string) => problemasPorNo.get(id) ?? [], [problemasPorNo])
+  /* As mesmas pendências, inteiras, para a marca no cabeçalho da configuração do bloco. */
+  const pendenciasPorNo = useMemo(() => {
+    const m = new Map<string, ProblemaAtivacao[]>()
+    for (const p of pendencias) if (p.nodeId) m.set(p.nodeId, [...(m.get(p.nodeId) ?? []), p])
+    return m
+  }, [pendencias])
   /* O canvas só refaz cartões e marcas quando isto muda (ver CanvasBpmnProps). */
   const revisaoDasConsultas = useMemo(() => ({}), [papeis.entries, resolveEntidade, pendencias]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -483,13 +489,19 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   /* Conserto de "caminho sem campos" (aviso dentro da escolha): abre a atividade já na
      pergunta do formulário e, ao fechar, devolve a seleção para a escolha. */
   const configurarAtividadeDaEscolha = useCallback((id: string) => {
-    setRetornoEscolha(selectedId); setSelectedId(id); setConfigSecao('formulario'); setConfigId(id)
+    setFocarGaveta(true); setRetornoEscolha(selectedId); setSelectedId(id); setConfigSecao('formulario'); setConfigId(id)
   }, [selectedId])
 
   /* Pedido para o canvas centrar numa forma (`vez` muda a cada pedido). */
   const [focoEm, setFocoEm] = useState<{ id: string; vez: number } | null>(null)
+  /* Foco ao abrir a gaveta: vinda de um clique/tecla NA FORMA, o foco fica na forma (as setas
+     do teclado seguem movendo-a, como a descrição acessível promete); vinda de outro lugar
+     (pílula de saúde, ação rápida, paleta, aviso da escolha), o foco vai para a gaveta. */
+  const [focarGaveta, setFocarGaveta] = useState(true)
+  const aoSelecionarNoDesenho = useCallback((id: string | null) => { setFocarGaveta(false); abrir(id) }, [abrir])
   const focarPendencia = useCallback((p: ProblemaAtivacao) => {
     if (!p.nodeId || p.tipo === 'inicio-desligado' || p.tipo === 'fim-inalcancavel') return
+    setFocarGaveta(true)
     const id = p.nodeId
     abrir(id)
     // desenho antigo: a atividade abre a gaveta de leitura (abrir só seleciona sem blocos)
@@ -583,6 +595,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const inserir = useCallback((ref: string, indice: number, tipo: NovoItem, perto?: { x: number; y: number }): string => {
     const item = novoItem(tipo)
     if (item.kind === 'atividade') setSteps((prev) => ({ ...prev, [item.id]: passoVazio(item.id, item.tipo) }))
+    setFocarGaveta(true)
     setFluxo((f) => (f ? inserirItem(f, ref, indice, item) : f))
     if (perto) darLugar(item.id, tipo, perto, ref, indice)
     aplicarGaveta()
@@ -1075,7 +1088,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
                 <CanvasBpmn fluxo={fluxo} grafo={grafo} desenho={desenhoVisto} steps={stepsEfetivos} selecionado={selectedId}
                   nomeDoProcesso={name} revisaoDasConsultas={revisaoDasConsultas}
                   responsavelDe={responsavelDe} prazoDe={prazoDe} problemasDe={problemasDe}
-                  onSelecionar={abrir} onDesenho={aoMudarDesenho} onInserir={aoInserir} onMoverItem={aoMoverItem}
+                  onSelecionar={aoSelecionarNoDesenho} onDesenho={aoMudarDesenho} onInserir={aoInserir} onMoverItem={aoMoverItem}
                   onLigar={aoLigar} onRemover={remover}
                   vinculaveis={vinculaveis} onInserirVinculada={aoInserirVinculada} focoEm={focoEm} enquadrar={enquadrar} />
               ) : (
@@ -1116,10 +1129,10 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
               || (selectedBloco.kind === 'escolha' ? 'Escolha sem pergunta' : 'Bloco sem nome')}
             rotuloTom={selectedBloco.kind === 'escolha' ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'}
             rotuloIcone={<GatewayGlyph kind={selectedBloco.kind === 'escolha' ? 'exclusive' : 'parallel'} className="h-3 w-3" />}
-            onFechar={() => setSelectedId(null)}>
+            onFechar={() => setSelectedId(null)} focarAoAbrir={focarGaveta}>
             <ConfiguracaoDoBloco blocoId={selectedBloco.id} fluxo={fluxo} steps={stepsEfetivos} simulacao={simulacao}
               onRemover={remover} onFluxo={mudarFluxo}
-              screens={screens} onSimulacao={setSimulacao} onConfigurarAtividade={configurarAtividadeDaEscolha} />
+              screens={screens} onSimulacao={setSimulacao} onConfigurarAtividade={configurarAtividadeDaEscolha} problemas={pendenciasPorNo} />
           </GavetaLateral>
         )}
 
@@ -1132,7 +1145,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
         {noDesenho && configNode && configNode.step && fluxo && (
           <PerguntasDaEtapa key={configNode.id} node={configNode} nodes={nodes} edges={edges} screens={screens} papeis={papeis} resolveEntidade={resolveEntidade}
-            secaoInicial={configSecao}
+            secaoInicial={configSecao} focarAoAbrir={focarGaveta}
             onPatchStep={(p) => patchStep(configNode.id, p)}
             onChangeType={(t) => changeNodeType(configNode.id, t)}
             vinculo={(() => {
@@ -1160,25 +1173,20 @@ const STEP_TONE: Record<string, string> = {
 }
 
 
-/** Calha RESERVADA para grip e setas dentro da faixa de rótulos. Fixa de propósito: o
- *  controle nunca invade o nome, e o nome nunca muda de lugar quando o mouse chega. */
-const LANE_CTRL_W = 22
+/** Recuo do nome da raia na faixa de rótulos. */
+const LANE_PAD = 10
 
 /** Faixa dos nomes das raias — FIXA na tela, fora do canvas escalado. Por isso o nome
  *  continua legível em qualquer zoom e não some quando o desenho é rolado para a direita
- *  (era o que acontecia quando a coluna morava dentro do desenho). */
-function LaneHeader({ bandas, largura, scale, scrollTop, arrastando, onStartDrag, onReorder }: {
+ *  (era o que acontecia quando a coluna morava dentro do desenho). Só leitura: reordenar
+ *  raias é no desenho BPMN. */
+function LaneHeader({ bandas, largura, scale, scrollTop }: {
   bandas: LaneBand[] | undefined
   largura: number
   scale: number
   scrollTop: number
-  arrastando: string | null
-  onStartDrag: (key: string, ev: React.PointerEvent) => void
-  /** Ausente = só leitura: sem arrastar e sem as setas de subir/descer. */
-  onReorder?: (key: string, destino: number) => void
 }) {
   if (!bandas?.length) return null
-  const reordena = !!onReorder
   /* ⚠️ O CONTÊINER é transparente. Pintar a faixa toda (`inset-y-0` com fundo) fazia a
      área acima da primeira banda e abaixo da última receber a mesma cor — e a primeira e
      a última raia pareciam maiores que a banda a que correspondem. Cor e bordas
@@ -1187,51 +1195,23 @@ function LaneHeader({ bandas, largura, scale, scrollTop, arrastando, onStartDrag
     <div className="absolute inset-y-0 left-0 z-20 overflow-hidden pointer-events-none" style={{ width: largura }}>
       {bandas.map((b, i) => {
         /* `b.y` já é a coordenada do DESENHO (inclui a margem do layout); escalada e
-           descontada a rolagem, ela é a posição na tela. Somar qualquer folga aqui
-           contaria a margem duas vezes e a faixa deslizaria em relação às bandas. */
+           descontada a rolagem, ela é a posição na tela. */
         const top = b.y * scale - scrollTop
         const alt = b.h * scale
         const semDono = b.key === LANE_SEM_RESPONSAVEL
         return (
-          <div key={b.key} data-lane-handle onPointerDown={reordena ? (e) => onStartDrag(b.key, e) : undefined}
-            title={reordena ? 'Arraste para cima ou para baixo para reordenar a raia' : undefined}
-            className={cn('absolute left-0 right-0 flex items-stretch group/lane pointer-events-auto',
-              !reordena ? 'cursor-default' : arrastando === b.key ? 'cursor-grabbing' : 'cursor-grab')}
+          <div key={b.key} className="absolute left-0 right-0 flex items-stretch"
             style={{
-              top, height: alt,
-              background: arrastando === b.key ? 'hsl(var(--primary) / 0.12)' : 'hsl(var(--foreground) / 0.075)',
+              top, height: alt, paddingLeft: LANE_PAD,
+              background: 'hsl(var(--foreground) / 0.075)',
               borderRight: '1px solid hsl(var(--foreground) / 0.22)',
               borderTop: i === 0 ? 'none' : '1px solid hsl(var(--foreground) / 0.16)',
             }}>
-            {/* calha dos controles — largura fixa, nunca sobrepõe o texto */}
-            <div className="flex flex-col items-center justify-center shrink-0" style={{ width: LANE_CTRL_W }}
-              onPointerDown={(e) => e.stopPropagation()}>
-              {onReorder && (<>
-              <button type="button" disabled={i === 0} title="Subir a raia"
-                onClick={() => onReorder(b.key, i - 1)}
-                className="h-4 w-4 flex items-center justify-center rounded text-muted-foreground opacity-0 group-hover/lane:opacity-100 hover:text-foreground hover:bg-muted disabled:opacity-0 transition-opacity">
-                <ChevronUp className="h-3 w-3" />
-              </button>
-              <GripVertical className="h-3.5 w-3.5 text-muted-foreground/60 my-0.5 pointer-events-none" aria-hidden />
-              <button type="button" disabled={i === bandas.length - 1} title="Descer a raia"
-                onClick={() => onReorder(b.key, i + 2)}
-                className="h-4 w-4 flex items-center justify-center rounded text-muted-foreground opacity-0 group-hover/lane:opacity-100 hover:text-foreground hover:bg-muted disabled:opacity-0 transition-opacity">
-                <ChevronDown className="h-3 w-3" />
-              </button>
-              </>)}
-            </div>
-            {/* nome — SEM truncar: quebra inclusive em "/" (papel composto é comum) */}
             {/* ⚠️ A faixa é MOLDURA, não conteúdo: o rótulo usa `muted-foreground`, o mesmo
-                idiom dos cabeçalhos de tabela do sistema, e só sobe para `foreground` na
-                raia sob o mouse. Em preto pleno ele competia com os cartões.
-                E NADA de cor nova aqui: neste canvas o vocabulário de cor já está todo
-                alocado (sky = tarefa, âmbar = ação automática, violeta = decisão, rosa =
-                paralelo, esmeralda = início/fim). A raia sem executor se distingue por
-                FORMA — é a primeira e está em itálico —, não por um sexto tom. */}
+                idiom dos cabeçalhos de tabela do sistema. E NADA de cor nova: a raia sem
+                executor se distingue por FORMA (primeira e em itálico), não por um tom. */}
             <div className="flex-1 min-w-0 flex flex-col justify-center pr-2">
-              <span className={cn('text-[11px] font-semibold leading-tight select-none [overflow-wrap:anywhere] transition-colors',
-                arrastando === b.key ? 'text-foreground' : 'text-muted-foreground group-hover/lane:text-foreground',
-                semDono && 'italic')}>
+              <span className={cn('text-[11px] font-semibold leading-tight select-none [overflow-wrap:anywhere] text-muted-foreground', semDono && 'italic')}>
                 {b.label.replace(/\//g, '/​')}
               </span>
               {/* a raia sem executor é a LISTA do que falta configurar, não um resto */}
@@ -1250,14 +1230,12 @@ function LaneHeader({ bandas, largura, scale, scrollTop, arrastando, onStartDrag
 
 /** VER POR RAIA — o mesmo fluxo, organizado por quem executa. Só leitura: clicar num
  *  quadro só o destaca (configurar é no desenho). */
-function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, resolvePapel, resolveEntidade, onReorderLanes, pendencias }: {
+function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, resolvePapel, resolveEntidade, pendencias }: {
   canvasRef: React.RefObject<HTMLDivElement | null>
   nodes: ENode[]; edges: EEdge[]; layout: ReturnType<typeof layoutGraph>
   selectedId: string | null; onSelect: (id: string | null) => void
   resolvePapel: (id: string) => string | undefined
   resolveEntidade: (kind: string | undefined, id: string | undefined) => string | undefined
-  /** Ausente = só leitura: as raias não se reordenam. */
-  onReorderLanes?: (key: string, destino: number) => void
   /** Pendências de ativação: os avisos marcam o quadro (a pílula mora no topo). */
   pendencias: ProblemaAtivacao[]
 }) {
@@ -1346,40 +1324,10 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, res
     // maior pedaço INDIVISÍVEL (quebramos em espaço e em "/") define o piso da largura
     const maiorPedaco = Math.max(...rotulos.flatMap((r) => r.split(/[\s/]+/).map((p) => p.length)), 6)
     const maisLongo = Math.max(...rotulos.map((r) => r.length))
-    const porPedaco = maiorPedaco * 5.6 + LANE_CTRL_W + 18
-    const porTotal = (maisLongo * 5.6) / 2 + LANE_CTRL_W + 18 // mirando 2 linhas
+    const porPedaco = maiorPedaco * 5.6 + LANE_PAD + 18
+    const porTotal = (maisLongo * 5.6) / 2 + LANE_PAD + 18 // mirando 2 linhas
     return Math.round(Math.min(240, Math.max(124, porPedaco, porTotal)))
   }, [layout.lanes])
-
-  /* Arrastar a RAIA pela faixa do rótulo. Só a vertical importa: a banda cai entre duas
-     outras, e as atividades acompanham porque o y delas deriva do topo da banda. */
-  const [laneDrag, setLaneDrag] = useState<{ key: string; destino: number; linha: number | null } | null>(null)
-  const startLaneDrag = (key: string, ev: React.PointerEvent) => {
-    if (!onReorderLanes) return
-    ev.preventDefault(); ev.stopPropagation()
-    const bandas = layout.lanes
-    if (!bandas || bandas.length < 2) return
-    // fronteiras entre bandas, em coordenadas do GRAFO (o canvas está sob transform: scale)
-    const fronteiras = [bandas[0].y, ...bandas.map((b) => b.y + b.h)]
-    const alvoDe = (clientY: number) => {
-      const r = canvasRef.current!.getBoundingClientRect()
-      const y = (clientY - r.top) / scale
-      let i = 0
-      for (let k = 1; k < fronteiras.length; k++) if (Math.abs(fronteiras[k] - y) < Math.abs(fronteiras[i] - y)) i = k
-      return i
-    }
-    setLaneDrag({ key, destino: bandas.findIndex((b) => b.key === key), linha: null })
-    const move = (e: PointerEvent) => {
-      const i = alvoDe(e.clientY)
-      setLaneDrag((d) => (d ? { ...d, destino: i, linha: fronteiras[i] } : d))
-    }
-    const up = (e: PointerEvent) => {
-      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
-      onReorderLanes?.(key, alvoDe(e.clientY))
-      setLaneDrag(null)
-    }
-    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
-  }
 
   // O deselect fica no CONTAINER de rolagem: com o enquadramento a div do grafo não cobre
   // toda a área visível.
@@ -1388,8 +1336,7 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, res
     <ZoomBar scale={scale} autoFit={autoFit}
       onZoom={(s) => zoomPara(s)}
       onFit={() => { setAutoFit(true); setScale(fitScale()) }} />
-    <LaneHeader bandas={layout.lanes} largura={laneHeaderW} scale={scale} scrollTop={scrollTop}
-      arrastando={laneDrag?.key ?? null} onStartDrag={startLaneDrag} onReorder={onReorderLanes} />
+    <LaneHeader bandas={layout.lanes} largura={laneHeaderW} scale={scale} scrollTop={scrollTop} />
     <div ref={scrollRef} className="absolute inset-y-0 right-0 overflow-auto bg-muted/20 [background-image:radial-gradient(circle_at_1px_1px,hsl(var(--border))_1px,transparent_0)] [background-size:24px_24px]"
       style={{ left: laneHeaderW }}
       onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
@@ -1412,14 +1359,10 @@ function FlowCanvas({ canvasRef, nodes, edges, layout, selectedId, onSelect, res
           <div key={b.key} className="absolute left-0 pointer-events-none z-[1]" style={{ top: b.y, height: b.h, width: layout.width }}>
             <div className="absolute inset-0" style={{
               borderTop: i === 0 ? 'none' : '1px solid hsl(var(--foreground) / 0.16)',
-              background: laneDrag?.key === b.key ? 'hsl(var(--primary) / 0.10)' : i % 2 === 1 ? 'hsl(var(--foreground) / 0.045)' : 'transparent',
+              background: i % 2 === 1 ? 'hsl(var(--foreground) / 0.045)' : 'transparent',
             }} />
           </div>
         ))}
-        {/* onde a raia arrastada vai pousar */}
-        {laneDrag && laneDrag.linha !== null && (
-          <div className="absolute left-0 pointer-events-none z-20" style={{ top: laneDrag.linha - 1, width: layout.width, height: 2, background: 'hsl(var(--primary))' }} />
-        )}
         {/* ⚠️ `pointer-events-none` na RAIZ do svg: ele cobre o canvas inteiro e engoliria o
             mouse sobre a coluna de rótulos. */}
         <svg className="absolute inset-0 overflow-visible pointer-events-none" style={{ width: layout.width, height: layout.height }}>
@@ -1664,7 +1607,7 @@ function predecessorasDe(edges: EEdge[], alvo: string): Set<string> {
   return preds
 }
 
-function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveEntidade, onPatchStep, onChangeType, onRemove, onClose, secaoInicial, vinculo, somenteLeitura }: {
+function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveEntidade, onPatchStep, onChangeType, onRemove, onClose, secaoInicial, vinculo, somenteLeitura, focarAoAbrir }: {
   node: ENode; nodes: ENode[]; edges: EEdge[]; screens: Screens; papeis: Papeis
   /** nome da entidade fixa do executor, para a frase do "Em resumo" */
   resolveEntidade: (kind: string | undefined, id: string | undefined) => string | undefined
@@ -1676,6 +1619,8 @@ function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveEntidade
   secaoInicial?: string
   /** Workflow antigo aberto só para leitura: só o "Em resumo" e as respostas, sem campos. */
   somenteLeitura?: boolean
+  /** false = a gaveta abre sem tirar o foco da forma (ver GavetaLateral) */
+  focarAoAbrir?: boolean
 }) {
   const step = node.step!
   const type = node.type as 'userTask' | 'serviceTask'
@@ -1995,7 +1940,7 @@ function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveEntidade
 
   return (
     <GavetaLateral rotulo={meta.label} rotuloTom={meta.tone} rotuloIcone={<meta.Icon className="h-3 w-3" />} rotuloFechar="Fechar sem aplicar"
-      titulo={step.stepName?.trim() || 'Etapa sem nome'} onFechar={cancelar} rodape={rodape}>
+      titulo={step.stepName?.trim() || 'Etapa sem nome'} onFechar={cancelar} rodape={rodape} focarAoAbrir={focarAoAbrir}>
       <div ref={corpoRef} className="flex flex-col">
         {vinculo && (
           <div className="flex items-center gap-2 border-b bg-primary/5 px-4 py-2 text-xs">

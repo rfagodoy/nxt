@@ -163,7 +163,7 @@ export function SobreDoWorkflow({ descricao, onDescricao, tipo, onTipo, tipos, r
   )
 }
 
-/** ⋯ do topo: Histórico, Exportar (JPG/PDF) e "Ver por raia". */
+/** ⋯ do topo: Histórico, Exportar (JPG/PDF — desenha a VISTA POR RAIA, não o desenho BPMN) e "Ver por raia". */
 export function MenuMais({ onHistorico, onExportar, exportando, exportarDesabilitado, onVerPorRaia, verPorRaiaDesabilitado, extras, botaoRef, aberto: abertoProp, onAberto, antesDeAlternar }: {
   /** ausente em workflow novo (ainda sem histórico) */
   onHistorico?: () => void
@@ -197,7 +197,7 @@ export function MenuMais({ onHistorico, onExportar, exportando, exportarDesabili
   return (
     <>
       <button ref={botao} type="button" onClick={() => { if (antesDeAlternar?.()) return; setAberto((v) => !v) }} aria-haspopup="menu" aria-expanded={aberto}
-        aria-label="Mais ações" title="Mais ações: histórico, exportar, ver por raia"
+        aria-label="Mais ações" title="Mais ações: histórico, exportar (vista por raia), ver por raia"
         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-card text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground">
         {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
       </button>
@@ -217,7 +217,7 @@ export function MenuMais({ onHistorico, onExportar, exportando, exportarDesabili
             </button>
           )}
           <p className="flex items-center gap-1.5 px-2 pb-0.5 pt-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">
-            <Download className="h-3 w-3" />Exportar
+            <Download className="h-3 w-3" />Exportar (vista por raia)
           </p>
           <button type="button" role="menuitem" className={item} disabled={exportarDesabilitado} onClick={escolher(() => onExportar('jpg'))}
             {...(onHistorico || extras?.length ? {} : { 'data-autofocus': true })}>

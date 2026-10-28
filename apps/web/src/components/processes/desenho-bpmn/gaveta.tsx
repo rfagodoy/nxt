@@ -29,26 +29,29 @@ export function ehEscDaGaveta(e: KeyboardEvent): boolean {
   return !document.querySelector('[role="dialog"][data-state="open"], [data-radix-popper-content-wrapper], [data-floating-menu]')
 }
 
-export function GavetaLateral({ titulo, rotulo, onFechar, rodape, children, rotuloTom, rotuloIcone, rotuloFechar = 'Fechar' }: {
+export function GavetaLateral({ titulo, rotulo, onFechar, rodape, children, rotuloTom, rotuloIcone, rotuloFechar = 'Fechar', focarAoAbrir = true }: {
   titulo: string; rotulo: string; onFechar: () => void; rodape?: ReactNode; children: ReactNode
   /** classes de cor do chip do rótulo (ex.: 'bg-sky-500/10 text-sky-600'); sem elas, rótulo simples */
   rotuloTom?: string
   rotuloIcone?: ReactNode
   /** nome acessível do X (ex.: "Fechar sem aplicar", quando fechar cancela) */
   rotuloFechar?: string
+  /** false = abre sem tirar o foco de onde está (aberta pelo clique/teclado numa forma do
+   *  desenho: as setas do teclado continuam movendo a forma, como a descrição promete). */
+  focarAoAbrir?: boolean
 }): JSX.Element {
   const idTitulo = useId()
   const tituloRef = useRef<HTMLHeadingElement>(null)
   useEffect(() => {
     const antes = document.activeElement as HTMLElement | null
-    tituloRef.current?.focus({ preventScroll: true })
+    if (focarAoAbrir) tituloRef.current?.focus({ preventScroll: true })
     return () => {
       // devolve o foco a quem abriu — mas não rouba de quem já o pegou (outra gaveta, um campo)
       const agora = document.activeElement
       const perdido = !agora || agora === document.body || !agora.isConnected
       if (perdido && antes && antes !== document.body && antes.isConnected) antes.focus({ preventScroll: true })
     }
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- só na abertura: `focarAoAbrir` vale para o momento em que a gaveta nasce
   return (
     /* tabIndex -1: clicar no vazio da gaveta a deixa com o foco — o Esc continua sendo dela */
     <aside aria-labelledby={idTitulo} tabIndex={-1} {...{ [ATRIBUTO_GAVETA]: '' }}

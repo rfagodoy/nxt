@@ -41,6 +41,29 @@ describe('organizar', () => {
     const o = organizar(g, d, (id) => ({ A: 'RH', B: 'Contas' })[id])
     expect(raiaNaAltura(o.raias, o.posicoes.A.y)).toBe(1)
   })
+  it('decide a raia pelo CENTRO da forma (como o canvas), não pelo topo', () => {
+    const g = cadeia('A', 'B')
+    const r = (id: string) => ({ A: 'RH', B: 'Contas' })[id]
+    const base = desenhoInicial(g, r)
+    const hA = nodeSize({ id: 'A', type: 'userTask' }, 0, 0).h
+    // topo ainda na raia 0, centro já na raia 1
+    const y = base.raias[0].altura - hA / 2 + 4
+    const o = organizar(g, { ...base, posicoes: { ...base.posicoes, A: { x: 500, y } } }, r)
+    expect(raiaNaAltura(o.raias, o.posicoes.A.y + hA / 2)).toBe(1)
+  })
+  it('duas raias com o MESMO nome continuam separadas', () => {
+    const g = cadeia('A', 'B')
+    const d: DesenhoBpmn = {
+      versao: 1,
+      raias: [{ id: 'r1', nome: 'RH', altura: 160 }, { id: 'r2', nome: 'RH', altura: 160 }],
+      posicoes: { start: { x: 0, y: 40 }, A: { x: 100, y: 40 }, B: { x: 300, y: 200 }, end: { x: 500, y: 200 } },
+    }
+    const o = organizar(g, d, () => 'RH')
+    const h = (id: string) => nodeSize({ id, type: id === 'start' || id === 'end' ? id : 'userTask' }, 0, 0).h
+    expect(raiaNaAltura(o.raias, o.posicoes.A.y + h('A') / 2)).toBe(0)
+    expect(raiaNaAltura(o.raias, o.posicoes.B.y + h('B') / 2)).toBe(1)
+    expect(o.raias.map((x) => x.id)).toEqual(['r1', 'r2'])
+  })
   it('x cresce estritamente e tudo cai na grade', () => {
     const g = cadeia('A', 'B', 'C')
     const r = (id: string) => ({ A: 'RH', B: 'RH', C: 'RH' })[id]
@@ -192,7 +215,36 @@ describe('edição das raias', () => {
     expect(redimensionarRaia(b, 'r1', 203).raias[0].altura % GRADE).toBe(0)
     expect(redimensionarRaia(b, 'r2', 160)).toBe(b)
     expect(redimensionarRaia(b, 'r1', 140).raias[0].altura).toBe(144)
-    expect(redimensionarRaia(b, 'r1', 300).posicoes).toEqual(b.posicoes)
+  })
+
+  it('redimensionarRaia leva junto as formas das raias de baixo (pelo centro); as da própria raia ficam', () => {
+    // A centro 48+20=68 (r1: 0–140); B centro 176+20=196 (r2: 140–300); C centro 310 (abaixo de tudo)
+    const b: DesenhoBpmn = { ...base(), posicoes: { ...base().posicoes, C: { x: 0, y: 290 } } }
+    const h = () => 40
+    const d = redimensionarRaia(b, 'r1', 208, h) // +68
+    expect(d.posicoes.A).toEqual(b.posicoes.A)
+    expect(d.posicoes.B).toEqual({ x: 240, y: 176 + 68 })
+    expect(d.posicoes.C).toEqual({ x: 0, y: 290 + 68 })
+    // encolher puxa para cima
+    expect(redimensionarRaia(b, 'r1', 96, h).posicoes.B.y).toBe(176 - 44)
+    // a forma que COMEÇA na raia de cima mas tem o centro na de baixo é da de baixo
+    const cruza: DesenhoBpmn = { ...base(), posicoes: { X: { x: 0, y: 130 } } }
+    expect(redimensionarRaia(cruza, 'r1', 208, h).posicoes.X.y).toBe(130 + 68)
+  })
+
+  it('moverRaia leva as formas das duas raias trocadas (pelo centro); as outras ficam', () => {
+    const b: DesenhoBpmn = { ...base(), posicoes: { ...base().posicoes, C: { x: 0, y: 400 } } }
+    const d = moverRaia(b, 'r1', 1, () => 40)
+    expect(d.raias.map((r) => r.id)).toEqual(['r2', 'r1'])
+    expect(d.posicoes.A).toEqual({ x: 32, y: 48 + 160 }) // r1 desce a altura de r2
+    expect(d.posicoes.B).toEqual({ x: 240, y: 176 - 140 }) // r2 sobe a altura de r1
+    expect(d.posicoes.C).toEqual(b.posicoes.C)
+  })
+
+  it('removerRaia sobe as formas das raias de baixo pela altura dela; as de dentro ficam', () => {
+    const d = removerRaia(base(), 'r1', () => 40)
+    expect(d.posicoes.A).toEqual(base().posicoes.A)
+    expect(d.posicoes.B).toEqual({ x: 240, y: 176 - 140 })
   })
 
   it('moverRaia troca a ordem com a vizinha; nas pontas não faz nada', () => {
@@ -201,14 +253,11 @@ describe('edição das raias', () => {
     expect(moverRaia(b, 'r1', 1).raias.map((r) => r.id)).toEqual(['r2', 'r1'])
     expect(moverRaia(b, 'r1', -1)).toBe(b)
     expect(moverRaia(b, 'r2', 1)).toBe(b)
-    expect(moverRaia(b, 'r1', 1).posicoes).toEqual(b.posicoes)
   })
 
-  it('removerRaia tira a raia e deixa as formas onde estão', () => {
+  it('removerRaia tira a raia; id desconhecido devolve o mesmo desenho', () => {
     const b = base()
-    const d = removerRaia(b, 'r1')
-    expect(d.raias.map((r) => r.id)).toEqual(['r2'])
-    expect(d.posicoes).toEqual(b.posicoes)
+    expect(removerRaia(b, 'r1').raias.map((r) => r.id)).toEqual(['r2'])
     expect(removerRaia(b, 'x')).toBe(b)
   })
 })
