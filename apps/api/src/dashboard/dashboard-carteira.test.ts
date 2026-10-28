@@ -48,6 +48,13 @@ describe('vencimentosPorMes · lista dos próximos', () => {
     expect(v.proximos.map((x) => x.id)).toEqual(['a', 'b'])
     expect(v.proximos[0].contraparte).toBe('ACME')
   })
+  it('leva o início da vigência (barra de prazo decorrido); sem início vira vazio', () => {
+    const v = vencimentosPorMes([
+      it_({ id: 'a', termino: '2026-11-01', inicio: '2025-11-01', valor: 1 }),
+      it_({ id: 'b', termino: '2026-12-01', valor: 1 }),
+    ], HOJE)
+    expect(v.proximos.map((x) => x.inicio)).toEqual(['2025-11-01', ''])
+  })
 })
 
 describe('concentracaoPorParceiro', () => {

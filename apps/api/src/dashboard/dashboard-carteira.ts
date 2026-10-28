@@ -8,6 +8,8 @@ export interface ItemCarteira {
   situacao: string
   /** término VIGENTE (YYYY-MM-DD) ou '' quando indeterminado */
   termino: string
+  /** início da vigência (YYYY-MM-DD) ou '' — a barra "quanto do prazo já passou" */
+  inicio?: string
   valor: number
   /** contraparte EXTERNA (parte que é parceiro), já com cessões aplicadas */
   contraparte: { id: string; nome: string } | null
@@ -27,7 +29,7 @@ export interface Vencimentos {
   /** término passou e não foi renovado/encerrado (situação derivada VENCIDO) */
   vencidos: { qtd: number; valor: number }
   /** os próximos a vencer dentro dos 12 meses, por data (lista que leva ao contrato) */
-  proximos: Array<{ id: string; numero: string; titulo: string; termino: string; valor: number; contraparte: string | null }>
+  proximos: Array<{ id: string; numero: string; titulo: string; inicio: string; termino: string; valor: number; contraparte: string | null }>
 }
 
 const chaveMes = (iso: string) => iso.slice(0, 7)
@@ -52,7 +54,7 @@ export function vencimentosPorMes(itens: ItemCarteira[], hoje: string, limiteLis
     const balde = porMes.get(chaveMes(it.termino))
     if (balde) {
       balde.qtd++; balde.valor += it.valor
-      if (it.id) proximos.push({ id: it.id, numero: it.numero ?? '', titulo: it.titulo ?? '', termino: it.termino, valor: it.valor, contraparte: it.contraparte?.nome ?? null })
+      if (it.id) proximos.push({ id: it.id, numero: it.numero ?? '', titulo: it.titulo ?? '', inicio: it.inicio ?? '', termino: it.termino, valor: it.valor, contraparte: it.contraparte?.nome ?? null })
     }
     if (it.termino <= limite90) { prox90.qtd++; prox90.valor += it.valor }
   }
