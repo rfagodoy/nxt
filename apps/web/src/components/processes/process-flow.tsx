@@ -20,7 +20,7 @@ import { useScreens } from '@/hooks/use-screens'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { PAPEIS_KEY, INIT_PAPEIS, referenciaDoPapelEntry } from '@/lib/contract-roles'
 import { layoutGraph, nodeSize, titleLineCount, LABEL_W, LANE_SEM_RESPONSAVEL, type FlowNode as LNode, type FlowNodeType, type LaneBand } from '@/lib/flow-layout'
-import { GRADE, abrirEspaco, adicionarRaia, completarPosicoes, desenhoInicial, larguraDaInsercao, organizar } from '@/lib/desenho-bpmn'
+import { GRADE, abrirEspaco, adicionarRaia, completarPosicoes, desenhoInicial, formasDoItem, larguraDaInsercao, organizar, posicoesAoMover } from '@/lib/desenho-bpmn'
 import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, type ExportEdge } from '@/lib/flow-export'
 import { apiFetch } from '@/lib/http'
 import { ProcessHistoryDrawer } from './process-history-drawer'
@@ -37,7 +37,7 @@ import { cn } from '@/lib/utils'
 import { STEP_TONE, dueText, entityKindLabel, type EEdge, type ENode } from './editor-comum'
 import { ENTITY_MODE_LABEL, PerguntasDaEtapa } from './perguntas-da-etapa'
 import { Roteiro } from './roteiro/roteiro'
-import { montarRoteiro, type ConsultasDoRoteiro } from '@/lib/roteiro'
+import { itensDaLista, montarRoteiro, podeSoltar, type ConsultasDoRoteiro } from '@/lib/roteiro'
 
 
 export const WORKFLOW_KINDS = [
@@ -949,13 +949,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   /* Incluir pela lista: a forma nova entra no lugar de quem vai ficar DEPOIS dela (ou do Fim,
      no fim do fluxo) e o desenho abre espaço, como na paleta. Sem vizinho com posição, fica
      para `completarPosicoes`. */
-  const pertoDaInsercao = (ref: string, indice: number): { x: number; y: number } | undefined => {
-    if (!fluxo || !desenhoVisto) return undefined
-    const lista = ref === 'raiz' ? fluxo.itens : (() => {
-      for (const e of [...listarEscolhas(fluxo)]) for (const c of [...e.caminhos, e.casoContrario]) if (c.id === ref) return c.itens
-      return undefined
-    })()
-    const depois = lista?.[indice]?.id ?? (ref === 'raiz' ? fluxo.fimId : undefined)
+  const pertoDaInsercao = (ref: string, indice: number, f: FluxoBlocos | null = fluxo): { x: number; y: number } | undefined => {
+    if (!f || !desenhoVisto) return undefined
+    const depois = itensDaLista(f, ref)?.[indice]?.id ?? (ref === 'raiz' ? f.fimId : undefined)
     return depois ? desenhoVisto.posicoes[depois] : undefined
   }
 
@@ -1154,6 +1150,23 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
               remover, mudarFluxo, vinculaveis,
               inserirVinculada: (ref, indice, origemId) => inserirVinculada(ref, indice, origemId, pertoDaInsercao(ref, indice)),
               desvincular,
+              avaliar: (id, d) => {
+                const s = podeSoltar(fluxo, id, d)
+                return s.ok ? { ok: true } : { ok: false, motivo: s.motivo }
+              },
+              mover: (id, d) => {
+                const s = podeSoltar(fluxo, id, d)
+                if (!s.ok || s.fluxo === fluxo) return
+                const item = acharItem(fluxo, id)
+                setFluxo(s.fluxo)
+                if (!item) return
+                // o item movido perde a posição antiga; os outros não se mexem
+                setDesenho((dd) => (dd ? posicoesAoMover(dd, formasDoItem(item)) : dd))
+                // uma etapa movida entra no lugar de quem fica depois dela, abrindo espaço (como incluir)
+                const aqui = localDoItem(s.fluxo, id)
+                const perto = aqui && item.kind === 'atividade' ? pertoDaInsercao(aqui.ref, aqui.indice + 1, s.fluxo) : undefined
+                if (aqui && perto && item.kind === 'atividade') darLugar(id, item.tipo, perto, aqui.ref, aqui.indice)
+              },
             }}
             previa={fluxo && grafo && desenhoVisto ? (
               <CanvasBpmn fluxo={fluxo} grafo={grafo} desenho={desenhoVisto} steps={stepsEfetivos} selecionado={selectedId}

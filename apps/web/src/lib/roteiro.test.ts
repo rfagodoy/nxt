@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { FluxoBlocos, ItemFluxo, CaminhoCondicional } from '@nxt/workflow-core'
 import type { StepFormSchema } from '@nxt/types'
-import { montarRoteiro, podeSoltar, type ConsultasDoRoteiro, type EtapaRoteiro, type EscolhaRoteiro, type ParaleloRoteiro } from './roteiro'
+import { itensDaLista, montarRoteiro, podeSoltar, type ConsultasDoRoteiro, type EtapaRoteiro, type EscolhaRoteiro, type ParaleloRoteiro } from './roteiro'
 
 const at = (id: string, tipo: 'userTask' | 'serviceTask' = 'userTask', vinculoDe?: string): ItemFluxo =>
   ({ kind: 'atividade', id, tipo, ...(vinculoDe ? { vinculoDe } : {}) })
@@ -164,5 +164,22 @@ describe('podeSoltar', () => {
     const f = fluxo([at('a1'), { kind: 'escolha', id: 'e1', caminhos: [{ id: 'c1', itens: [], fim: { tipo: 'segue' } }], casoContrario: { id: 'cc', itens: [], fim: { tipo: 'segue' } } }, at('a2')])
     const s = podeSoltar(f, 'a2', { ref: 'raiz', indice: 0 })
     expect(s.ok).toBe(true)
+  })
+})
+
+describe('itensDaLista', () => {
+  const f = fluxo([at('a1'), {
+    kind: 'paralelo', id: 'p1', caminhos: [
+      { id: 'r1', itens: [{ kind: 'escolha', id: 'e1', caminhos: [{ id: 'c1', itens: [at('a2')], fim: { tipo: 'segue' } }], casoContrario: { id: 'cc', itens: [], fim: { tipo: 'segue' } } }] },
+      { id: 'r2', itens: [at('a3')] },
+    ],
+  }])
+  it('raiz, ramo de ao mesmo tempo e caminho de escolha aninhado', () => {
+    expect(itensDaLista(f, 'raiz')?.map((i) => i.id)).toEqual(['a1', 'p1'])
+    expect(itensDaLista(f, 'r2')?.map((i) => i.id)).toEqual(['a3'])
+    expect(itensDaLista(f, 'c1')?.map((i) => i.id)).toEqual(['a2'])
+  })
+  it('lista que não existe: undefined', () => {
+    expect(itensDaLista(f, 'nada')).toBeUndefined()
   })
 })

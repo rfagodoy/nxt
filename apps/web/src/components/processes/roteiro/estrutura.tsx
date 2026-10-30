@@ -18,8 +18,10 @@ export interface EstruturaDoRoteiro {
   vinculaveis: Array<{ id: string; nome: string }>
   inserirVinculada: (ref: string, indice: number, origemId: string) => void
   desvincular: (id: string) => void
-  /** Task 9: mover um item; recusa o que o motor não aceita */
-  mover?: (id: string, destino: { ref: string; indice: number }) => void
+  /** o motor aceita o item neste lugar? (`podeSoltar`) */
+  avaliar: (id: string, destino: { ref: string; indice: number }) => { ok: true } | { ok: false; motivo: string }
+  /** move de fato (só chamado depois de `avaliar` aceitar) */
+  mover: (id: string, destino: { ref: string; indice: number }) => void
 }
 
 const item = 'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12.5px] font-medium outline-none hover:bg-muted focus-visible:bg-muted disabled:opacity-40 disabled:hover:bg-transparent'

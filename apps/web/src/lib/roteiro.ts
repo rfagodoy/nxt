@@ -122,3 +122,21 @@ export function podeSoltar(f: FluxoBlocos, itemId: string, destino: { ref: strin
   const novo = validarBlocos(g).find((p) => p.severidade === 'erro' && !antes.has(chave(p)))
   return novo ? { ok: false, motivo: novo.mensagem } : { ok: true, fluxo: g }
 }
+
+/** Os itens da lista `ref` ('raiz' ou id de caminho / ramo), em qualquer profundidade. */
+export function itensDaLista(f: FluxoBlocos, ref: string): ItemFluxo[] | undefined {
+  if (ref === 'raiz') return f.itens
+  const buscar = (itens: ItemFluxo[]): ItemFluxo[] | undefined => {
+    for (const it of itens) {
+      if (it.kind === 'atividade') continue
+      const caminhos = it.kind === 'escolha' ? [...it.caminhos, it.casoContrario] : it.caminhos
+      for (const c of caminhos) {
+        if (c.id === ref) return c.itens
+        const achou = buscar(c.itens)
+        if (achou) return achou
+      }
+    }
+    return undefined
+  }
+  return buscar(f.itens)
+}
