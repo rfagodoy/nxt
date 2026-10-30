@@ -874,7 +874,7 @@ function PessoasHoje({ pessoas }: { pessoas: string[] | null | undefined }) {
 
 /** Rótulos e explicações do que a atividade faz com a entidade. VIEW é a etapa de
  *  análise: mostra o cadastro inteiro, não deixa alterar nada. */
-const ENTITY_MODE_LABEL: Record<string, string> = { CREATE: 'Criar', EDIT: 'Editar', VIEW: 'Consultar' }
+export const ENTITY_MODE_LABEL: Record<string, string> = { CREATE: 'Criar', EDIT: 'Editar', VIEW: 'Consultar' }
 
 const SUBJECT_ENTITY: Record<string, string> = { CONTRATO: 'contrato', FORNECEDOR: 'parceiro' }
 const SUBJECT_LABEL: Record<string, string> = { CONTRATO: 'Contrato', FORNECEDOR: 'Parceiro' }

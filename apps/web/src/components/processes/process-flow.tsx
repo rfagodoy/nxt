@@ -35,7 +35,9 @@ import { PaletaBpmn } from './desenho-bpmn/paleta'
 import { MenuMais, NomeNoTopo, SeletorDeVista, SobreDoWorkflow, tamanhoDoNome, useNivelDoTopo, type VistaDoEditor } from './desenho-bpmn/topo'
 import { cn } from '@/lib/utils'
 import { STEP_TONE, dueText, entityKindLabel, type EEdge, type ENode } from './editor-comum'
-import { PerguntasDaEtapa } from './perguntas-da-etapa'
+import { ENTITY_MODE_LABEL, PerguntasDaEtapa } from './perguntas-da-etapa'
+import { Roteiro } from './roteiro/roteiro'
+import { montarRoteiro, type ConsultasDoRoteiro } from '@/lib/roteiro'
 
 
 export const WORKFLOW_KINDS = [
@@ -943,6 +945,40 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     return [`${atv} ${atv === 1 ? 'atividade' : 'atividades'}`, ...(esc ? [`${esc} ${esc === 1 ? 'escolha' : 'escolhas'}`] : []), ...(par ? [`${par} ao mesmo tempo`] : [])].join(' · ')
   })()
   const noDesenho = !!fluxo && vista === 'desenho'
+  const noRoteiro = !!fluxo && vista === 'roteiro'
+
+  /* ROTEIRO: o que a lista mostra sai dos blocos + as mesmas consultas do painel da etapa. */
+  const nosDoRoteiro = useMemo(() => {
+    if (!fluxo || vista !== 'roteiro') return []
+    const nomeDe = (id: string) => stepsEfetivos[id]?.stepName?.trim() || 'Etapa sem nome'
+    const consultas: ConsultasDoRoteiro = {
+      steps: stepsEfetivos,
+      quemFaz: (id) => {
+        const ex = stepsEfetivos[id]?.executor
+        if (!ex?.papelId) return undefined
+        const papel = resolvePapel(ex.papelId)
+        if (!papel) return null
+        const entidade = ex.mode !== 'VARIAVEL' && ex.entityId ? resolveEntidade(ex.entityType, ex.entityId) : undefined
+        return entidade ? `${papel} · ${entidade}` : papel
+      },
+      prazo: (id) => dueText(stepsEfetivos[id]),
+      tela: (id) => {
+        const st = stepsEfetivos[id]
+        const tela = st?.screenRef ? screens.find((x) => x.id === st.screenRef) : undefined
+        return tela ? `${tela.name} · ${(ENTITY_MODE_LABEL[st?.entityMode ?? 'CREATE'] ?? '').toLowerCase()}` : null
+      },
+      devolucao: (id) => {
+        const r = stepsEfetivos[id]?.returnPolicy
+        if (r?.mode === 'NONE') return 'não devolve'
+        if (r?.mode === 'SELECTED') return `devolve para ${(r.nodeIds ?? []).map(nomeDe).join(', ') || 'nenhuma etapa'}`
+        return null
+      },
+      acao: (id) => findConnector(stepsEfetivos[id]?.connector)?.label ?? null,
+      nomeDe,
+      condicaoDe: (c) => c.rotulo?.trim() || c.condition?.trim() || 'sem condição',
+    }
+    return montarRoteiro(fluxo, consultas)
+  }, [fluxo, vista, stepsEfetivos, resolvePapel, resolveEntidade, screens])
 
   /* Topo: compacta pela largura DISPONÍVEL (ver useNivelDoTopo). A chave lista o que pode
      ENCOLHER o conteúdo (aí vale tentar um nível menor); o que só cresce (o texto de "Quem
@@ -1066,8 +1102,26 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
       {/* `relative`: as gavetas laterais (absolute) encostam à direita desta faixa, por cima do desenho. */}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        {fluxo && vista === 'roteiro' ? (
-          <div className="flex min-w-0 flex-1 items-center justify-center text-xs text-muted-foreground">Roteiro</div>
+        {noRoteiro ? (
+          <Roteiro nos={nosDoRoteiro} selecionado={selectedId} onSelecionar={(id) => { setFocarGaveta(true); abrir(id) }}
+            inicio={{
+              texto: quemInicia?.modo === 'PAPEIS' ? 'só quem tem os papéis definidos' : 'qualquer usuário, em + Novo processo',
+              onAbrir: () => setQuemIniciaAberto(true),
+            }}
+            renderAberto={() => null}
+            onVerDesenho={() => setVista('desenho')}
+            previa={fluxo && grafo && desenhoVisto ? (
+              <CanvasBpmn fluxo={fluxo} grafo={grafo} desenho={desenhoVisto} steps={stepsEfetivos} selecionado={selectedId}
+                nomeDoProcesso={name} revisaoDasConsultas={revisaoDasConsultas} somenteLeitura
+                responsavelDe={responsavelDe} prazoDe={prazoDe} problemasDe={problemasDe}
+                onSelecionar={(id) => { setFocarGaveta(false); abrir(id) }} onDesenho={() => {}} onInserir={() => {}} onMoverItem={() => {}}
+                onLigar={() => {}} onRemover={() => {}}
+                vinculaveis={[]} onInserirVinculada={() => {}} focoEm={focoEm} enquadrar={enquadrar} />
+            ) : (
+              <div role="status" className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />Preparando o desenho…
+              </div>
+            )} />
         ) : noDesenho ? (
           <>
             <PaletaBpmn onAdicionarRaia={aoAdicionarRaia} onEscolher={aoEscolherNaPaleta} desabilitada={!desenhoVisto} />
