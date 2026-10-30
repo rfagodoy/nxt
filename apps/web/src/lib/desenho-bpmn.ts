@@ -144,6 +144,56 @@ export function abrirEspaco(d: DesenhoBpmn, aPartirDeX: number, largura: number,
   return { ...d, posicoes }
 }
 
+/** Onde a pílula do caminho fica: logo depois de a seta sair do losango — no começo do
+ *  trecho que segue a dobra (ali as setas irmãs já se separaram), ou a um passo da saída
+ *  quando a seta é reta. No meio da seta ela caía atrás das formas e sobre as vizinhas.
+ *  A mesma regra vale na tela e no arquivo exportado. */
+export function pontoDoRotuloNaPolilinha(pontos: ReadonlyArray<{ x: number; y: number }>): { x: number; y: number } | null {
+  // as dobras com raio 0 repetem o ponto do canto: fica um ponto por canto
+  const pts: Array<{ x: number; y: number }> = []
+  for (const q of pontos) {
+    const u = pts[pts.length - 1]
+    if (!u || Math.abs(u.x - q.x) > 0.5 || Math.abs(u.y - q.y) > 0.5) pts.push(q)
+  }
+  if (pts.length < 2) return null
+  const passo = (a: { x: number; y: number }, b: { x: number; y: number }, d: number) => {
+    const len = Math.hypot(b.x - a.x, b.y - a.y) || 1
+    const t = Math.min(1, d / len) * (d > len ? 0.5 : 1)
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }
+  }
+  // seta reta (ou quase): a 34 px da saída
+  if (pts.length === 2) return passo(pts[0], pts[1], 34)
+  // depois da 1ª dobra: 30 px adiante (no meio do trecho, se ele for curto)
+  return passo(pts[1], pts[2], 30)
+}
+
+/** Reordenar arrastando (PO, 30/10/2026): a forma — ou o bloco inteiro, `ids` — sai de
+ *  onde estava e entra antes de `antesDe` (a forma que vem depois da seta de destino).
+ *  Na origem o vão FECHA: o que começa depois da forma volta `largura`. No destino ABRE:
+ *  como na inserção pela paleta, tudo a partir de `antesDe` anda `largura` e a forma toma
+ *  o x que era dele. O y é o de onde a pessoa soltou (`y`, da forma `principal`); as demais
+ *  do bloco andam junto e o bloco mantém o desenho dele. Raias não mudam. */
+export function reordenarNoDesenho(
+  d: DesenhoBpmn, ids: ReadonlySet<string>, principal: string, largura: number, antesDe: string, y: number,
+): DesenhoBpmn {
+  const daForma = d.posicoes[principal]
+  if (!daForma || !d.posicoes[antesDe] || ids.has(antesDe) || !(largura > 0)) return d
+  const passo = Math.ceil(largura / GRADE) * GRADE
+  const movidas = [...ids].filter((id) => d.posicoes[id])
+  const fimDaOrigem = Math.max(...movidas.map((id) => d.posicoes[id].x))
+  const fechado: DesenhoBpmn['posicoes'] = {}
+  for (const [id, p] of Object.entries(d.posicoes)) {
+    fechado[id] = !ids.has(id) && p.x > fimDaOrigem ? { x: p.x - passo, y: p.y } : p
+  }
+  const destino = fechado[antesDe].x
+  // a forma que começa um pouco antes do destino também a cobriria: entra no empurrão
+  const aberto = abrirEspaco({ ...d, posicoes: fechado }, destino - 2 * GRADE, passo, ids)
+  const dx = destino - daForma.x, dy = naGrade(y) - daForma.y
+  const posicoes = { ...aberto.posicoes }
+  for (const id of movidas) posicoes[id] = { x: d.posicoes[id].x + dx, y: d.posicoes[id].y + dy }
+  return { ...aberto, posicoes }
+}
+
 /** Largura que uma forma nova ocupa no desenho, já com a folga até a próxima: a tarefa é a
  *  caixa dela; escolha / "ao mesmo tempo" são a divisão e o reencontro (que
  *  `completarPosicoes` põe um PASSO_X à direita). Sempre na grade. */
