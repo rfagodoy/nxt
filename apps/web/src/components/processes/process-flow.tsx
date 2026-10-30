@@ -947,6 +947,30 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const noDesenho = !!fluxo && vista === 'desenho'
   const noRoteiro = !!fluxo && vista === 'roteiro'
 
+  /* A configuração aberta — a MESMA no painel do Desenho e dentro da lista do Roteiro. */
+  const perguntasDaEtapa = (moldura: 'gaveta' | 'embutida') => (configNode && configNode.step && fluxo ? (
+    <PerguntasDaEtapa key={configNode.id} moldura={moldura} node={configNode} nodes={nodes} edges={edges} screens={screens} papeis={papeis} resolveEntidade={resolveEntidade}
+      secaoInicial={configSecao} focarAoAbrir={focarGaveta}
+      onPatchStep={(p) => patchStep(configNode.id, p)}
+      onChangeType={(t) => changeNodeType(configNode.id, t)}
+      vinculo={(() => {
+        const raiz = raizDe.get(configNode.id) ?? configNode.id
+        const outros = (vinculos.get(raiz) ?? []).length
+        if (!outros) return undefined
+        return { lugares: outros + 1, ehCopia: raizDe.has(configNode.id), desvincular: () => desvincular(configNode.id) }
+      })()}
+      onRemove={() => { remover(configNode.id); setRetornoEscolha(null); setConfigSecao(undefined) }}
+      onClose={() => {
+        setConfigId(null); setConfigSecao(undefined)
+        if (retornoEscolha) { setSelectedId(retornoEscolha); setRetornoEscolha(null) }
+      }} />
+  ) : null)
+  const configDoBloco = () => (selectedBloco && fluxo ? (
+    <ConfiguracaoDoBloco blocoId={selectedBloco.id} fluxo={fluxo} steps={stepsEfetivos} simulacao={simulacao}
+      onRemover={remover} onFluxo={mudarFluxo}
+      screens={screens} onSimulacao={setSimulacao} onConfigurarAtividade={configurarAtividadeDaEscolha} problemas={pendenciasPorNo} />
+  ) : null)
+
   /* ROTEIRO: o que a lista mostra sai dos blocos + as mesmas consultas do painel da etapa. */
   const nosDoRoteiro = useMemo(() => {
     if (!fluxo || vista !== 'roteiro') return []
@@ -1108,7 +1132,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
               texto: quemInicia?.modo === 'PAPEIS' ? 'só quem tem os papéis definidos' : 'qualquer usuário, em + Novo processo',
               onAbrir: () => setQuemIniciaAberto(true),
             }}
-            renderAberto={() => null}
+            renderAberto={(id) => (configNode?.id === id ? perguntasDaEtapa('embutida')
+              : selectedBloco?.id === id && !(configNode && configNode.step)
+                ? <div {...{ [ATRIBUTO_GAVETA]: '' }} tabIndex={-1} className="outline-none">{configDoBloco()}</div> : null)}
             onVerDesenho={() => setVista('desenho')}
             previa={fluxo && grafo && desenhoVisto ? (
               <CanvasBpmn fluxo={fluxo} grafo={grafo} desenho={desenhoVisto} steps={stepsEfetivos} selecionado={selectedId}
@@ -1172,9 +1198,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
             rotuloTom={selectedBloco.kind === 'escolha' ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'}
             rotuloIcone={<GatewayGlyph kind={selectedBloco.kind === 'escolha' ? 'exclusive' : 'parallel'} className="h-3 w-3" />}
             onFechar={() => setSelectedId(null)} focarAoAbrir={focarGaveta}>
-            <ConfiguracaoDoBloco blocoId={selectedBloco.id} fluxo={fluxo} steps={stepsEfetivos} simulacao={simulacao}
-              onRemover={remover} onFluxo={mudarFluxo}
-              screens={screens} onSimulacao={setSimulacao} onConfigurarAtividade={configurarAtividadeDaEscolha} problemas={pendenciasPorNo} />
+            {configDoBloco()}
           </GavetaLateral>
         )}
 
@@ -1185,23 +1209,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
             onClose={() => setConfigId(null)} />
         )}
 
-        {noDesenho && configNode && configNode.step && fluxo && (
-          <PerguntasDaEtapa key={configNode.id} node={configNode} nodes={nodes} edges={edges} screens={screens} papeis={papeis} resolveEntidade={resolveEntidade}
-            secaoInicial={configSecao} focarAoAbrir={focarGaveta}
-            onPatchStep={(p) => patchStep(configNode.id, p)}
-            onChangeType={(t) => changeNodeType(configNode.id, t)}
-            vinculo={(() => {
-              const raiz = raizDe.get(configNode.id) ?? configNode.id
-              const outros = (vinculos.get(raiz) ?? []).length
-              if (!outros) return undefined
-              return { lugares: outros + 1, ehCopia: raizDe.has(configNode.id), desvincular: () => desvincular(configNode.id) }
-            })()}
-            onRemove={() => { remover(configNode.id); setRetornoEscolha(null); setConfigSecao(undefined) }}
-            onClose={() => {
-              setConfigId(null); setConfigSecao(undefined)
-              if (retornoEscolha) { setSelectedId(retornoEscolha); setRetornoEscolha(null) }
-            }} />
-        )}
+        {noDesenho && perguntasDaEtapa('gaveta')}
       </div>
     </div>
   )
