@@ -17,6 +17,9 @@ Tornar a parametrização do workflow intuitiva. O editor ganha a vista **Roteir
 | Prévia do desenho | **Só olhar e selecionar:** destaca a etapa aberta; clicar numa caixa abre essa etapa na lista. Arrastar e desenhar ficam na aba Desenho. |
 | Workflow antigo (só leitura) | Roteiro **desabilitado** no seletor, com a explicação. |
 | Workflow novo | Abre no Roteiro com Início, Fim e "+ primeira etapa". |
+| Escolha nova | **Igual ao desenho:** um caminho pedindo condição, modo "todos os que servirem"; mais caminhos com "+ outra condição". |
+| Última etapa de um caminho | **Pode ser removida:** o caminho fica vazio e segue. |
+| Nomes de papéis carregando | Etiqueta **"carregando…"**, sem acusar pendência. |
 | Lista antiga ("Montar") | **Não volta.** O Roteiro é desenhado a partir do mockup C; reaproveita só peças internas vivas (configuração de bloco). |
 | Entrega | **Dois PRs:** (1) separar as perguntas da etapa num componente; (2) o Roteiro. Os dois entram também em `local/tudo-junto` (máquina do PO). |
 
