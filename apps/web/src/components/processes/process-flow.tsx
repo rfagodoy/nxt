@@ -32,7 +32,7 @@ import { NoticeDialog } from '@/components/ui/confirm-dialog'
 import { ATRIBUTO_GAVETA, GavetaLateral, ehEscDaGaveta } from './desenho-bpmn/gaveta'
 import { CanvasBpmn } from './desenho-bpmn/canvas-bpmn'
 import { PaletaBpmn } from './desenho-bpmn/paleta'
-import { MenuMais, NomeNoTopo, SobreDoWorkflow, tamanhoDoNome, useNivelDoTopo } from './desenho-bpmn/topo'
+import { MenuMais, NomeNoTopo, SeletorDeVista, SobreDoWorkflow, tamanhoDoNome, useNivelDoTopo, type VistaDoEditor } from './desenho-bpmn/topo'
 import { cn } from '@/lib/utils'
 import { STEP_TONE, dueText, entityKindLabel, type EEdge, type ENode } from './editor-comum'
 import { PerguntasDaEtapa } from './perguntas-da-etapa'
@@ -255,9 +255,10 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
      gravada em `formSchema.desenho`. Sem desenho gravado, nasce organizado e com raias
      sugeridas pelos responsáveis (ver "abertura do desenho", mais abaixo). */
   const [desenho, setDesenho] = useState<DesenhoBpmn | null>(() => (inicio.fluxo ? lerDesenho(initial?.desenho) : null))
-  /* O desenho é onde se edita; "Ver por raia" é a vista antiga, só de leitura, organizada
-     por quem executa. Desenho antigo que não cabe em blocos só tem a raia. */
-  const [vista, setVista] = useState<'desenho' | 'raia'>(somenteLeitura ? 'raia' : 'desenho')
+  /* Roteiro (a lista, vista principal) e Desenho editam o mesmo workflow; "Ver por raia" é a
+     vista antiga, só de leitura, organizada por quem executa. Desenho antigo que não cabe em
+     blocos só tem a raia. */
+  const [vista, setVista] = useState<VistaDoEditor>(somenteLeitura ? 'raia' : inicio.fluxo ? 'roteiro' : 'desenho')
   const [historicoAberto, setHistoricoAberto] = useState(false)
   /** Pedido de "enquadrar a vista" ao canvas (contador). */
   const [enquadrar, setEnquadrar] = useState(0)
@@ -975,13 +976,15 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       <div ref={topoRef} className="relative z-40 flex min-w-0 items-center gap-2 border-b bg-card px-3 py-2 shrink-0">
         <Button variant="ghost" size="icon" onClick={() => router.push('/workflows')} className="h-8 w-8 shrink-0" aria-label="Voltar para Workflows" title="Voltar para Workflows"><ArrowLeft className="h-4 w-4" /></Button>
         <NomeNoTopo nome={name} onNome={setName} autoFocus={!editing} podeEncolher={nivelTopo >= 7} />
+        <SeletorDeVista vista={vista} onVista={setVista} soIcone={nivelTopo >= 4}
+          roteiroDesabilitado={somenteLeitura ? 'Este workflow foi desenhado no editor antigo e abre só para leitura.' : undefined} />
         <SobreDoWorkflow descricao={description} onDescricao={setDescription} tipo={kind} onTipo={setKind} tipos={WORKFLOW_KINDS} resumo={resumo} soIcone={nivelTopo >= 4}
           aberto={sobreAberto} onAberto={setSobreAberto} />
         {/* no nível 6 o botão vai para o ⋯; o balão continua aqui, ancorado no ⋯ */}
         <QuemIniciaPill value={quemInicia} onChange={setQuemInicia} papeis={papeis.entries} kind={kind} soIcone={nivelTopo >= 2}
           aberto={quemIniciaAberto} onAberto={setQuemIniciaAberto} semBotao={quemIniciaNoMenu} ancora={maisRef} />
         <PendenciasPill noTopo compacta={nivelTopo >= 3} pendencias={pendencias} aberto={pendAberto} onToggle={() => setPendAberto((v) => !v)}
-          onItem={(p) => { setPendAberto(false); if (fluxo) setVista('desenho'); focarPendencia(p) }} />
+          onItem={(p) => { setPendAberto(false); if (fluxo && vista === 'raia') setVista('roteiro'); focarPendencia(p) }} />
         <div data-topo-espaco className="min-w-0 flex-1" />
         {exportError && <span className="shrink-0 text-[11px] text-destructive font-medium">{exportError}</span>}
         {/* Frase CURTA: o detalhe fica no title. */}
@@ -1005,8 +1008,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
             <Redo2 className="h-4 w-4" />
           </button>
         </div>
-        {nivelTopo < 6 && (
-          <Button variant="outline" size="sm" className={cn('shrink-0', nivelTopo >= 1 && 'px-2')} onClick={organizarDesenho} disabled={!noDesenho || !desenhoVisto}
+        {nivelTopo < 6 && noDesenho && (
+          <Button variant="outline" size="sm" className={cn('shrink-0', nivelTopo >= 1 && 'px-2')} onClick={organizarDesenho} disabled={!desenhoVisto}
             aria-label="Organizar" title="Organizar: arruma as formas na ordem do fluxo e cada uma na raia de quem a executa">
             <LayoutGrid className="h-4 w-4" />{nivelTopo < 1 && 'Organizar'}
           </Button>
@@ -1015,7 +1018,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
           // com o "Quem inicia" aberto a partir do ⋯, clicar no ⋯ só o fecha (não abre os dois)
           antesDeAlternar={() => { if (quemIniciaNoMenu && quemIniciaAberto) { setQuemIniciaAberto(false); return true } return false }}
           extras={nivelTopo >= 6 ? [
-            { rotulo: 'Organizar', icone: <LayoutGrid className="h-4 w-4 text-muted-foreground" />, onClick: organizarDesenho, disabled: !noDesenho || !desenhoVisto },
+            ...(noDesenho ? [{ rotulo: 'Organizar', icone: <LayoutGrid className="h-4 w-4 text-muted-foreground" />, onClick: organizarDesenho, disabled: !desenhoVisto }] : []),
             { rotulo: 'Quem inicia…', icone: <DoorOpen className="h-4 w-4 text-muted-foreground" />, onClick: () => setQuemIniciaAberto(true) },
           ] : undefined}
           onHistorico={editing ? () => setHistoricoAberto(true) : undefined}
@@ -1063,7 +1066,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
       {/* `relative`: as gavetas laterais (absolute) encostam à direita desta faixa, por cima do desenho. */}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        {noDesenho ? (
+        {fluxo && vista === 'roteiro' ? (
+          <div className="flex min-w-0 flex-1 items-center justify-center text-xs text-muted-foreground">Roteiro</div>
+        ) : noDesenho ? (
           <>
             <PaletaBpmn onAdicionarRaia={aoAdicionarRaia} onEscolher={aoEscolherNaPaleta} desabilitada={!desenhoVisto} />
             <div className="relative min-w-0 flex-1">
@@ -1086,7 +1091,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
             {/* VER POR RAIA: a vista antiga, só de leitura. No desenho antigo é a única. */}
             {fluxo && (
               <div className="flex shrink-0 items-center gap-3 border-b bg-muted/30 px-3 py-1.5">
-                <Button variant="outline" size="sm" onClick={() => { setSelectedId(null); setVista('desenho') }}><ArrowLeft className="h-4 w-4" />Voltar ao desenho</Button>
+                <Button variant="outline" size="sm" onClick={() => { setSelectedId(null); setVista('roteiro') }}><ArrowLeft className="h-4 w-4" />Voltar ao editor</Button>
                 <p className="text-[11.5px] text-muted-foreground">Vista por raia: o mesmo fluxo organizado por quem executa, só para leitura.</p>
               </div>
             )}
