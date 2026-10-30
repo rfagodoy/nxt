@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { FluxoBlocos, ItemFluxo, CaminhoCondicional } from '@nxt/workflow-core'
 import type { StepFormSchema } from '@nxt/types'
-import { montarRoteiro, type ConsultasDoRoteiro, type EtapaRoteiro, type EscolhaRoteiro, type ParaleloRoteiro } from './roteiro'
+import { montarRoteiro, podeSoltar, type ConsultasDoRoteiro, type EtapaRoteiro, type EscolhaRoteiro, type ParaleloRoteiro } from './roteiro'
 
 const at = (id: string, tipo: 'userTask' | 'serviceTask' = 'userTask', vinculoDe?: string): ItemFluxo =>
   ({ kind: 'atividade', id, tipo, ...(vinculoDe ? { vinculoDe } : {}) })
@@ -115,5 +115,54 @@ describe('montarRoteiro', () => {
     const [e] = montarRoteiro(f, consultas({ a1: passo('a1') })) as EscolhaRoteiro[]
     expect(e.senaoAntigo).toBe(true)
     expect(e.caminhos.map((c) => c.condicao)).toEqual(['Sim', 'Senão'])
+  })
+})
+
+describe('podeSoltar', () => {
+  const comCond = (id: string, itens: ItemFluxo[], fim: CaminhoCondicional['fim']): CaminhoCondicional =>
+    ({ id, condition: "x == 'Sim'", itens, fim })
+  const escolha = (id: string, caminhos: CaminhoCondicional[]): ItemFluxo =>
+    ({ kind: 'escolha', id, modo: 'primeiro', caminhos, casoContrario: { id: `${id}-cc`, itens: [], fim: { tipo: 'segue' } } })
+  const ids = (f: FluxoBlocos) => f.itens.map((i) => i.id)
+
+  it('destino válido: muda a ordem', () => {
+    const f = fluxo([at('a1'), at('a2'), at('a3')])
+    const s = podeSoltar(f, 'a3', { ref: 'raiz', indice: 0 })
+    expect(s.ok).toBe(true)
+    if (s.ok) expect(ids(s.fluxo)).toEqual(['a3', 'a1', 'a2'])
+  })
+
+  it('no mesmo lugar: ok e o fluxo não muda', () => {
+    const f = fluxo([at('a1'), at('a2')])
+    const s = podeSoltar(f, 'a1', { ref: 'raiz', indice: 1 })
+    expect(s).toEqual({ ok: true, fluxo: f })
+  })
+
+  it('escolha que encerra não entra num ao mesmo tempo', () => {
+    const f = fluxo([
+      escolha('e1', [comCond('c1', [], { tipo: 'segue' }), comCond('c2', [], { tipo: 'encerra' })]),
+      { kind: 'paralelo', id: 'p1', caminhos: [{ id: 'r1', itens: [at('a1')] }, { id: 'r2', itens: [at('a2')] }] },
+    ])
+    const s = podeSoltar(f, 'e1', { ref: 'r1', indice: 1 })
+    expect(s.ok).toBe(false)
+    if (!s.ok) expect(s.motivo).toContain('ao mesmo tempo')
+  })
+
+  it('volta não pode passar a apontar para frente', () => {
+    const f = fluxo([at('a1'), escolha('e1', [comCond('c1', [], { tipo: 'volta', alvoId: 'a1' })]), at('a2')])
+    const s = podeSoltar(f, 'a1', { ref: 'raiz', indice: 3 })
+    expect(s.ok).toBe(false)
+    if (!s.ok) expect(s.motivo).toContain('não vem antes')
+  })
+
+  it('bloco não entra nele mesmo', () => {
+    const f = fluxo([{ kind: 'paralelo', id: 'p1', caminhos: [{ id: 'r1', itens: [at('a1')] }, { id: 'r2', itens: [] }] }])
+    expect(podeSoltar(f, 'p1', { ref: 'r2', indice: 0 })).toEqual({ ok: false, motivo: 'Um bloco não pode entrar nele mesmo.' })
+  })
+
+  it('erro que já existia antes do arrasto não impede', () => {
+    const f = fluxo([at('a1'), { kind: 'escolha', id: 'e1', caminhos: [{ id: 'c1', itens: [], fim: { tipo: 'segue' } }], casoContrario: { id: 'cc', itens: [], fim: { tipo: 'segue' } } }, at('a2')])
+    const s = podeSoltar(f, 'a2', { ref: 'raiz', indice: 0 })
+    expect(s.ok).toBe(true)
   })
 })

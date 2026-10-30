@@ -1,5 +1,5 @@
 import {
-  faltasDaAtividade, modoDaEscolha, temSenaoAntigo,
+  faltasDaAtividade, localDoItem, modoDaEscolha, moverItem, temSenaoAntigo, validarBlocos,
   type CaminhoCondicional, type FimCaminho, type FluxoBlocos, type ItemFluxo, type ModoEscolha,
 } from '@nxt/workflow-core'
 import type { StepFormSchema } from '@nxt/types'
@@ -104,4 +104,21 @@ function lista(itens: ItemFluxo[], ref: string, c: ConsultasDoRoteiro): NoRoteir
 /** Dos blocos para o que a lista do Roteiro mostra (ref/índice = onde cada item mora). */
 export function montarRoteiro(f: FluxoBlocos, c: ConsultasDoRoteiro): NoRoteiro[] {
   return lista(f.itens, 'raiz', c)
+}
+
+export type Soltura = { ok: true; fluxo: FluxoBlocos } | { ok: false; motivo: string }
+
+/** Arrastar `itemId` para `destino` (mesma convenção de `moverItem`): só solta onde o motor
+ *  aceita. Erros que o fluxo já tinha antes do arrasto não impedem — só os que ele criaria. */
+export function podeSoltar(f: FluxoBlocos, itemId: string, destino: { ref: string; indice: number }): Soltura {
+  const aqui = localDoItem(f, itemId)
+  if (aqui && aqui.ref === destino.ref && (destino.indice === aqui.indice || destino.indice === aqui.indice + 1)) {
+    return { ok: true, fluxo: f }
+  }
+  const g = moverItem(f, itemId, destino.ref, destino.indice)
+  if (g === f) return { ok: false, motivo: 'Um bloco não pode entrar nele mesmo.' }
+  const chave = (p: { tipo: string; itemId: string }) => `${p.tipo}|${p.itemId}`
+  const antes = new Set(validarBlocos(f).filter((p) => p.severidade === 'erro').map(chave))
+  const novo = validarBlocos(g).find((p) => p.severidade === 'erro' && !antes.has(chave(p)))
+  return novo ? { ok: false, motivo: novo.mensagem } : { ok: true, fluxo: g }
 }
