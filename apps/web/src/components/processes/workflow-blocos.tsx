@@ -30,6 +30,8 @@ import { cn } from '@/lib/utils'
 /* ─── modelo ─────────────────────────────────────────────────────────────────── */
 
 const novoId = (prefixo: string) => `${prefixo}_${Math.random().toString(36).slice(2, 9)}`
+/** Id de um caminho novo de escolha ("+ outra condição"). */
+export const novoIdDeCaminho = () => novoId('Caminho')
 
 export type NovoItem = 'userTask' | 'serviceTask' | 'escolha' | 'paralelo'
 
@@ -63,7 +65,7 @@ export function comNomes(f: FluxoBlocos, steps: Record<string, StepFormSchema>):
 }
 
 /** Escolhas que moram dentro de um "ao mesmo tempo": ali todo caminho só pode seguir. */
-function escolhasEmParalelo(f: FluxoBlocos): Set<string> {
+export function escolhasEmParalelo(f: FluxoBlocos): Set<string> {
   const out = new Set<string>()
   const visitar = (itens: ItemFluxo[], dentro: boolean) => {
     for (const it of itens) {
@@ -474,7 +476,7 @@ function BlocoParaleloView({ bloco }: { bloco: BlocoParalelo }) {
 
 /** Como um caminho da escolha termina. "Voltar" só lista atividades que vêm ANTES da
  *  escolha e fora de um "ao mesmo tempo" — as outras travariam o motor. */
-function FimSelect({ fluxo, escolhaId, caminhoId, fim, nomeDe, onFluxo, soSegue }: {
+export function FimSelect({ fluxo, escolhaId, caminhoId, fim, nomeDe, onFluxo, soSegue }: {
   fluxo: FluxoBlocos; escolhaId: string; caminhoId: string; fim: FimCaminho
   nomeDe: (id: string) => string
   onFluxo: (fn: (f: FluxoBlocos) => FluxoBlocos) => void

@@ -946,6 +946,18 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   })()
   const noDesenho = !!fluxo && vista === 'desenho'
   const noRoteiro = !!fluxo && vista === 'roteiro'
+  /* Incluir pela lista: a forma nova entra no lugar de quem vai ficar DEPOIS dela (ou do Fim,
+     no fim do fluxo) e o desenho abre espaço, como na paleta. Sem vizinho com posição, fica
+     para `completarPosicoes`. */
+  const pertoDaInsercao = (ref: string, indice: number): { x: number; y: number } | undefined => {
+    if (!fluxo || !desenhoVisto) return undefined
+    const lista = ref === 'raiz' ? fluxo.itens : (() => {
+      for (const e of [...listarEscolhas(fluxo)]) for (const c of [...e.caminhos, e.casoContrario]) if (c.id === ref) return c.itens
+      return undefined
+    })()
+    const depois = lista?.[indice]?.id ?? (ref === 'raiz' ? fluxo.fimId : undefined)
+    return depois ? desenhoVisto.posicoes[depois] : undefined
+  }
 
   /* A configuração aberta — a MESMA no painel do Desenho e dentro da lista do Roteiro. */
   const perguntasDaEtapa = (moldura: 'gaveta' | 'embutida') => (configNode && configNode.step && fluxo ? (
@@ -1136,6 +1148,13 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
               : selectedBloco?.id === id && !(configNode && configNode.step)
                 ? <div {...{ [ATRIBUTO_GAVETA]: '' }} tabIndex={-1} className="outline-none">{configDoBloco()}</div> : null)}
             onVerDesenho={() => setVista('desenho')}
+            fluxo={fluxo} nomeDe={(id) => stepsEfetivos[id]?.stepName?.trim() || 'Etapa sem nome'}
+            estrutura={{
+              inserir: (ref, indice, tipo) => { inserir(ref, indice, tipo, pertoDaInsercao(ref, indice)) },
+              remover, mudarFluxo, vinculaveis,
+              inserirVinculada: (ref, indice, origemId) => inserirVinculada(ref, indice, origemId, pertoDaInsercao(ref, indice)),
+              desvincular,
+            }}
             previa={fluxo && grafo && desenhoVisto ? (
               <CanvasBpmn fluxo={fluxo} grafo={grafo} desenho={desenhoVisto} steps={stepsEfetivos} selecionado={selectedId}
                 nomeDoProcesso={name} revisaoDasConsultas={revisaoDasConsultas} somenteLeitura

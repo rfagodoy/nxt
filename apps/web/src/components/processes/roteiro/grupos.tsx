@@ -39,13 +39,15 @@ function FimPadrao({ c }: { c: CaminhoRoteiro }): JSX.Element {
 }
 
 /** Escolha: cartão lilás; cada caminho = condição em frase + etapas recuadas + o fim. */
-export function GrupoEscolha({ no, selecionado, onSelecionar, aberto, renderLista, fimDoCaminho, aposCaminhos, acoes, alca }: {
+export function GrupoEscolha({ no, selecionado, onSelecionar, aberto, renderLista, fimDoCaminho, aposCaminhos, acoesDoCaminho, acoes, alca }: {
   no: EscolhaRoteiro; selecionado: boolean; onSelecionar: (id: string) => void
   aberto?: ReactNode; renderLista: RenderLista
   /** seletor do fim do caminho (estrutura); sem ele, só o texto */
   fimDoCaminho?: (c: CaminhoRoteiro) => ReactNode
   /** "+ outra condição" */
   aposCaminhos?: ReactNode
+  /** ✕ do caminho, ao lado da condição */
+  acoesDoCaminho?: (c: CaminhoRoteiro) => ReactNode
   acoes?: ReactNode; alca?: ReactNode
 }): JSX.Element {
   return (
@@ -59,9 +61,12 @@ export function GrupoEscolha({ no, selecionado, onSelecionar, aberto, renderList
       <div className="flex flex-col gap-2">
         {no.caminhos.map((c) => (
           <div key={c.id}>
-            <p className="px-1 text-[12px] font-bold text-violet-700 dark:text-violet-300">
-              {c.condicao === 'Senão' ? 'Senão' : <>Se <span className="font-semibold">{c.condicao}</span></>}
-            </p>
+            <div className="flex items-center gap-1 px-1">
+              <p className="min-w-0 flex-1 text-[12px] font-bold text-violet-700 dark:text-violet-300">
+                {c.condicao === 'Senão' ? 'Senão' : <>Se <span className="font-semibold">{c.condicao}</span></>}
+              </p>
+              {acoesDoCaminho?.(c)}
+            </div>
             <div className="ml-2 border-l-2 border-violet-500/25 pl-3 pt-1">
               {renderLista(c.itens, c.id)}
               {fimDoCaminho ? fimDoCaminho(c) : <FimPadrao c={c} />}
