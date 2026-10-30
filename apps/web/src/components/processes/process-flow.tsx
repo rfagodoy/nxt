@@ -1141,7 +1141,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
       <NoticeDialog open={!!aviso} title={aviso?.titulo} message={aviso?.msg}
         onClose={() => { const depois = aviso?.aoFechar; setAviso(null); depois?.() }} />
-      <SairSemSalvarDialog open={!!saida}
+      <SairSemSalvarDialog open={!!saida} voltaARascunho={voltaARascunho}
         onContinuar={() => setSaida(null)}
         onDescartar={() => { const destino = saida!; limpoRef.current = assinaturaRef.current; setSaida(null); router.push(destino) }}
         onSalvar={async () => {
