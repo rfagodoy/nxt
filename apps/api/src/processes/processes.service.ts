@@ -48,6 +48,41 @@ export function checarReducao(antes: number, depois: number): { removidas: numbe
   return null
 }
 
+/** Chaves do formSchema que são SÓ desenho (o motor não lê nenhuma delas). */
+const CHAVES_SO_VISUAIS = ['desenho', 'positions', 'positionsRaia', 'laneOrder'] as const
+
+/** JSON com as chaves ordenadas e sem `undefined` — para comparar o que veio do editor
+ *  com o que o banco devolveu, que não guarda a ordem das chaves. */
+function canonico(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonico).join(',')}]`
+  if (v && typeof v === 'object') {
+    const pares = Object.entries(v as Record<string, unknown>).filter(([, x]) => x !== undefined).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    return `{${pares.map(([k, x]) => `${JSON.stringify(k)}:${canonico(x)}`).join(',')}}`
+  }
+  return JSON.stringify(v ?? null)
+}
+
+/** A gravação muda o que o motor EXECUTA? Decisão do PO (30/10/2026): arrumar o desenho
+ *  de um workflow ativo — mover formas, raias, ordem das raias — não o devolve a rascunho.
+ *  Com blocos, o BPMN é gerado deles na ativação (o enviado não é aceito pronto), então
+ *  basta comparar o formSchema sem as chaves visuais. Sem blocos (editor antigo), o BPMN
+ *  enviado é o próprio fluxo e também conta. Na dúvida, muda: volta a rascunho. */
+export function mudaOFluxo(
+  antes: { bpmnXml: string; formSchema: unknown },
+  dto: { bpmnXml?: string; formSchema?: unknown },
+): boolean {
+  if (dto.bpmnXml === undefined && dto.formSchema === undefined) return false
+  const semVisual = (fs: unknown) => {
+    const copia = { ...((fs ?? {}) as Record<string, unknown>) }
+    for (const k of CHAVES_SO_VISUAIS) delete copia[k]
+    return copia
+  }
+  const novo = dto.formSchema === undefined ? antes.formSchema : dto.formSchema
+  if (canonico(semVisual(antes.formSchema)) !== canonico(semVisual(novo))) return true
+  if ((novo as ProcessFormSchema | null)?.blocos !== undefined) return false
+  return dto.bpmnXml !== undefined && dto.bpmnXml !== antes.bpmnXml
+}
+
 @Injectable()
 export class ProcessesService {
   constructor(
@@ -548,9 +583,9 @@ export class ProcessesService {
     return updatedProcess
   }
 
-  /** Edição do processo (designer). Alterar diagrama/campos invalida o grafo
-   *  compilado → volta a DRAFT até reativar (recompila). Instâncias em andamento
-   *  seguem no `graphSnapshot`, imunes. Renomear só (sem diagrama) mantém o status. */
+  /** Edição do processo (designer). Alterar o FLUXO invalida o grafo compilado → volta
+   *  a DRAFT até reativar (recompila). Instâncias em andamento seguem no `graphSnapshot`,
+   *  imunes. Renomear ou só arrumar o desenho (`mudaOFluxo` = false) mantém o status. */
   async update(id: string, organizationId: string, dto: UpdateProcessDto, autor?: Autor) {
     const antes = await this.findOne(id, organizationId)
     const mudaDesenho = dto.bpmnXml !== undefined || dto.formSchema !== undefined
@@ -584,7 +619,7 @@ export class ProcessesService {
     if (dto.bpmnXml !== undefined) data.bpmnXml = dto.bpmnXml
     if (dto.formSchema !== undefined) data.formSchema = dto.formSchema as never
     if (dto.kind !== undefined) data.kind = dto.kind || null
-    if (mudaDesenho) data.status = 'DRAFT'
+    if (mudaOFluxo(antes, dto)) data.status = 'DRAFT'
     const salvo = await this.prisma.processDefinition.update({ where: { id }, data: data as never })
 
     const changes: { field: string; label: string; before: string; after: string }[] = []
