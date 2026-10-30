@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button'
  * CancelInstanceButton).
  */
 
-function Shell({ onScrim, children }: { onScrim: () => void; children: ReactNode }) {
+export function Shell({ onScrim, children }: { onScrim: () => void; children: ReactNode }) {
   const [mounted, setMounted] = useState(false)
   useEffect(() => { setMounted(true) }, [])
   if (!mounted) return null
