@@ -9,6 +9,7 @@
    Saída: JPG (toDataURL) ou PDF (jspdf, import dinâmico). CSP já cobre data:/blob:. */
 
 import { titleLineCount, LABEL_W, LANE_HEADER_W } from './flow-layout'
+import { pontoDoRotuloNaPolilinha } from './desenho-bpmn'
 
 export type FlowExportFormat = 'jpg' | 'pdf'
 
@@ -25,6 +26,9 @@ export interface ExportEdge {
   adx: number; ady: number; bdx: number; bdy: number
   backward?: boolean
   variant: 'exclusive' | 'parallel' | 'normal'; label?: string
+  /** Traçado em cantos retos (desenho BPMN), da alça de saída à de chegada. Presente, ele
+   *  é a seta — as âncoras ficam só para a ponta; ausente, vale a curva das âncoras. */
+  pontos?: Array<{ x: number; y: number }>
 }
 /** Banda de raia (swimlane), já posicionada pelo layout. */
 export interface ExportLane { key: string; label: string; y: number; h: number }
@@ -129,6 +133,11 @@ function drawMark(ctx: CanvasRenderingContext2D, x: number, y: number, size: num
 
 /** Curva cúbica idêntica à da tela (`edgeBezier`): sai e entra perpendicular ao lado. */
 function edgePath(ctx: CanvasRenderingContext2D, e: ExportEdge, offX: number, offY: number) {
+  if (e.pontos?.length) {
+    ctx.beginPath()
+    e.pontos.forEach((p, i) => (i ? ctx.lineTo(offX + p.x, offY + p.y) : ctx.moveTo(offX + p.x, offY + p.y)))
+    return
+  }
   const ax = offX + e.ax, ay = offY + e.ay, bx = offX + e.bx, by = offY + e.by
   const k = Math.max(28, Math.hypot(e.bx - e.ax, e.by - e.ay) * 0.4)
   ctx.beginPath()
@@ -209,16 +218,6 @@ function drawDiagram(ctx: CanvasRenderingContext2D, model: ExportModel, C: Theme
     edgePath(ctx, e, offX, offY)
     ctx.stroke()
     arrowHead(ctx, offX + e.bx, offY + e.by, -e.bdx, -e.bdy, color)
-    if (e.label) {
-      const k = Math.max(28, Math.hypot(e.bx - e.ax, e.by - e.ay) * 0.4)
-      const mx = offX + (e.ax + e.bx) / 2
-      const my = offY + (e.backward ? (e.ay + e.by) / 2 + 0.75 * k : (e.ay + e.by) / 2 - 16)
-      ctx.font = `600 10px ${C.sans}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-      const tw = ctx.measureText(e.label).width
-      ctx.fillStyle = C.card; roundRect(ctx, mx - tw / 2 - 6, my - 9, tw + 12, 18, 9); ctx.fill()
-      ctx.strokeStyle = C.border; ctx.lineWidth = 1; ctx.stroke()
-      ctx.fillStyle = C.muted; ctx.fillText(e.label, mx, my)
-    }
   }
   // nós
   for (const n of model.nodes) {
@@ -226,6 +225,20 @@ function drawDiagram(ctx: CanvasRenderingContext2D, model: ExportModel, C: Theme
     if (n.type === 'start' || n.type === 'end') drawEvent(ctx, n, x, y, w, h, C)
     else if (n.type === 'exclusiveGateway' || n.type === 'parallelGateway' || n.type === 'inclusiveGateway') drawGateway(ctx, n, x, y, w, h, C)
     else drawCard(ctx, n, x, y, w, h, C)
+  }
+  // rótulos das setas POR CIMA das formas, como na tela (antes eles sumiam atrás de um cartão)
+  for (const e of model.edges) {
+    if (!e.label) continue
+    const k = Math.max(28, Math.hypot(e.bx - e.ax, e.by - e.ay) * 0.4)
+    // no traçado reto, a pílula vai onde a tela a põe (logo depois da 1ª dobra)
+    const perto = e.pontos ? pontoDoRotuloNaPolilinha(e.pontos) : null
+    const mx = offX + (perto ? perto.x : (e.ax + e.bx) / 2)
+    const my = offY + (perto ? perto.y : e.backward ? (e.ay + e.by) / 2 + 0.75 * k : (e.ay + e.by) / 2 - 16)
+    ctx.font = `600 10px ${C.sans}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    const tw = ctx.measureText(e.label).width
+    ctx.fillStyle = C.card; roundRect(ctx, mx - tw / 2 - 6, my - 9, tw + 12, 18, 9); ctx.fill()
+    ctx.strokeStyle = C.border; ctx.lineWidth = 1; ctx.stroke()
+    ctx.fillStyle = C.muted; ctx.fillText(e.label, mx, my)
   }
 }
 

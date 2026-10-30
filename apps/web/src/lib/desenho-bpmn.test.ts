@@ -4,7 +4,7 @@ import type { DesenhoBpmn } from '@nxt/types'
 import { nodeSize } from './flow-layout'
 import {
   GRADE, RAIA_ALTURA_PADRAO, RAIA_ALTURA_MINIMA, RAIA_ALTURA_MAXIMA, desenhoInicial, organizar, completarPosicoes, raiaNaAltura, avisoDeRaia, setaSobPonto, polilinhaDaSeta,
-  adicionarRaia, renomearRaia, redimensionarRaia, moverRaia, removerRaia, abrirEspaco, larguraDaInsercao,
+  adicionarRaia, renomearRaia, redimensionarRaia, moverRaia, removerRaia, abrirEspaco, larguraDaInsercao, reordenarNoDesenho, pontoDoRotuloNaPolilinha,
 } from './desenho-bpmn'
 
 const no = (id: string, type: string) => ({ id, type }) as GrafoGerado['nodes'][number]
@@ -295,5 +295,75 @@ describe('larguraDaInsercao', () => {
     expect(larguraDaInsercao('escolha') % GRADE).toBe(0)
     expect(larguraDaInsercao('escolha')).toBeGreaterThanOrEqual(200 + 56 + 3 * GRADE)
     expect(larguraDaInsercao('paralelo')).toBe(larguraDaInsercao('escolha'))
+  })
+})
+
+/* Reordenar arrastando (PO, 30/10/2026): o vão que a forma deixa FECHA e o lugar novo ABRE,
+   como na inserção pela paleta. A forma entra onde estava a que vem depois da seta. */
+describe('reordenarNoDesenho', () => {
+  const linha = (): DesenhoBpmn => ({
+    versao: 1, raias: [],
+    posicoes: { start: { x: 0, y: 32 }, A: { x: 96, y: 16 }, B: { x: 320, y: 16 }, C: { x: 544, y: 16 }, D: { x: 768, y: 16 }, end: { x: 992, y: 32 } },
+  })
+  const xs = (d: DesenhoBpmn) => Object.fromEntries(Object.entries(d.posicoes).map(([id, p]) => [id, p.x]))
+
+  it('para a frente: fecha onde estava e abre antes da forma seguinte', () => {
+    const r = reordenarNoDesenho(linha(), new Set(['B']), 'B', 224, 'D', 16)
+    expect(xs(r)).toEqual({ start: 0, A: 96, C: 320, B: 544, D: 768, end: 992 })
+  })
+
+  it('para trás: a forma toma o lugar da que vem depois da seta e o resto anda', () => {
+    const r = reordenarNoDesenho(linha(), new Set(['C']), 'C', 224, 'B', 16)
+    expect(xs(r)).toEqual({ start: 0, A: 96, C: 320, B: 544, D: 768, end: 992 })
+  })
+
+  it('a altura é a de onde a pessoa soltou (na grade): escolher a raia continua possível', () => {
+    const r = reordenarNoDesenho(linha(), new Set(['B']), 'B', 224, 'D', 203)
+    expect(r.posicoes.B.y).toBe(208)
+    expect(r.posicoes.C.y).toBe(16)
+  })
+
+  it('um bloco anda inteiro (divisão, de dentro e reencontro), mantendo a forma dele', () => {
+    const d: DesenhoBpmn = {
+      versao: 1, raias: [],
+      posicoes: { start: { x: 0, y: 32 }, A: { x: 96, y: 16 }, P: { x: 320, y: 48 }, X: { x: 544, y: 16 }, P__fim: { x: 768, y: 48 }, D: { x: 992, y: 16 }, end: { x: 1216, y: 32 } },
+    }
+    const r = reordenarNoDesenho(d, new Set(['P', 'X', 'P__fim']), 'P', 672, 'A', 48)
+    expect(xs(r)).toEqual({ start: 0, P: 96, X: 320, P__fim: 544, A: 768, D: 992, end: 1216 })
+    expect(r.posicoes.X.y).toBe(16)
+  })
+
+  it('não mexe nas raias nem no desenho original', () => {
+    const d = { ...linha(), raias: [{ id: 'r', nome: 'RH', altura: 144 }] }
+    const r = reordenarNoDesenho(d, new Set(['B']), 'B', 224, 'D', 16)
+    expect(r.raias).toBe(d.raias)
+    expect(d.posicoes.B).toEqual({ x: 320, y: 16 })
+  })
+
+  it('sem a forma de destino, sem a movida ou com largura inválida, devolve o mesmo desenho', () => {
+    const d = linha()
+    expect(reordenarNoDesenho(d, new Set(['B']), 'B', 224, 'Z', 16)).toBe(d)
+    expect(reordenarNoDesenho(d, new Set(['Z']), 'Z', 224, 'D', 16)).toBe(d)
+    expect(reordenarNoDesenho(d, new Set(['B']), 'B', 0, 'D', 16)).toBe(d)
+  })
+})
+
+/* A pílula do caminho fica no mesmo lugar na tela e no arquivo exportado: logo depois da
+   1ª dobra, ou a um passo da saída numa seta reta — no meio, ela cairia atrás das formas. */
+describe('pontoDoRotuloNaPolilinha', () => {
+  it('seta reta: a 34 px da saída', () => {
+    expect(pontoDoRotuloNaPolilinha([{ x: 0, y: 0 }, { x: 200, y: 0 }])).toEqual({ x: 34, y: 0 })
+  })
+  it('com dobra: 30 px depois da primeira dobra', () => {
+    expect(pontoDoRotuloNaPolilinha([{ x: 0, y: 0 }, { x: 0, y: 100 }, { x: 300, y: 100 }])).toEqual({ x: 30, y: 100 })
+  })
+  it('trecho curto depois da dobra: fica no meio dele', () => {
+    expect(pontoDoRotuloNaPolilinha([{ x: 0, y: 0 }, { x: 0, y: 100 }, { x: 20, y: 100 }])).toEqual({ x: 10, y: 100 })
+  })
+  it('pontos repetidos (cantos de raio 0) contam uma vez só', () => {
+    expect(pontoDoRotuloNaPolilinha([{ x: 0, y: 0 }, { x: 0, y: 100 }, { x: 0, y: 100 }, { x: 300, y: 100 }])).toEqual({ x: 30, y: 100 })
+  })
+  it('menos de dois pontos: nenhum lugar', () => {
+    expect(pontoDoRotuloNaPolilinha([{ x: 5, y: 5 }])).toBeNull()
   })
 })
