@@ -10,12 +10,12 @@ export function Logo({ variant = 'full', className }: { variant?: 'mark' | 'full
   // Geometria oficial da board (Nxt-icone-app-primario.svg).
   const mark = (
     <svg viewBox="0 0 120 120" className={className ?? 'h-8 w-8'} role="img" aria-label="Nxt">
-      <rect width="120" height="120" rx="28" fill="#0C1410" />
-      <rect x="37" y="36" width="10" height="48" rx="2" fill="#18C07A" />
+      <rect width="120" height="120" rx="28" style={{ fill: 'rgb(var(--forest))' }} />
+      <rect x="37" y="36" width="10" height="48" rx="2" style={{ fill: 'var(--e-18C07A, #18C07A)' }} />
       <polyline
         points="58,38 84,60 58,82"
         fill="none"
-        stroke="#C6F24E"
+        style={{ stroke: 'rgb(var(--spark))' }}
         strokeWidth="10"
         strokeLinecap="round"
         strokeLinejoin="round"

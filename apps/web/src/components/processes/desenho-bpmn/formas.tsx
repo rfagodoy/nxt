@@ -61,7 +61,7 @@ export function rotuloDaForma(n: NoBpmn): string {
 }
 
 /* ─── Peças comuns ────────────────────────────────────────────────────────── */
-const ALCA = '!h-2 !w-2 !min-h-0 !min-w-0 !rounded-full !border-2 !border-[#11804F] !bg-white opacity-0 transition-opacity dark:!border-spark dark:!bg-[#0A110D]'
+const ALCA = '!h-2 !w-2 !min-h-0 !min-w-0 !rounded-full !border-2 !border-[var(--e-11804F)] !bg-white opacity-0 transition-opacity dark:!border-spark dark:!bg-[var(--e-0A110D)]'
 
 /** Pontos de ligação nas 4 laterais: em cada uma há uma chegada (`e-*`) e, por cima dela,
  *  uma saída (`s-*`) — puxar de qualquer lado começa uma seta; soltar perto de um lado a
@@ -87,7 +87,7 @@ function MarcaDeProblema({ problemas, className = '' }: { problemas: string[]; c
   if (!problemas.length) return null
   return (
     <span title={problemas.join('\n')} aria-hidden
-      className={`absolute h-2.5 w-2.5 rounded-full bg-amber-500 ring-2 ring-white dark:bg-amber-400 dark:ring-[#0F1914] ${className}`} />
+      className={`absolute h-2.5 w-2.5 rounded-full bg-amber-500 ring-2 ring-white dark:bg-amber-400 dark:ring-[var(--e-0F1914)] ${className}`} />
   )
 }
 
@@ -95,7 +95,7 @@ function MarcaDeProblema({ problemas, className = '' }: { problemas: string[]; c
 function RotuloExterno({ texto }: { texto?: string }) {
   if (!texto) return null
   return (
-    <span className="pointer-events-none absolute left-1/2 top-full mt-1 w-[120px] -translate-x-1/2 text-center text-[10.5px] font-bold leading-tight text-[#2E3E36] line-clamp-2 dark:text-[#C9D6CE]">
+    <span className="pointer-events-none absolute left-1/2 top-full mt-1 w-[120px] -translate-x-1/2 text-center text-[10.5px] font-bold leading-tight text-[var(--e-2E3E36)] line-clamp-2 dark:text-[var(--e-C9D6CE)]">
       {texto}
     </span>
   )
@@ -106,17 +106,17 @@ export function FormaTarefa({ data, selected, isConnectable }: NodeProps<NoTaref
   return (
     <div className="group relative" style={{ width: data.largura, height: data.altura }}>
       <div className={`flex h-full w-full flex-col justify-between gap-1 rounded-[10px] px-[9px] py-[7px] font-sans
-        bg-white dark:bg-[linear-gradient(180deg,#16251E,#111C17)]
+        bg-white dark:bg-[linear-gradient(180deg,var(--e-16251E),var(--e-111C17))]
         ${selected
-          ? 'shadow-[0_0_0_2px_#11804F,0_0_0_6px_rgba(198,242,78,0.55)] dark:shadow-[0_0_0_2px_#C6F24E,0_0_24px_-6px_rgba(198,242,78,0.55)]'
-          : 'shadow-[0_0_0_1px_#9DB0A5,0_8px_16px_-12px_rgba(12,20,16,0.45)] dark:shadow-[0_0_0_1px_#2E4238,0_8px_18px_-12px_rgba(0,0,0,0.6)]'}`}>
+          ? 'shadow-[0_0_0_2px_var(--e-11804F),0_0_0_6px_rgba(198,242,78,0.55)] dark:shadow-[0_0_0_2px_var(--e-C6F24E),0_0_24px_-6px_rgba(198,242,78,0.55)]'
+          : 'shadow-[0_0_0_1px_var(--e-9DB0A5),0_8px_16px_-12px_rgba(12,20,16,0.45)] dark:shadow-[0_0_0_1px_var(--e-2E4238),0_8px_18px_-12px_rgba(0,0,0,0.6)]'}`}>
         <span className="flex items-start gap-1.5">
           {data.automatica
             ? <Settings aria-hidden className="mt-[1px] h-3.5 w-3.5 shrink-0 text-[#075985] dark:text-[#7DD3FC]" />
             : <UserSquare aria-hidden className="mt-[1px] h-3.5 w-3.5 shrink-0 text-[#075985] dark:text-[#7DD3FC]" />}
-          <span className="line-clamp-3 text-[11.5px] font-extrabold leading-[1.25] text-[#142420] dark:text-white">{data.nome}</span>
+          <span className="line-clamp-3 text-[11.5px] font-extrabold leading-[1.25] text-[var(--e-142420)] dark:text-white">{data.nome}</span>
         </span>
-        <span className="truncate text-[10px] text-[#4F5F57] dark:text-[#9DB0A5]">{data.meta}</span>
+        <span className="truncate text-[10px] text-[var(--e-4F5F57)] dark:text-[var(--e-9DB0A5)]">{data.meta}</span>
       </div>
       <MarcaDeProblema problemas={data.problemas} className="-right-1 -top-1" />
       <Alcas conectavel={isConnectable} />
@@ -129,7 +129,7 @@ const COR_LOSANGO: Record<'escolha' | 'paralelo', string> = {
   escolha: 'bg-[#F7F5FE] border-[#6D28D9] text-[#5B21B6] dark:bg-[#17142A] dark:border-[#C4B5FD] dark:text-[#C4B5FD]',
   paralelo: 'bg-[#FFF6F8] border-[#BE123C] text-[#9F1239] dark:bg-[#1E1418] dark:border-[#FDA4B8] dark:text-[#FDA4B8]',
 }
-const LOSANGO_SEL = '!border-[#11804F] shadow-[0_0_0_5px_rgba(198,242,78,0.6)] dark:!border-spark dark:shadow-[0_0_22px_-4px_rgba(198,242,78,0.55)]'
+const LOSANGO_SEL = '!border-[var(--e-11804F)] shadow-[0_0_0_5px_rgba(198,242,78,0.6)] dark:!border-spark dark:shadow-[0_0_22px_-4px_rgba(198,242,78,0.55)]'
 
 function MarcaDoLosango({ tipo }: { tipo: TipoLosango }) {
   if (tipo === 'paralelo') return <span className="text-[20px] font-bold leading-none">+</span>
@@ -161,7 +161,7 @@ export function FormaEvento({ data, selected, isConnectable }: NodeProps<NoEvent
   const borda = data.tipo === 'inicio' ? 'border-2' : 'border-4'
   return (
     <div className="group relative flex items-center justify-center" style={{ width: SIMBOLO, height: SIMBOLO }}>
-      <div className={`rounded-full ${borda} border-[#11804F] bg-white dark:border-spark dark:bg-[#0F1914]
+      <div className={`rounded-full ${borda} border-[var(--e-11804F)] bg-white dark:border-spark dark:bg-[var(--e-0F1914)]
         ${selected ? 'shadow-[0_0_0_4px_rgba(198,242,78,0.6)] dark:shadow-[0_0_20px_-4px_rgba(198,242,78,0.6)]' : ''}`}
         style={{ width: EVENTO_D, height: EVENTO_D }} />
       <MarcaDeProblema problemas={data.problemas} className="right-2.5 top-2.5" />
@@ -192,9 +192,9 @@ export const ContextoRaias = createContext<AcoesDeRaia>({
 
 /** `nodrag nopan`: o ponteiro aqui edita a raia, não arrasta nem move a vista. */
 const INTERATIVO = 'nodrag nopan pointer-events-auto'
-const FOCO = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#11804F] dark:focus-visible:outline-spark'
-const ITEM_MENU = `block w-full rounded-md border-0 bg-transparent px-2.5 py-1.5 text-left font-sans text-xs font-semibold text-[#2E3E36]
-  hover:bg-[rgba(20,36,32,0.06)] disabled:opacity-40 disabled:hover:bg-transparent dark:text-[#C9D6CE] dark:hover:bg-white/5 ${FOCO}`
+const FOCO = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--e-11804F)] dark:focus-visible:outline-spark'
+const ITEM_MENU = `block w-full rounded-md border-0 bg-transparent px-2.5 py-1.5 text-left font-sans text-xs font-semibold text-[var(--e-2E3E36)]
+  hover:bg-[rgba(20,36,32,0.06)] disabled:opacity-40 disabled:hover:bg-transparent dark:text-[var(--e-C9D6CE)] dark:hover:bg-white/5 ${FOCO}`
 
 /* ─── Foco depois de uma ação: o canvas redesenha e o elemento focado pode sumir ── */
 const seletorDoMenu = (id: string) => `[data-raia-menu="${CSS.escape(id)}"]`
@@ -228,7 +228,7 @@ function NomeDaRaia({ id, nome, onFim }: { id: string; nome: string; onFim: (dev
         else if (e.key === 'Escape') { e.preventDefault(); fim(false, true) }
       }}
       onBlur={() => fim(true, false)}
-      className={`${INTERATIVO} w-full rounded-md border border-[#11804F] bg-white px-1.5 py-0.5 font-sans text-xs font-extrabold text-[#142420] outline-none dark:border-spark dark:bg-[#0F1914] dark:text-white`} />
+      className={`${INTERATIVO} w-full rounded-md border border-[var(--e-11804F)] bg-white px-1.5 py-0.5 font-sans text-xs font-extrabold text-[var(--e-142420)] outline-none dark:border-spark dark:bg-[var(--e-0F1914)] dark:text-white`} />
   )
 }
 
@@ -291,13 +291,13 @@ function MenuDaRaia({ id, nome, primeira, ultima, onRenomear }: { id: string; no
     <span>
       <button ref={botao} type="button" data-raia-menu={id} aria-label={rotulo} title="Opções da raia" aria-haspopup="menu" aria-expanded={!!aberto}
         onClick={abrir}
-        className={`${INTERATIVO} flex h-5 w-5 items-center justify-center rounded-md border-0 bg-transparent text-[#4F5F57] hover:bg-[rgba(20,36,32,0.08)] dark:text-[#9DB0A5] dark:hover:bg-white/5 ${FOCO}`}>
+        className={`${INTERATIVO} flex h-5 w-5 items-center justify-center rounded-md border-0 bg-transparent text-[var(--e-4F5F57)] hover:bg-[rgba(20,36,32,0.08)] dark:text-[var(--e-9DB0A5)] dark:hover:bg-white/5 ${FOCO}`}>
         <MoreHorizontal aria-hidden className="h-3.5 w-3.5" />
       </button>
       {aberto && createPortal(
         <div ref={menu} role="menu" aria-label={rotulo} onKeyDown={teclas} style={{ left: aberto.left, top: aberto.top }}
           onBlur={(e) => { if (e.relatedTarget && !e.currentTarget.contains(e.relatedTarget)) setAberto(null) }}
-          className={`${INTERATIVO} fixed z-50 w-[136px] rounded-[10px] bg-white p-1 shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[#0F1914] dark:shadow-[0_0_0_1px_#2A3B32,0_12px_24px_-12px_rgba(0,0,0,0.7)]`}>
+          className={`${INTERATIVO} fixed z-50 w-[136px] rounded-[10px] bg-white p-1 shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[var(--e-0F1914)] dark:shadow-[0_0_0_1px_var(--e-2A3B32),0_12px_24px_-12px_rgba(0,0,0,0.7)]`}>
           <button type="button" role="menuitem" className={ITEM_MENU} onClick={() => escolher(onRenomear)}>Renomear</button>
           <button type="button" role="menuitem" className={ITEM_MENU} disabled={primeira} onClick={() => escolher(() => mover(id, -1), seletorDoMenu(id))}>Subir</button>
           <button type="button" role="menuitem" className={ITEM_MENU} disabled={ultima} onClick={() => escolher(() => mover(id, 1), seletorDoMenu(id))}>Descer</button>
@@ -348,7 +348,7 @@ function AlcaDaRaia({ id, nome, altura }: { id: string; nome: string; altura: nu
         redimensionar(id, altura + (e.key === 'ArrowDown' ? GRADE : -GRADE))
       }}
       className={`${INTERATIVO} group/alca absolute inset-x-0 -bottom-1 z-[1] flex h-2 cursor-ns-resize items-center justify-center outline-none`}>
-      <span aria-hidden className="h-[3px] w-10 rounded-full bg-[#11804F] opacity-0 transition-opacity group-hover/alca:opacity-60 group-focus-visible/alca:opacity-100 dark:bg-spark" />
+      <span aria-hidden className="h-[3px] w-10 rounded-full bg-[var(--e-11804F)] opacity-0 transition-opacity group-hover/alca:opacity-60 group-focus-visible/alca:opacity-100 dark:bg-spark" />
     </div>
   )
 }
@@ -365,11 +365,11 @@ export function FormaRaia({ data }: NodeProps<NoRaia>) {
     : 'bg-[rgba(242,246,241,0.85)] dark:bg-[rgba(255,255,255,0.045)]'
   /* contorno da piscina por fora (a faixa do nome fecha à esquerda); entre raias, só a linha fina */
   const contorno = [
-    'border-r border-r-[#B8C6BE] dark:border-r-[#2A3B32]',
-    data.primeira ? 'rounded-tr-[10px] border-t border-t-[#B8C6BE] dark:border-t-[#2A3B32]' : '',
+    'border-r border-r-[var(--e-B8C6BE)] dark:border-r-[var(--e-2A3B32)]',
+    data.primeira ? 'rounded-tr-[10px] border-t border-t-[var(--e-B8C6BE)] dark:border-t-[var(--e-2A3B32)]' : '',
     data.ultima
-      ? 'rounded-br-[10px] border-b border-b-[#B8C6BE] dark:border-b-[#2A3B32]'
-      : 'border-b border-b-[#D2DCD5] dark:border-b-[#22332A]',
+      ? 'rounded-br-[10px] border-b border-b-[var(--e-B8C6BE)] dark:border-b-[var(--e-2A3B32)]'
+      : 'border-b border-b-[var(--e-D2DCD5)] dark:border-b-[var(--e-22332A)]',
   ].join(' ')
   const nome = data.nome || <span className="font-semibold italic opacity-70">Sem nome</span>
   const cortado = 'line-clamp-4 min-w-0 flex-1 [overflow-wrap:normal] [word-break:normal] hyphens-auto leading-[1.25]'
@@ -377,7 +377,7 @@ export function FormaRaia({ data }: NodeProps<NoRaia>) {
      só o rótulo e a alça de baixo o recebem, e só quando o desenho é editável */
   return (
     <div className={`pointer-events-none relative box-border ${faixa} ${contorno}`} style={{ width: data.largura, height: data.altura }}>
-      <div ref={coluna} lang="pt-BR" className="absolute inset-y-0 left-0 box-border overflow-hidden border-r border-r-[#D2DCD5] px-2.5 py-2 font-sans text-xs font-extrabold text-[#3E4E46] dark:border-r-[#22332A] dark:text-[#9DB0A5]"
+      <div ref={coluna} lang="pt-BR" className="absolute inset-y-0 left-0 box-border overflow-hidden border-r border-r-[var(--e-D2DCD5)] px-2.5 py-2 font-sans text-xs font-extrabold text-[var(--e-3E4E46)] dark:border-r-[var(--e-22332A)] dark:text-[var(--e-9DB0A5)]"
         style={{ width: RAIA_ROTULO_W }}>
         {!editavel ? <span className={cortado} style={{ WebkitLineClamp: linhas }}>{nome}</span> : editando ? (
           <NomeDaRaia id={data.id} nome={data.nome} onFim={(devolverFoco) => {
@@ -402,13 +402,13 @@ export function FormaPiscina({ data }: NodeProps<NoPiscina>) {
   const { editavel, adicionar } = useContext(ContextoRaias)
   return (
     <div className="pointer-events-none relative" style={{ width: FAIXA_PISCINA, height: data.altura }}>
-      <div className="box-border flex h-full w-full items-center justify-center overflow-hidden rounded-l-[10px] border border-[#B8C6BE] bg-[#E6EDE8] text-[#2E3E36] dark:border-[#2A3B32] dark:bg-[#13211A] dark:text-[#C9D6CE]">
+      <div className="box-border flex h-full w-full items-center justify-center overflow-hidden rounded-l-[10px] border border-[var(--e-B8C6BE)] bg-[var(--e-E6EDE8)] text-[var(--e-2E3E36)] dark:border-[var(--e-2A3B32)] dark:bg-[var(--e-13211A)] dark:text-[var(--e-C9D6CE)]">
         <span className="-rotate-90 whitespace-nowrap font-sans text-[11.5px] font-extrabold uppercase tracking-[0.04em]">{data.nome}</span>
       </div>
       {/* "+ raia" ao pé da piscina */}
       {editavel && (
         <button type="button" data-raia-adicionar onClick={adicionar} title="Cria uma raia no fim da piscina"
-          className={`${INTERATIVO} absolute left-0 top-full mt-2 flex items-center gap-1 whitespace-nowrap rounded-md border border-dashed border-[#9DB0A5] bg-white/80 px-2 py-1 font-sans text-[11px] font-bold text-[#2E3E36] hover:border-[#11804F] hover:text-[#11804F] dark:border-[#2E4238] dark:bg-[#0F1914]/80 dark:text-[#C9D6CE] dark:hover:border-spark dark:hover:text-spark ${FOCO}`}>
+          className={`${INTERATIVO} absolute left-0 top-full mt-2 flex items-center gap-1 whitespace-nowrap rounded-md border border-dashed border-[var(--e-9DB0A5)] bg-white/80 px-2 py-1 font-sans text-[11px] font-bold text-[var(--e-2E3E36)] hover:border-[var(--e-11804F)] hover:text-[var(--e-11804F)] dark:border-[var(--e-2E4238)] dark:bg-[color-mix(in_srgb,var(--e-0F1914)_80%,transparent)] dark:text-[var(--e-C9D6CE)] dark:hover:border-spark dark:hover:text-spark ${FOCO}`}>
           <Plus aria-hidden className="h-3 w-3" /> raia
         </button>
       )}
@@ -448,7 +448,7 @@ export function SetaComRotulo({ sourceX, sourceY, targetX, targetY, sourcePositi
           <span
             className={`nodrag nopan pointer-events-none absolute whitespace-nowrap rounded-md px-1.5 py-px font-sans text-[10.5px] font-bold
               ${data?.senao
-                ? 'bg-white text-[#3E4E46] shadow-[0_0_0_1px_#D2DCD5] dark:bg-[#13211A] dark:text-[#B5C5BB] dark:shadow-[0_0_0_1px_#2A3B32]'
+                ? 'bg-white text-[var(--e-3E4E46)] shadow-[0_0_0_1px_var(--e-D2DCD5)] dark:bg-[var(--e-13211A)] dark:text-[var(--e-B5C5BB)] dark:shadow-[0_0_0_1px_var(--e-2A3B32)]'
                 : 'bg-[#F5F2FF] text-[#5B21B6] shadow-[0_0_0_1px_#DDD3FB] dark:bg-[#1A1530] dark:text-[#DDD6FE] dark:shadow-[0_0_0_1px_rgba(167,139,250,0.35)]'}`}
             style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)`, zIndex: Z_ROTULO }}>
             {rotulo}

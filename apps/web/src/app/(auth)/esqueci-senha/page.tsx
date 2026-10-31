@@ -65,7 +65,7 @@ export default function EsqueciSenhaPage() {
 
         <button
           type="submit" disabled={loading || !email}
-          className="inline-flex w-full items-center justify-center gap-2 h-10 rounded-md bg-primary px-4 text-sm font-semibold text-forest hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          className="inline-flex w-full items-center justify-center gap-2 h-10 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
           {loading ? 'Enviando...' : 'Enviar link'}
