@@ -4,7 +4,7 @@ import { execSync } from 'node:child_process'
 const isProd = process.env.NODE_ENV === 'production'
 
 /* Versão mostrada no menu do usuário. NXT_VERSAO (instalador/CI) tem prioridade; senão a
-   tag do git (`v2026.10.12.1`, ou `v2026.10.12.1-3-gabc1234` fora de uma release); sem git,
+   tag do git (`v1.0.0-ada`, ou `v1.0.0-ada-3-gabc1234` fora de uma release; o menu formata); sem git,
    a do package.json. Fica gravada no build. */
 function versao(): string {
   if (process.env.NXT_VERSAO) return process.env.NXT_VERSAO
