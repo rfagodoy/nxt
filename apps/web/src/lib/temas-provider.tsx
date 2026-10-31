@@ -4,7 +4,7 @@
    escura no next-themes (a classe `.dark`). Salvo como a densidade: cache local primeiro
    (sem piscar — o script do layout já pôs o `data-tema`), depois a verdade do servidor. */
 
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useTheme } from 'next-themes'
 import { cacheRead, pullSetting, pushSetting } from '@/lib/settings-store'
 import { useSession } from '@/lib/session-context'
@@ -28,10 +28,25 @@ export function TemaProvider({ children }: { children: React.ReactNode }) {
     void pullSetting<unknown>(CHAVE_TEMA).then((remoto) => { if (temaValido(remoto)) setEstado(remoto) })
   }, [usuario])
 
+  /* Outra aba trocou o tema: esta adota o novo. Sem isso, cada aba reaplicava o SEU tema ao
+     ouvir a troca da outra (o next-themes sincroniza a base clara/escura entre abas) e as duas
+     brigavam até uma vencer — a página ficava com a base errada para o tema. */
+  useEffect(() => {
+    const ouvir = (e: StorageEvent) => {
+      if (e.key !== CHAVE_TEMA || !e.newValue) return
+      try { const t: unknown = JSON.parse(e.newValue); if (temaValido(t)) setEstado(t) } catch { /* valor estranho */ }
+    }
+    window.addEventListener('storage', ouvir)
+    return () => window.removeEventListener('storage', ouvir)
+  }, [])
+
+  /* Aplica só quando o TEMA muda (não quando o next-themes recria o setTheme). */
+  const setThemeRef = useRef(setTheme)
+  setThemeRef.current = setTheme
   useEffect(() => {
     document.documentElement.dataset.tema = tema
-    setTheme(baseDoTema(tema))
-  }, [tema, setTheme])
+    setThemeRef.current(baseDoTema(tema))
+  }, [tema])
 
   const setTema = useCallback((t: IdTema) => {
     setEstado(t)
