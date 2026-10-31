@@ -946,9 +946,10 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
   // Monta o modelo do grafo (posições da raia + textos) para o exportador desenhar em 2D.
   const buildExportModel = useCallback((): ExportModel => {
-    /* O arquivo é o que está na TELA: no desenho BPMN, as posições, raias e setas dele (os
-       textos vêm da mesma fonte do cartão); em "Ver por raia", a vista por raia, abaixo. */
-    if (vista === 'desenho' && grafo && desenhoVisto) {
+    /* O arquivo é o desenho BPMN — as posições, raias e setas dele (os textos vêm da mesma
+       fonte do cartão) — no Desenho e no Roteiro (que mostra o desenho ao lado). Só em
+       "Ver por raia" sai a vista por raia, abaixo. */
+    if (vista !== 'raia' && grafo && desenhoVisto) {
       return modeloDeExportacao(grafo, desenhoVisto, (g) => {
         const n = nodeById[g.id]
         if (isActivity(g.type)) {
