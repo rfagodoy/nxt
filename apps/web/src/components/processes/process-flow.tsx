@@ -68,7 +68,7 @@ export interface FlowInitial {
   name: string
   description?: string | null
   kind?: string | null
-  /** ATIVO: gravar mudança devolve o workflow a rascunho (o "gravar ao sair" avisa) */
+  /** ATIVO: gravar mudança no FLUXO devolve o workflow a rascunho (o "gravar ao sair" avisa); só desenho, não */
   status?: string
   bpmnXml: string
   steps: StepFormSchema[]
@@ -741,6 +741,17 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   if (realinharLimpo.current && desenho) { limpoRef.current = assinatura; realinharLimpo.current = false }
   const sujo = !somenteLeitura && assinatura !== limpoRef.current
   const ativoNoServidor = initial?.status === 'ACTIVE'
+  /* Só mudar o FLUXO devolve um workflow ativo a rascunho; arrumar o desenho (posições,
+     raias, ordem das raias), o nome ou o tipo não (PO, 30/10/2026 — `mudaOFluxo` na API).
+     Esta assinatura deixa o desenho de fora para o aviso dizer a verdade. */
+  const assinaturaFluxo = useMemo(
+    () => (fluxo ? JSON.stringify({ quemInicia, fluxo: comNomes(fluxo, steps), steps }) : ''),
+    [quemInicia, fluxo, steps],
+  )
+  const assinaturaFluxoRef = useRef(assinaturaFluxo)
+  assinaturaFluxoRef.current = assinaturaFluxo
+  const limpoFluxoRef = useRef<string>(assinaturaFluxo)
+  const voltaARascunho = sujo && ativoNoServidor && assinaturaFluxo !== limpoFluxoRef.current
 
   /* ─── Abertura do desenho e posições que faltam ──────────────────────────────
      Sem desenho gravado (workflow anterior ao desenho BPMN, ou novo), ele nasce de
@@ -787,6 +798,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const persist = useCallback(async (confirmarReducao?: boolean, auto?: { keepalive?: boolean }): Promise<string> => {
     if (!fluxo) throw new Error('Workflow do editor antigo: aberto só para leitura.')
     const assinaturaGravada = assinaturaRef.current
+    const fluxoGravado = assinaturaFluxoRef.current
     const bpmnXml = generateBpmn(buildWfGraph(nodes, edges))
     const stepsVivos = nodes.filter((n) => isActivity(n.type) && n.step).map((n) => ({ ...n.step!, stepId: n.id, stepName: n.step!.stepName, stepType: n.type as 'userTask' | 'serviceTask' }))
     // grafo GERADO (a API valida e compila por ele; telas de leitura o desenham)
@@ -814,11 +826,13 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       }
       if (!res.ok) throw new Error('Erro ao salvar')
       limpoRef.current = assinaturaGravada
+      limpoFluxoRef.current = fluxoGravado
       return initial!.id
     }
     const res = await apiFetch(`/api/processes`, { method: 'POST', body, keepalive })
     if (!res.ok) throw new Error('Erro ao salvar')
     limpoRef.current = assinaturaGravada
+    limpoFluxoRef.current = fluxoGravado
     return (await res.json()).id as string
   }, [editing, initial, name, description, kind, quemInicia, fluxo, stepsEfetivos, nodes, edges, laneOrder, desenhoVisto])
 
@@ -984,7 +998,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const [sobreAberto, setSobreAberto] = useState(false)
   const [maisAberto, setMaisAberto] = useState(false)
   const nivelTopo = useNivelDoTopo(topoRef, [
-    tamanhoDoNome(name), !name.trim(), sujo, ativoNoServidor, pendencias.length, bloqueantes(pendencias).length, kind,
+    tamanhoDoNome(name), !name.trim(), sujo, voltaARascunho, pendencias.length, bloqueantes(pendencias).length, kind,
     exportError ?? '', editing,
     // fechar um balão do topo remede desde o 0 (o que mudou com ele aberto — ex.: "Quem inicia" — conta)
     quemIniciaAberto || sobreAberto || maisAberto,
@@ -1016,12 +1030,14 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         {exportError && <span className="shrink-0 text-[11px] text-destructive font-medium">{exportError}</span>}
         {/* Frase CURTA: o detalhe fica no title. */}
         {sujo && (
-          <span className={cn('inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px]', ativoNoServidor ? 'font-medium text-amber-800 dark:text-amber-300' : 'text-muted-foreground')}
-            title={ativoNoServidor
+          <span className={cn('inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px]', voltaARascunho ? 'font-medium text-amber-800 dark:text-amber-300' : 'text-muted-foreground')}
+            title={voltaARascunho
               ? 'Alterações não salvas. Ao sair, gravam sozinhas e o workflow volta a rascunho — sai do "Novo processo" até ser reativado. Processos em andamento não são afetados.'
-              : 'Alterações não salvas. Gravam sozinhas ao sair.'}>
+              : ativoNoServidor
+                ? 'Alterações não salvas, só no desenho. Gravam sozinhas ao sair e o workflow continua ativo.'
+                : 'Alterações não salvas. Gravam sozinhas ao sair.'}>
             <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-            <span className={nivelTopo >= 5 ? 'sr-only' : undefined}>{ativoNoServidor ? 'Não salvo · volta a rascunho' : 'Não salvo'}</span>
+            <span className={nivelTopo >= 5 ? 'sr-only' : undefined}>{voltaARascunho ? 'Não salvo · volta a rascunho' : 'Não salvo'}</span>
           </span>
         )}
         <div className="flex shrink-0 items-center rounded-md border bg-card shadow-sm">
