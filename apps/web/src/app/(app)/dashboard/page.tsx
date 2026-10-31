@@ -123,12 +123,12 @@ function CountUp({ value, format }: { value: number; format?: (n: number) => str
    No hover o cartão sobe 2px, fica mais opaco, ganha borda esmeralda e sombra maior;
    a sombra repete o realce interno do .vidro, que o utilitário substituiria. */
 const CARTAO = cn(
-  'vidro flex min-w-0 flex-col rounded-2xl bg-white/75 p-4 [--vidro-solido:#FFFFFF] lg:px-5 dark:bg-[#161B18]/70 dark:[--vidro-solido:#161B18]',
+  'vidro flex min-w-0 flex-col rounded-2xl bg-[var(--dash-cartao)] p-4 [--vidro-solido:var(--dash-cartao-solido)] lg:px-5',
   'transition-[transform,background-color,border-color,box-shadow] duration-200 ease-out hover:-translate-y-0.5 motion-reduce:transition-none motion-reduce:hover:translate-y-0',
   'hover:border-[#159D62]/35 hover:bg-white/90 hover:shadow-[inset_0_1px_0_var(--vidro-spec),0_18px_36px_-14px_rgba(12,40,26,0.28)]',
   'dark:hover:border-[#3DD68C]/40 dark:hover:bg-[#1E2723]/90 dark:hover:shadow-[inset_0_1px_0_var(--vidro-spec),0_18px_40px_-12px_rgba(0,0,0,0.6)]',
 )
-const LINK = 'text-xs font-bold text-[#0E7A4B] hover:underline dark:text-[#C6F24E]'
+const LINK = 'text-xs font-bold text-[var(--marca-link)] hover:underline'
 
 /* ─────────────────────────── estado vazio ────────────────────────────────── */
 
@@ -265,7 +265,7 @@ export default function DashboardPage() {
           </button>
           <StartProcessButton variant="outline" />
           <button onClick={novoContrato}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors dark:bg-[#34C77B] dark:text-[#06130C] dark:hover:bg-[#45D488]">
+            className="inline-flex items-center gap-1.5 rounded-md bg-[var(--acao)] px-3 py-1.5 text-xs font-semibold text-[var(--acao-tinta)] shadow-sm hover:bg-[var(--acao-hover)] transition-colors">
             <Plus className="h-3.5 w-3.5" />Novo contrato
           </button>
         </div>
@@ -298,7 +298,7 @@ export default function DashboardPage() {
    Sem "Cancelados": o cancelado nunca chegou a valer e por decisão do PO (28/07) não
    entra na carteira — nem no total, nem na composição. */
 const FATIAS = [
-  { chave: 'VIGENTE',     nome: 'Vigentes',    traco: 'stroke-[#159D62] dark:stroke-[#3DD68C]', ponto: 'bg-[#159D62] dark:bg-[#3DD68C]' },
+  { chave: 'VIGENTE',     nome: 'Vigentes',    traco: 'stroke-[var(--marca)]', ponto: 'bg-[var(--marca)]' },
   { chave: 'VENCIDO',     nome: 'Vencidos',    traco: 'stroke-[#C2410C] dark:stroke-[#F59E0B]', ponto: 'bg-[#C2410C] dark:bg-[#F59E0B]' },
   { chave: 'EM_CADASTRO', nome: 'Em cadastro', traco: 'stroke-[#2F7FD6] dark:stroke-[#5FA8F0]', ponto: 'bg-[#2F7FD6] dark:bg-[#5FA8F0]' },
   { chave: 'ENCERRADO',   nome: 'Encerrados',  traco: 'stroke-[#A3B0A9] dark:stroke-[#5E6B64]', ponto: 'bg-[#A3B0A9] dark:bg-[#5E6B64]' },
@@ -345,7 +345,7 @@ function CartaoContratos({ className, dados, vencimentos, onAbrir, onNovo, onImp
           <div className="relative h-[150px] w-[150px] shrink-0">
             <svg viewBox="0 0 200 200" className="h-full w-full -rotate-90" role="img"
               aria-label={`${total} contratos: ${fatias.map((f) => `${f.valor} ${f.nome.toLowerCase()}`).join(', ')}`}>
-              <circle cx="100" cy="100" r={R} fill="none" strokeWidth="24" className="stroke-[#EDF1EE] dark:stroke-[#232A26]" />
+              <circle cx="100" cy="100" r={R} fill="none" strokeWidth="24" className="stroke-[var(--dash-trilho)]" />
               {arcos.map((a) => (
                 <circle key={a.chave} cx="100" cy="100" r={R} fill="none" strokeWidth="24"
                   strokeDasharray={a.dash} strokeDashoffset={a.offset} className={cn(a.traco, 'transition-all duration-700')} />
@@ -367,7 +367,7 @@ function CartaoContratos({ className, dados, vencimentos, onAbrir, onNovo, onImp
                   {vencidos.qtd} vencido{vencidos.qtd === 1 ? '' : 's'} sem renovação
                 </span>
               ) : prox90 && prox90.qtd > 0 ? (
-                <span className="mt-1.5 inline-block rounded-full bg-[#EEF6F1] px-2 py-0.5 text-[11.5px] font-extrabold text-[#0E7A4B] dark:bg-[#3DD68C]/15 dark:text-[#3DD68C]">
+                <span className="mt-1.5 inline-block rounded-full bg-[#EEF6F1] px-2 py-0.5 text-[11.5px] font-extrabold text-[var(--marca-texto)] dark:bg-[#3DD68C]/15">
                   {prox90.qtd} vence{prox90.qtd === 1 ? '' : 'm'} em 90 dias
                 </span>
               ) : null}
@@ -392,8 +392,8 @@ function CartaoContratos({ className, dados, vencimentos, onAbrir, onNovo, onImp
 
 /* Os 3 primeiros meses (≈ 90 dias) vão em destaque e o cabeçalho diz isso: a cor
    nunca carrega sozinha. O maior mês ganha rótulo, mesmo fora dos 90 dias. */
-const BARRA_FORTE = 'bg-[#159D62] dark:bg-[#3DD68C]'
-const BARRA_FRACA = 'bg-[#CDE8D9] dark:bg-[#21443A]'
+const BARRA_FORTE = 'bg-[var(--marca)]'
+const BARRA_FRACA = 'bg-[var(--dash-barra-fraca)]'
 
 function CartaoValorPorMes({ className, dados, onAbrirContratos }: { className?: string; dados?: Vencimentos; onAbrirContratos: () => void }) {
   const meses = dados?.meses ?? []
@@ -425,7 +425,7 @@ function CartaoValorPorMes({ className, dados, onAbrirContratos }: { className?:
                   title={`${MES_CURTO(m.mes)}: ${m.qtd} contrato${m.qtd === 1 ? '' : 's'} · ${BRL_CURTO.format(m.valor)}`}>
                   {rotulo && (
                     <span className={cn('whitespace-nowrap font-mono text-[10px] font-bold tabular-nums',
-                      perto ? 'text-[#0E7A4B] dark:text-[#3DD68C]' : 'rounded bg-[#142420] px-1 text-white dark:bg-[#F1F5F2] dark:text-[#0E1210]')}>
+                      perto ? 'text-[var(--marca-texto)]' : 'rounded bg-[#142420] px-1 text-white dark:bg-[#F1F5F2] dark:text-[#0E1210]')}>
                       {BRL_CURTO.format(m.valor).replace('R$', '').trim()}
                     </span>
                   )}
@@ -466,14 +466,14 @@ function CartaoCaixa({ className, tarefas, onAbrirTarefa, onAbrirCaixa }: {
       </div>
       {tarefas.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-          <CheckCircle2 className="h-10 w-10 text-[#159D62] dark:text-[#3DD68C]" aria-hidden />
+          <CheckCircle2 className="h-10 w-10 text-[var(--marca)]" aria-hidden />
           <p className="text-sm font-bold">Nada esperando por você</p>
           <p className="text-xs text-muted-foreground">Quando um processo chegar a você, ele aparece aqui.</p>
         </div>
       ) : (
         <>
           <div className="flex items-baseline gap-2.5">
-            <span className="rounded-lg bg-[#C6F24E] px-1.5 font-mono text-[56px] font-bold leading-none tracking-tighter text-[#0C1410] tabular-nums"><CountUp value={tarefas.length} /></span>
+            <span className="rounded-lg bg-[var(--destaque)] px-1.5 font-mono text-[56px] font-bold leading-none tracking-tighter text-[var(--destaque-tinta)] tabular-nums"><CountUp value={tarefas.length} /></span>
             <span className="text-sm font-bold leading-snug">{tarefas.length === 1 ? 'tarefa espera' : 'tarefas esperam'}<br />por você</span>
           </div>
           <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
@@ -483,7 +483,7 @@ function CartaoCaixa({ className, tarefas, onAbrirTarefa, onAbrirCaixa }: {
               return (
                 <li key={t.id}>
                   <button type="button" onClick={() => onAbrirTarefa(t)} title={titulo}
-                    className="w-full rounded-xl bg-[#F4F7F5] px-3 py-2.5 text-left transition-colors hover:bg-[#EAF0EC] dark:bg-[#1D2420] dark:hover:bg-[#242C28]">
+                    className="w-full rounded-xl bg-[var(--dash-item)] px-3 py-2.5 text-left transition-colors hover:bg-[var(--dash-item-hover)]">
                     <span className="block truncate text-[13px] font-bold">{titulo}</span>
                     <span className={cn('mt-0.5 block text-xs font-bold', prazo.grp === 'crit' ? 'text-[#B42318] dark:text-[#FF9B8C]' : 'text-muted-foreground')}>{prazo.label}</span>
                   </button>
@@ -501,7 +501,7 @@ function CartaoCaixa({ className, tarefas, onAbrirTarefa, onAbrirCaixa }: {
         </>
       )}
       <button type="button" onClick={onAbrirCaixa}
-        className="flex h-11 shrink-0 items-center justify-center rounded-xl bg-[#0C1410] text-[13.5px] font-bold text-[#C6F24E] transition-opacity hover:opacity-90 dark:bg-[#C6F24E] dark:text-[#0C1410]">
+        className="flex h-11 shrink-0 items-center justify-center rounded-xl bg-[var(--botao-forte-bg)] text-[13.5px] font-bold text-[var(--botao-forte-fg)] transition-opacity hover:opacity-90">
         Abrir minhas tarefas
       </button>
     </section>
@@ -514,7 +514,7 @@ function CartaoCaixa({ className, tarefas, onAbrirTarefa, onAbrirCaixa }: {
 function urgencia(dias: number) {
   if (dias <= 7) return { barra: 'bg-[#D64535] dark:bg-[#FF7A6B]', texto: 'text-[#B42318] dark:text-[#FF9B8C]' }
   if (dias <= 15) return { barra: 'bg-[#E08A2C] dark:bg-[#F2B544]', texto: 'text-[#8A5200] dark:text-[#F2B544]' }
-  return { barra: 'bg-[#159D62] dark:bg-[#3DD68C]', texto: 'text-muted-foreground' }
+  return { barra: 'bg-[var(--marca)]', texto: 'text-muted-foreground' }
 }
 
 /** Os 4 que vencem primeiro. A barra é quanto do prazo do contrato já passou (do início
@@ -576,7 +576,7 @@ function CartaoVencemEmBreve({ className, dados, onAbrirContrato, onVerTodos }: 
 /* Uma cor distinta por parceiro do top 5 (matiz, não só claridade); "outros" com
    TEXTURA listrada — distingue-se por forma, não só por tom. */
 const COR_PARCEIRO = [
-  'bg-[#159D62] dark:bg-[#3DD68C]',
+  'bg-[var(--marca)]',
   'bg-[#2F7FD6] dark:bg-[#5FA8F0]',
   'bg-[#C77A0A] dark:bg-[#F2B544]',
   'bg-[#7C8B83] dark:bg-[#8A9A92]',

@@ -20,6 +20,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pt-BR" suppressHydrationWarning>
+      <head>
+        {/* tema do usuário ANTES da primeira pintura (a base clara/escura é do next-themes) */}
+        <script dangerouslySetInnerHTML={{ __html: "try{var t=JSON.parse(localStorage.getItem('nxt:me:tema'));if(typeof t==='string')document.documentElement.dataset.tema=t}catch(e){}" }} />
+      </head>
       <body className={`${manrope.variable} ${spaceMono.variable} font-sans`}>
         <Providers>{children}</Providers>
       </body>
