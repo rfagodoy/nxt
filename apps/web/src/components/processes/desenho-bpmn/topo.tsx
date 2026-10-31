@@ -8,7 +8,7 @@
    ⚠️ O nome continua sendo o que mais pede atenção: sem ele a API recusa salvar e ativar.
    Vazio, o campo mostra a ordem ("Dê um nome…") e fundo âmbar tracejado. */
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type ReactNode, type RefObject } from 'react'
-import { ChevronDown, Download, FileImage, FileText, History, Loader2, MoreHorizontal, Rows3 } from 'lucide-react'
+import { ChevronDown, Download, FileImage, FileText, History, ListOrdered, Loader2, MoreHorizontal, Rows3, Workflow } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { FloatingMenu } from '@/components/ui/floating-menu'
 import type { FlowExportFormat } from '@/lib/flow-export'
@@ -234,5 +234,36 @@ export function MenuMais({ onHistorico, onExportar, exportando, exportarDesabili
         </FloatingMenu>
       )}
     </>
+  )
+}
+
+export type VistaDoEditor = 'roteiro' | 'desenho' | 'raia'
+
+/** Roteiro | Desenho: as duas portas para o mesmo workflow (spec do Roteiro, §1). Trocar
+ *  não grava nem perde nada. `roteiroDesabilitado` = motivo (workflow só leitura). */
+export function SeletorDeVista({ vista, onVista, roteiroDesabilitado, soIcone }: {
+  vista: VistaDoEditor
+  onVista: (v: 'roteiro' | 'desenho') => void
+  roteiroDesabilitado?: string
+  soIcone?: boolean
+}): JSX.Element {
+  const opcoes = [
+    { v: 'roteiro' as const, rotulo: 'Roteiro', Icone: ListOrdered, desabilitado: roteiroDesabilitado },
+    { v: 'desenho' as const, rotulo: 'Desenho', Icone: Workflow, desabilitado: undefined },
+  ]
+  return (
+    <div role="radiogroup" aria-label="Vista do editor" className="flex shrink-0 items-center rounded-md border bg-muted/40 p-0.5">
+      {opcoes.map(({ v, rotulo, Icone, desabilitado }) => {
+        const ativo = vista === v
+        return (
+          <button key={v} type="button" role="radio" aria-checked={ativo} disabled={!!desabilitado}
+            onClick={() => onVista(v)} title={desabilitado ?? rotulo} aria-label={rotulo}
+            className={cn('inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-[12.5px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+              ativo ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+            <Icone className="h-3.5 w-3.5" />{!soIcone && rotulo}
+          </button>
+        )
+      })}
+    </div>
   )
 }
