@@ -41,7 +41,7 @@ import { QuemIniciaPill } from './quem-inicia'
 import { ConfiguracaoDoBloco, comNomes, novoItem, type NovoItem, type Simulacao } from './workflow-blocos'
 import { NoticeDialog } from '@/components/ui/confirm-dialog'
 import { ATRIBUTO_GAVETA, GavetaLateral, ehEscDaGaveta } from './desenho-bpmn/gaveta'
-import { CanvasBpmn } from './desenho-bpmn/canvas-bpmn'
+import { CanvasBpmn, modeloDeExportacao } from './desenho-bpmn/canvas-bpmn'
 import { PaletaBpmn } from './desenho-bpmn/paleta'
 import { MenuMais, NomeNoTopo, SobreDoWorkflow, tamanhoDoNome, useNivelDoTopo } from './desenho-bpmn/topo'
 import { cn } from '@/lib/utils'
@@ -900,6 +900,19 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
   // Monta o modelo do grafo (posições da raia + textos) para o exportador desenhar em 2D.
   const buildExportModel = useCallback((): ExportModel => {
+    /* O arquivo é o que está na TELA: no desenho BPMN, as posições, raias e setas dele (os
+       textos vêm da mesma fonte do cartão); em "Ver por raia", a vista por raia, abaixo. */
+    if (vista === 'desenho' && grafo && desenhoVisto) {
+      return modeloDeExportacao(grafo, desenhoVisto, (g) => {
+        const n = nodeById[g.id]
+        if (isActivity(g.type)) {
+          const meta = n ? metaDaAtividade(n, resolvePapel, resolveEntidade).map((m) => m.text) : []
+          return { name: n?.step?.stepName || 'Sem nome', typeLabel: g.type === 'serviceTask' ? 'Ação automática' : 'Tarefa', meta }
+        }
+        if (g.type === 'exclusiveGateway' || g.type === 'parallelGateway' || g.type === 'inclusiveGateway') return { name: g.name ?? '', isFork: !!g.name }
+        return { name: g.name || (g.type === 'start' ? 'Início' : g.type === 'end' ? 'Fim' : '') }
+      })
+    }
     const enodes: ExportNode[] = nodes.map((n) => {
       const p = layout.nodes[n.id]
       const base = { id: n.id, type: n.type, x: p.x, y: p.y, w: p.w, h: p.h }
@@ -924,7 +937,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       }
     })
     return { width: layout.width, height: layout.height, nodes: enodes, edges: eedges, lanes: layout.lanes }
-  }, [nodes, edges, layout, nodeById, resolvePapel, resolveEntidade])
+  }, [nodes, edges, layout, nodeById, resolvePapel, resolveEntidade, vista, grafo, desenhoVisto])
 
   // Exporta o desenho atual (edições ao vivo, sem precisar salvar) como JPG ou PDF.
   const handleExport = useCallback(async (format: FlowExportFormat) => {
