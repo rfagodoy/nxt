@@ -1,5 +1,6 @@
 'use client'
 
+import { corDoTema } from '@/lib/cor-do-tema'
 import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react'
 import { Plus, Trash2, Search, Upload, Download, Loader2, X, Eye, ChevronDown, FileText, RefreshCw, ListPlus, Paperclip, FileDown } from 'lucide-react'
 import {
@@ -1909,9 +1910,14 @@ function isPreviewable(name: string): boolean {
 
 /** HTML da janela do anexo — moldura branded Nxt que segue o TEMA (claro/escuro) do usuário. */
 function anexoShell(name: string, url: string | null, isImg: boolean, isDark: boolean): string {
-  const pal = isDark
-    ? '--head:#0C1410;--bg:#0a130e;--line:#1b2a22;--tx:#e6efe9;--mu:#8aa397;--em:#18C07A'
-    : '--head:#ffffff;--bg:#f4f7f5;--line:#e4eae7;--tx:#0C1410;--mu:#5b6b63;--em:#18C07A'
+  /* cores do TEMA atual (a janela é HTML solto, sem o CSS do sistema) */
+  const pal = [
+    `--head:${corDoTema('--card', isDark ? '#0C1410' : '#ffffff')}`, `--bg:${corDoTema('--background', isDark ? '#0a130e' : '#f4f7f5')}`,
+    `--line:${corDoTema('--border', isDark ? '#1b2a22' : '#e4eae7')}`, `--tx:${corDoTema('--foreground', isDark ? '#e6efe9' : '#0C1410')}`,
+    `--mu:${corDoTema('--muted-foreground', isDark ? '#8aa397' : '#5b6b63')}`, `--em:${corDoTema('--primary', '#18C07A')}`,
+    `--em-tx:${corDoTema('--primary-foreground', '#04110b')}`,
+  ].join(';')
+  const logoCor = { tile: corDoTema('--forest', '#0C1410'), bar: corDoTema('--e-18C07A', '#18C07A'), chevron: corDoTema('--spark', '#C6F24E') }
   const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string)
   const n = esc(name)
   const inner = url
@@ -1919,7 +1925,7 @@ function anexoShell(name: string, url: string | null, isImg: boolean, isDark: bo
     : `<div class="ld"><div class="sp"></div><span>Carregando…</span></div>`
   const dl = url ? `<a class="btn" href="${url}" download="${n}">Baixar</a>` : ''
   /* logo oficial (Nxt-icone-app-primario): tile Forest Ink + barra Esmeralda + chevron Lime */
-  const logo = `<svg viewBox="0 0 120 120" width="30" height="30" aria-label="Nxt"><rect width="120" height="120" rx="28" fill="#0C1410"/><rect x="37" y="36" width="10" height="48" rx="2" fill="#18C07A"/><polyline points="58,38 84,60 58,82" fill="none" stroke="#C6F24E" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+  const logo = `<svg viewBox="0 0 120 120" width="30" height="30" aria-label="Nxt"><rect width="120" height="120" rx="28" fill="${logoCor.tile}"/><rect x="37" y="36" width="10" height="48" rx="2" fill="${logoCor.bar}"/><polyline points="58,38 84,60 58,82" fill="none" stroke="${logoCor.chevron}" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/></svg>`
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${n} — Nxt</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -1936,7 +1942,7 @@ header{display:flex;align-items:center;gap:14px;padding:10px 18px;background:var
 .sep{width:1px;height:22px;background:var(--line)}
 .name{flex:1;min-width:0;font-size:13px;font-weight:600;color:var(--mu);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .btn{display:inline-flex;align-items:center;height:32px;padding:0 16px;border:1px solid var(--em);border-radius:8px;color:var(--em);text-decoration:none;font-size:13px;font-weight:700;transition:all .15s}
-.btn:hover{background:var(--em);color:#04110b}
+.btn:hover{background:var(--em);color:var(--em-tx)}
 main{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:${isImg ? '28px' : '0'};overflow:auto}
 iframe{width:100%;height:100%;border:0;background:#fff}
 img{max-width:100%;max-height:100%;border-radius:12px;box-shadow:0 16px 50px rgba(0,0,0,.55)}
