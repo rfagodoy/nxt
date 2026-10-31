@@ -40,6 +40,8 @@ import { EXECUTOR_CONTRATO_DO_PROCESSO, EXECUTOR_QUEM_INICIOU, nasceDeContrato, 
 import { QuemIniciaPill } from './quem-inicia'
 import { ConfiguracaoDoBloco, comNomes, novoItem, type NovoItem, type Simulacao } from './workflow-blocos'
 import { NoticeDialog } from '@/components/ui/confirm-dialog'
+import { aoSairDoEditor, destinoInterno } from '@/lib/sair-do-editor'
+import { SairSemSalvarDialog } from './sair-sem-salvar'
 import { ATRIBUTO_GAVETA, GavetaLateral, ehEscDaGaveta } from './desenho-bpmn/gaveta'
 import { CanvasBpmn, modeloDeExportacao } from './desenho-bpmn/canvas-bpmn'
 import { PaletaBpmn } from './desenho-bpmn/paleta'
@@ -841,18 +843,27 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   /* "sujo" lido NA HORA (não o da última renderização): logo depois de um Salvar a tela pode
      sair antes de se redesenhar — e gravaria de novo (num workflow novo, uma CÓPIA). */
   const somenteLeituraRef = useRef(somenteLeitura)
+  /* Workflow ATIVO não grava sozinho ao sair (decisão do PO, 30/10/2026): gravar mudança
+     de etapa o devolve a rascunho, e isso não acontece sem a pessoa escolher. */
+  const ativoRef = useRef(ativoNoServidor)
+  ativoRef.current = ativoNoServidor
+  const aoSairAgora = useCallback(() => aoSairDoEditor({
+    somenteLeitura: somenteLeituraRef.current, ativo: ativoRef.current, sujo: assinaturaRef.current !== limpoRef.current,
+  }), [])
   const gravandoSozinho = useRef(false)
   const gravarAoSair = useCallback((keepalive: boolean) => {
-    if (somenteLeituraRef.current || gravandoSozinho.current || assinaturaRef.current === limpoRef.current) return false
+    if (gravandoSozinho.current || aoSairAgora() !== 'gravar') return false
     gravandoSozinho.current = true
     void persistRef.current(undefined, { keepalive }).catch(() => { /* 409 destrutiva ou rede: fica o que estava */ })
     return true
-  }, [])
+  }, [aoSairAgora])
   useEffect(() => {
     const LIMITE_KEEPALIVE = 60_000 // o navegador recusa keepalive acima de ~64 KB
     const aoFechar = (e: BeforeUnloadEvent) => {
-      if (somenteLeituraRef.current || assinaturaRef.current === limpoRef.current) return
-      if (assinaturaRef.current.length * 2 > LIMITE_KEEPALIVE) { e.preventDefault(); e.returnValue = ''; return }
+      const acao = aoSairAgora()
+      if (acao === 'nada') return
+      // ativo: o "sair sem salvar?" do navegador (fechar a aba não deixa mostrar o nosso)
+      if (acao === 'perguntar' || assinaturaRef.current.length * 2 > LIMITE_KEEPALIVE) { e.preventDefault(); e.returnValue = ''; return }
       gravarAoSair(true) // fechando a aba: só o keepalive sobrevive à página
     }
     window.addEventListener('beforeunload', aoFechar)
@@ -860,7 +871,31 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       window.removeEventListener('beforeunload', aoFechar)
       gravarAoSair(false) // saiu da tela por dentro do sistema (menu, outra aba): a página segue viva
     }
-  }, [gravarAoSair])
+  }, [gravarAoSair, aoSairAgora])
+
+  /* Saída por link (menu lateral, topo, breadcrumb) de um workflow ATIVO com alterações:
+     segura o clique e pergunta. Escuta na captura, antes do Link do Next navegar. */
+  const [saida, setSaida] = useState<string | null>(null)
+  const sairPara = useCallback((destino: string) => {
+    if (aoSairAgora() === 'perguntar') setSaida(destino)
+    else router.push(destino)
+  }, [aoSairAgora, router])
+  useEffect(() => {
+    const aoClicar = (e: MouseEvent) => {
+      if (aoSairAgora() !== 'perguntar') return
+      const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null
+      if (!a) return
+      const destino = destinoInterno({
+        button: e.button, ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey, altKey: e.altKey,
+        defaultPrevented: e.defaultPrevented, href: a.href, target: a.target, download: a.hasAttribute('download'),
+      }, window.location.origin, window.location.pathname)
+      if (!destino) return
+      e.preventDefault(); e.stopPropagation()
+      setSaida(destino)
+    }
+    document.addEventListener('click', aoClicar, true)
+    return () => document.removeEventListener('click', aoClicar, true)
+  }, [aoSairAgora])
 
   const handleSaveDraft = useCallback(async (confirmarReducao?: boolean) => {
     if (!name.trim()) { setAviso({ msg: 'Dê um nome ao workflow antes de salvar.' }); return }
@@ -1017,7 +1052,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       {/* TOPO numa linha só (spec "Topo"). `relative z-40`: o painel da saúde abre para
           baixo, por cima do desenho e da gaveta. */}
       <div ref={topoRef} className="relative z-40 flex min-w-0 items-center gap-2 border-b bg-card px-3 py-2 shrink-0">
-        <Button variant="ghost" size="icon" onClick={() => router.push('/workflows')} className="h-8 w-8 shrink-0" aria-label="Voltar para Workflows" title="Voltar para Workflows"><ArrowLeft className="h-4 w-4" /></Button>
+        <Button variant="ghost" size="icon" onClick={() => sairPara('/workflows')} className="h-8 w-8 shrink-0" aria-label="Voltar para Workflows" title="Voltar para Workflows"><ArrowLeft className="h-4 w-4" /></Button>
         <NomeNoTopo nome={name} onNome={setName} autoFocus={!editing} podeEncolher={nivelTopo >= 7} />
         <SobreDoWorkflow descricao={description} onDescricao={setDescription} tipo={kind} onTipo={setKind} tipos={WORKFLOW_KINDS} resumo={resumo} soIcone={nivelTopo >= 4}
           aberto={sobreAberto} onAberto={setSobreAberto} />
@@ -1106,6 +1141,19 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
       <NoticeDialog open={!!aviso} title={aviso?.titulo} message={aviso?.msg}
         onClose={() => { const depois = aviso?.aoFechar; setAviso(null); depois?.() }} />
+      <SairSemSalvarDialog open={!!saida}
+        onContinuar={() => setSaida(null)}
+        onDescartar={() => { const destino = saida!; limpoRef.current = assinaturaRef.current; setSaida(null); router.push(destino) }}
+        onSalvar={async () => {
+          const destino = saida!
+          setSaida(null)
+          if (!name.trim()) { setAviso({ msg: 'Dê um nome ao workflow antes de salvar.' }); return }
+          try { await persist(); router.push(destino) }
+          catch (err) {
+            if (err instanceof ReducaoDestrutiva) { setReducao({ msg: err.message, acao: 'rascunho' }); return }
+            setAviso({ msg: 'Não foi possível salvar o workflow.' }); console.error(err)
+          }
+        }} />
 
       {/* `relative`: as gavetas laterais (absolute) encostam à direita desta faixa, por cima do desenho. */}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
