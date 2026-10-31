@@ -11,6 +11,7 @@ import { Check, ChevronDown, KeyRound, LogOut, Palette } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSession, logout } from '@/lib/session-context'
 import { DENSIDADES, useDensidade, type Densidade } from '@/lib/densidade'
+import { formatarVersao } from '@/lib/versao'
 import { TEMAS } from '@/lib/temas'
 import { useTema } from '@/lib/temas-provider'
 import { FloatingMenu } from '@/components/ui/floating-menu'
@@ -46,7 +47,7 @@ function Segmentado<T extends string>({ rotulo, opcoes, valor, onChange }: {
 }
 
 /** Versão gravada no build (next.config: tag do git ou NXT_VERSAO). */
-const VERSAO = process.env.NEXT_PUBLIC_NXT_VERSAO || 'desenvolvimento'
+const VERSAO = formatarVersao(process.env.NEXT_PUBLIC_NXT_VERSAO || 'desenvolvimento')
 
 export function UserMenu() {
   const { data: session } = useSession()

@@ -8,7 +8,7 @@
    ⚠️ O nome continua sendo o que mais pede atenção: sem ele a API recusa salvar e ativar.
    Vazio, o campo mostra a ordem ("Dê um nome…") e fundo âmbar tracejado. */
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type ReactNode, type RefObject } from 'react'
-import { ChevronDown, Download, FileImage, FileText, History, Loader2, MoreHorizontal, Rows3 } from 'lucide-react'
+import { ChevronDown, Download, FileImage, FileText, History, ListOrdered, Loader2, MoreHorizontal, Rows3, Workflow } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { FloatingMenu } from '@/components/ui/floating-menu'
 import type { FlowExportFormat } from '@/lib/flow-export'
@@ -197,7 +197,7 @@ export function MenuMais({ onHistorico, onExportar, exportando, exportarDesabili
   return (
     <>
       <button ref={botao} type="button" onClick={() => { if (antesDeAlternar?.()) return; setAberto((v) => !v) }} aria-haspopup="menu" aria-expanded={aberto}
-        aria-label="Mais ações" title="Mais ações: histórico, exportar (vista por raia), ver por raia"
+        aria-label="Mais ações" title={`Mais ações: histórico, exportar${verPorRaiaDesabilitado ? ' (vista por raia)' : ''}, ver por raia`}
         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-card text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground">
         {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
       </button>
@@ -217,7 +217,8 @@ export function MenuMais({ onHistorico, onExportar, exportando, exportarDesabili
             </button>
           )}
           <p className="flex items-center gap-1.5 px-2 pb-0.5 pt-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">
-            <Download className="h-3 w-3" />Exportar (vista por raia)
+            {/* exporta o que está na tela: o desenho BPMN ou, em "Ver por raia", a vista por raia */}
+            <Download className="h-3 w-3" />{verPorRaiaDesabilitado ? 'Exportar (vista por raia)' : 'Exportar'}
           </p>
           <button type="button" role="menuitem" className={item} disabled={exportarDesabilitado} onClick={escolher(() => onExportar('jpg'))}
             {...(onHistorico || extras?.length ? {} : { 'data-autofocus': true })}>
@@ -233,5 +234,36 @@ export function MenuMais({ onHistorico, onExportar, exportando, exportarDesabili
         </FloatingMenu>
       )}
     </>
+  )
+}
+
+export type VistaDoEditor = 'roteiro' | 'desenho' | 'raia'
+
+/** Roteiro | Desenho: as duas portas para o mesmo workflow (spec do Roteiro, §1). Trocar
+ *  não grava nem perde nada. `roteiroDesabilitado` = motivo (workflow só leitura). */
+export function SeletorDeVista({ vista, onVista, roteiroDesabilitado, soIcone }: {
+  vista: VistaDoEditor
+  onVista: (v: 'roteiro' | 'desenho') => void
+  roteiroDesabilitado?: string
+  soIcone?: boolean
+}): JSX.Element {
+  const opcoes = [
+    { v: 'roteiro' as const, rotulo: 'Roteiro', Icone: ListOrdered, desabilitado: roteiroDesabilitado },
+    { v: 'desenho' as const, rotulo: 'Desenho', Icone: Workflow, desabilitado: undefined },
+  ]
+  return (
+    <div role="radiogroup" aria-label="Vista do editor" className="flex shrink-0 items-center rounded-md border bg-muted/40 p-0.5">
+      {opcoes.map(({ v, rotulo, Icone, desabilitado }) => {
+        const ativo = vista === v
+        return (
+          <button key={v} type="button" role="radio" aria-checked={ativo} disabled={!!desabilitado}
+            onClick={() => onVista(v)} title={desabilitado ?? rotulo} aria-label={rotulo}
+            className={cn('inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-[12.5px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+              ativo ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+            <Icone className="h-3.5 w-3.5" />{!soIcone && rotulo}
+          </button>
+        )
+      })}
+    </div>
   )
 }

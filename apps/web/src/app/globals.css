@@ -78,9 +78,10 @@
 
 @layer base {
   :root {
-    /* página: "Mesa de Vidro" — Mist mais PROFUNDO (sage), pra o vidro branco e os
-       cards saltarem por cima. O degradê de marca (app-mesh) dá a profundidade. */
-    --background: 138 16% 88%;
+    /* página: paleta A "Neutro calmo" (#EEF2EF) no shell inteiro — opção B "Bruma leve"
+       (PO, 30/10/2026). O degradê de marca (app-mesh) fica a ~1/3 da força, só em dois
+       cantos: o bastante para o vidro ter o que refratar sem tingir a tela toda. */
+    --background: 135 15% 94%;
     --foreground: 156 28% 11%;
 
     /* cards: branco puro — "flutuam" sobre o Mist */
@@ -148,7 +149,6 @@
     --vidro-lateral: oklch(0.181 0.015 163 / 0.74);
     --vidro-cartao: oklch(1 0 0 / 0.62);
     --vidro-controle: oklch(1 0 0 / 0.50);
-    /* degradê de marca: Esmeralda, Esmeralda clara e Lima */
     /* cores da MARCA usadas em gráficos e destaques (cada tema troca) */
     --marca: #159D62;
     --marca-texto: #0E7A4B;
@@ -167,9 +167,9 @@
     --acao: hsl(154 76% 35%);
     --acao-tinta: #FFFFFF;
     --acao-hover: hsl(154 76% 35% / 0.9);
-    --mesh-1: oklch(0.713 0.163 158 / 0.52);
-    --mesh-2: oklch(0.84 0.09 158 / 0.44);
-    --mesh-3: oklch(0.90 0.16 123 / 0.44);
+    /* degradê de marca (bruma): Esmeralda no canto de cima, Lima no de baixo */
+    --mesh-1: oklch(0.713 0.163 158 / 0.20);
+    --mesh-3: oklch(0.90 0.16 123 / 0.15);
   }
 
   .dark {
@@ -249,9 +249,8 @@
     --acao-tinta: #06130C;
     --acao-hover: #45D488;
     --vidro-controle: oklch(0.38 0.017 160 / 0.50);
-    --mesh-1: oklch(0.58 0.14 158 / 0.42);
-    --mesh-2: oklch(0.62 0.08 160 / 0.34);
-    --mesh-3: oklch(0.70 0.13 123 / 0.26);
+    --mesh-1: oklch(0.58 0.14 158 / 0.16);
+    --mesh-3: oklch(0.70 0.13 123 / 0.09);
   }
 }
 
@@ -342,9 +341,8 @@
   .app-mesh {
     background-color: hsl(var(--background));
     background-image:
-      radial-gradient(120% 90% at 12% -10%, var(--mesh-1), transparent 62%),
-      radial-gradient(100% 80% at 92% 8%, var(--mesh-2), transparent 64%),
-      radial-gradient(110% 95% at 62% 112%, var(--mesh-3), transparent 62%);
+      radial-gradient(90% 70% at 8% -12%, var(--mesh-1), transparent 60%),
+      radial-gradient(80% 60% at 96% 112%, var(--mesh-3), transparent 62%);
     background-repeat: no-repeat;
   }
 }
