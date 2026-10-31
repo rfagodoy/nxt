@@ -5,6 +5,7 @@ import { nodeSize } from './flow-layout'
 import {
   GRADE, RAIA_ALTURA_PADRAO, RAIA_ALTURA_MINIMA, RAIA_ALTURA_MAXIMA, desenhoInicial, organizar, completarPosicoes, raiaNaAltura, avisoDeRaia, setaSobPonto, polilinhaDaSeta,
   adicionarRaia, renomearRaia, redimensionarRaia, moverRaia, removerRaia, abrirEspaco, larguraDaInsercao, reordenarNoDesenho, pontoDoRotuloNaPolilinha,
+  formasDoItem, posicoesAoMover,
 } from './desenho-bpmn'
 
 const no = (id: string, type: string) => ({ id, type }) as GrafoGerado['nodes'][number]
@@ -365,5 +366,31 @@ describe('pontoDoRotuloNaPolilinha', () => {
   })
   it('menos de dois pontos: nenhum lugar', () => {
     expect(pontoDoRotuloNaPolilinha([{ x: 5, y: 5 }])).toBeNull()
+  })
+})
+
+describe('formasDoItem', () => {
+  it('atividade: só ela', () => {
+    expect(formasDoItem({ kind: 'atividade', id: 'a1', tipo: 'userTask' })).toEqual(['a1'])
+  })
+  it('escolha: ela, o reencontro e o que mora nos caminhos', () => {
+    const ids = formasDoItem({
+      kind: 'escolha', id: 'e1', caminhos: [{ id: 'c1', itens: [{ kind: 'atividade', id: 'a2', tipo: 'userTask' }], fim: { tipo: 'segue' } }],
+      casoContrario: { id: 'cc', itens: [], fim: { tipo: 'segue' } },
+    })
+    expect(new Set(ids)).toEqual(new Set(['e1', 'e1__fim', 'a2']))
+  })
+})
+
+describe('posicoesAoMover', () => {
+  const d: DesenhoBpmn = { versao: 1, raias: [], posicoes: { a1: { x: 0, y: 0 }, a2: { x: 100, y: 0 }, e1: { x: 200, y: 0 }, e1__fim: { x: 300, y: 0 } } }
+  it('tira só as posições dos itens movidos (e do reencontro deles)', () => {
+    expect(Object.keys(posicoesAoMover(d, ['e1']).posicoes).sort()).toEqual(['a1', 'a2'])
+  })
+  it('as outras posições ficam iguais', () => {
+    expect(posicoesAoMover(d, ['a2']).posicoes.a1).toEqual({ x: 0, y: 0 })
+  })
+  it('sem ids, devolve igual', () => {
+    expect(posicoesAoMover(d, []).posicoes).toEqual(d.posicoes)
   })
 })

@@ -49,7 +49,7 @@ function predecessorasDe(edges: EEdge[], alvo: string): Set<string> {
  * aplica cada mudança ao vivo no grafo, então sem isso "Cancelar" seria só um "Fechar"
  * mentiroso. Fechar pelo X e o Esc também cancelam; só "Aplicar" mantém.
  */
-export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveEntidade, onPatchStep, onChangeType, onRemove, onClose, secaoInicial, vinculo, somenteLeitura, focarAoAbrir, moldura = 'gaveta' }: {
+export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveEntidade, onPatchStep, onChangeType, onRemove, onClose, secaoInicial, vinculo, somenteLeitura, focarAoAbrir, moldura = 'gaveta', retratoDaAbertura }: {
   node: ENode; nodes: ENode[]; edges: EEdge[]; screens: Screens; papeis: Papeis
   /** nome da entidade fixa do executor, para a frase do "Em resumo" */
   resolveEntidade: (kind: string | undefined, id: string | undefined) => string | undefined
@@ -65,6 +65,9 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
   focarAoAbrir?: boolean
   /** 'gaveta' = painel lateral (Desenho); 'embutida' = dentro da lista do Roteiro, sem gaveta */
   moldura?: 'gaveta' | 'embutida'
+  /** Estado de quando a etapa foi ABERTA, guardado pelo editor: trocar Roteiro ↔ Desenho
+   *  remonta este componente, e o Cancelar tem de desfazer desde a abertura, não desde a troca. */
+  retratoDaAbertura?: { step: StepFormSchema; type: 'userTask' | 'serviceTask' }
 }) {
   const step = node.step!
   const type = node.type as 'userTask' | 'serviceTask'
@@ -193,7 +196,7 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
      Guardado uma única vez, na abertura. Restaurar precisa da UNIÃO das chaves:
      um campo criado durante a edição (entityVar, por exemplo) não existe no
      snapshot, e um merge simples o deixaria para trás. */
-  const original = useRef<{ step: StepFormSchema; type: 'userTask' | 'serviceTask' }>({ step: { ...step }, type })
+  const original = useRef<{ step: StepFormSchema; type: 'userTask' | 'serviceTask' }>(retratoDaAbertura ?? { step: { ...step }, type })
   const corpoRef = useRef<HTMLDivElement>(null)
 
   const cancelar = () => {
@@ -874,7 +877,7 @@ function PessoasHoje({ pessoas }: { pessoas: string[] | null | undefined }) {
 
 /** Rótulos e explicações do que a atividade faz com a entidade. VIEW é a etapa de
  *  análise: mostra o cadastro inteiro, não deixa alterar nada. */
-const ENTITY_MODE_LABEL: Record<string, string> = { CREATE: 'Criar', EDIT: 'Editar', VIEW: 'Consultar' }
+export const ENTITY_MODE_LABEL: Record<string, string> = { CREATE: 'Criar', EDIT: 'Editar', VIEW: 'Consultar' }
 
 const SUBJECT_ENTITY: Record<string, string> = { CONTRATO: 'contrato', FORNECEDOR: 'parceiro' }
 const SUBJECT_LABEL: Record<string, string> = { CONTRATO: 'Contrato', FORNECEDOR: 'Parceiro' }

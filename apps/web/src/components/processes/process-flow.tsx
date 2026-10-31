@@ -20,7 +20,7 @@ import { useScreens } from '@/hooks/use-screens'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { PAPEIS_KEY, INIT_PAPEIS, referenciaDoPapelEntry } from '@/lib/contract-roles'
 import { layoutGraph, nodeSize, titleLineCount, LABEL_W, LANE_SEM_RESPONSAVEL, type FlowNode as LNode, type FlowNodeType, type LaneBand } from '@/lib/flow-layout'
-import { GRADE, abrirEspaco, adicionarRaia, completarPosicoes, desenhoInicial, larguraDaInsercao, organizar } from '@/lib/desenho-bpmn'
+import { GRADE, abrirEspaco, adicionarRaia, completarPosicoes, desenhoInicial, formasDoItem, larguraDaInsercao, organizar, posicoesAoMover } from '@/lib/desenho-bpmn'
 import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, type ExportEdge } from '@/lib/flow-export'
 import { apiFetch } from '@/lib/http'
 import { ProcessHistoryDrawer } from './process-history-drawer'
@@ -34,10 +34,12 @@ import { SairSemSalvarDialog } from './sair-sem-salvar'
 import { ATRIBUTO_GAVETA, GavetaLateral, ehEscDaGaveta } from './desenho-bpmn/gaveta'
 import { CanvasBpmn, modeloDeExportacao } from './desenho-bpmn/canvas-bpmn'
 import { PaletaBpmn } from './desenho-bpmn/paleta'
-import { MenuMais, NomeNoTopo, SobreDoWorkflow, tamanhoDoNome, useNivelDoTopo } from './desenho-bpmn/topo'
+import { MenuMais, NomeNoTopo, SeletorDeVista, SobreDoWorkflow, tamanhoDoNome, useNivelDoTopo, type VistaDoEditor } from './desenho-bpmn/topo'
 import { cn } from '@/lib/utils'
 import { STEP_TONE, dueText, entityKindLabel, type EEdge, type ENode } from './editor-comum'
-import { PerguntasDaEtapa } from './perguntas-da-etapa'
+import { ENTITY_MODE_LABEL, PerguntasDaEtapa } from './perguntas-da-etapa'
+import { Roteiro } from './roteiro/roteiro'
+import { itensDaLista, montarRoteiro, podeSoltar, removerCaminhoComVinculos, secaoDaPendencia, type ConsultasDoRoteiro } from '@/lib/roteiro'
 
 
 export const WORKFLOW_KINDS = [
@@ -257,9 +259,10 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
      gravada em `formSchema.desenho`. Sem desenho gravado, nasce organizado e com raias
      sugeridas pelos responsáveis (ver "abertura do desenho", mais abaixo). */
   const [desenho, setDesenho] = useState<DesenhoBpmn | null>(() => (inicio.fluxo ? lerDesenho(initial?.desenho) : null))
-  /* O desenho é onde se edita; "Ver por raia" é a vista antiga, só de leitura, organizada
-     por quem executa. Desenho antigo que não cabe em blocos só tem a raia. */
-  const [vista, setVista] = useState<'desenho' | 'raia'>(somenteLeitura ? 'raia' : 'desenho')
+  /* Roteiro (a lista, vista principal) e Desenho editam o mesmo workflow; "Ver por raia" é a
+     vista antiga, só de leitura, organizada por quem executa. Desenho antigo que não cabe em
+     blocos só tem a raia. */
+  const [vista, setVista] = useState<VistaDoEditor>(somenteLeitura ? 'raia' : inicio.fluxo ? 'roteiro' : 'desenho')
   const [historicoAberto, setHistoricoAberto] = useState(false)
   /** Pedido de "enquadrar a vista" ao canvas (contador). */
   const [enquadrar, setEnquadrar] = useState(0)
@@ -333,6 +336,13 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     return it && it.kind !== 'atividade' ? it : null
   }, [fluxo, selectedId])
   const configNode = configId ? nodeById[configId] : null
+  /* Retrato da etapa na ABERTURA (para o Cancelar): sobrevive à troca Roteiro ↔ Desenho,
+     que remonta as perguntas. Tirado na primeira renderização com a etapa aberta. */
+  const retratoDaAbertura = useRef<{ id: string; step: StepFormSchema; type: 'userTask' | 'serviceTask' } | null>(null)
+  if (!configNode?.step) retratoDaAbertura.current = null
+  else if (retratoDaAbertura.current?.id !== configNode.id) {
+    retratoDaAbertura.current = { id: configNode.id, step: { ...configNode.step }, type: configNode.type as 'userTask' | 'serviceTask' }
+  }
 
   /* ─── Consultas do desenho ────────────────────────────────────────────────────
      Quem executa, em texto ("Analista de Central de Contratos", "Quem iniciou o processo"):
@@ -489,10 +499,12 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     setFocarGaveta(true)
     const id = p.nodeId
     abrir(id)
+    // abre já na pergunta que falta (abrir limpa a seção; esta vem depois e vale)
+    setConfigSecao(secaoDaPendencia(p, stepsEfetivos[raizRef.current.get(id) ?? id]))
     // desenho antigo: a atividade abre a gaveta de leitura (abrir só seleciona sem blocos)
     if (!fluxo && isActivity(nodeById[id]?.type ?? 'start')) setConfigId(id)
     setFocoEm((f) => ({ id, vez: (f?.vez ?? 0) + 1 }))
-  }, [abrir, fluxo, nodeById])
+  }, [abrir, fluxo, nodeById, stepsEfetivos])
 
   /* VER POR RAIA: layout automático sempre. Posição manual deixou de existir com os
      blocos — a ordem vem do fluxo, e a raia, de quem executa. */
@@ -606,6 +618,22 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     })
     setSelectedId((cur) => (cur === id ? null : cur))
     setConfigId((cur) => (cur === id ? null : cur))
+  }, [])
+  /** Remover um caminho de escolha: as etapas vão junto e a cópia de uma etapa vinculada cuja
+   *  raiz estava ali vira a raiz, com a configuração (como `remover`). */
+  const removerCaminhoDaEscolha = useCallback((blocoId: string, caminhoId: string) => {
+    setFluxo((f) => {
+      if (!f) return f
+      const { fluxo: g, promovidas } = removerCaminhoComVinculos(f, blocoId, caminhoId)
+      if (promovidas.length) {
+        setSteps((prev) => {
+          const out = { ...prev }
+          for (const p of promovidas) out[p.para] = { ...(prev[p.de] ?? passoVazio(p.para, 'userTask')), stepId: p.para }
+          return out
+        })
+      }
+      return g
+    })
   }, [])
 
   /* ─── Intenções do desenho BPMN ───────────────────────────────────────────────
@@ -1004,6 +1032,73 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     return [`${atv} ${atv === 1 ? 'atividade' : 'atividades'}`, ...(esc ? [`${esc} ${esc === 1 ? 'escolha' : 'escolhas'}`] : []), ...(par ? [`${par} ao mesmo tempo`] : [])].join(' · ')
   })()
   const noDesenho = !!fluxo && vista === 'desenho'
+  const noRoteiro = !!fluxo && vista === 'roteiro'
+  /* Incluir pela lista: a forma nova entra no lugar de quem vai ficar DEPOIS dela (ou do Fim,
+     no fim do fluxo) e o desenho abre espaço, como na paleta. Sem vizinho com posição, fica
+     para `completarPosicoes`. */
+  const pertoDaInsercao = (ref: string, indice: number, f: FluxoBlocos | null = fluxo): { x: number; y: number } | undefined => {
+    if (!f || !desenhoVisto) return undefined
+    const depois = itensDaLista(f, ref)?.[indice]?.id ?? (ref === 'raiz' ? f.fimId : undefined)
+    return depois ? desenhoVisto.posicoes[depois] : undefined
+  }
+
+  /* A configuração aberta — a MESMA no painel do Desenho e dentro da lista do Roteiro. */
+  const perguntasDaEtapa = (moldura: 'gaveta' | 'embutida') => (configNode && configNode.step && fluxo ? (
+    <PerguntasDaEtapa key={configNode.id} moldura={moldura} retratoDaAbertura={retratoDaAbertura.current ?? undefined} node={configNode} nodes={nodes} edges={edges} screens={screens} papeis={papeis} resolveEntidade={resolveEntidade}
+      secaoInicial={configSecao} focarAoAbrir={focarGaveta}
+      onPatchStep={(p) => patchStep(configNode.id, p)}
+      onChangeType={(t) => changeNodeType(configNode.id, t)}
+      vinculo={(() => {
+        const raiz = raizDe.get(configNode.id) ?? configNode.id
+        const outros = (vinculos.get(raiz) ?? []).length
+        if (!outros) return undefined
+        return { lugares: outros + 1, ehCopia: raizDe.has(configNode.id), desvincular: () => desvincular(configNode.id) }
+      })()}
+      onRemove={() => { remover(configNode.id); setRetornoEscolha(null); setConfigSecao(undefined) }}
+      onClose={() => {
+        setConfigId(null); setConfigSecao(undefined)
+        if (retornoEscolha) { setSelectedId(retornoEscolha); setRetornoEscolha(null) }
+      }} />
+  ) : null)
+  const configDoBloco = () => (selectedBloco && fluxo ? (
+    <ConfiguracaoDoBloco blocoId={selectedBloco.id} fluxo={fluxo} steps={stepsEfetivos} simulacao={simulacao}
+      onRemover={remover} onFluxo={mudarFluxo}
+      screens={screens} onSimulacao={setSimulacao} onConfigurarAtividade={configurarAtividadeDaEscolha} problemas={pendenciasPorNo} />
+  ) : null)
+
+  /* ROTEIRO: o que a lista mostra sai dos blocos + as mesmas consultas do painel da etapa. */
+  const nosDoRoteiro = useMemo(() => {
+    if (!fluxo || vista !== 'roteiro') return []
+    const nomeDe = (id: string) => stepsEfetivos[id]?.stepName?.trim() || 'Etapa sem nome'
+    const consultas: ConsultasDoRoteiro = {
+      steps: stepsEfetivos,
+      quemFaz: (id) => {
+        const ex = stepsEfetivos[id]?.executor
+        if (!ex?.papelId) return undefined
+        const papel = resolvePapel(ex.papelId)
+        if (!papel) return null
+        const entidade = ex.mode !== 'VARIAVEL' && ex.entityId ? resolveEntidade(ex.entityType, ex.entityId) : undefined
+        return entidade ? `${papel} · ${entidade}` : papel
+      },
+      prazo: (id) => dueText(stepsEfetivos[id]),
+      tela: (id) => {
+        const st = stepsEfetivos[id]
+        const tela = st?.screenRef ? screens.find((x) => x.id === st.screenRef) : undefined
+        return tela ? `${tela.name} · ${(ENTITY_MODE_LABEL[st?.entityMode ?? 'CREATE'] ?? '').toLowerCase()}` : null
+      },
+      devolucao: (id) => {
+        const r = stepsEfetivos[id]?.returnPolicy
+        if (r?.mode === 'NONE') return 'não devolve'
+        if (r?.mode === 'SELECTED') return `devolve para ${(r.nodeIds ?? []).map(nomeDe).join(', ') || 'nenhuma etapa'}`
+        return null
+      },
+      acao: (id) => findConnector(stepsEfetivos[id]?.connector)?.label ?? null,
+      nomeDe,
+      condicaoDe: (c) => c.rotulo?.trim() || c.condition?.trim() || '',
+      problemasDe: (id) => (pendenciasPorNo.get(id) ?? []).map((p) => p.mensagem),
+    }
+    return montarRoteiro(fluxo, consultas)
+  }, [fluxo, vista, stepsEfetivos, resolvePapel, resolveEntidade, screens, pendenciasPorNo])
 
   /* Topo: compacta pela largura DISPONÍVEL (ver useNivelDoTopo). A chave lista o que pode
      ENCOLHER o conteúdo (aí vale tentar um nível menor); o que só cresce (o texto de "Quem
@@ -1037,13 +1132,15 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       <div ref={topoRef} className="relative z-40 flex min-w-0 items-center gap-2 border-b bg-card px-3 py-2 shrink-0">
         <Button variant="ghost" size="icon" onClick={() => sairPara('/workflows')} className="h-8 w-8 shrink-0" aria-label="Voltar para Workflows" title="Voltar para Workflows"><ArrowLeft className="h-4 w-4" /></Button>
         <NomeNoTopo nome={name} onNome={setName} autoFocus={!editing} podeEncolher={nivelTopo >= 7} />
+        <SeletorDeVista vista={vista} onVista={setVista} soIcone={nivelTopo >= 4}
+          roteiroDesabilitado={somenteLeitura ? 'Este workflow foi desenhado no editor antigo e abre só para leitura.' : undefined} />
         <SobreDoWorkflow descricao={description} onDescricao={setDescription} tipo={kind} onTipo={setKind} tipos={WORKFLOW_KINDS} resumo={resumo} soIcone={nivelTopo >= 4}
           aberto={sobreAberto} onAberto={setSobreAberto} />
         {/* no nível 6 o botão vai para o ⋯; o balão continua aqui, ancorado no ⋯ */}
         <QuemIniciaPill value={quemInicia} onChange={setQuemInicia} papeis={papeis.entries} kind={kind} soIcone={nivelTopo >= 2}
           aberto={quemIniciaAberto} onAberto={setQuemIniciaAberto} semBotao={quemIniciaNoMenu} ancora={maisRef} />
         <PendenciasPill noTopo compacta={nivelTopo >= 3} pendencias={pendencias} aberto={pendAberto} onToggle={() => setPendAberto((v) => !v)}
-          onItem={(p) => { setPendAberto(false); if (fluxo) setVista('desenho'); focarPendencia(p) }} />
+          onItem={(p) => { setPendAberto(false); if (fluxo && vista === 'raia') setVista('roteiro'); focarPendencia(p) }} />
         <div data-topo-espaco className="min-w-0 flex-1" />
         {exportError && <span className="shrink-0 text-[11px] text-destructive font-medium">{exportError}</span>}
         {/* Frase CURTA: o detalhe fica no title. */}
@@ -1069,8 +1166,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
             <Redo2 className="h-4 w-4" />
           </button>
         </div>
-        {nivelTopo < 6 && (
-          <Button variant="outline" size="sm" className={cn('shrink-0', nivelTopo >= 1 && 'px-2')} onClick={organizarDesenho} disabled={!noDesenho || !desenhoVisto}
+        {nivelTopo < 6 && noDesenho && (
+          <Button variant="outline" size="sm" className={cn('shrink-0', nivelTopo >= 1 && 'px-2')} onClick={organizarDesenho} disabled={!desenhoVisto}
             aria-label="Organizar" title="Organizar: arruma as formas na ordem do fluxo e cada uma na raia de quem a executa">
             <LayoutGrid className="h-4 w-4" />{nivelTopo < 1 && 'Organizar'}
           </Button>
@@ -1079,7 +1176,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
           // com o "Quem inicia" aberto a partir do ⋯, clicar no ⋯ só o fecha (não abre os dois)
           antesDeAlternar={() => { if (quemIniciaNoMenu && quemIniciaAberto) { setQuemIniciaAberto(false); return true } return false }}
           extras={nivelTopo >= 6 ? [
-            { rotulo: 'Organizar', icone: <LayoutGrid className="h-4 w-4 text-muted-foreground" />, onClick: organizarDesenho, disabled: !noDesenho || !desenhoVisto },
+            ...(noDesenho ? [{ rotulo: 'Organizar', icone: <LayoutGrid className="h-4 w-4 text-muted-foreground" />, onClick: organizarDesenho, disabled: !desenhoVisto }] : []),
             { rotulo: 'Quem inicia…', icone: <DoorOpen className="h-4 w-4 text-muted-foreground" />, onClick: () => setQuemIniciaAberto(true) },
           ] : undefined}
           onHistorico={editing ? () => setHistoricoAberto(true) : undefined}
@@ -1124,7 +1221,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
       <NoticeDialog open={!!aviso} title={aviso?.titulo} message={aviso?.msg}
         onClose={() => { const depois = aviso?.aoFechar; setAviso(null); depois?.() }} />
-      <SairSemSalvarDialog open={!!saida}
+      <SairSemSalvarDialog open={!!saida} voltaARascunho={voltaARascunho}
         onContinuar={() => setSaida(null)}
         onDescartar={() => { const destino = saida!; limpoRef.current = assinaturaRef.current; setSaida(null); router.push(destino) }}
         onSalvar={async () => {
@@ -1140,7 +1237,53 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
       {/* `relative`: as gavetas laterais (absolute) encostam à direita desta faixa, por cima do desenho. */}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        {noDesenho ? (
+        {noRoteiro ? (
+          <Roteiro nos={nosDoRoteiro} selecionado={selectedId} onSelecionar={(id) => { setFocarGaveta(true); abrir(id) }}
+            inicio={{
+              texto: quemInicia?.modo === 'PAPEIS' ? 'só quem tem os papéis definidos' : 'qualquer usuário, em + Novo processo',
+              onAbrir: () => setQuemIniciaAberto(true),
+            }}
+            renderAberto={(id) => (configNode?.id === id ? perguntasDaEtapa('embutida')
+              : selectedBloco?.id === id && !(configNode && configNode.step)
+                ? <div {...{ [ATRIBUTO_GAVETA]: '' }} tabIndex={-1} className="outline-none">{configDoBloco()}</div> : null)}
+            onVerDesenho={() => setVista('desenho')}
+            fluxo={fluxo} nomeDe={(id) => stepsEfetivos[id]?.stepName?.trim() || 'Etapa sem nome'}
+            estrutura={{
+              inserir: (ref, indice, tipo) => { inserir(ref, indice, tipo, pertoDaInsercao(ref, indice)) },
+              remover, mudarFluxo, vinculaveis, removerCaminho: removerCaminhoDaEscolha,
+              inserirVinculada: (ref, indice, origemId) => inserirVinculada(ref, indice, origemId, pertoDaInsercao(ref, indice)),
+              desvincular,
+              avaliar: (id, d) => {
+                const s = podeSoltar(fluxo, id, d)
+                return s.ok ? { ok: true } : { ok: false, motivo: s.motivo }
+              },
+              mover: (id, d) => {
+                const s = podeSoltar(fluxo, id, d)
+                if (!s.ok || s.fluxo === fluxo) return
+                const item = acharItem(fluxo, id)
+                setFluxo(s.fluxo)
+                if (!item) return
+                // o item movido perde a posição antiga; os outros não se mexem
+                setDesenho((dd) => (dd ? posicoesAoMover(dd, formasDoItem(item)) : dd))
+                // uma etapa movida entra no lugar de quem fica depois dela, abrindo espaço (como incluir)
+                const aqui = localDoItem(s.fluxo, id)
+                const perto = aqui && item.kind === 'atividade' ? pertoDaInsercao(aqui.ref, aqui.indice + 1, s.fluxo) : undefined
+                if (aqui && perto && item.kind === 'atividade') darLugar(id, item.tipo, perto, aqui.ref, aqui.indice)
+              },
+            }}
+            previa={fluxo && grafo && desenhoVisto ? (
+              <CanvasBpmn fluxo={fluxo} grafo={grafo} desenho={desenhoVisto} steps={stepsEfetivos} selecionado={selectedId}
+                nomeDoProcesso={name} revisaoDasConsultas={revisaoDasConsultas} somenteLeitura
+                responsavelDe={responsavelDe} prazoDe={prazoDe} problemasDe={problemasDe}
+                onSelecionar={(id) => { setFocarGaveta(false); abrir(id) }} onDesenho={() => {}} onInserir={() => {}} onMoverItem={() => {}}
+                onLigar={() => {}} onRemover={() => {}}
+                vinculaveis={[]} onInserirVinculada={() => {}} focoEm={focoEm} enquadrar={enquadrar} />
+            ) : (
+              <div role="status" className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />Preparando o desenho…
+              </div>
+            )} />
+        ) : noDesenho ? (
           <>
             <PaletaBpmn onAdicionarRaia={aoAdicionarRaia} onEscolher={aoEscolherNaPaleta} desabilitada={!desenhoVisto} />
             <div className="relative min-w-0 flex-1">
@@ -1163,7 +1306,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
             {/* VER POR RAIA: a vista antiga, só de leitura. No desenho antigo é a única. */}
             {fluxo && (
               <div className="flex shrink-0 items-center gap-3 border-b bg-muted/30 px-3 py-1.5">
-                <Button variant="outline" size="sm" onClick={() => { setSelectedId(null); setVista('desenho') }}><ArrowLeft className="h-4 w-4" />Voltar ao desenho</Button>
+                <Button variant="outline" size="sm" onClick={() => { setSelectedId(null); setVista('roteiro') }}><ArrowLeft className="h-4 w-4" />Voltar ao editor</Button>
                 <p className="text-[11.5px] text-muted-foreground">Vista por raia: o mesmo fluxo organizado por quem executa, só para leitura.</p>
               </div>
             )}
@@ -1190,9 +1333,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
             rotuloTom={selectedBloco.kind === 'escolha' ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'}
             rotuloIcone={<GatewayGlyph kind={selectedBloco.kind === 'escolha' ? 'exclusive' : 'parallel'} className="h-3 w-3" />}
             onFechar={() => setSelectedId(null)} focarAoAbrir={focarGaveta}>
-            <ConfiguracaoDoBloco blocoId={selectedBloco.id} fluxo={fluxo} steps={stepsEfetivos} simulacao={simulacao}
-              onRemover={remover} onFluxo={mudarFluxo}
-              screens={screens} onSimulacao={setSimulacao} onConfigurarAtividade={configurarAtividadeDaEscolha} problemas={pendenciasPorNo} />
+            {configDoBloco()}
           </GavetaLateral>
         )}
 
@@ -1203,23 +1344,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
             onClose={() => setConfigId(null)} />
         )}
 
-        {noDesenho && configNode && configNode.step && fluxo && (
-          <PerguntasDaEtapa key={configNode.id} node={configNode} nodes={nodes} edges={edges} screens={screens} papeis={papeis} resolveEntidade={resolveEntidade}
-            secaoInicial={configSecao} focarAoAbrir={focarGaveta}
-            onPatchStep={(p) => patchStep(configNode.id, p)}
-            onChangeType={(t) => changeNodeType(configNode.id, t)}
-            vinculo={(() => {
-              const raiz = raizDe.get(configNode.id) ?? configNode.id
-              const outros = (vinculos.get(raiz) ?? []).length
-              if (!outros) return undefined
-              return { lugares: outros + 1, ehCopia: raizDe.has(configNode.id), desvincular: () => desvincular(configNode.id) }
-            })()}
-            onRemove={() => { remover(configNode.id); setRetornoEscolha(null); setConfigSecao(undefined) }}
-            onClose={() => {
-              setConfigId(null); setConfigSecao(undefined)
-              if (retornoEscolha) { setSelectedId(retornoEscolha); setRetornoEscolha(null) }
-            }} />
-        )}
+        {noDesenho && perguntasDaEtapa('gaveta')}
       </div>
     </div>
   )
