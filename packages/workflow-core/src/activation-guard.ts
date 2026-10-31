@@ -451,16 +451,25 @@ export function validarQuemInicia(
  * Atividades completas (política do produto): toda tarefa do usuário precisa de
  * nome, executor (papel) e prazo. Um problema POR atividade, dizendo o que falta.
  */
+export type FaltaDaAtividade = 'nome' | 'quem faz' | 'prazo'
+type PassoComFaltas = { stepName?: string; executor?: { papelId?: string } | null; slaBusinessDays?: number; slaBusinessHours?: number; slaBusinessMinutes?: number }
+
+/** O que falta a uma tarefa do usuário para ativar (fonte única: a ativação e o Roteiro). */
+export function faltasDaAtividade(s: PassoComFaltas): FaltaDaAtividade[] {
+  const faltas: FaltaDaAtividade[] = []
+  if (!s.stepName?.trim()) faltas.push('nome')
+  if (!s.executor?.papelId) faltas.push('quem faz')
+  const temPrazo = (s.slaBusinessDays ?? 0) > 0 || (s.slaBusinessHours ?? 0) > 0 || (s.slaBusinessMinutes ?? 0) > 0
+  if (!temPrazo) faltas.push('prazo')
+  return faltas
+}
+
 export function validarAtividades(
-  steps: Array<{ stepId?: string; stepName?: string; executor?: { papelId?: string } | null; slaBusinessDays?: number; slaBusinessHours?: number; slaBusinessMinutes?: number }>,
+  steps: Array<PassoComFaltas & { stepId?: string }>,
 ): ProblemaAtivacao[] {
   const problemas: ProblemaAtivacao[] = []
   for (const s of steps) {
-    const faltas: string[] = []
-    if (!s.stepName?.trim()) faltas.push('nome')
-    if (!s.executor?.papelId) faltas.push('executor (papel)')
-    const temPrazo = (s.slaBusinessDays ?? 0) > 0 || (s.slaBusinessHours ?? 0) > 0 || (s.slaBusinessMinutes ?? 0) > 0
-    if (!temPrazo) faltas.push('prazo')
+    const faltas = faltasDaAtividade(s).map((f) => (f === 'quem faz' ? 'executor (papel)' : f))
     if (!faltas.length) continue
     const lista = faltas.length === 1 ? faltas[0] : `${faltas.slice(0, -1).join(', ')} e ${faltas[faltas.length - 1]}`
     const quem = s.stepName?.trim() ? `A atividade "${s.stepName.trim()}"` : 'Uma atividade'

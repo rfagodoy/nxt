@@ -78,9 +78,10 @@
 
 @layer base {
   :root {
-    /* página: "Mesa de Vidro" — Mist mais PROFUNDO (sage), pra o vidro branco e os
-       cards saltarem por cima. O degradê de marca (app-mesh) dá a profundidade. */
-    --background: 138 16% 88%;
+    /* página: paleta A "Neutro calmo" (#EEF2EF) no shell inteiro — opção B "Bruma leve"
+       (PO, 30/10/2026). O degradê de marca (app-mesh) fica a ~1/3 da força, só em dois
+       cantos: o bastante para o vidro ter o que refratar sem tingir a tela toda. */
+    --background: 135 15% 94%;
     --foreground: 156 28% 11%;
 
     /* cards: branco puro — "flutuam" sobre o Mist */
@@ -148,10 +149,27 @@
     --vidro-lateral: oklch(0.181 0.015 163 / 0.74);
     --vidro-cartao: oklch(1 0 0 / 0.62);
     --vidro-controle: oklch(1 0 0 / 0.50);
-    /* degradê de marca: Esmeralda, Esmeralda clara e Lima */
-    --mesh-1: oklch(0.713 0.163 158 / 0.52);
-    --mesh-2: oklch(0.84 0.09 158 / 0.44);
-    --mesh-3: oklch(0.90 0.16 123 / 0.44);
+    /* cores da MARCA usadas em gráficos e destaques (cada tema troca) */
+    --marca: #159D62;
+    --marca-texto: #0E7A4B;
+    --marca-link: #0E7A4B;
+    --destaque: #C6F24E;
+    --destaque-tinta: #0C1410;
+    --botao-forte-bg: #0C1410;
+    --botao-forte-fg: #C6F24E;
+    /* superfícies do Dashboard (cada tema troca) */
+    --dash-cartao: rgb(255 255 255 / 0.75);
+    --dash-cartao-solido: #FFFFFF;
+    --dash-trilho: #EDF1EE;
+    --dash-barra-fraca: #CDE8D9;
+    --dash-item: #F4F7F5;
+    --dash-item-hover: #EAF0EC;
+    --acao: hsl(154 76% 35%);
+    --acao-tinta: #FFFFFF;
+    --acao-hover: hsl(154 76% 35% / 0.9);
+    /* degradê de marca (bruma): Esmeralda no canto de cima, Lima no de baixo */
+    --mesh-1: oklch(0.713 0.163 158 / 0.20);
+    --mesh-3: oklch(0.90 0.16 123 / 0.15);
   }
 
   .dark {
@@ -214,10 +232,25 @@
     --vidro-sombra: oklch(0 0 0 / 0.26);
     --vidro-lateral: oklch(0.19 0.015 163 / 0.70);
     --vidro-cartao: oklch(0.33 0.017 160 / 0.62);
+    --marca: #3DD68C;
+    --marca-texto: #3DD68C;
+    --marca-link: #C6F24E;
+    --destaque: #C6F24E;
+    --destaque-tinta: #0C1410;
+    --botao-forte-bg: #C6F24E;
+    --botao-forte-fg: #0C1410;
+    --dash-cartao: rgb(22 27 24 / 0.70);
+    --dash-cartao-solido: #161B18;
+    --dash-trilho: #232A26;
+    --dash-barra-fraca: #21443A;
+    --dash-item: #1D2420;
+    --dash-item-hover: #242C28;
+    --acao: #34C77B;
+    --acao-tinta: #06130C;
+    --acao-hover: #45D488;
     --vidro-controle: oklch(0.38 0.017 160 / 0.50);
-    --mesh-1: oklch(0.58 0.14 158 / 0.42);
-    --mesh-2: oklch(0.62 0.08 160 / 0.34);
-    --mesh-3: oklch(0.70 0.13 123 / 0.26);
+    --mesh-1: oklch(0.58 0.14 158 / 0.16);
+    --mesh-3: oklch(0.70 0.13 123 / 0.09);
   }
 }
 
@@ -308,9 +341,8 @@
   .app-mesh {
     background-color: hsl(var(--background));
     background-image:
-      radial-gradient(120% 90% at 12% -10%, var(--mesh-1), transparent 62%),
-      radial-gradient(100% 80% at 92% 8%, var(--mesh-2), transparent 64%),
-      radial-gradient(110% 95% at 62% 112%, var(--mesh-3), transparent 62%);
+      radial-gradient(90% 70% at 8% -12%, var(--mesh-1), transparent 60%),
+      radial-gradient(80% 60% at 96% 112%, var(--mesh-3), transparent 62%);
     background-repeat: no-repeat;
   }
 }
@@ -367,6 +399,299 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .surge { animation: none; }
+}
+
+/* ─── Temas (PO, 30/10/2026) ────────────────────────────────────────────────────
+   `data-tema` no <html> troca as cores; a base clara/escura continua sendo a classe
+   `.dark` (next-themes), então tudo que já usa `dark:` segue valendo. Nxt-Claro e
+   Nxt-Escuro são o :root e o .dark acima. Gerado da paleta do mockup aprovado. */
+@layer base {
+  html[data-tema="porcelana"] {
+    --background: 220 30% 96%;
+    --foreground: 224 41% 16%;
+    --card: 0 0% 100%;
+    --card-foreground: 224 41% 16%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 224 41% 16%;
+    --border: 220 28% 90%;
+    --input: 220 28% 90%;
+    --primary: 224 65% 51%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 98%;
+    --secondary-foreground: 224 41% 16%;
+    --muted: 210 40% 98%;
+    --muted-foreground: 225 16% 43%;
+    --accent: 210 40% 98%;
+    --accent-foreground: 224 41% 16%;
+    --ring: 224 65% 51%;
+    --sidebar-bg: 222 39% 20%;
+    --sidebar-fg: 221 49% 92%;
+    --sidebar-border: 222 21% 33%;
+    --sidebar-muted: 222 15% 67%;
+    --sidebar-active-fg: 224 100% 84%;
+    --glass-bg: 0 0% 100%;
+    --vidro-lateral: rgb(31 43 71 / 0.86);
+    --vidro-cartao: rgb(255 255 255 / 0.7);
+    --vidro-controle: rgb(255 255 255 / 0.55);
+    --mesh-1: rgb(47 91 211 / 0.3);
+    --mesh-2: rgb(157 180 238 / 0.22);
+    --mesh-3: rgb(143 178 255 / 0.24);
+    --marca: #2F5BD3;
+    --marca-texto: #2F5BD3;
+    --marca-link: #2F5BD3;
+    --destaque: #8FB2FF;
+    --destaque-tinta: #1F2B47;
+    --botao-forte-bg: #1F2B47;
+    --botao-forte-fg: #8FB2FF;
+    --dash-cartao: rgb(255 255 255 / 0.75);
+    --dash-cartao-solido: #FFFFFF;
+    --dash-trilho: #DDE2EC;
+    --dash-barra-fraca: #C5D1F3;
+    --dash-item: #F8FAFC;
+    --dash-item-hover: #EBEEF4;
+    --acao: #2F5BD3;
+    --acao-tinta: #FFFFFF;
+    --acao-hover: #2950BA;
+  }
+  html[data-tema="oceano"] {
+    --background: 192 31% 94%;
+    --foreground: 193 51% 15%;
+    --card: 0 0% 100%;
+    --card-foreground: 193 51% 15%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 193 51% 15%;
+    --border: 193 28% 86%;
+    --input: 193 28% 86%;
+    --primary: 188 81% 30%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 200 37% 97%;
+    --secondary-foreground: 193 51% 15%;
+    --muted: 200 37% 97%;
+    --muted-foreground: 194 17% 40%;
+    --accent: 200 37% 97%;
+    --accent-foreground: 193 51% 15%;
+    --ring: 188 81% 30%;
+    --sidebar-bg: 192 47% 19%;
+    --sidebar-fg: 189 42% 91%;
+    --sidebar-border: 192 25% 32%;
+    --sidebar-muted: 190 17% 66%;
+    --sidebar-active-fg: 187 74% 74%;
+    --glass-bg: 0 0% 100%;
+    --vidro-lateral: rgb(26 63 72 / 0.86);
+    --vidro-cartao: rgb(255 255 255 / 0.7);
+    --vidro-controle: rgb(255 255 255 / 0.55);
+    --mesh-1: rgb(15 124 140 / 0.3);
+    --mesh-2: rgb(140 199 207 / 0.22);
+    --mesh-3: rgb(127 224 212 / 0.24);
+    --marca: #0F7C8C;
+    --marca-texto: #0F7C8C;
+    --marca-link: #0F7C8C;
+    --destaque: #7FE0D4;
+    --destaque-tinta: #1A3F48;
+    --botao-forte-bg: #1A3F48;
+    --botao-forte-fg: #7FE0D4;
+    --dash-cartao: rgb(255 255 255 / 0.75);
+    --dash-cartao-solido: #FFFFFF;
+    --dash-trilho: #D3E2E6;
+    --dash-barra-fraca: #BCDADF;
+    --dash-item: #F4F8FA;
+    --dash-item-hover: #E3EDF0;
+    --acao: #0F7C8C;
+    --acao-tinta: #FFFFFF;
+    --acao-hover: #0D6D7B;
+  }
+  html[data-tema="cerrado"] {
+    --background: 34 41% 93%;
+    --foreground: 22 31% 14%;
+    --card: 40 100% 99%;
+    --card-foreground: 22 31% 14%;
+    --popover: 40 100% 99%;
+    --popover-foreground: 22 31% 14%;
+    --border: 33 34% 86%;
+    --input: 33 34% 86%;
+    --primary: 19 63% 44%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 36 50% 96%;
+    --secondary-foreground: 22 31% 14%;
+    --muted: 36 50% 96%;
+    --muted-foreground: 21 11% 40%;
+    --accent: 36 50% 96%;
+    --accent-foreground: 22 31% 14%;
+    --ring: 19 63% 44%;
+    --sidebar-bg: 18 24% 19%;
+    --sidebar-fg: 25 44% 92%;
+    --sidebar-border: 19 14% 32%;
+    --sidebar-muted: 22 11% 66%;
+    --sidebar-active-fg: 22 100% 78%;
+    --glass-bg: 40 100% 99%;
+    --vidro-lateral: rgb(59 43 36 / 0.86);
+    --vidro-cartao: rgb(255 253 249 / 0.7);
+    --vidro-controle: rgb(255 253 249 / 0.55);
+    --mesh-1: rgb(184 86 42 / 0.3);
+    --mesh-2: rgb(111 165 133 / 0.22);
+    --mesh-3: rgb(242 184 128 / 0.24);
+    --marca: #B8562A;
+    --marca-texto: #B8562A;
+    --marca-link: #B8562A;
+    --destaque: #F2B880;
+    --destaque-tinta: #3B2B24;
+    --botao-forte-bg: #3B2B24;
+    --botao-forte-fg: #F2B880;
+    --dash-cartao: rgb(255 253 249 / 0.75);
+    --dash-cartao-solido: #FFFDF9;
+    --dash-trilho: #E8DDD0;
+    --dash-barra-fraca: #EBCEBF;
+    --dash-item: #FAF6F0;
+    --dash-item-hover: #F1EAE0;
+    --acao: #B8562A;
+    --acao-tinta: #FFFFFF;
+    --acao-hover: #A24C25;
+  }
+  html[data-tema="meia-noite"] {
+    --background: 223 41% 10%;
+    --foreground: 222 56% 93%;
+    --card: 223 40% 15%;
+    --card-foreground: 222 56% 93%;
+    --popover: 223 40% 15%;
+    --popover-foreground: 222 56% 93%;
+    --border: 223 33% 22%;
+    --input: 223 33% 22%;
+    --primary: 222 100% 68%;
+    --primary-foreground: 224 57% 9%;
+    --secondary: 222 38% 18%;
+    --secondary-foreground: 222 56% 93%;
+    --muted: 222 38% 18%;
+    --muted-foreground: 224 24% 64%;
+    --accent: 222 38% 18%;
+    --accent-foreground: 222 56% 93%;
+    --ring: 222 100% 68%;
+    --sidebar-bg: 223 47% 10%;
+    --sidebar-fg: 222 63% 92%;
+    --sidebar-border: 223 20% 25%;
+    --sidebar-muted: 222 14% 63%;
+    --sidebar-active-fg: 222 100% 81%;
+    --glass-bg: 223 40% 15%;
+    --vidro-lateral: rgb(14 21 39 / 0.86);
+    --vidro-cartao: rgb(23 32 54 / 0.62);
+    --vidro-controle: rgb(23 32 54 / 0.55);
+    --mesh-1: rgb(91 140 255 / 0.22);
+    --mesh-2: rgb(60 91 168 / 0.22);
+    --mesh-3: rgb(157 187 255 / 0.12);
+    --marca: #5B8CFF;
+    --marca-texto: #5B8CFF;
+    --marca-link: #9DBBFF;
+    --destaque: #9DBBFF;
+    --destaque-tinta: #0F1524;
+    --botao-forte-bg: #9DBBFF;
+    --botao-forte-fg: #0F1524;
+    --dash-cartao: rgb(23 32 54 / 0.7);
+    --dash-cartao-solido: #172036;
+    --dash-trilho: #202A43;
+    --dash-barra-fraca: #2A3E6E;
+    --dash-item: #1C263E;
+    --dash-item-hover: #212C45;
+    --acao: #5B8CFF;
+    --acao-tinta: #0A1124;
+    --acao-hover: #6F9AFF;
+  }
+  html[data-tema="grafite"] {
+    --background: 216 8% 12%;
+    --foreground: 216 12% 92%;
+    --card: 214 9% 15%;
+    --card-foreground: 216 12% 92%;
+    --popover: 214 9% 15%;
+    --popover-foreground: 216 12% 92%;
+    --border: 216 9% 22%;
+    --input: 216 9% 22%;
+    --primary: 183 56% 52%;
+    --primary-foreground: 186 43% 9%;
+    --secondary: 218 9% 18%;
+    --secondary-foreground: 216 12% 92%;
+    --muted: 218 9% 18%;
+    --muted-foreground: 214 7% 63%;
+    --accent: 218 9% 18%;
+    --accent-foreground: 216 12% 92%;
+    --ring: 183 56% 52%;
+    --sidebar-bg: 210 8% 9%;
+    --sidebar-fg: 216 9% 90%;
+    --sidebar-border: 210 3% 24%;
+    --sidebar-muted: 210 2% 62%;
+    --sidebar-active-fg: 184 71% 74%;
+    --glass-bg: 214 9% 15%;
+    --vidro-lateral: rgb(22 24 26 / 0.86);
+    --vidro-cartao: rgb(36 39 43 / 0.62);
+    --vidro-controle: rgb(36 39 43 / 0.55);
+    --mesh-1: rgb(63 193 201 / 0.22);
+    --mesh-2: rgb(47 127 134 / 0.22);
+    --mesh-3: rgb(143 230 236 / 0.12);
+    --marca: #3FC1C9;
+    --marca-texto: #3FC1C9;
+    --marca-link: #8FE6EC;
+    --destaque: #8FE6EC;
+    --destaque-tinta: #1B1D20;
+    --botao-forte-bg: #8FE6EC;
+    --botao-forte-fg: #1B1D20;
+    --dash-cartao: rgb(36 39 43 / 0.7);
+    --dash-cartao-solido: #24272B;
+    --dash-trilho: #2E3136;
+    --dash-barra-fraca: #2C5257;
+    --dash-item: #2A2D32;
+    --dash-item-hover: #2F3338;
+    --acao: #3FC1C9;
+    --acao-tinta: #0D1F21;
+    --acao-hover: #56C8CF;
+  }
+  html[data-tema="alto-contraste"] {
+    --background: 0 0% 0%;
+    --foreground: 0 0% 100%;
+    --card: 0 0% 4%;
+    --card-foreground: 0 0% 100%;
+    --popover: 0 0% 4%;
+    --popover-foreground: 0 0% 100%;
+    --border: 0 0% 100%;
+    --input: 0 0% 100%;
+    --primary: 50 100% 50%;
+    --primary-foreground: 0 0% 0%;
+    --secondary: 0 0% 38%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 0 0% 38%;
+    --muted-foreground: 0 0% 84%;
+    --accent: 0 0% 38%;
+    --accent-foreground: 0 0% 100%;
+    --ring: 50 100% 50%;
+    --sidebar-bg: 0 0% 0%;
+    --sidebar-fg: 0 0% 100%;
+    --sidebar-border: 0 0% 18%;
+    --sidebar-muted: 0 0% 65%;
+    --sidebar-active-fg: 50 100% 50%;
+    --glass-bg: 0 0% 4%;
+    --vidro-lateral: rgb(0 0 0 / 1);
+    --vidro-cartao: rgb(11 11 11 / 1);
+    --vidro-controle: rgb(11 11 11 / 1);
+    --mesh-1: rgb(255 212 0 / 0);
+    --mesh-2: rgb(255 255 255 / 0);
+    --mesh-3: rgb(255 212 0 / 0);
+    --marca: #FFD400;
+    --marca-texto: #FFD400;
+    --marca-link: #FFD400;
+    --destaque: #FFD400;
+    --destaque-tinta: #000000;
+    --botao-forte-bg: #FFD400;
+    --botao-forte-fg: #000000;
+    --dash-cartao: rgb(11 11 11 / 1);
+    --dash-cartao-solido: #0B0B0B;
+    --dash-trilho: #9D9D9D;
+    --dash-barra-fraca: #4F4308;
+    --dash-item: #606060;
+    --dash-item-hover: #B0B0B0;
+    --acao: #FFD400;
+    --acao-tinta: #000000;
+    --acao-hover: #FFD91F;
+    --glass-alpha: 1;
+    --glass-alpha-strong: 1;
+    --glass-border-alpha: 1;
+    --vidro-borda: rgb(255 255 255 / 0.9);
+  }
 }
 
 /* Cursor no desenho BPMN: o React Flow usa a "mãozinha" (grab), que no Windows é BRANCA e

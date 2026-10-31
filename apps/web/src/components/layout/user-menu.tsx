@@ -7,11 +7,13 @@
    "Sair" fica separado e por último: era a um clique acidental do tema. */
 
 import { useEffect, useRef, useState } from 'react'
-import { useTheme } from 'next-themes'
-import { ChevronDown, KeyRound, LogOut, Sun } from 'lucide-react'
+import { Check, ChevronDown, KeyRound, LogOut, Palette } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSession, logout } from '@/lib/session-context'
 import { DENSIDADES, useDensidade, type Densidade } from '@/lib/densidade'
+import { formatarVersao } from '@/lib/versao'
+import { TEMAS } from '@/lib/temas'
+import { useTema } from '@/lib/temas-provider'
 import { FloatingMenu } from '@/components/ui/floating-menu'
 import { ChangePasswordModal } from './change-password-modal'
 
@@ -45,11 +47,11 @@ function Segmentado<T extends string>({ rotulo, opcoes, valor, onChange }: {
 }
 
 /** Versão gravada no build (next.config: tag do git ou NXT_VERSAO). */
-const VERSAO = process.env.NEXT_PUBLIC_NXT_VERSAO || 'desenvolvimento'
+const VERSAO = formatarVersao(process.env.NEXT_PUBLIC_NXT_VERSAO || 'desenvolvimento')
 
 export function UserMenu() {
   const { data: session } = useSession()
-  const { theme, setTheme } = useTheme()
+  const { tema, setTema } = useTema()
   const { densidade, setDensidade } = useDensidade()
   const [aberto, setAberto] = useState(false)
   const [senha, setSenha] = useState(false)
@@ -60,7 +62,6 @@ export function UserMenu() {
   const nome = session?.user?.name || session?.user?.email?.split('@')[0] || 'Usuário'
   const email = session?.user?.email ?? ''
   const iniciais = nome.split(' ').filter(Boolean).slice(0, 2).map((s) => s[0]).join('').toUpperCase() || 'U'
-  const tema = mounted && theme === 'dark' ? 'escuro' : 'claro'
 
   const item = 'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-muted'
 
@@ -92,11 +93,34 @@ export function UserMenu() {
 
           {/* preferências pessoais: valem para o usuário em todas as telas */}
           <p className="px-2.5 pb-0.5 pt-2 text-[10.5px] text-muted-foreground">Preferências — valem para você em todas as telas</p>
-          <div className="flex items-center gap-2.5 px-2.5 py-1.5 text-xs">
-            <Sun className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-            <span className="flex-1">Tema</span>
-            <Segmentado rotulo="Tema" valor={tema} onChange={(v) => setTheme(v === 'escuro' ? 'dark' : 'light')}
-              opcoes={[{ valor: 'claro', texto: 'Claro' }, { valor: 'escuro', texto: 'Escuro' }]} />
+          <div className="px-2.5 py-1.5 text-xs">
+            <div className="mb-1.5 flex items-center gap-2.5">
+              <Palette className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+              <span className="flex-1">Tema</span>
+              <span className="text-[11px] text-muted-foreground">{mounted ? TEMAS.find((t) => t.id === tema)?.nome : ''}</span>
+            </div>
+            {/* amostra de cada tema: fundo, menu lateral, ação e destaque */}
+            <div role="radiogroup" aria-label="Tema" className="grid grid-cols-4 gap-1.5">
+              {TEMAS.map((t) => {
+                const ativo = mounted && t.id === tema
+                return (
+                  <button key={t.id} type="button" role="radio" aria-checked={ativo} title={t.nome} onClick={() => setTema(t.id)}
+                    className={cn('flex flex-col items-center gap-1 rounded-lg p-1 outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring',
+                      ativo && 'bg-muted')}>
+                    <span className={cn('relative grid h-8 w-full grid-cols-[30%_1fr] overflow-hidden rounded-md border',
+                      ativo ? 'border-primary ring-1 ring-primary' : 'border-border')} style={{ background: t.amostra[0] }}>
+                      <span style={{ background: t.amostra[1] }} />
+                      <span className="flex items-end gap-0.5 p-1">
+                        <span className="h-2.5 w-2.5 rounded-sm" style={{ background: t.amostra[2] }} />
+                        <span className="h-1.5 w-2.5 rounded-sm" style={{ background: t.amostra[3] }} />
+                      </span>
+                      {ativo && <Check className="absolute right-0.5 top-0.5 h-3 w-3 rounded-full bg-primary p-px text-primary-foreground" aria-hidden />}
+                    </span>
+                    <span className="w-full truncate text-center text-[10px] leading-tight">{t.nome}</span>
+                  </button>
+                )
+              })}
+            </div>
           </div>
           <div className="flex items-center gap-2.5 px-2.5 py-1.5 text-xs">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" aria-hidden className="h-3.5 w-3.5 shrink-0 text-muted-foreground"><path d={TRACOS[densidade]} /></svg>
