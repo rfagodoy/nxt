@@ -14,6 +14,8 @@ import type { NovoItem } from '../workflow-blocos'
 export interface EstruturaDoRoteiro {
   inserir: (ref: string, indice: number, tipo: NovoItem) => void
   remover: (id: string) => void
+  /** remove um caminho de escolha (e as etapas dele), promovendo cópias vinculadas */
+  removerCaminho: (blocoId: string, caminhoId: string) => void
   mudarFluxo: (fn: (f: FluxoBlocos) => FluxoBlocos) => void
   vinculaveis: Array<{ id: string; nome: string }>
   inserirVinculada: (ref: string, indice: number, origemId: string) => void

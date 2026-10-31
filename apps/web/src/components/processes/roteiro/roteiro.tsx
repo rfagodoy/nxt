@@ -7,7 +7,7 @@
    estado do workflow: tudo vem do editor por props. */
 import { useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
 import { CircleDot, CircleStop, Plus, Workflow, X } from 'lucide-react'
-import { adicionarCaminho, removerCaminho, type FluxoBlocos } from '@nxt/workflow-core'
+import { adicionarCaminho, type FluxoBlocos } from '@nxt/workflow-core'
 import type { NoRoteiro } from '@/lib/roteiro'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog, NoticeDialog } from '@/components/ui/confirm-dialog'
@@ -56,7 +56,7 @@ function EventoNaLista({ icone, texto, onClick }: { icone: ReactNode; texto: str
 
 export function Roteiro({ nos, inicio, selecionado, onSelecionar, previa, renderAberto, onVerDesenho, avisoDoDesenho, fluxo, nomeDe, estrutura }: RoteiroProps): JSX.Element {
   const emParalelo = useMemo(() => escolhasEmParalelo(fluxo), [fluxo])
-  const [remocao, setRemocao] = useState<{ id: string; titulo: string; descricao: string } | null>(null)
+  const [remocao, setRemocao] = useState<{ id: string; titulo: string; descricao: string; acao: () => void } | null>(null)
   const [recusa, setRecusa] = useState<string | null>(null)
   const listaArrasto = useRef<HTMLDivElement>(null)
   const { arrasto, iniciar } = useArrastar({
@@ -78,7 +78,7 @@ export function Roteiro({ nos, inicio, selecionado, onSelecionar, previa, render
     if (!n) { estrutura.remover(no.id); return }
     const qual = no.kind === 'escolha' ? 'a escolha' : 'o bloco ao mesmo tempo'
     setRemocao({
-      id: no.id,
+      id: no.id, acao: () => estrutura.remover(no.id),
       titulo: no.kind === 'escolha' ? 'Remover a escolha?' : 'Remover o bloco ao mesmo tempo?',
       descricao: `Remove ${qual} e ${n === 1 ? 'a etapa' : `as ${n} etapas`} dos caminhos ${no.kind === 'escolha' ? 'dela' : 'dele'}. Dá para desfazer com Ctrl+Z.`,
     })
@@ -142,8 +142,15 @@ export function Roteiro({ nos, inicio, selecionado, onSelecionar, previa, render
                       : <FimSelect fluxo={fluxo} escolhaId={no.id} caminhoId={c.id} fim={c.fim} nomeDe={nomeDe} onFluxo={estrutura.mudarFluxo} soSegue={soSegue} />}
                   </div>
                 ) : undefined}
-                acoesDoCaminho={estrutura && no.caminhos.length > 1 ? (c) => (c.condicao === 'Senão' ? null : (
-                  <button type="button" onClick={() => estrutura.mudarFluxo((f) => removerCaminho(f, no.id, c.id))}
+                acoesDoCaminho={estrutura && no.caminhos.filter((x) => !x.senao).length > 1 ? (c) => (c.senao ? null : (
+                  <button type="button" onClick={() => {
+                    const n = c.itens.reduce((t, x) => t + contarEtapas(x), 0)
+                    if (!n) { estrutura.removerCaminho(no.id, c.id); return }
+                    setRemocao({
+                      id: c.id, acao: () => estrutura.removerCaminho(no.id, c.id), titulo: 'Remover este caminho?',
+                      descricao: `Remove o caminho e ${n === 1 ? 'a etapa' : `as ${n} etapas`} dele. Dá para desfazer com Ctrl+Z.`,
+                    })
+                  }}
                     title="Remover este caminho" aria-label="Remover este caminho"
                     className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
                     <X className="h-3.5 w-3.5" />
@@ -190,7 +197,7 @@ export function Roteiro({ nos, inicio, selecionado, onSelecionar, previa, render
       {comPrevia && <div className="relative min-w-0 flex-1">{previa}</div>}
       <NoticeDialog open={!!recusa} title="Não dá para mover para lá" message={recusa ?? ''} onClose={() => setRecusa(null)} />
       <ConfirmDialog open={!!remocao} tone="danger" title={remocao?.titulo ?? ''} description={remocao?.descricao ?? ''} confirmLabel="Remover"
-        onConfirm={() => { if (remocao) estrutura?.remover(remocao.id) }} onClose={() => setRemocao(null)} />
+        onConfirm={() => remocao?.acao()} onClose={() => setRemocao(null)} />
     </div>
   )
 }

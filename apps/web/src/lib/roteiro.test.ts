@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { FluxoBlocos, ItemFluxo, CaminhoCondicional } from '@nxt/workflow-core'
 import type { StepFormSchema } from '@nxt/types'
-import { itensDaLista, montarRoteiro, podeSoltar, type ConsultasDoRoteiro, type EtapaRoteiro, type EscolhaRoteiro, type ParaleloRoteiro } from './roteiro'
+import { itensDaLista, montarRoteiro, podeSoltar, removerCaminhoComVinculos, secaoDaPendencia, type ConsultasDoRoteiro, type EtapaRoteiro, type EscolhaRoteiro, type ParaleloRoteiro } from './roteiro'
 
 const at = (id: string, tipo: 'userTask' | 'serviceTask' = 'userTask', vinculoDe?: string): ItemFluxo =>
   ({ kind: 'atividade', id, tipo, ...(vinculoDe ? { vinculoDe } : {}) })
@@ -181,5 +181,46 @@ describe('itensDaLista', () => {
   })
   it('lista que não existe: undefined', () => {
     expect(itensDaLista(f, 'nada')).toBeUndefined()
+  })
+})
+
+describe('revisão final', () => {
+  it('pendência abre a etapa na pergunta que falta', () => {
+    expect(secaoDaPendencia({ tipo: 'atividade-incompleta' }, passo('a1', { stepName: '' }))).toBe('identificacao')
+    expect(secaoDaPendencia({ tipo: 'atividade-incompleta' }, passo('a1', { executor: undefined }))).toBe('executor')
+    expect(secaoDaPendencia({ tipo: 'atividade-incompleta' }, passo('a1', { slaBusinessDays: 0 }))).toBe('prazo')
+    expect(secaoDaPendencia({ tipo: 'executor-vago' })).toBe('executor')
+    expect(secaoDaPendencia({ tipo: 'tela-so-consulta' })).toBe('formulario')
+    expect(secaoDaPendencia({ tipo: 'juncao-travada' })).toBeUndefined()
+  })
+
+  it('escolha e ao mesmo tempo trazem suas pendências; caminho sem condição e Senão marcados', () => {
+    const f = fluxo([
+      { kind: 'escolha', id: 'e1', caminhos: [{ id: 'c1', itens: [], fim: { tipo: 'segue' } }, { id: 'c2', condition: "x == 'S'", itens: [], fim: { tipo: 'segue' } }],
+        casoContrario: { id: 'cc', itens: [at('a1')], fim: { tipo: 'segue' } } },
+      { kind: 'paralelo', id: 'p1', caminhos: [{ id: 'r1', itens: [] }] },
+    ])
+    const [e, p] = montarRoteiro(f, consultas({ a1: passo('a1') }, { problemasDe: (id) => (id === 'e1' ? ['Falta condição'] : id === 'p1' ? ['Só um ramo'] : []) }))
+    expect((e as EscolhaRoteiro).problemas).toEqual(['Falta condição'])
+    expect((p as ParaleloRoteiro).problemas).toEqual(['Só um ramo'])
+    expect((e as EscolhaRoteiro).caminhos.map((c) => [c.semCondicao, c.senao])).toEqual([[true, false], [false, false], [false, true]])
+  })
+
+  it('remover caminho com a raiz de uma etapa vinculada promove a cópia', () => {
+    const f = fluxo([
+      { kind: 'escolha', id: 'e1', caminhos: [{ id: 'c1', condition: 'x', itens: [at('a1')], fim: { tipo: 'segue' } }, { id: 'c2', condition: 'y', itens: [], fim: { tipo: 'segue' } }],
+        casoContrario: { id: 'cc', itens: [], fim: { tipo: 'segue' } } },
+      at('a9', 'userTask', 'a1'),
+    ])
+    const r = removerCaminhoComVinculos(f, 'e1', 'c1')
+    expect(r.promovidas).toEqual([{ de: 'a1', para: 'a9' }])
+    const copia = r.fluxo.itens[1]
+    expect(copia.kind === 'atividade' && copia.vinculoDe).toBeFalsy()
+  })
+
+  it('arrasto que cria uma segunda volta inválida na mesma escolha é recusado', () => {
+    const cond = (id: string, alvoId: string): CaminhoCondicional => ({ id, condition: 'x', itens: [], fim: { tipo: 'volta', alvoId } })
+    const f = fluxo([at('a1'), { kind: 'escolha', id: 'e1', modo: 'primeiro', caminhos: [cond('c1', 'a1'), cond('c2', 'a3')], casoContrario: { id: 'cc', itens: [], fim: { tipo: 'segue' } } }, at('a3')])
+    expect(podeSoltar(f, 'a1', { ref: 'raiz', indice: 3 }).ok).toBe(false)
   })
 })

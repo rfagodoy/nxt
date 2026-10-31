@@ -1,5 +1,5 @@
 import {
-  faltasDaAtividade, localDoItem, modoDaEscolha, moverItem, temSenaoAntigo, validarBlocos,
+  faltasDaAtividade, localDoItem, modoDaEscolha, moverItem, religarVinculos, removerCaminho, temSenaoAntigo, validarBlocos,
   type CaminhoCondicional, type FimCaminho, type FluxoBlocos, type ItemFluxo, type ModoEscolha,
 } from '@nxt/workflow-core'
 import type { StepFormSchema } from '@nxt/types'
@@ -17,14 +17,23 @@ export interface EtapaRoteiro {
   kind: 'etapa'; id: string; ref: string; indice: number
   nome: string; tipo: 'userTask' | 'serviceTask'; etiquetas: Etiqueta[]; completa: boolean
 }
-export interface CaminhoRoteiro { id: string; condicao: string; itens: NoRoteiro[]; fim: FimCaminho; fimTexto: string }
+export interface CaminhoRoteiro {
+  id: string; condicao: string; itens: NoRoteiro[]; fim: FimCaminho; fimTexto: string
+  /** caminho comum ainda sem condição (a ativação pede) */
+  semCondicao: boolean
+  /** o "Senão" antigo (casoContrario com conteúdo) */
+  senao: boolean
+}
 export interface EscolhaRoteiro {
   kind: 'escolha'; id: string; ref: string; indice: number
   nome: string; modo: ModoEscolha; caminhos: CaminhoRoteiro[]; senaoAntigo: boolean
+  /** pendências de ativação do bloco (as mesmas da pílula do topo) */
+  problemas: string[]
 }
 export interface ParaleloRoteiro {
   kind: 'paralelo'; id: string; ref: string; indice: number
   nome: string; ramos: Array<{ id: string; itens: NoRoteiro[] }>
+  problemas: string[]
 }
 export type NoRoteiro = EtapaRoteiro | EscolhaRoteiro | ParaleloRoteiro
 
@@ -40,6 +49,8 @@ export interface ConsultasDoRoteiro {
   acao: (id: string) => string | null
   nomeDe: (id: string) => string
   condicaoDe: (c: CaminhoCondicional) => string
+  /** pendências de ativação de um bloco (escolha / ao mesmo tempo), em frases */
+  problemasDe?: (id: string) => string[]
 }
 
 function etapa(it: Extract<ItemFluxo, { kind: 'atividade' }>, ref: string, indice: number, c: ConsultasDoRoteiro): EtapaRoteiro {
@@ -87,16 +98,21 @@ function lista(itens: ItemFluxo[], ref: string, c: ConsultasDoRoteiro): NoRoteir
       const senaoAntigo = temSenaoAntigo(it)
       const caminhos: CaminhoRoteiro[] = it.caminhos.map((cam) => ({
         id: cam.id, condicao: c.condicaoDe(cam), itens: lista(cam.itens, cam.id, c), fim: cam.fim, fimTexto: textoFim(cam.fim, c),
+        semCondicao: !cam.condition?.trim(), senao: false,
       }))
       if (senaoAntigo) {
         const s = it.casoContrario
-        caminhos.push({ id: s.id, condicao: 'Senão', itens: lista(s.itens, s.id, c), fim: s.fim, fimTexto: textoFim(s.fim, c) })
+        caminhos.push({ id: s.id, condicao: 'Senão', itens: lista(s.itens, s.id, c), fim: s.fim, fimTexto: textoFim(s.fim, c), semCondicao: false, senao: true })
       }
-      return { kind: 'escolha', id: it.id, ref, indice, nome: it.pergunta?.trim() ?? '', modo: modoDaEscolha(it), caminhos, senaoAntigo }
+      return {
+        kind: 'escolha', id: it.id, ref, indice, nome: it.pergunta?.trim() ?? '', modo: modoDaEscolha(it), caminhos, senaoAntigo,
+        problemas: c.problemasDe?.(it.id) ?? [],
+      }
     }
     return {
       kind: 'paralelo', id: it.id, ref, indice, nome: it.nome?.trim() ?? '',
       ramos: it.caminhos.map((r) => ({ id: r.id, itens: lista(r.itens, r.id, c) })),
+      problemas: c.problemasDe?.(it.id) ?? [],
     }
   })
 }
@@ -117,10 +133,17 @@ export function podeSoltar(f: FluxoBlocos, itemId: string, destino: { ref: strin
   }
   const g = moverItem(f, itemId, destino.ref, destino.indice)
   if (g === f) return { ok: false, motivo: 'Um bloco não pode entrar nele mesmo.' }
+  // conta por tipo+bloco: um bloco que já tinha um erro não esconde um SEGUNDO do mesmo tipo
   const chave = (p: { tipo: string; itemId: string }) => `${p.tipo}|${p.itemId}`
-  const antes = new Set(validarBlocos(f).filter((p) => p.severidade === 'erro').map(chave))
-  const novo = validarBlocos(g).find((p) => p.severidade === 'erro' && !antes.has(chave(p)))
-  return novo ? { ok: false, motivo: novo.mensagem } : { ok: true, fluxo: g }
+  const antes = new Map<string, number>()
+  for (const p of validarBlocos(f)) if (p.severidade === 'erro') antes.set(chave(p), (antes.get(chave(p)) ?? 0) + 1)
+  for (const p of validarBlocos(g)) {
+    if (p.severidade !== 'erro') continue
+    const resta = antes.get(chave(p)) ?? 0
+    if (resta > 0) { antes.set(chave(p), resta - 1); continue }
+    return { ok: false, motivo: p.mensagem }
+  }
+  return { ok: true, fluxo: g }
 }
 
 /** Os itens da lista `ref` ('raiz' ou id de caminho / ramo), em qualquer profundidade. */
@@ -139,4 +162,22 @@ export function itensDaLista(f: FluxoBlocos, ref: string): ItemFluxo[] | undefin
     return undefined
   }
   return buscar(f.itens)
+}
+
+/** Remover um caminho de escolha leva as etapas dele; uma etapa vinculada cuja RAIZ estava
+ *  ali promove a cópia (como `remover` faz com um item). Quem chama copia o passo da raiz
+ *  para cada `promovidas[].para`. */
+export function removerCaminhoComVinculos(f: FluxoBlocos, blocoId: string, caminhoId: string): { fluxo: FluxoBlocos; promovidas: Array<{ de: string; para: string }> } {
+  return religarVinculos(removerCaminho(f, blocoId, caminhoId))
+}
+
+/** Pergunta da etapa em que uma pendência deve abrir (ids das perguntas em PerguntasDaEtapa). */
+export function secaoDaPendencia(p: { tipo: string }, passo?: Pick<StepFormSchema, 'stepName' | 'executor' | 'slaBusinessDays' | 'slaBusinessHours' | 'slaBusinessMinutes'>): string | undefined {
+  if (p.tipo === 'atividade-incompleta') {
+    const [falta] = faltasDaAtividade(passo ?? {})
+    return falta === 'nome' ? 'identificacao' : falta === 'quem faz' ? 'executor' : falta === 'prazo' ? 'prazo' : undefined
+  }
+  if (p.tipo.startsWith('executor-')) return 'executor'
+  if (p.tipo === 'tela-so-consulta' || p.tipo === 'registro-sem-origem') return 'formulario'
+  return undefined
 }

@@ -37,7 +37,7 @@ import { cn } from '@/lib/utils'
 import { STEP_TONE, dueText, entityKindLabel, type EEdge, type ENode } from './editor-comum'
 import { ENTITY_MODE_LABEL, PerguntasDaEtapa } from './perguntas-da-etapa'
 import { Roteiro } from './roteiro/roteiro'
-import { itensDaLista, montarRoteiro, podeSoltar, type ConsultasDoRoteiro } from '@/lib/roteiro'
+import { itensDaLista, montarRoteiro, podeSoltar, removerCaminhoComVinculos, secaoDaPendencia, type ConsultasDoRoteiro } from '@/lib/roteiro'
 
 
 export const WORKFLOW_KINDS = [
@@ -497,10 +497,12 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     setFocarGaveta(true)
     const id = p.nodeId
     abrir(id)
+    // abre já na pergunta que falta (abrir limpa a seção; esta vem depois e vale)
+    setConfigSecao(secaoDaPendencia(p, stepsEfetivos[raizRef.current.get(id) ?? id]))
     // desenho antigo: a atividade abre a gaveta de leitura (abrir só seleciona sem blocos)
     if (!fluxo && isActivity(nodeById[id]?.type ?? 'start')) setConfigId(id)
     setFocoEm((f) => ({ id, vez: (f?.vez ?? 0) + 1 }))
-  }, [abrir, fluxo, nodeById])
+  }, [abrir, fluxo, nodeById, stepsEfetivos])
 
   /* VER POR RAIA: layout automático sempre. Posição manual deixou de existir com os
      blocos — a ordem vem do fluxo, e a raia, de quem executa. */
@@ -614,6 +616,22 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     })
     setSelectedId((cur) => (cur === id ? null : cur))
     setConfigId((cur) => (cur === id ? null : cur))
+  }, [])
+  /** Remover um caminho de escolha: as etapas vão junto e a cópia de uma etapa vinculada cuja
+   *  raiz estava ali vira a raiz, com a configuração (como `remover`). */
+  const removerCaminhoDaEscolha = useCallback((blocoId: string, caminhoId: string) => {
+    setFluxo((f) => {
+      if (!f) return f
+      const { fluxo: g, promovidas } = removerCaminhoComVinculos(f, blocoId, caminhoId)
+      if (promovidas.length) {
+        setSteps((prev) => {
+          const out = { ...prev }
+          for (const p of promovidas) out[p.para] = { ...(prev[p.de] ?? passoVazio(p.para, 'userTask')), stepId: p.para }
+          return out
+        })
+      }
+      return g
+    })
   }, [])
 
   /* ─── Intenções do desenho BPMN ───────────────────────────────────────────────
@@ -1014,10 +1032,11 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       },
       acao: (id) => findConnector(stepsEfetivos[id]?.connector)?.label ?? null,
       nomeDe,
-      condicaoDe: (c) => c.rotulo?.trim() || c.condition?.trim() || 'sem condição',
+      condicaoDe: (c) => c.rotulo?.trim() || c.condition?.trim() || '',
+      problemasDe: (id) => (pendenciasPorNo.get(id) ?? []).map((p) => p.mensagem),
     }
     return montarRoteiro(fluxo, consultas)
-  }, [fluxo, vista, stepsEfetivos, resolvePapel, resolveEntidade, screens])
+  }, [fluxo, vista, stepsEfetivos, resolvePapel, resolveEntidade, screens, pendenciasPorNo])
 
   /* Topo: compacta pela largura DISPONÍVEL (ver useNivelDoTopo). A chave lista o que pode
      ENCOLHER o conteúdo (aí vale tentar um nível menor); o que só cresce (o texto de "Quem
@@ -1154,7 +1173,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
             fluxo={fluxo} nomeDe={(id) => stepsEfetivos[id]?.stepName?.trim() || 'Etapa sem nome'}
             estrutura={{
               inserir: (ref, indice, tipo) => { inserir(ref, indice, tipo, pertoDaInsercao(ref, indice)) },
-              remover, mudarFluxo, vinculaveis,
+              remover, mudarFluxo, vinculaveis, removerCaminho: removerCaminhoDaEscolha,
               inserirVinculada: (ref, indice, origemId) => inserirVinculada(ref, indice, origemId, pertoDaInsercao(ref, indice)),
               desvincular,
               avaliar: (id, d) => {

@@ -1,7 +1,7 @@
 'use client'
 
 import type { JSX, ReactNode } from 'react'
-import { ArrowRight, CircleStop, Undo2 } from 'lucide-react'
+import { AlertTriangle, ArrowRight, CircleStop, Undo2 } from 'lucide-react'
 import type { CaminhoRoteiro, EscolhaRoteiro, NoRoteiro, ParaleloRoteiro } from '@/lib/roteiro'
 import { cn } from '@/lib/utils'
 import { GatewayGlyph } from '../flow-shared'
@@ -26,6 +26,20 @@ function Cabecalho({ id, selecionado, onSelecionar, tom, glifo, titulo, detalhe,
       </button>
       {acoes}
     </div>
+  )
+}
+
+/** Pendências do bloco (as mesmas da pílula do topo), logo abaixo do cabeçalho. */
+function Problemas({ problemas }: { problemas: string[] }): JSX.Element | null {
+  if (!problemas.length) return null
+  return (
+    <ul className="mb-1.5 flex flex-col gap-1 px-1">
+      {problemas.map((p, i) => (
+        <li key={i} className="flex items-start gap-1.5 text-[11.5px] font-medium leading-snug text-amber-800 dark:text-amber-300">
+          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />{p}
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -57,13 +71,16 @@ export function GrupoEscolha({ no, selecionado, onSelecionar, aberto, renderList
         glifo={<GatewayGlyph kind="exclusive" className="h-3.5 w-3.5 shrink-0" />}
         titulo={no.nome || 'Escolha sem pergunta'}
         detalhe={no.modo === 'todos' ? 'todos os que servirem' : 'o primeiro que servir'} />
+      <Problemas problemas={no.problemas} />
       {selecionado && aberto && <div className="mb-2 overflow-hidden rounded-lg border bg-card">{aberto}</div>}
       <div className="flex flex-col gap-2">
         {no.caminhos.map((c) => (
           <div key={c.id}>
             <div className="flex items-center gap-1 px-1">
               <p className="min-w-0 flex-1 text-[12px] font-bold text-violet-700 dark:text-violet-300">
-                {c.condicao === 'Senão' ? 'Senão' : <>Se <span className="font-semibold">{c.condicao}</span></>}
+                {c.senao ? 'Senão'
+                  : c.semCondicao ? <>Se <span className="font-semibold text-amber-700 dark:text-amber-300">… (falta a condição)</span></>
+                    : <>Se <span className="font-semibold">{c.condicao}</span></>}
               </p>
               {acoesDoCaminho?.(c)}
             </div>
@@ -90,6 +107,7 @@ export function GrupoParalelo({ no, selecionado, onSelecionar, aberto, renderLis
       <Cabecalho id={no.id} selecionado={selecionado} onSelecionar={onSelecionar} tom="paralelo" acoes={acoes} alca={alca}
         glifo={<GatewayGlyph kind="parallel" className="h-3.5 w-3.5 shrink-0" />}
         titulo={no.nome || 'Ao mesmo tempo'} detalhe={`${no.ramos.length} ramos`} />
+      <Problemas problemas={no.problemas} />
       {selecionado && aberto && <div className="mb-2 overflow-hidden rounded-lg border bg-card">{aberto}</div>}
       <div className="flex flex-col gap-2">
         {no.ramos.map((r, i) => (
