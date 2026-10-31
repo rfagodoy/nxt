@@ -25,9 +25,10 @@ import {
 } from '@nxt/workflow-core'
 import {
   GRADE, RAIA_ROTULO_W, adicionarRaia, avisoDeRaia, moverRaia, polilinhaDaSeta, raiaNaAltura, redimensionarRaia, removerRaia,
-  renomearRaia, setaSobPonto, type LadoDaSeta,
+  renomearRaia, reordenarNoDesenho, setaSobPonto, type LadoDaSeta,
 } from '@/lib/desenho-bpmn'
 import { nodeSize, type FlowNodeType } from '@/lib/flow-layout'
+import type { ExportModel, ExportNode, ExportNodeType } from '@/lib/flow-export'
 import { ZOOM_MAX, ZOOM_MIN } from '@/components/processes/flow-shared'
 import type { NovoItem } from '@/components/processes/workflow-blocos'
 import {
@@ -254,6 +255,43 @@ function tracarSetas(setas: SetaBpmn[], g: ReturnType<typeof geometria>): Tracad
   })
 }
 
+/* ─── Exportação (JPG/PDF) do desenho BPMN ────────────────────────────────── */
+
+/** Textos de cada forma no arquivo (nome, tipo, responsável…) — quem tem os passos é a página. */
+export type InfoDaExportacao = (n: No) => Pick<ExportNode, 'name' | 'typeLabel' | 'meta' | 'isFork'>
+
+/** O arquivo exportado é o desenho da TELA: as mesmas posições, raias e setas (o mesmo
+ *  traçado em cantos retos). Antes ele saía do layout antigo, de raias por papel, e não
+ *  batia com o que a pessoa desenhou. Tudo é deslocado para começar em (0, 0). */
+export function modeloDeExportacao(grafo: GrafoGerado, desenho: DesenhoBpmn, info: InfoDaExportacao): ExportModel {
+  const posicionados = grafo.nodes.filter((n) => desenho.posicoes[n.id])
+  const xs = posicionados.map((n) => desenho.posicoes[n.id].x), ys = posicionados.map((n) => desenho.posicoes[n.id].y)
+  const dx = -Math.min(0, ...xs), dy = -Math.min(0, ...ys)
+  const nodes: ExportNode[] = posicionados.map((n) => {
+    const p = desenho.posicoes[n.id], { w, h } = tamanho(n)
+    return { id: n.id, type: n.type as ExportNodeType, x: p.x + dx, y: p.y + dy, w, h, ...info(n) }
+  })
+  const setas = projetarSetas(grafo, desenho, '')
+  const rotulo = new Map(setas.map((s) => [s.id, s.data?.rotulo]))
+  const edges = tracarSetas(setas, geometria(grafo, desenho)).filter((t) => t.pontos.length > 1).map((t) => {
+    const pontos = t.pontos.map((p) => ({ x: p.x + dx, y: p.y + dy }))
+    const a = pontos[0], a2 = pontos[1], b = pontos[pontos.length - 1], b2 = pontos[pontos.length - 2]
+    const unit = (x: number, y: number) => { const d = Math.hypot(x, y) || 1; return { x: x / d, y: y / d } }
+    const sai = unit(a2.x - a.x, a2.y - a.y), chega = unit(b2.x - b.x, b2.y - b.y)
+    // na tela as setas são todas da mesma cor; o arquivo segue a tela
+    return { ax: a.x, ay: a.y, bx: b.x, by: b.y, adx: sai.x, ady: sai.y, bdx: chega.x, bdy: chega.y, variant: 'normal' as const, label: rotulo.get(t.id), pontos }
+  })
+  const direita = nodes.reduce((m, n) => Math.max(m, n.x + n.w), 0)
+  const fundo = nodes.reduce((m, n) => Math.max(m, n.y + n.h), 0)
+  let topo = dy
+  const lanes = desenho.raias.map((r) => { const l = { key: r.id, label: r.nome, y: topo, h: r.altura }; topo += r.altura; return l })
+  return {
+    width: lanes.length ? Math.max(LARGURA_MINIMA_RAIA - RAIA_ROTULO_W, direita + FOLGA_RAIA) : direita + 2 * GRADE,
+    height: Math.max(topo, fundo + 2 * GRADE),
+    nodes, edges, lanes: lanes.length ? lanes : undefined,
+  }
+}
+
 /** Listas que moram dentro do bloco (um bloco não entra em si mesmo). */
 function refsInternas(it: ItemFluxo | undefined): Set<string> {
   const refs = new Set<string>()
@@ -265,7 +303,22 @@ function refsInternas(it: ItemFluxo | undefined): Set<string> {
   return refs
 }
 
-const TIPOS_NOVOS: readonly NovoItem[] = ['userTask', 'serviceTask', 'escolha', 'paralelo']
+/** Formas do desenho que andam junto quando o item é reordenado: a própria e, num bloco,
+ *  tudo de dentro e os reencontros (do bloco e dos caminhos). */
+function formasDoItem(it: ItemFluxo): Set<string> {
+  const ids = new Set<string>()
+  const visitar = (x: ItemFluxo) => {
+    ids.add(x.id)
+    if (x.kind === 'atividade') return
+    ids.add(x.id + SUFIXO_REENCONTRO)
+    const caminhos = x.kind === 'escolha' ? [...x.caminhos, x.casoContrario] : x.caminhos
+    for (const c of caminhos) { ids.add(c.id + SUFIXO_REENCONTRO); c.itens.forEach(visitar) }
+  }
+  visitar(it)
+  return ids
+}
+
+const TIPOS_NOVOS: readonly NovoItem[] =['userTask', 'serviceTask', 'escolha', 'paralelo']
 const ehNovoItem = (x: string): x is NovoItem => (TIPOS_NOVOS as readonly string[]).includes(x)
 /** Caixa que a forma nova vai ocupar (para centrá-la no ponto de soltar). */
 const caixaNova = (tipo: NovoItem): Caixa =>
@@ -338,7 +391,7 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
    *  `sobreSeta` = o ponto está em cima de alguma seta (vaga ou não — volta, encerra).
    *  `sem` = forma arrastada (as setas dela andam junto e um bloco não entra em si mesmo).
    *  A tolerância é de 12 px NA TELA: no fluxo ela cresce quando o desenho está afastado. */
-  const alvoNoPonto = useCallback((p: Pt, sem?: string): { vaga: { setaId: string; ponto: PontoDeInsercao } | null; sobreSeta: boolean } => {
+  const alvoNoPonto = useCallback((p: Pt, sem?: string): { vaga: { setaId: string; ponto: PontoDeInsercao; antesDe: string } | null; sobreSeta: boolean } => {
     const internas = refsInternas(sem ? acharItem(fluxo, sem) : undefined)
     const candidatas = sem
       ? tracados.filter((t) => t.de !== sem && t.para !== sem && t.de !== sem + SUFIXO_REENCONTRO && t.para !== sem + SUFIXO_REENCONTRO)
@@ -348,7 +401,7 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     const setaId = setaSobPonto(candidatas, p, tolerancia)
     const t = setaId ? candidatas.find((x) => x.id === setaId) : undefined
     const ponto = t ? pontoDaSeta(fluxo, t.de, t.para) : null
-    return { vaga: t && ponto && !internas.has(ponto.ref) ? { setaId: t.id, ponto } : null, sobreSeta: !!t }
+    return { vaga: t && ponto && !internas.has(ponto.ref) ? { setaId: t.id, ponto, antesDe: t.para } : null, sobreSeta: !!t }
   }, [fluxo, tracados])
 
   const noFluxo = useCallback((e: Parameters<typeof ponteiro>[0]): Pt | null => {
@@ -367,22 +420,56 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   /** Só atividades e blocos mudam de lugar no fluxo; início, fim e reencontro só andam. */
   const reordenavel = useCallback((id: string) => !!acharItem(fluxo, id), [fluxo])
 
-  const onNodeDragStart = useCallback<OnNodeDrag<NoBpmn>>(() => setArrastando(true), [])
+  /** O desenho depois de pôr o item na vaga — o mesmo para a prévia e para a gravação.
+   *  A largura é a do item (a caixa ou o bloco inteiro) mais a folga da inserção. */
+  const desenhoReordenado = useCallback((id: string, antesDe: string, y: number): DesenhoBpmn => {
+    const item = acharItem(fluxo, id)
+    if (!item) return desenho
+    const ids = formasDoItem(item)
+    const caixas = [...ids].filter((i) => desenho.posicoes[i]).map((i) => ({ x: desenho.posicoes[i].x, w: geo.caixa(i).w }))
+    if (!caixas.length) return desenho
+    const largura = Math.max(...caixas.map((c) => c.x + c.w)) - Math.min(...caixas.map((c) => c.x)) + 3 * GRADE
+    return reordenarNoDesenho(desenho, ids, id, largura, antesDe, y)
+  }, [fluxo, desenho, geo])
+
+  /* Prévia ao vivo (PO, 30/10/2026): com a forma sobre uma vaga, as OUTRAS já vão para onde
+     ficariam — o vão abre ali e fecha na origem. A arrastada (e o resto do bloco dela) fica
+     com o ponteiro. Só se recalcula quando a vaga muda, para o desenho não tremer. */
+  const vagaDaPrevia = useRef<string | null>(null)
+  const mostrarPrevia = useCallback((id: string, vaga: { setaId: string; antesDe: string } | null, y: number) => {
+    const chave = vaga?.setaId ?? null
+    if (chave === vagaDaPrevia.current) return
+    vagaDaPrevia.current = chave
+    const alvo = vaga ? desenhoReordenado(id, vaga.antesDe, y) : desenho
+    const ficam = formasDoItem(acharItem(fluxo, id)!)
+    setNos((atual) => atual.map((n) => (ficam.has(n.id) || !alvo.posicoes[n.id] ? n : { ...n, position: alvo.posicoes[n.id] })))
+  }, [desenhoReordenado, desenho, fluxo])
+
+  const onNodeDragStart = useCallback<OnNodeDrag<NoBpmn>>(() => { vagaDaPrevia.current = null; setArrastando(true) }, [])
   const onNodeDrag = useCallback<OnNodeDrag<NoBpmn>>((e, no) => {
     if (!reordenavel(no.id)) return
     const p = noFluxo(e)
-    setDestaque(p ? alvoNoPonto(p, no.id).vaga?.setaId ?? null : null)
-  }, [noFluxo, reordenavel, alvoNoPonto])
+    const vaga = p ? alvoNoPonto(p, no.id).vaga : null
+    setDestaque(vaga?.setaId ?? null)
+    mostrarPrevia(no.id, vaga, no.position.y)
+  }, [noFluxo, reordenavel, alvoNoPonto, mostrarPrevia])
   const onNodeDragStop = useCallback<OnNodeDrag<NoBpmn>>((e, no) => {
     setArrastando(false) // o render seguinte ressincroniza, se a projeção mudou durante o arrasto
     setDestaque(null)
+    const tevePrevia = vagaDaPrevia.current !== null
+    vagaDaPrevia.current = null
     if (no.type === 'raia' || no.type === 'piscina') return
-    gravar(no.id, no.position)
-    if (!reordenavel(no.id)) return
-    const p = noFluxo(e)
+    const p = reordenavel(no.id) ? noFluxo(e) : null
     const vaga = p ? alvoNoPonto(p, no.id).vaga : null
-    if (vaga) onMoverItem(no.id, vaga.ponto)
-  }, [gravar, noFluxo, onMoverItem, reordenavel, alvoNoPonto])
+    if (!vaga) {
+      if (tevePrevia) setNos(projetados) // a prévia saiu de cima da vaga: as outras voltam
+      gravar(no.id, no.position)
+      return
+    }
+    // abre e fecha o espaço (a posição) e muda a ordem (o fluxo): as duas valem juntas
+    onDesenho(desenhoReordenado(no.id, vaga.antesDe, no.position.y))
+    onMoverItem(no.id, vaga.ponto)
+  }, [gravar, noFluxo, onMoverItem, onDesenho, reordenavel, alvoNoPonto, desenhoReordenado, projetados])
 
   /* ─── Soltar da paleta ─────────────────────────────────────────────────── */
   const aceitaArrasto = (e: DragEvent) => !somenteLeitura && e.dataTransfer.types.includes(TIPO_ARRASTO_FORMA)

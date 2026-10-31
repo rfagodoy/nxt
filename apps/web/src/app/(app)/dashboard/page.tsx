@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSession } from '@/lib/session-context'
-import { Plus, ListChecks, CheckCircle2 } from 'lucide-react'
+import { Plus, ListChecks, CheckCircle2, ArrowRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch, apiJson } from '@/lib/http'
 import { useAoVivo } from '@/lib/realtime'
@@ -130,6 +130,69 @@ const CARTAO = cn(
 )
 const LINK = 'text-xs font-bold text-[#0E7A4B] hover:underline dark:text-[#C6F24E]'
 
+/* ─────────────────────────── estado vazio ────────────────────────────────── */
+
+/* Opção B "Bruma leve" (PO, 30/10/2026): o cartão sem dados mostra o PRÓPRIO gráfico
+   em tracejado cinza, e por cima a frase e a ação — a pessoa vê o que vai aparecer ali
+   e para onde ir. O fantasma é decorativo (aria-hidden); quem lê é a frase. */
+const FANTASMA_TRACO = 'stroke-foreground/[0.13]'
+const FANTASMA_CHEIO = 'fill-foreground/[0.07]'
+
+function Fantasma({ tipo }: { tipo: 'rosca' | 'barras' | 'linhas' | 'faixa' }) {
+  if (tipo === 'rosca') return (
+    <svg viewBox="0 0 300 180" className="h-full w-full">
+      <circle cx="96" cy="90" r="56" fill="none" strokeWidth="20" strokeDasharray="6 6" className={FANTASMA_TRACO} />
+      {[62, 84, 106].map((y, i) => <rect key={y} x="176" y={y} width={[80, 64, 72][i]} height="9" rx="4" className={FANTASMA_CHEIO} />)}
+    </svg>
+  )
+  if (tipo === 'barras') return (
+    <svg viewBox="0 0 300 170" preserveAspectRatio="none" className="h-full w-full">
+      {[40, 64, 30, 82, 54, 96, 46, 70, 36, 60, 88, 50].map((h, i) => (
+        <rect key={i} x={14 + i * 24} y={150 - h} width="15" height={h} rx="3" fill="none" strokeWidth="2" strokeDasharray="5 5"
+          vectorEffect="non-scaling-stroke" className={FANTASMA_TRACO} />
+      ))}
+      <path d="M8 151h286" strokeWidth="2" vectorEffect="non-scaling-stroke" className={FANTASMA_TRACO} />
+    </svg>
+  )
+  if (tipo === 'linhas') return (
+    <svg viewBox="0 0 300 170" preserveAspectRatio="none" className="h-full w-full">
+      {[0, 1, 2, 3].map((i) => <rect key={i} x="6" y={14 + i * 38} width="288" height="26" rx="7" className={FANTASMA_CHEIO} opacity={1 - i * 0.2} />)}
+    </svg>
+  )
+  return (
+    <svg viewBox="0 0 300 170" preserveAspectRatio="none" className="h-full w-full">
+      <rect x="6" y="14" width="288" height="18" rx="7" fill="none" strokeWidth="2" strokeDasharray="5 5" vectorEffect="non-scaling-stroke" className={FANTASMA_TRACO} />
+      {[180, 130, 90].map((w, i) => <rect key={w} x="6" y={58 + i * 34} width={w} height="12" rx="6" className={FANTASMA_CHEIO} opacity={1 - i * 0.2} />)}
+    </svg>
+  )
+}
+
+function VazioFantasma({ fantasma, titulo, texto, acao, onAcao, extra }: {
+  fantasma: React.ComponentProps<typeof Fantasma>['tipo']
+  titulo: string
+  texto: string
+  acao: string
+  onAcao: () => void
+  extra?: React.ReactNode
+}) {
+  return (
+    <div className="relative flex min-h-[150px] flex-1 items-center justify-center">
+      <div className="pointer-events-none absolute inset-0" aria-hidden><Fantasma tipo={fantasma} /></div>
+      <div className="relative flex max-w-[300px] flex-col items-center gap-1 rounded-xl bg-white/85 px-4 py-3 text-center ring-1 ring-foreground/[0.08] dark:bg-[#161B18]/85">
+        <p className="text-[13px] font-extrabold">{titulo}</p>
+        <p className="text-xs text-muted-foreground">{texto}</p>
+        <div className="mt-1.5 flex flex-wrap items-center justify-center gap-x-3 gap-y-1.5">
+          <button type="button" onClick={onAcao}
+            className="inline-flex items-center gap-1 rounded-md border border-[#159D62]/45 px-3 py-1.5 text-xs font-bold text-[#0E7A4B] transition-colors hover:bg-[#159D62]/[0.08] dark:border-[#3DD68C]/45 dark:text-[#3DD68C] dark:hover:bg-[#3DD68C]/10">
+            {acao}<ArrowRight className="h-3.5 w-3.5" aria-hidden />
+          </button>
+          {extra}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function CabecalhoCartao({ titulo, children }: { titulo: string; children?: React.ReactNode }) {
   return (
     <div className="flex shrink-0 flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -210,15 +273,18 @@ export default function DashboardPage() {
 
       <div className="grid flex-1 grid-cols-1 gap-3 lg:grid-cols-12 lg:grid-rows-[minmax(270px,1fr)_minmax(270px,1fr)]">
         <CartaoContratos className="lg:col-span-4" dados={data?.contracts} vencimentos={data?.carteira?.vencimentos}
-          onAbrir={() => router.push('/modules/contratos')} onNovo={novoContrato} />
-        <CartaoValorPorMes className="lg:col-span-5" dados={data?.carteira?.vencimentos} />
+          onAbrir={() => router.push('/modules/contratos')} onNovo={novoContrato}
+          onImportar={session?.user.role === 'admin' ? () => router.push('/settings/importacao') : undefined} />
+        <CartaoValorPorMes className="lg:col-span-5" dados={data?.carteira?.vencimentos}
+          onAbrirContratos={() => router.push('/modules/contratos')} />
         <CartaoCaixa className="order-first lg:order-none lg:col-span-3 lg:col-start-10 lg:row-span-2 lg:row-start-1"
           tarefas={minhasTarefas}
           onAbrirTarefa={(t) => ws.open({ id: `task:${t.id}`, kind: 'task', mode: 'detail', label: t.name || t.nodeId, data: t })}
           onAbrirCaixa={() => router.push('/tarefas')} />
         <CartaoVencemEmBreve className="lg:col-span-5" dados={data?.carteira?.vencimentos}
           onAbrirContrato={abrirContrato} onVerTodos={() => router.push('/modules/contratos')} />
-        <CartaoConcentracao className="lg:col-span-4" dados={data?.carteira?.concentracao} />
+        <CartaoConcentracao className="lg:col-span-4" dados={data?.carteira?.concentracao}
+          onAbrirParceiros={() => router.push('/modules/parceiros')} />
       </div>
     </div>
   )
@@ -239,12 +305,14 @@ const FATIAS = [
   { chave: 'RESCINDIDO',  nome: 'Rescindidos', traco: 'stroke-[#C2416B] dark:stroke-[#F07A9F]', ponto: 'bg-[#C2416B] dark:bg-[#F07A9F]' },
 ] as const
 
-function CartaoContratos({ className, dados, vencimentos, onAbrir, onNovo }: {
+function CartaoContratos({ className, dados, vencimentos, onAbrir, onNovo, onImportar }: {
   className?: string
   dados?: Summary['contracts']
   vencimentos?: Vencimentos
   onAbrir: () => void
   onNovo: () => void
+  /** só para admin — a tela de Importação é da seção Instalação */
+  onImportar?: () => void
 }) {
   const total = dados?.total ?? 0
   /* Fatia zerada sai do gráfico e da legenda: uma situação sem registro é ruído. */
@@ -268,10 +336,10 @@ function CartaoContratos({ className, dados, vencimentos, onAbrir, onNovo }: {
         <button type="button" onClick={onAbrir} className={LINK}>Abrir lista</button>
       </CabecalhoCartao>
       {total === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-          <p className="text-xs text-muted-foreground">Nenhum contrato na carteira ainda.</p>
-          <button type="button" onClick={onNovo} className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground">Cadastrar contrato</button>
-        </div>
+        <VazioFantasma fantasma="rosca" titulo="Nenhum contrato na carteira"
+          texto="Cadastre o primeiro contrato. A rosca mostra a situação de cada um."
+          acao="Cadastrar contrato" onAcao={onNovo}
+          extra={onImportar && <button type="button" onClick={onImportar} className={LINK}>Importar planilha</button>} />
       ) : (
         <div className="flex min-h-0 flex-1 flex-wrap items-center justify-center gap-x-5 gap-y-3">
           <div className="relative h-[150px] w-[150px] shrink-0">
@@ -327,7 +395,7 @@ function CartaoContratos({ className, dados, vencimentos, onAbrir, onNovo }: {
 const BARRA_FORTE = 'bg-[#159D62] dark:bg-[#3DD68C]'
 const BARRA_FRACA = 'bg-[#CDE8D9] dark:bg-[#21443A]'
 
-function CartaoValorPorMes({ className, dados }: { className?: string; dados?: Vencimentos }) {
+function CartaoValorPorMes({ className, dados, onAbrirContratos }: { className?: string; dados?: Vencimentos; onAbrirContratos: () => void }) {
   const meses = dados?.meses ?? []
   const maior = Math.max(1, ...meses.map((m) => m.valor))
   const vazio = meses.every((m) => m.valor === 0)
@@ -341,7 +409,9 @@ function CartaoValorPorMes({ className, dados }: { className?: string; dados?: V
         )}
       </CabecalhoCartao>
       {vazio ? (
-        <p className="flex flex-1 items-center justify-center text-center text-xs text-muted-foreground">Nenhum contrato vigente vence nos próximos 12 meses.</p>
+        <VazioFantasma fantasma="barras" titulo="Nada vence nos próximos 12 meses"
+          texto="Aqui aparece o valor que vence a cada mês, quando houver contratos vigentes."
+          acao="Abrir contratos" onAcao={onAbrirContratos} />
       ) : (
         <>
           <div className="flex min-h-[150px] flex-1 gap-1.5 border-b border-foreground/15" role="img"
@@ -464,7 +534,9 @@ function CartaoVencemEmBreve({ className, dados, onAbrirContrato, onVerTodos }: 
         {totalAno > lista.length && <button type="button" onClick={onVerTodos} className={LINK}>Ver os {totalAno}</button>}
       </CabecalhoCartao>
       {lista.length === 0 ? (
-        <p className="flex flex-1 items-center justify-center text-center text-xs text-muted-foreground">Nenhum contrato vigente vence nos próximos 12 meses.</p>
+        <VazioFantasma fantasma="linhas" titulo="Nenhum contrato vence em breve"
+          texto="Os contratos vigentes que terminam nos próximos 12 meses aparecem nesta lista."
+          acao="Abrir contratos" onAcao={onVerTodos} />
       ) : (
         <ul className="flex min-h-0 flex-1 flex-col justify-evenly">
           {lista.map((e) => {
@@ -512,7 +584,7 @@ const COR_PARCEIRO = [
 ]
 const TEXTURA_OUTROS = 'bg-[repeating-linear-gradient(135deg,hsl(var(--foreground)/0.22)_0_3px,hsl(var(--foreground)/0.07)_3px_7px)]'
 
-function CartaoConcentracao({ className, dados }: { className?: string; dados?: Concentracao }) {
+function CartaoConcentracao({ className, dados, onAbrirParceiros }: { className?: string; dados?: Concentracao; onAbrirParceiros: () => void }) {
   const vazio = !dados || dados.total === 0
   const n = Math.min(3, dados?.parceiros.length ?? 0)
   return (
@@ -526,7 +598,9 @@ function CartaoConcentracao({ className, dados }: { className?: string; dados?: 
         )}
       </CabecalhoCartao>
       {vazio ? (
-        <p className="flex flex-1 items-center justify-center text-center text-xs text-muted-foreground">Nenhum contrato em mãos tem parceiro como contraparte.</p>
+        <VazioFantasma fantasma="faixa" titulo="Nenhum contrato com parceiro"
+          texto="Ligue um parceiro como contraparte para ver quanto da carteira está com cada um."
+          acao="Abrir parceiros" onAcao={onAbrirParceiros} />
       ) : (
         <>
           <div className="flex h-[22px] shrink-0 gap-[3px] overflow-hidden rounded-lg" role="img"
