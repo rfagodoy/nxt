@@ -4,15 +4,15 @@ import { Fragment, useState, useCallback, useMemo, useRef, useEffect } from 'rea
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Save, Zap, User, Clock, Loader2, UserSquare, AlertTriangle, Building2, Redo2, Undo2, Info, LayoutGrid, DoorOpen } from 'lucide-react'
 import {
-  generateBpmn, compileBpmn, validarDesenho, validarDecisoes, validarAtividades, validarTelasDasAtividades,
-  bloqueantes, avisos as avisosDe, blocosParaGrafo, grafoParaBlocos, novoFluxo, pendenciasDosBlocos, validarOrigemDoRegistro, validarExecutores, validarExecutoresFixos, validarQuemInicia, listarEscolhas,
-  acharItem, inserirItem, removerItem, atualizarItem, moverItem, atualizarCaminho, SUFIXO_REENCONTRO,
-  lerDesenho, podarDesenho, localDoItem,
-  type ProblemaAtivacao, type WfGraph, type WfNode, type WfEdge, type FluxoBlocos,
-  type FimCaminho, type GrafoGerado, type PontoDeInsercao,
+  generateBpmn, compileBpmn, validarDesenho, validarAtividades, validarTelasDasAtividades,
+  bloqueantes, avisos as avisosDe, grafoParaBlocos, novoFluxo, pendenciasDosBlocos, validarOrigemDoRegistro, validarExecutores, validarExecutoresFixos, validarQuemInicia, listarEscolhas,
+  acharItem, inserirItem, removerItem, atualizarItem, moverItem, SUFIXO_REENCONTRO,
+  lerDesenho, podarDesenho, localDoItem, lerDesenhoV2, blocosParaDesenho, desenhoParaBlocos, atributosNoDesenho, semIdsReservados,
+  type ProblemaAtivacao, type WfGraph, type WfNode, type WfEdge, type FluxoBlocos, type ItemFluxo,
+  type GrafoGerado, type PontoDeInsercao,
   gruposDeVinculo, religarVinculos, listarAtividades as listarAtivs, type ItemAtividade,
 } from '@nxt/workflow-core'
-import type { StepFormSchema, ProcessFormSchema, DesenhoBpmn } from '@nxt/types'
+import type { StepFormSchema, ProcessFormSchema, DesenhoBpmn, DesenhoV2, FormaDesenho } from '@nxt/types'
 import { findConnector } from '@nxt/types'
 import { Button } from '@/components/ui/button'
 import { useEntityLabels, type EntityKind } from '@/components/ui/entity-select'
@@ -20,11 +20,11 @@ import { useScreens } from '@/hooks/use-screens'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { PAPEIS_KEY, INIT_PAPEIS, referenciaDoPapelEntry } from '@/lib/contract-roles'
 import { layoutGraph, nodeSize, titleLineCount, LABEL_W, LANE_SEM_RESPONSAVEL, type FlowNode as LNode, type FlowNodeType, type LaneBand } from '@/lib/flow-layout'
-import { GRADE, abrirEspaco, adicionarRaia, completarPosicoes, desenhoInicial, formasDoItem, larguraDaInsercao, organizar, posicoesAoMover } from '@/lib/desenho-bpmn'
+import { GRADE, abrirEspaco, adicionarRaia, apagarSeta, completarPosicoes, desenhoInicial, formasDoItem, larguraDaInsercao, ligar, organizar, posicoesAoMover, religar, religarSaida, soltarForma, atualizarSeta, apagarForma, pendenciaDaRecusa } from '@/lib/desenho-bpmn'
 import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, type ExportEdge } from '@/lib/flow-export'
 import { apiFetch } from '@/lib/http'
 import { ProcessHistoryDrawer } from './process-history-drawer'
-import { GatewayGlyph, PendenciasPill, ZoomBar, ZOOM_MAX, ZOOM_MIN } from './flow-shared'
+import { GatewayGlyph, PendenciasPill, ZoomBar, ZOOM_MAX, ZOOM_MIN, type Pendencia } from './flow-shared'
 import { EXECUTOR_CONTRATO_DO_PROCESSO, EXECUTOR_QUEM_INICIOU, nasceDeContrato, type QuemInicia } from '@nxt/types'
 import { QuemIniciaPill } from './quem-inicia'
 import { ConfiguracaoDoBloco, comNomes, novoItem, type NovoItem, type Simulacao } from './workflow-blocos'
@@ -32,6 +32,9 @@ import { NoticeDialog } from '@/components/ui/confirm-dialog'
 import { aoSairDoEditor, destinoInterno } from '@/lib/sair-do-editor'
 import { SairSemSalvarDialog } from './sair-sem-salvar'
 import { ATRIBUTO_GAVETA, GavetaLateral, ehEscDaGaveta } from './desenho-bpmn/gaveta'
+import { EditorDaSeta, PainelDasSetas, type PatchDaSeta } from './desenho-bpmn/painel-da-seta'
+import { Input } from '@/components/ui/input'
+import { camposDasTelasDasAtividades } from '@/lib/flow-conditions'
 import { CanvasBpmn, modeloDeExportacao } from './desenho-bpmn/canvas-bpmn'
 import { PaletaBpmn } from './desenho-bpmn/paleta'
 import { MenuMais, NomeNoTopo, SeletorDeVista, SobreDoWorkflow, tamanhoDoNome, useNivelDoTopo, type VistaDoEditor } from './desenho-bpmn/topo'
@@ -82,10 +85,10 @@ class ReducaoDestrutiva extends Error {}
 /** Retrato do DESENHO para desfazer/refazer. `desenho` (posições e raias) entra junto:
  *  mover uma forma também se desfaz. */
 interface Retrato {
-  fluxo: FluxoBlocos | null
+  /** o DESENHO (formas, setas, posições, raias) — fonte da verdade desde o desenho livre */
+  doc: DesenhoV2
   steps: Record<string, StepFormSchema>
   laneOrder: string[]
-  desenho: DesenhoBpmn | null
 }
 const MAX_HISTORIA = 60
 const naGrade = (v: number) => Math.round(v / GRADE) * GRADE
@@ -151,6 +154,11 @@ function edgeBezier(a: Pt, aDir: Pt, b: Pt, bDir: Pt): string {
 
 const INICIO_ID = 'Start_1'
 const FIM_ID = 'End_1'
+/** Fluxo vazio para quem precisa de um enquanto o desenho não cabe em blocos (o canvas). */
+const FLUXO_VAZIO = novoFluxo(INICIO_ID, FIM_ID)
+/** Recusas do conversor que são "falta desenhar" (o resto é "o motor não executa"). */
+const TIPOS_DESENHO_INCOMPLETO = new Set(['fora-do-fluxo', 'sem-saida', 'inicio-desligado', 'inicio-fim'])
+
 
 const passoVazio = (id: string, tipo: 'userTask' | 'serviceTask'): StepFormSchema => ({ stepId: id, stepName: '', fields: [], stepType: tipo })
 
@@ -185,28 +193,49 @@ function grafoGravado(initial: FlowInitial): { nodes: ENode[]; edges: EEdge[] } 
 }
 
 interface EstadoInicial {
-  fluxo: FluxoBlocos | null
+  doc: DesenhoV2
   steps: Record<string, StepFormSchema>
-  /** Desenho antigo que não cabe em blocos: abre só para leitura, na vista por raia. */
-  legado: { nodes: ENode[]; edges: EEdge[] } | null
 }
 
-/** Blocos gravados vencem. Desenho antigo LINEAR vira blocos sem perda; qualquer outra
- *  forma fica só para leitura — estruturar um desenho livre seria adivinhar a intenção
- *  de quem desenhou, e errar calado é pior do que dizer que não dá. */
+/** Desenho de um grafo antigo que não cabe em blocos (desenho livre de antes): agora abre
+ *  EDITÁVEL; a ativação explica se não converter. */
+function docDoGrafo(g: { nodes: ENode[]; edges: EEdge[] }, v1: DesenhoBpmn | null): DesenhoV2 {
+  const formas: FormaDesenho[] = g.nodes.map((n) => {
+    const tipo = (n.type === 'inclusiveGateway' ? 'exclusiveGateway' : n.type) as FormaDesenho['tipo']
+    const f: FormaDesenho = { id: n.id, tipo }
+    if (n.type === 'inclusiveGateway') f.modo = 'todos'
+    if (n.name && !isActivity(n.type)) f.nome = n.name
+    return f
+  })
+  const setas = g.edges.map((e) => ({
+    id: e.id, de: e.from, para: e.to,
+    ...(e.condition ? { condition: e.condition } : {}),
+    ...(e.conditionSpec ? { conditionSpec: e.conditionSpec } : {}),
+    ...(e.label ? { rotulo: e.label } : {}),
+    ...(e.isDefault ? { padrao: true as const } : {}),
+  }))
+  return { versao: 2, formas, setas, posicoes: v1?.posicoes ?? {}, raias: v1?.raias ?? [] }
+}
+
+/** Desenho v2 gravado vence; senão, nasce dos blocos (com as posições do desenho v1), ou
+ *  de um grafo antigo (linear vira blocos; o resto entra como desenho livre). */
 function estadoInicial(initial?: FlowInitial): EstadoInicial {
   const steps = Object.fromEntries((initial?.steps ?? []).map((s) => [s.stepId, s]))
-  if (!initial) return { fluxo: novoFluxo(INICIO_ID, FIM_ID), steps, legado: null }
-  if (initial.blocos?.itens) return { fluxo: initial.blocos, steps, legado: null }
+  const vazio = () => blocosParaDesenho(novoFluxo(INICIO_ID, FIM_ID))
+  if (!initial) return { doc: vazio(), steps }
+  const v2 = lerDesenhoV2(initial.desenho)
+  // gravado antes da troca do id reservado (ver `semIdsReservados`)
+  if (v2) return { doc: semIdsReservados(v2), steps }
+  const v1 = lerDesenho(initial.desenho)
+  if (initial.blocos?.itens) return { doc: blocosParaDesenho(initial.blocos, v1), steps }
   const g = grafoGravado(initial)
-  if (!g) return { fluxo: novoFluxo(INICIO_ID, FIM_ID), steps, legado: null }
+  if (!g) return { doc: vazio(), steps }
   const f = grafoParaBlocos(g.nodes, g.edges)
-  return f ? { fluxo: f, steps, legado: null } : { fluxo: null, steps, legado: g }
+  return { doc: f ? blocosParaDesenho(f, v1) : docDoGrafo(g, v1), steps }
 }
 
-/** O grafo que o motor executa, GERADO dos blocos — com os nomes que moram nos passos. */
-function grafoDosBlocos(f: FluxoBlocos, steps: Record<string, StepFormSchema>): { nodes: ENode[]; edges: EEdge[] } {
-  const g = blocosParaGrafo(f)
+/** O grafo do desenho — com os nomes que moram nos passos. */
+function comPassos(g: GrafoGerado, steps: Record<string, StepFormSchema>): { nodes: ENode[]; edges: EEdge[] } {
   const nodes: ENode[] = g.nodes.map((n) => {
     if (n.type === 'userTask' || n.type === 'serviceTask') {
       const step: StepFormSchema = { ...(steps[n.id] ?? passoVazio(n.id, n.type)), stepId: n.id, stepType: n.type }
@@ -245,24 +274,50 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const editing = !!initial?.id
 
   const inicio = useMemo(() => estadoInicial(initial), [initial])
-  const somenteLeitura = inicio.legado !== null
+  const somenteLeitura = false
   const [name, setName] = useState(initial?.name ?? '')
   const [description, setDescription] = useState(initial?.description ?? '')
   const [kind, setKind] = useState(initial?.kind ?? '')
   const [quemInicia, setQuemInicia] = useState<QuemInicia | undefined>(initial?.quemInicia)
   /* A AUTORIA é o fluxo em blocos + a configuração de cada atividade. Nós e setas não
      são editados: são gerados disso — é o que impede as formas que travavam o motor. */
-  const [fluxo, setFluxo] = useState<FluxoBlocos | null>(inicio.fluxo)
+  const [doc, setDoc] = useState<DesenhoV2>(inicio.doc)
   const [steps, setSteps] = useState<Record<string, StepFormSchema>>(inicio.steps)
   const [laneOrder, setLaneOrder] = useState<string[]>(initial?.laneOrder ?? [])
   /* DESENHO BPMN (27/10/2026): posições das formas e raias visuais — uma projeção do fluxo,
      gravada em `formSchema.desenho`. Sem desenho gravado, nasce organizado e com raias
      sugeridas pelos responsáveis (ver "abertura do desenho", mais abaixo). */
-  const [desenho, setDesenho] = useState<DesenhoBpmn | null>(() => (inicio.fluxo ? lerDesenho(initial?.desenho) : null))
+  /* DESENHO LIVRE (30/10/2026): o desenho é a fonte da verdade; os BLOCOS são derivados
+     dele (`desenhoParaBlocos`). `setFluxo` aplica uma mudança de bloco e a devolve ao
+     desenho (`blocosParaDesenho`, preservando ids e posições) — assim as ações de sempre
+     (Roteiro, painéis) seguem iguais. Sem conversão (desenho incompleto), `fluxo` é null. */
+  const conversao = useMemo(() => desenhoParaBlocos(doc, { nomeDe: (id) => steps[id]?.stepName?.trim() || '' }), [doc, steps])
+  const fluxo = conversao.ok ? conversao.fluxo : null
+  const setFluxo = useCallback((up: FluxoBlocos | null | ((f: FluxoBlocos | null) => FluxoBlocos | null)) => {
+    setDoc((d) => {
+      const c = desenhoParaBlocos(d)
+      const atual = c.ok ? c.fluxo : null
+      const novo = typeof up === 'function' ? up(atual) : up
+      if (!novo || novo === atual) return d
+      // só atributos (condição, pergunta, nome…): vão direto para as formas/setas, sem refazer
+      return (atual && atributosNoDesenho(d, atual, novo)) ?? blocosParaDesenho(novo, d)
+    })
+  }, [])
+  /* Posições e raias (o "desenho v1" de antes): lidas do desenho; null quando ainda não há
+     nenhuma (o desenho nasce organizado — ver "abertura do desenho"). */
+  const desenho = useMemo<DesenhoBpmn | null>(() => (Object.keys(doc.posicoes).length || doc.raias.length
+    ? { versao: 1, posicoes: doc.posicoes, raias: doc.raias } : null), [doc.posicoes, doc.raias])
+  const setDesenho = useCallback((up: DesenhoBpmn | null | ((d: DesenhoBpmn | null) => DesenhoBpmn | null)) => {
+    setDoc((d) => {
+      const v1: DesenhoBpmn | null = Object.keys(d.posicoes).length || d.raias.length ? { versao: 1, posicoes: d.posicoes, raias: d.raias } : null
+      const novo = typeof up === 'function' ? up(v1) : up
+      return !novo || novo === v1 ? d : { ...d, posicoes: novo.posicoes, raias: novo.raias }
+    })
+  }, [])
   /* Roteiro (a lista, vista principal) e Desenho editam o mesmo workflow; "Ver por raia" é a
      vista antiga, só de leitura, organizada por quem executa. Desenho antigo que não cabe em
      blocos só tem a raia. */
-  const [vista, setVista] = useState<VistaDoEditor>(somenteLeitura ? 'raia' : inicio.fluxo ? 'roteiro' : 'desenho')
+  const [vista, setVista] = useState<VistaDoEditor>(somenteLeitura ? 'raia' : 'roteiro')
   const [historicoAberto, setHistoricoAberto] = useState(false)
   /** Pedido de "enquadrar a vista" ao canvas (contador). */
   const [enquadrar, setEnquadrar] = useState(0)
@@ -289,7 +344,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
      tipo ficam de fora de propósito: são campos de texto, e o navegador já desfaz
      digitação neles — capturá-los faria um Ctrl+Z "engolir" uma letra.
      O retrato é tirado por OBSERVAÇÃO do estado, não em cada ponto de mutação. */
-  const [historia, setHistoria] = useState<Retrato[]>(() => [{ fluxo: inicio.fluxo, steps: inicio.steps, laneOrder: initial?.laneOrder ?? [], desenho }])
+  const [historia, setHistoria] = useState<Retrato[]>(() => [{ doc: inicio.doc, steps: inicio.steps, laneOrder: initial?.laneOrder ?? [] }])
   const [hIndice, setHIndice] = useState(0)
   const aplicandoHistorico = useRef(false)
 
@@ -316,10 +371,16 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   }, [steps, raizDe])
   const vinculos = useMemo(() => (fluxo ? gruposDeVinculo(fluxo) : new Map<string, string[]>()), [fluxo])
 
-  const { nodes, edges } = useMemo(
-    () => (fluxo ? grafoDosBlocos(fluxo, stepsEfetivos) : inicio.legado ?? { nodes: [] as ENode[], edges: [] as EEdge[] }),
-    [fluxo, stepsEfetivos, inicio.legado],
-  )
+  /* O grafo é o do DESENHO (formas e setas como desenhadas). Escolha "todos" aparece com o
+     losango inclusivo, como sempre. */
+  const grafoDoDoc = useMemo<GrafoGerado>(() => ({
+    nodes: doc.formas.map((f) => ({
+      id: f.id, type: (f.tipo === 'exclusiveGateway' && f.modo === 'todos' ? 'inclusiveGateway' : f.tipo) as GrafoGerado['nodes'][number]['type'],
+      name: f.tipo === 'exclusiveGateway' || f.tipo === 'parallelGateway' ? (f.pergunta ?? f.nome) : f.nome,
+    })),
+    edges: doc.setas.map((x) => ({ id: x.id, from: x.de, to: x.para, condition: x.condition, conditionSpec: x.conditionSpec, label: x.rotulo, isDefault: x.padrao })),
+  }), [doc.formas, doc.setas])
+  const { nodes, edges } = useMemo(() => comPassos(grafoDoDoc, stepsEfetivos), [grafoDoDoc, stepsEfetivos])
 
   /* Nomes das entidades que hospedam os papéis (unidade, empresa, parceiro…) — o cartão
      mostra QUAL unidade executa, não só o papel. Só carrega os tipos que o fluxo usa. */
@@ -336,6 +397,45 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     return it && it.kind !== 'atividade' ? it : null
   }, [fluxo, selectedId])
   const configNode = configId ? nodeById[configId] : null
+
+  /* CONDIÇÃO NA SETA (desenho livre): a seta que sai de uma Escolha abre a condição dela; o
+     losango que ainda não fecha em blocos lista as setas que saem, com o mesmo editor. */
+  const [setaAberta, setSetaAberta] = useState<string | null>(null)
+  const formaDoDoc = useCallback((id: string) => doc.formas.find((f) => f.id === id), [doc.formas])
+  const setaDoPainel = useMemo(() => {
+    const seta = setaAberta ? doc.setas.find((x) => x.id === setaAberta) : undefined
+    return seta && formaDoDoc(seta.de)?.tipo === 'exclusiveGateway' ? seta : null
+  }, [setaAberta, doc.setas, formaDoDoc])
+  const losangoSolto = useMemo(() => {
+    const f = selectedId && !selectedBloco ? formaDoDoc(selectedId) : undefined
+    return f?.tipo === 'exclusiveGateway' ? f : null
+  }, [selectedId, selectedBloco, formaDoDoc])
+  const nomeDaForma = useCallback((id: string) => {
+    const f = formaDoDoc(id)
+    if (f?.tipo === 'end') return 'Fim'
+    return stepsEfetivos[id]?.stepName?.trim() || f?.nome?.trim() || (f?.tipo === 'exclusiveGateway' || f?.tipo === 'parallelGateway' ? 'outro losango' : 'etapa sem nome')
+  }, [formaDoDoc, stepsEfetivos])
+  /** Campos que a condição da seta pode testar: os das telas das etapas logo depois dela (até o
+   *  próximo losango); seta sem etapa testa o mesmo que as irmãs (como no Roteiro). */
+  const camposDaSeta = useCallback((seta: { id: string; de: string; para: string }) => {
+    const etapasApos = (inicio: string) => {
+      const ids: string[] = []
+      for (let atual: string | undefined = inicio; atual && !ids.includes(atual);) {
+        const f = formaDoDoc(atual)
+        if (f?.tipo !== 'userTask' && f?.tipo !== 'serviceTask') break
+        ids.push(atual)
+        const saem = doc.setas.filter((x) => x.de === atual)
+        atual = saem.length === 1 ? saem[0].para : undefined
+      }
+      return ids
+    }
+    let ids = etapasApos(seta.para)
+    if (!ids.length) ids = doc.setas.filter((x) => x.de === seta.de && x.id !== seta.id).flatMap((x) => etapasApos(x.para))
+    return camposDasTelasDasAtividades(ids.map((id) => stepsEfetivos[id]).filter((x): x is StepFormSchema => !!x), screens)
+  }, [doc.setas, formaDoDoc, stepsEfetivos, screens])
+  const aoMudarSeta = useCallback((setaId: string, p: PatchDaSeta) => setDoc((d) => atualizarSeta(d, setaId, p)), [])
+  const aoMudarLosango = useCallback((id: string, patch: { pergunta?: string; modo?: 'primeiro' | 'todos' }) =>
+    setDoc((d) => ({ ...d, formas: d.formas.map((f) => (f.id === id ? { ...f, ...patch } : f)) })), [])
   /* Retrato da etapa na ABERTURA (para o Cancelar): sobrevive à troca Roteiro ↔ Desenho,
      que remonta as perguntas. Tirado na primeira renderização com a etapa aberta. */
   const retratoDaAbertura = useRef<{ id: string; step: StepFormSchema; type: 'userTask' | 'serviceTask' } | null>(null)
@@ -370,7 +470,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
   /* Pendências de ativação AO VIVO — as MESMAS regras que a API aplica ao ativar
      (@nxt/workflow-core), recalculadas a cada mudança: consertou, o item some. */
-  const pendencias = useMemo<ProblemaAtivacao[]>(() => {
+  const pendencias = useMemo<Pendencia[]>(() => {
     const vnodes = nodes.map((n) => ({ id: n.id, type: n.type, name: isActivity(n.type) ? (n.step?.stepName || '') : n.name }))
     const vedges = edges.map((e) => ({ from: e.from, to: e.to, condition: e.condition, isDefault: e.isDefault }))
     const tarefas = nodes.filter((n) => n.type === 'userTask')
@@ -420,16 +520,30 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
           return prim?.type === 'userTask' ? { stepId: prim.id, stepName: prim.step?.stepName, executor: prim.step?.executor } : null
         })() }),
     ]
-    if (!fluxo) return [...validarDesenho(vnodes, vedges), ...validarDecisoes(vnodes, vedges), ...dasAtividades]
-    /* Em blocos a forma já nasce ligada e com "caso contrário": do desenho sobra o que só
-       o bloco sabe dizer (condição que falta, volta sem destino). Os pontos de reencontro
-       são gerados — nunca culpados de algo que a pessoa possa consertar. */
+    /* Do conversor (desenho livre): o que não monta em blocos — "o motor não executa" — e
+       os avisos (losango sem efeito). A primeira forma culpada recebe a marca. */
+    const doDesenho: Pendencia[] = conversao.ok
+      ? conversao.avisos.map((p) => ({ tipo: p.tipo as ProblemaAtivacao['tipo'], severidade: 'aviso' as const, nodeId: p.formas[0], mensagem: p.mensagem, setas: p.setas }))
+      : conversao.problemas.map((p) => ({
+          tipo: p.tipo as ProblemaAtivacao['tipo'], nodeId: p.formas[0], mensagem: p.mensagem, setas: p.setas,
+          grupo: TIPOS_DESENHO_INCOMPLETO.has(p.tipo) ? 'desenho' as const : 'motor' as const,
+        }))
+    /* O que o desenho ainda não liga (forma solta, sem saída, que não chega ao Fim). */
+    const incompleto = (ps: ProblemaAtivacao[]): Pendencia[] => ps.map((p) => ({ ...p, grupo: 'desenho' as const }))
+    if (!fluxo) {
+      // o conversor já disse o que não fecha; do validador só entra o que ele não disse
+      const ditos = new Set(doDesenho.map((p) => `${p.nodeId}`))
+      return [...doDesenho, ...incompleto(validarDesenho(vnodes, vedges).filter((p) => !ditos.has(`${p.nodeId}`))), ...dasAtividades]
+    }
+    /* Do desenho sobra o que só o bloco sabe dizer (condição que falta, volta sem destino).
+       Os pontos de reencontro gerados nunca são culpados de algo que a pessoa conserte. */
     return [
+      ...doDesenho,
       ...pendenciasDosBlocos(fluxo),
-      ...validarDesenho(vnodes, vedges).filter((p) => !p.nodeId?.endsWith(SUFIXO_REENCONTRO)),
+      ...incompleto(validarDesenho(vnodes, vedges).filter((p) => !p.nodeId?.endsWith(SUFIXO_REENCONTRO))),
       ...dasAtividades,
     ]
-  }, [fluxo, nodes, edges, screens, kind, papeis.entries, quemInicia])
+  }, [conversao, fluxo, nodes, edges, screens, kind, papeis.entries, quemInicia])
 
   /* Marca de problema em cada forma: as mesmas pendências da pílula de saúde. */
   const problemasPorNo = useMemo(() => {
@@ -452,9 +566,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
      do cartão depende das linhas do nome). Forma sem posição — a que acabou de nascer,
      o reencontro de uma escolha nova — ganha lugar por `completarPosicoes` já no render
      (nada nasce em 0,0) e o resultado é gravado no estado em seguida. */
-  const grafo = useMemo<GrafoGerado | null>(() => (fluxo
-    ? { nodes: nodes.map((n) => ({ id: n.id, type: n.type as GrafoGerado['nodes'][number]['type'], name: n.name })), edges: edges as GrafoGerado['edges'] }
-    : null), [fluxo, nodes, edges])
+  const grafo = useMemo<GrafoGerado | null>(
+    () => ({ nodes: nodes.map((n) => ({ id: n.id, type: n.type as GrafoGerado['nodes'][number]['type'], name: n.name })), edges: edges as GrafoGerado['edges'] }),
+    [nodes, edges])
   const desenhoVisto = useMemo(() => (desenho && grafo && grafo.nodes.some((n) => !desenho.posicoes[n.id])
     ? completarPosicoes(grafo, desenho)
     : desenho), [desenho, grafo])
@@ -494,7 +608,11 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
      (pílula de saúde, ação rápida, paleta, aviso da escolha), o foco vai para a gaveta. */
   const [focarGaveta, setFocarGaveta] = useState(true)
   const aoSelecionarNoDesenho = useCallback((id: string | null) => { setFocarGaveta(false); abrir(id) }, [abrir])
-  const focarPendencia = useCallback((p: ProblemaAtivacao) => {
+  /* Setas culpadas da pendência clicada: vermelho tracejado até a próxima mudança. */
+  const [setasComProblema, setSetasComProblema] = useState<string[] | null>(null)
+  useEffect(() => { setSetasComProblema(null) }, [doc.setas, doc.formas])
+  const focarPendencia = useCallback((p: Pendencia) => {
+    setSetasComProblema(p.setas?.length ? p.setas : null)
     if (!p.nodeId || p.tipo === 'inicio-desligado' || p.tipo === 'fim-inalcancavel') return
     setFocarGaveta(true)
     const id = p.nodeId
@@ -527,7 +645,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
   const mudarFluxo = useCallback((fn: (f: FluxoBlocos) => FluxoBlocos) => {
     setFluxo((f) => (f ? fn(f) : f))
-  }, [])
+  }, [setFluxo])
   const patchStep = useCallback((idAlvo: string, patch: Partial<StepFormSchema>) => {
     const id = raizRef.current.get(idAlvo) ?? idAlvo
     setSteps((prev) => ({ ...prev, [id]: { ...(prev[id] ?? passoVazio(id, 'userTask')), ...patch } }))
@@ -540,7 +658,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     const grupo = [id, ...[...raizRef.current.entries()].filter(([, r]) => r === id).map(([v]) => v)]
     setFluxo((f) => (f ? grupo.reduce((g, gid) => atualizarItem(g, gid, { tipo: t }), f) : f))
     setSteps((prev) => ({ ...prev, [id]: { ...(prev[id] ?? passoVazio(id, t)), stepType: t } }))
-  }, [])
+  }, [setFluxo])
   /* LUGAR da forma nova (B6): no meio do fluxo, tudo que começa a partir dela anda para a
      direita o quanto ela precisa (`abrirEspaco`); no FIM do fluxo principal (inclusive
      soltar em área vazia) só o Fim anda, para depois dela, na altura dela. O reencontro de
@@ -561,7 +679,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       }
       return { ...aberto, posicoes }
     })
-  }, [fluxo])
+  }, [fluxo, setDesenho])
 
   /** Repete aqui uma atividade já configurada — mesma configuração, vinculada. `perto` é o
    *  lugar da forma nova no desenho (como em `inserir`). */
@@ -576,14 +694,14 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     setFluxo((f) => (f ? inserirItem(f, ref, indice, item) : f))
     if (perto) darLugar(item.id, origem.tipo, perto, ref, indice)
     setSelectedId(item.id)
-  }, [fluxo, aplicarGaveta, darLugar])
+  }, [fluxo, aplicarGaveta, darLugar, setFluxo])
   /** Desfaz o vínculo: a atividade passa a ter configuração própria (cópia da atual). */
   const desvincular = useCallback((id: string) => {
     const raiz = raizRef.current.get(id)
     if (!raiz) return
     setSteps((prev) => ({ ...prev, [id]: { ...(prev[raiz] ?? passoVazio(id, 'userTask')), stepId: id } }))
     setFluxo((f) => (f ? atualizarItem(f, id, { vinculoDe: undefined } as Partial<ItemAtividade>) : f))
-  }, [])
+  }, [setFluxo])
 
   /* Inserir já abre o que precisa ser preenchido: a atividade nasce sem nome e a escolha
      sem condição — deixar a pessoa procurar onde configurar era o problema de antes.
@@ -599,7 +717,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     setSelectedId(item.id)
     setConfigId(item.kind === 'atividade' ? item.id : null)
     return item.id
-  }, [aplicarGaveta, darLugar])
+  }, [aplicarGaveta, darLugar, setFluxo])
 
   /* Remover um bloco leva junto o que mora dentro dele. Os passos das atividades ficam no
      mapa (o desfazer os traz de volta inteiros); a gravação só leva os que existem. */
@@ -618,7 +736,18 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     })
     setSelectedId((cur) => (cur === id ? null : cur))
     setConfigId((cur) => (cur === id ? null : cur))
-  }, [])
+  }, [setFluxo])
+  /* Excluir no DESENHO (qualquer forma, também com o desenho incompleto): sai a forma e as
+     setas dela; a etapa no meio da sequência é costurada. A etapa com cópias vinculadas
+     passa pelo `remover` (a cópia vira a raiz, com a configuração). */
+  const removerNoDesenho = useCallback((id: string) => {
+    const it = fluxo ? acharItem(fluxo, id) : undefined
+    const raiz = raizDe.get(id) ?? id
+    if (it?.kind === 'atividade' && (vinculos.get(raiz) ?? []).length) { remover(id); return }
+    setDoc((d) => apagarForma(d, id, true))
+    setSelectedId((cur) => (cur === id ? null : cur))
+    setConfigId((cur) => (cur === id ? null : cur))
+  }, [fluxo, raizDe, vinculos, remover])
   /** Remover um caminho de escolha: as etapas vão junto e a cópia de uma etapa vinculada cuja
    *  raiz estava ali vira a raiz, com a configuração (como `remover`). */
   const removerCaminhoDaEscolha = useCallback((blocoId: string, caminhoId: string) => {
@@ -634,29 +763,31 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       }
       return g
     })
-  }, [])
+  }, [setFluxo])
 
   /* ─── Intenções do desenho BPMN ───────────────────────────────────────────────
      O canvas só AVISA; quem muda o fluxo é a página, pelas mesmas funções de antes. Um
      arrasto pode chamar `onDesenho` (a posição) e depois `onMoverItem` (a vaga): as duas
      atualizações são funcionais e valem juntas. */
-  const aoMudarDesenho = useCallback((d: DesenhoBpmn) => setDesenho(d), [])
+  const aoMudarDesenho = useCallback((d: DesenhoBpmn) => setDesenho(d), [setDesenho])
   const aoInserir = useCallback((ponto: PontoDeInsercao, tipo: NovoItem, perto: { x: number; y: number }) => {
     inserir(ponto.ref, ponto.indice, tipo, perto)
   }, [inserir])
   const aoMoverItem = useCallback((id: string, ponto: PontoDeInsercao) => {
     mudarFluxo((f) => moverItem(f, id, ponto.ref, ponto.indice))
   }, [mudarFluxo])
-  const aoLigar = useCallback((caminhoId: string, fim: FimCaminho) => {
-    mudarFluxo((f) => atualizarCaminho(f, caminhoId, { fim }))
-  }, [mudarFluxo])
-  const aoAdicionarRaia = useCallback(() => setDesenho((d) => (d ? adicionarRaia(d) : d)), [])
+  /* Setas livres: mudam o DESENHO; os blocos são refeitos a partir dele. */
+  const aoLigar = useCallback((de: string, para: string) => setDoc((d) => ligar(d, de, para)), [])
+  const aoReligar = useCallback((setaId: string, para: string) => setDoc((d) => religar(d, setaId, para)), [])
+  const aoReligarSaida = useCallback((setaId: string, de: string) => setDoc((d) => religarSaida(d, setaId, de)), [])
+  const aoApagarSeta = useCallback((setaId: string) => setDoc((d) => apagarSeta(d, setaId)), [])
+  const aoAdicionarRaia = useCallback(() => setDesenho((d) => (d ? adicionarRaia(d) : d)), [setDesenho])
   const organizarDesenho = useCallback(() => {
     if (!grafo || !desenhoVisto) return
     aplicarGaveta()
     setDesenho(organizar(grafo, desenhoVisto, responsavelDe))
     setEnquadrar((n) => n + 1) // B7: depois de arrumar, a vista mostra o desenho todo
-  }, [grafo, desenhoVisto, responsavelDe, aplicarGaveta])
+  }, [grafo, desenhoVisto, responsavelDe, aplicarGaveta, setDesenho])
 
   /* R12: "Próxima: mesma configuração de…" — as atividades que podem ser repetidas (as
      raízes; uma cópia vinculada repete a raiz dela). */
@@ -671,11 +802,40 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
      mesma lista) ou, sem seleção (ou com início/fim/reencontro selecionado), no fim do
      fluxo principal. Nasce à direita da forma de referência; no fim do fluxo, o Fim anda
      para a direita para lhe dar lugar. */
+  /* Forma da paleta no desenho (DESENHO LIVRE): entra no DESENHO, não nos blocos. Escolha e
+     Ao mesmo tempo são um losango só — quem junta os caminhos é outro losango, desenhado à
+     mão (pelo Roteiro, inserir continua criando o par). */
+  const aoSoltar = useCallback((tipo: NovoItem, perto: { x: number; y: number }, sobreSeta?: string) => {
+    const item = novoItem(tipo)
+    const forma: FormaDesenho = item.kind === 'atividade'
+      ? { id: item.id, tipo: item.tipo }
+      : item.kind === 'escolha' ? { id: item.id, tipo: 'exclusiveGateway', modo: item.modo } : { id: item.id, tipo: 'parallelGateway' }
+    if (item.kind === 'atividade') setSteps((prev) => ({ ...prev, [item.id]: passoVazio(item.id, item.tipo) }))
+    setFocarGaveta(true)
+    setDoc((d) => {
+      if (!sobreSeta) return soltarForma(d, forma, perto)
+      /* No meio de uma seta, as formas daí em diante andam para a direita e a nova cabe sem
+         cobrir ninguém (PO, 30/10/2026) — como ao incluir pelo Roteiro. A que começa um pouco
+         antes dela também a cobriria: entra no empurrão. */
+      const caixa = nodeSize({ id: forma.id, type: forma.tipo as FlowNodeType }, 0, 0)
+      const largura = Math.ceil((caixa.w + 3 * GRADE) / GRADE) * GRADE
+      const { posicoes } = abrirEspaco({ versao: 1, posicoes: d.posicoes, raias: d.raias }, perto.x - 2 * GRADE, largura)
+      return soltarForma({ ...d, posicoes }, forma, perto, sobreSeta)
+    })
+    aplicarGaveta()
+    setSelectedId(item.id)
+    setConfigId(item.kind === 'atividade' ? item.id : null)
+  }, [aplicarGaveta])
+
+  /* Clique (ou teclado) na paleta: a forma entra logo DEPOIS da selecionada — no meio da seta
+     que sai dela, se for uma só — ou, sem seleção, antes do Fim. */
   const aoEscolherNaPaleta = useCallback((tipo: NovoItem) => {
-    if (!fluxo || !grafo || !desenhoVisto) return
-    const local = selectedId ? localDoItem(fluxo, selectedId) : null
-    const ref = (local && selectedId ? acharItem(fluxo, selectedId) : undefined) ?? (local ? undefined : fluxo.itens[fluxo.itens.length - 1])
-    const ancora = ref ? (ref.kind === 'atividade' ? ref.id : ref.id + SUFIXO_REENCONTRO) : fluxo.inicioId
+    if (!grafo || !desenhoVisto) return
+    const sel = selectedId ? doc.formas.find((f) => f.id === selectedId && f.tipo !== 'end') : undefined
+    const fimId = doc.formas.find((f) => f.tipo === 'end')?.id
+    const ancora = sel?.id ?? doc.setas.find((x) => x.para === fimId)?.de ?? doc.formas.find((f) => f.tipo === 'start')?.id
+    if (!ancora) return
+    const saem = doc.setas.filter((x) => x.de === ancora)
     const caixaDe = (id: string) => {
       const n = grafo.nodes.find((x) => x.id === id)
       return n ? nodeSize({ id, type: n.type as FlowNodeType, name: n.name }, 0, 0) : { w: 0, h: 0 }
@@ -683,9 +843,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     const nova = nodeSize({ id: 'nova', type: tipo === 'escolha' ? 'exclusiveGateway' : tipo === 'paralelo' ? 'parallelGateway' : tipo }, 0, 0)
     const p = desenhoVisto.posicoes[ancora] ?? { x: 0, y: 0 }, c = caixaDe(ancora)
     const perto = { x: naGrade(p.x + c.w + 3 * GRADE), y: naGrade(p.y + c.h / 2 - nova.h / 2) }
-    if (local) { inserir(local.ref, local.indice + 1, tipo, perto); return }
-    inserir('raiz', fluxo.itens.length, tipo, perto) // o Fim anda para depois dela (darLugar)
-  }, [fluxo, grafo, desenhoVisto, selectedId, inserir])
+    aoSoltar(tipo, perto, saem.length === 1 ? saem[0].id : undefined)
+  }, [grafo, desenhoVisto, selectedId, doc.formas, doc.setas, aoSoltar])
 
   /* Registra um retrato quando a autoria para de mudar. A espera COALESCE o que é uma
      ação só aos olhos de quem edita (digitar um nome, por exemplo). */
@@ -693,20 +852,20 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     if (aplicandoHistorico.current) { aplicandoHistorico.current = false; return }
     const t = setTimeout(() => {
       const atual = historia[hIndice]
-      if (atual && atual.fluxo === fluxo && atual.steps === steps && atual.laneOrder === laneOrder && atual.desenho === desenho) return
-      const proximo = [...historia.slice(0, hIndice + 1), { fluxo, steps, laneOrder, desenho }] // um passo novo descarta o "refazer"
+      if (atual && atual.doc === doc && atual.steps === steps && atual.laneOrder === laneOrder) return
+      const proximo = [...historia.slice(0, hIndice + 1), { doc, steps, laneOrder }] // um passo novo descarta o "refazer"
       const excedente = Math.max(0, proximo.length - MAX_HISTORIA)
       setHistoria(excedente ? proximo.slice(excedente) : proximo)
       setHIndice(proximo.length - 1 - excedente)
     }, 350)
     return () => clearTimeout(t)
-  }, [fluxo, steps, laneOrder, desenho, historia, hIndice])
+  }, [doc, steps, laneOrder, historia, hIndice])
 
   const irPara = useCallback((i: number) => {
     const r = historia[i]
     if (!r) return
     aplicandoHistorico.current = true
-    setFluxo(r.fluxo); setSteps(r.steps); setLaneOrder(r.laneOrder); setDesenho(r.desenho)
+    setDoc(r.doc); setSteps(r.steps); setLaneOrder(r.laneOrder)
     setHIndice(i)
     aplicarGaveta()
   }, [historia, aplicarGaveta])
@@ -740,9 +899,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
      ao gravar mudança, e a barra avisa ANTES. A gravação que apagaria grande parte do
      desenho (409) não é feita sozinha: ela existe para pedir confirmação. */
   const assinatura = useMemo(
-    () => (fluxo ? JSON.stringify({ name, description, kind, quemInicia, fluxo: comNomes(fluxo, steps), steps, laneOrder, desenho: desenhoVisto }) : ''),
+    () => JSON.stringify({ name, description, kind, quemInicia, formas: doc.formas, setas: doc.setas, steps, laneOrder, desenho: desenhoVisto }),
     // desenhoVisto: o mesmo que `persist` grava — senão "Não salvo" voltaria depois de salvar
-    [name, description, kind, quemInicia, fluxo, steps, laneOrder, desenhoVisto],
+    [name, description, kind, quemInicia, doc.formas, doc.setas, steps, laneOrder, desenhoVisto],
   )
   const assinaturaRef = useRef(assinatura)
   assinaturaRef.current = assinatura
@@ -758,8 +917,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
      raias, ordem das raias), o nome ou o tipo não (PO, 30/10/2026 — `mudaOFluxo` na API).
      Esta assinatura deixa o desenho de fora para o aviso dizer a verdade. */
   const assinaturaFluxo = useMemo(
-    () => (fluxo ? JSON.stringify({ quemInicia, fluxo: comNomes(fluxo, steps), steps }) : ''),
-    [quemInicia, fluxo, steps],
+    () => JSON.stringify({ quemInicia, formas: doc.formas, setas: doc.setas, steps }),
+    [quemInicia, doc.formas, doc.setas, steps],
   )
   const assinaturaFluxoRef = useRef(assinaturaFluxo)
   assinaturaFluxoRef.current = assinaturaFluxo
@@ -792,14 +951,14 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       naAbertura.current = false
       return
     }
+    const novoDoc: DesenhoV2 = { ...doc, posicoes: proximo.posicoes, raias: proximo.raias }
     if (naAbertura.current) {
       naAbertura.current = false
-      const anterior = desenho
       realinharLimpo.current = assinaturaRef.current === limpoRef.current
-      setHistoria((h) => h.map((r) => (r.desenho === anterior ? { ...r, desenho: proximo } : r)))
+      setHistoria((h) => h.map((r) => (r.doc === doc ? { ...r, doc: novoDoc } : r)))
     }
-    setDesenho(proximo)
-  }, [grafo, desenho, desenhoVisto, consultasProntas, esperaVenceu, responsavelDe])
+    setDoc(novoDoc)
+  }, [grafo, doc, desenho, desenhoVisto, consultasProntas, esperaVenceu, responsavelDe])
 
   /* Gravação que apagaria grande parte do desenho: a API recusa com 409 e diz quanto
      seria removido. Só reenviamos com `confirmarReducao` depois que a pessoa confirmar. */
@@ -809,7 +968,6 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const [aviso, setAviso] = useState<{ msg: string; titulo?: string; aoFechar?: () => void } | null>(null)
 
   const persist = useCallback(async (confirmarReducao?: boolean, auto?: { keepalive?: boolean }): Promise<string> => {
-    if (!fluxo) throw new Error('Workflow do editor antigo: aberto só para leitura.')
     const assinaturaGravada = assinaturaRef.current
     const fluxoGravado = assinaturaFluxoRef.current
     const bpmnXml = generateBpmn(buildWfGraph(nodes, edges))
@@ -821,11 +979,21 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     }
     const formSchema: ProcessFormSchema = {
       steps: stepsVivos, graph,
-      blocos: comNomes(fluxo, stepsEfetivos),
+      // cópia DERIVADA, só quando o desenho cabe em blocos (Roteiro e leitura a usam ao abrir)
+      blocos: fluxo ? comNomes(fluxo, stepsEfetivos) : undefined,
       laneOrder: laneOrder.length ? laneOrder : undefined,
       quemInicia,
       // só as posições de formas que existem (as de formas removidas ficam para trás)
-      desenho: desenhoVisto ? podarDesenho(desenhoVisto, nodes.map((n) => n.id)) : undefined,
+      desenho: ((): DesenhoV2 => {
+        const visto = desenhoVisto ? podarDesenho(desenhoVisto, nodes.map((n) => n.id)) : null
+        const deEscolha = new Set(doc.formas.filter((f) => f.tipo === 'exclusiveGateway').map((f) => f.id))
+        return {
+          ...doc,
+          posicoes: visto?.posicoes ?? doc.posicoes, raias: visto?.raias ?? doc.raias,
+          // condição só vale em seta que sai de uma Escolha (a de uma seta religada some)
+          setas: doc.setas.map((x) => (deEscolha.has(x.de) ? x : { id: x.id, de: x.de, para: x.para })),
+        }
+      })(),
     }
     /* gravação automática de um workflow novo sem nome: não perde o trabalho */
     const nome = name.trim() || (auto ? 'Rascunho sem nome' : '')
@@ -847,7 +1015,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     limpoRef.current = assinaturaGravada
     limpoFluxoRef.current = fluxoGravado
     return (await res.json()).id as string
-  }, [editing, initial, name, description, kind, quemInicia, fluxo, stepsEfetivos, nodes, edges, laneOrder, desenhoVisto])
+  }, [editing, initial, name, description, kind, quemInicia, fluxo, stepsEfetivos, nodes, edges, laneOrder, desenhoVisto, doc])
 
   const persistRef = useRef(persist)
   persistRef.current = persist
@@ -933,7 +1101,13 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       const res = await apiFetch(`/api/processes/${id}/activate`, { method: 'PATCH' })
       if (!res.ok) {
         const e = await res.json().catch(() => null)
-        setAviso({ titulo: 'Ainda não dá para ativar', msg: e?.message || 'Não foi possível ativar o workflow.', aoFechar: () => router.push(`/workflows/${id}`) })
+        /* desenho que o servidor não converteu: ao fechar, fica no editor com o culpado em
+           destaque no Desenho (como a pendência clicada); senão, vai para o workflow */
+        const culpada = editing ? pendenciaDaRecusa(e) : null
+        const aoFechar = culpada
+          ? () => { setVista('desenho'); focarPendencia({ ...culpada, tipo: culpada.tipo as Pendencia['tipo'] }) }
+          : () => router.push(`/workflows/${id}`)
+        setAviso({ titulo: 'Ainda não dá para ativar', msg: e?.message || 'Não foi possível ativar o workflow.', aoFechar })
         return
       }
       router.push(`/workflows/${id}`)
@@ -942,7 +1116,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       setAviso({ msg: 'Não foi possível ativar o workflow.' }); console.error(err)
     }
     finally { setActivating(false) }
-  }, [name, kind, activityCount, pendencias, persist, router])
+  }, [name, kind, activityCount, pendencias, persist, router, editing, focarPendencia])
 
   // Monta o modelo do grafo (posições da raia + textos) para o exportador desenhar em 2D.
   const buildExportModel = useCallback((): ExportModel => {
@@ -1032,8 +1206,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     const par = nodes.filter((n) => n.type === 'parallelGateway' && !n.id.endsWith(SUFIXO_REENCONTRO)).length
     return [`${atv} ${atv === 1 ? 'atividade' : 'atividades'}`, ...(esc ? [`${esc} ${esc === 1 ? 'escolha' : 'escolhas'}`] : []), ...(par ? [`${par} ao mesmo tempo`] : [])].join(' · ')
   })()
-  const noDesenho = !!fluxo && vista === 'desenho'
-  const noRoteiro = !!fluxo && vista === 'roteiro'
+  const noDesenho = vista === 'desenho'
+  const noRoteiro = vista === 'roteiro'
   /* Incluir pela lista: a forma nova entra no lugar de quem vai ficar DEPOIS dela (ou do Fim,
      no fim do fluxo) e o desenho abre espaço, como na paleta. Sem vizinho com posição, fica
      para `completarPosicoes`. */
@@ -1068,8 +1242,20 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   ) : null)
 
   /* ROTEIRO: o que a lista mostra sai dos blocos + as mesmas consultas do painel da etapa. */
+  /* Desenho incompleto (sem conversão): o Roteiro mostra as etapas soltas, na ordem do
+     desenho (x, depois y), para seguirem configuráveis; a estrutura fica bloqueada. */
+  const fluxoDoRoteiro = useMemo<FluxoBlocos>(() => {
+    if (fluxo) return fluxo
+    const pos = (id: string) => doc.posicoes[id] ?? { x: 0, y: 0 }
+    const itens: ItemFluxo[] = doc.formas
+      .filter((f) => f.tipo === 'userTask' || f.tipo === 'serviceTask')
+      .sort((a, b) => pos(a.id).x - pos(b.id).x || pos(a.id).y - pos(b.id).y)
+      .map((f) => ({ kind: 'atividade', id: f.id, tipo: f.tipo as 'userTask' | 'serviceTask', ...(f.vinculoDe ? { vinculoDe: f.vinculoDe } : {}) }))
+    return { ...FLUXO_VAZIO, itens }
+  }, [fluxo, doc.formas, doc.posicoes])
   const nosDoRoteiro = useMemo(() => {
-    if (!fluxo || vista !== 'roteiro') return []
+    if (vista !== 'roteiro') return []
+    const fluxo = fluxoDoRoteiro
     const nomeDe = (id: string) => stepsEfetivos[id]?.stepName?.trim() || 'Etapa sem nome'
     const consultas: ConsultasDoRoteiro = {
       steps: stepsEfetivos,
@@ -1099,7 +1285,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       problemasDe: (id) => (pendenciasPorNo.get(id) ?? []).map((p) => p.mensagem),
     }
     return montarRoteiro(fluxo, consultas)
-  }, [fluxo, vista, stepsEfetivos, resolvePapel, resolveEntidade, screens, pendenciasPorNo])
+  }, [fluxoDoRoteiro, vista, stepsEfetivos, resolvePapel, resolveEntidade, screens, pendenciasPorNo])
 
   /* Topo: compacta pela largura DISPONÍVEL (ver useNivelDoTopo). A chave lista o que pode
      ENCOLHER o conteúdo (aí vale tentar um nível menor); o que só cresce (o texto de "Quem
@@ -1141,7 +1327,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         <QuemIniciaPill value={quemInicia} onChange={setQuemInicia} papeis={papeis.entries} kind={kind} soIcone={nivelTopo >= 2}
           aberto={quemIniciaAberto} onAberto={setQuemIniciaAberto} semBotao={quemIniciaNoMenu} ancora={maisRef} />
         <PendenciasPill noTopo compacta={nivelTopo >= 3} pendencias={pendencias} aberto={pendAberto} onToggle={() => setPendAberto((v) => !v)}
-          onItem={(p) => { setPendAberto(false); if (fluxo && vista === 'raia') setVista('roteiro'); focarPendencia(p) }} />
+          onItem={(p) => { setPendAberto(false); if (!somenteLeitura && vista === 'raia') setVista('roteiro'); focarPendencia(p) }} />
         <div data-topo-espaco className="min-w-0 flex-1" />
         {exportError && <span className="shrink-0 text-[11px] text-destructive font-medium">{exportError}</span>}
         {/* Frase CURTA: o detalhe fica no title. */}
@@ -1248,8 +1434,29 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
               : selectedBloco?.id === id && !(configNode && configNode.step)
                 ? <div {...{ [ATRIBUTO_GAVETA]: '' }} tabIndex={-1} className="outline-none">{configDoBloco()}</div> : null)}
             onVerDesenho={() => setVista('desenho')}
-            fluxo={fluxo} nomeDe={(id) => stepsEfetivos[id]?.stepName?.trim() || 'Etapa sem nome'}
-            estrutura={{
+            avisoDoDesenho={conversao.ok ? undefined : (
+              <div role="status" className="mb-3 space-y-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-[12px] leading-snug text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                <p className="flex items-start gap-1.5 font-semibold">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  O desenho tem {conversao.problemas.length} {conversao.problemas.length === 1 ? 'pendência' : 'pendências'}. Termine as ligações no Desenho para ver o roteiro completo.
+                </p>
+                <p className="pl-5 text-[11.5px]">Enquanto isso, as etapas abaixo seguem configuráveis; incluir, mover e remover ficam no Desenho.</p>
+                <ul className="space-y-0.5 pl-5">
+                  {/* só o que o conversor disse (o número de cima); as consequências em cascata
+                      ("não chega ao Fim" de cada etapa antes da seta que falta) ficam na pílula */}
+                  {conversao.problemas.map((x): Pendencia => ({
+                    tipo: x.tipo as ProblemaAtivacao['tipo'], nodeId: x.formas[0], mensagem: x.mensagem, setas: x.setas,
+                  })).map((p, i) => (
+                    <li key={`${p.tipo}-${p.nodeId ?? i}-${i}`}>
+                      <button type="button" className="text-left underline decoration-dotted underline-offset-4 hover:text-amber-950 dark:hover:text-amber-100"
+                        onClick={() => { setVista('desenho'); focarPendencia(p) }}>{p.mensagem}</button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            fluxo={fluxoDoRoteiro} nomeDe={(id) => stepsEfetivos[id]?.stepName?.trim() || 'Etapa sem nome'}
+            estrutura={fluxo ? {
               inserir: (ref, indice, tipo) => { inserir(ref, indice, tipo, pertoDaInsercao(ref, indice)) },
               remover, mudarFluxo, vinculaveis, removerCaminho: removerCaminhoDaEscolha,
               inserirVinculada: (ref, indice, origemId) => inserirVinculada(ref, indice, origemId, pertoDaInsercao(ref, indice)),
@@ -1271,13 +1478,13 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
                 const perto = aqui && item.kind === 'atividade' ? pertoDaInsercao(aqui.ref, aqui.indice + 1, s.fluxo) : undefined
                 if (aqui && perto && item.kind === 'atividade') darLugar(id, item.tipo, perto, aqui.ref, aqui.indice)
               },
-            }}
-            previa={fluxo && grafo && desenhoVisto ? (
-              <CanvasBpmn fluxo={fluxo} grafo={grafo} desenho={desenhoVisto} steps={stepsEfetivos} selecionado={selectedId}
+            } : undefined}
+            previa={grafo && desenhoVisto ? (
+              <CanvasBpmn fluxo={fluxo ?? FLUXO_VAZIO} grafo={grafo} desenho={desenhoVisto} steps={stepsEfetivos} selecionado={selectedId}
                 nomeDoProcesso={name} revisaoDasConsultas={revisaoDasConsultas} somenteLeitura
                 responsavelDe={responsavelDe} prazoDe={prazoDe} problemasDe={problemasDe}
-                onSelecionar={(id) => { setFocarGaveta(false); abrir(id) }} onDesenho={() => {}} onInserir={() => {}} onMoverItem={() => {}}
-                onLigar={() => {}} onRemover={() => {}}
+                onSelecionar={(id) => { setFocarGaveta(false); abrir(id) }} onDesenho={() => {}} onInserir={() => {}} onSoltar={() => {}} onMoverItem={() => {}}
+                doc={doc} onLigar={() => {}} onReligar={() => {}} onReligarSaida={() => {}} onApagarSeta={() => {}} onRemover={() => {}}
                 vinculaveis={[]} onInserirVinculada={() => {}} focoEm={focoEm} enquadrar={enquadrar} />
             ) : (
               <div role="status" className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
@@ -1288,12 +1495,12 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
           <>
             <PaletaBpmn onAdicionarRaia={aoAdicionarRaia} onEscolher={aoEscolherNaPaleta} desabilitada={!desenhoVisto} />
             <div className="relative min-w-0 flex-1">
-              {fluxo && grafo && desenhoVisto ? (
-                <CanvasBpmn fluxo={fluxo} grafo={grafo} desenho={desenhoVisto} steps={stepsEfetivos} selecionado={selectedId}
+              {grafo && desenhoVisto ? (
+                <CanvasBpmn fluxo={fluxo ?? FLUXO_VAZIO} grafo={grafo} desenho={desenhoVisto} steps={stepsEfetivos} selecionado={selectedId}
                   nomeDoProcesso={name} revisaoDasConsultas={revisaoDasConsultas}
                   responsavelDe={responsavelDe} prazoDe={prazoDe} problemasDe={problemasDe}
-                  onSelecionar={aoSelecionarNoDesenho} onDesenho={aoMudarDesenho} onInserir={aoInserir} onMoverItem={aoMoverItem}
-                  onLigar={aoLigar} onRemover={remover}
+                  onSelecionar={aoSelecionarNoDesenho} onDesenho={aoMudarDesenho} onInserir={aoInserir} onSoltar={aoSoltar} onMoverItem={aoMoverItem}
+                  doc={doc} onLigar={aoLigar} onReligar={aoReligar} onReligarSaida={aoReligarSaida} onApagarSeta={aoApagarSeta} onSelecionarSeta={setSetaAberta} setasComProblema={setasComProblema ?? undefined} onRemover={removerNoDesenho}
                   vinculaveis={vinculaveis} onInserirVinculada={aoInserirVinculada} focoEm={focoEm} enquadrar={enquadrar} />
               ) : (
                 <div role="status" className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
@@ -1304,8 +1511,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
           </>
         ) : (
           <div className="flex min-w-0 flex-1 flex-col">
-            {/* VER POR RAIA: a vista antiga, só de leitura. No desenho antigo é a única. */}
-            {fluxo && (
+            {/* VER POR RAIA: a vista antiga, só de leitura — montada direto das formas e setas,
+                então mostra também o desenho incompleto como está. */}
+            {!somenteLeitura && (
               <div className="flex shrink-0 items-center gap-3 border-b bg-muted/30 px-3 py-1.5">
                 <Button variant="outline" size="sm" onClick={() => { setSelectedId(null); setVista('roteiro') }}><ArrowLeft className="h-4 w-4" />Voltar ao editor</Button>
                 <p className="text-[11.5px] text-muted-foreground">Vista por raia: o mesmo fluxo organizado por quem executa, só para leitura.</p>
@@ -1335,6 +1543,45 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
             rotuloIcone={<GatewayGlyph kind={selectedBloco.kind === 'escolha' ? 'exclusive' : 'parallel'} className="h-3 w-3" />}
             onFechar={() => setSelectedId(null)} focarAoAbrir={focarGaveta}>
             {configDoBloco()}
+          </GavetaLateral>
+        )}
+
+        {/* Condição de uma seta que sai de uma Escolha. */}
+        {noDesenho && setaDoPainel && !(configNode && configNode.step) && (
+          <GavetaLateral key={setaDoPainel.id} rotulo="Caminho" titulo={`Para ${nomeDaForma(setaDoPainel.para)}`}
+            rotuloTom="bg-violet-500/10 text-violet-600 dark:text-violet-400"
+            rotuloIcone={<GatewayGlyph kind="exclusive" className="h-3 w-3" />}
+            onFechar={() => setSetaAberta(null)} focarAoAbrir={false}>
+            <EditorDaSeta seta={setaDoPainel} campos={camposDaSeta(setaDoPainel)} onPatch={(p) => aoMudarSeta(setaDoPainel.id, p)} />
+          </GavetaLateral>
+        )}
+
+        {/* Escolha que ainda não fecha em blocos: a pergunta e as setas que saem dela. */}
+        {noDesenho && losangoSolto && !setaDoPainel && !(configNode && configNode.step) && (
+          <GavetaLateral key={losangoSolto.id} rotulo="Escolha" titulo={losangoSolto.pergunta?.trim() || 'Escolha sem pergunta'}
+            rotuloTom="bg-violet-500/10 text-violet-600 dark:text-violet-400"
+            rotuloIcone={<GatewayGlyph kind="exclusive" className="h-3 w-3" />}
+            onFechar={() => setSelectedId(null)} focarAoAbrir={focarGaveta}>
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <label htmlFor={`pergunta-${losangoSolto.id}`} className="block text-xs font-medium">Pergunta</label>
+                <Input id={`pergunta-${losangoSolto.id}`} className="h-9 text-sm" value={losangoSolto.pergunta ?? ''} placeholder="Ex.: Quais pareceres são necessários?"
+                  onChange={(e) => aoMudarLosango(losangoSolto.id, { pergunta: e.target.value })} />
+              </div>
+              <fieldset className="space-y-1">
+                <legend className="text-xs font-medium">Quando mais de um caminho servir</legend>
+                <div className="flex gap-3 text-sm">
+                  {([['todos', 'Segue por todos'], ['primeiro', 'Só o primeiro']] as const).map(([v, r]) => (
+                    <label key={v} className="flex items-center gap-1.5">
+                      <input type="radio" name={`modo-${losangoSolto.id}`} checked={(losangoSolto.modo ?? 'primeiro') === v}
+                        onChange={() => aoMudarLosango(losangoSolto.id, { modo: v })} />{r}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <PainelDasSetas setas={doc.setas.filter((x) => x.de === losangoSolto.id)} paraOnde={(x) => nomeDaForma(x.para)}
+                camposDe={camposDaSeta} onPatch={aoMudarSeta} />
+            </div>
           </GavetaLateral>
         )}
 

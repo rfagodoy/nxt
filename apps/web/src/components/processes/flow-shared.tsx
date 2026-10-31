@@ -52,11 +52,15 @@ export function GatewayGlyph({ kind, className }: { kind: 'exclusive' | 'paralle
 /** Pendências de ativação: pílula + painel clicável. DUAS classes, e a diferença é dita
  *  na tela — o que IMPEDE a ativação (triângulo) e o AVISO (i), que é desenho válido.
  *  A forma do ícone carrega a diferença; a cor só reforça. */
+/** Pendência com o grupo do desenho livre e as setas culpadas (para o destaque). */
+export type Pendencia = ProblemaAtivacao & { grupo?: 'desenho' | 'motor'; setas?: string[] }
+const TITULO_DO_GRUPO = { desenho: 'Desenho incompleto', motor: 'O motor não executa' } as const
+
 export function PendenciasPill({ pendencias, aberto, onToggle, onItem, style, noTopo, compacta }: {
-  pendencias: ProblemaAtivacao[]
+  pendencias: Pendencia[]
   aberto: boolean
   onToggle: () => void
-  onItem: (p: ProblemaAtivacao) => void
+  onItem: (p: Pendencia) => void
   style?: React.CSSProperties
   /** Na barra do topo (desenho BPMN): fica no fluxo da linha, o painel abre PARA BAIXO e,
    *  sem nada a dizer, a pílula afirma que está tudo certo (a saúde do workflow). */
@@ -71,9 +75,9 @@ export function PendenciasPill({ pendencias, aberto, onToggle, onItem, style, no
         </span>
       : null
   }
-  const erros = bloqueantes(pendencias)
+  const erros: Pendencia[] = bloqueantes(pendencias)
   const infos = avisosDe(pendencias)
-  const item = (p: ProblemaAtivacao, i: number, erro: boolean) => (
+  const item = (p: Pendencia, i: number, erro: boolean) => (
     <li key={`${p.tipo}-${p.nodeId ?? i}-${i}`}>
       <button type="button" onClick={() => onItem(p)}
         className="w-full text-left rounded-lg px-2.5 py-1.5 text-[11px] leading-snug text-muted-foreground hover:bg-muted hover:text-foreground transition-colors flex gap-2">
@@ -96,7 +100,22 @@ export function PendenciasPill({ pendencias, aberto, onToggle, onItem, style, no
             </p>
             <p className="text-[10px] text-muted-foreground mt-0.5">Clique num item para ir até ele no desenho.</p>
           </div>
-          {erros.length > 0 && <ul className="p-1.5">{erros.map((p, i) => item(p, i, true))}</ul>}
+          {/* o desenho livre separa o que falta desenhar do que o motor não sabe executar */}
+          {(['desenho', 'motor'] as const).map((g) => {
+            const doGrupo = erros.filter((p) => p.grupo === g)
+            return doGrupo.length > 0 && (
+              <section key={g} aria-label={TITULO_DO_GRUPO[g]}>
+                <p className="px-3 pt-2 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{TITULO_DO_GRUPO[g]}</p>
+                <ul className="p-1.5 pt-0">{doGrupo.map((p, i) => item(p, i, true))}</ul>
+              </section>
+            )
+          })}
+          {erros.some((p) => !p.grupo) && (
+            <>
+              {erros.some((p) => p.grupo) && <p className="px-3 pt-2 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground border-t">Configuração das etapas</p>}
+              <ul className="p-1.5">{erros.filter((p) => !p.grupo).map((p, i) => item(p, i, true))}</ul>
+            </>
+          )}
           {infos.length > 0 && (
             <>
               <p className="px-3 pt-1.5 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground border-t">

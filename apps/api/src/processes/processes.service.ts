@@ -6,7 +6,7 @@ import { ProcessFormSchema, isCompensable, findConnector, nasceDeContrato, EXECU
 import {
   compileBpmn, CompileError, type WfGraph, validarDesenho, validarDecisoes, validarAtividades, validarTelasDasAtividades, validarExecutores, validarExecutoresFixos, validarQuemInicia, formatarProblemas, bloqueantes,
   type ProblemaAtivacao, resumoDeInicio, type EtapaPrevia,
-  lerFluxoBlocos, blocosParaGrafo, grafoParaBlocos, grafoParaMotor, generateBpmn, pendenciasDosBlocos, SUFIXO_REENCONTRO,
+  lerFluxoBlocos, blocosParaGrafo, grafoParaBlocos, grafoParaMotor, generateBpmn, pendenciasDosBlocos, SUFIXO_REENCONTRO, type FluxoBlocos,
 } from '@nxt/workflow-core'
 
 /** Desenho livre do editor antigo que não cabe em blocos: pode conter as formas que
@@ -15,6 +15,7 @@ const DESENHO_LIVRE_NAO_ATIVA =
   'Este workflow foi desenhado no editor antigo, com ligações livres que o motor pode não conseguir executar. ' +
   'Monte o fluxo em blocos (Escolher um caminho / Fazer ao mesmo tempo) no editor antes de ativar.'
 import { RoleAssignmentsService } from '../role-assignments/role-assignments.service'
+import { DESENHO_CORROMPIDO, blocosDaAtivacao } from './blocos-da-ativacao'
 import { RegrasDeInicio } from '../instances/regras-de-inicio'
 import type { CurrentUserData } from '../auth/current-user.decorator'
 
@@ -49,7 +50,7 @@ export function checarReducao(antes: number, depois: number): { removidas: numbe
 }
 
 /** Chaves do formSchema que são SÓ desenho (o motor não lê nenhuma delas). */
-const CHAVES_SO_VISUAIS = ['desenho', 'positions', 'positionsRaia', 'laneOrder'] as const
+const CHAVES_SO_VISUAIS = ['positions', 'positionsRaia', 'laneOrder'] as const
 
 /** JSON com as chaves ordenadas e sem `undefined` — para comparar o que veio do editor
  *  com o que o banco devolveu, que não guarda a ordem das chaves. */
@@ -62,6 +63,30 @@ function canonico(v: unknown): string {
   return JSON.stringify(v ?? null)
 }
 
+/** Os blocos que o motor executaria: do desenho v2 (convertido aqui, como na ativação) ou dos
+ *  blocos gravados. `null` = workflow antigo, sem blocos; 'invalido' = desenho v2 que não fecha. */
+function fluxoExecutado(fs: unknown): FluxoBlocos | 'invalido' | null {
+  const r = blocosDaAtivacao((fs ?? {}) as Parameters<typeof blocosDaAtivacao>[0])
+  if (r) return 'fluxo' in r ? r.fluxo : 'invalido'
+  return lerFluxoBlocos((fs as { blocos?: unknown } | null)?.blocos)
+}
+
+/** O que não muda a execução: o losango que junta com o id de sempre (`juntaId` igual ao
+ *  padrão), o id do "senão" vazio e o modo padrão da escolha. */
+function normalizarFluxo(f: FluxoBlocos): unknown {
+  return JSON.parse(JSON.stringify(f, (_k, v) => {
+    if (v && typeof v === 'object' && (v.kind === 'escolha' || v.kind === 'paralelo')) {
+      const { juntaId, ...resto } = v
+      const out = juntaId && juntaId !== v.id + SUFIXO_REENCONTRO ? { ...resto, juntaId } : resto
+      if (v.kind !== 'escolha') return out
+      const cc = v.casoContrario
+      const vazio = !cc?.itens?.length && (cc?.fim?.tipo ?? 'segue') === 'segue'
+      return { ...out, modo: v.modo ?? 'primeiro', casoContrario: vazio ? null : cc }
+    }
+    return v
+  }))
+}
+
 /** A gravação muda o que o motor EXECUTA? Decisão do PO (30/10/2026): arrumar o desenho
  *  de um workflow ativo — mover formas, raias, ordem das raias — não o devolve a rascunho.
  *  Com blocos, o BPMN é gerado deles na ativação (o enviado não é aceito pronto), então
@@ -72,12 +97,31 @@ export function mudaOFluxo(
   dto: { bpmnXml?: string; formSchema?: unknown },
 ): boolean {
   if (dto.bpmnXml === undefined && dto.formSchema === undefined) return false
+  const novo = dto.formSchema === undefined ? antes.formSchema : dto.formSchema
+  /* O que o motor executa dos dois lados (desenho v2 convertido, ou os blocos gravados). Com
+     os dois, compara-se ISSO — e não o desenho/blocos/grafo gravados: o 1º salvamento de um
+     workflow em blocos que o editor abriu como desenho v2 traz outro grafo (o losango que
+     junta) e outro id no "senão" vazio, sem mudar nada da execução (revisão, 30/10/2026). */
+  const fa = fluxoExecutado(antes.formSchema), fb = fluxoExecutado(novo)
+  if (fa === 'invalido' || fb === 'invalido') return true
+  if (fa && fb) {
+    const resto = (fs: unknown) => {
+      const copia = { ...((fs ?? {}) as Record<string, unknown>) }
+      for (const k of [...CHAVES_SO_VISUAIS, 'desenho', 'blocos', 'graph']) delete copia[k]
+      return copia
+    }
+    return canonico(resto(antes.formSchema)) !== canonico(resto(novo)) || canonico(normalizarFluxo(fa)) !== canonico(normalizarFluxo(fb))
+  }
   const semVisual = (fs: unknown) => {
     const copia = { ...((fs ?? {}) as Record<string, unknown>) }
     for (const k of CHAVES_SO_VISUAIS) delete copia[k]
+    /* desenho v1 é só visual (posições, raias); no v2 (desenho livre) as formas e setas
+       SÃO o fluxo — só as posições e as raias ficam de fora */
+    const d = copia.desenho as { versao?: number; formas?: unknown; setas?: unknown } | undefined
+    if (d?.versao === 2) copia.desenho = { formas: d.formas, setas: d.setas }
+    else delete copia.desenho
     return copia
   }
-  const novo = dto.formSchema === undefined ? antes.formSchema : dto.formSchema
   if (canonico(semVisual(antes.formSchema)) !== canonico(semVisual(novo))) return true
   if ((novo as ProcessFormSchema | null)?.blocos !== undefined) return false
   return dto.bpmnXml !== undefined && dto.bpmnXml !== antes.bpmnXml
@@ -391,10 +435,17 @@ export class ProcessesService {
        dos blocos — o grafo e o BPMN enviados pelo cliente não são aceitos prontos. É o que
        garante, no servidor, que só formas executáveis sejam ativadas. */
     let bpmnFonte = process.bpmnXml
+    /* DESENHO LIVRE (v2): o desenho é convertido AQUI em blocos e segue o caminho deles. */
+    const doDesenho = blocosDaAtivacao(formSchema)
+    // `message` com as frases (como as outras recusas) e `problemas` com os culpados de cada uma
+    if (doDesenho && 'erro' in doDesenho) {
+      throw new BadRequestException({ statusCode: 400, error: 'Bad Request', message: doDesenho.erro, problemas: doDesenho.problemas })
+    }
+    if (doDesenho) formSchema.blocos = doDesenho.fluxo
     if (formSchema.blocos !== undefined) {
       const blocos = lerFluxoBlocos(formSchema.blocos)
       if (!blocos) {
-        throw new BadRequestException('O desenho gravado deste workflow está corrompido. Abra-o no editor, confira e salve de novo antes de ativar.')
+        throw new BadRequestException(DESENHO_CORROMPIDO)
       }
       const gerado = blocosParaGrafo(blocos)
       const nodes = gerado.nodes.map((n) => ({ ...n, name: nomeDoStep.get(n.id) || n.name }))

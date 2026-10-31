@@ -289,10 +289,40 @@ export interface DesenhoBpmn {
   raias: RaiaDesenho[]
 }
 
+/* ─── Desenho livre (v2, PO 30/10/2026) ─────────────────────────────────────────
+   O DESENHO é a fonte da verdade: formas e setas como a pessoa desenhou. Os blocos
+   (`FluxoBlocos`) são derivados dele por `desenhoParaBlocos` (workflow-core). */
+export type TipoForma = 'start' | 'end' | 'userTask' | 'serviceTask' | 'exclusiveGateway' | 'parallelGateway'
+export interface FormaDesenho {
+  id: string; tipo: TipoForma; nome?: string
+  /** losango de Escolha que divide: "o primeiro que servir" / "todos os que servirem" */
+  modo?: 'primeiro' | 'todos'
+  pergunta?: string
+  /** etapa vinculada: usa a configuração da etapa `vinculoDe` */
+  vinculoDe?: string
+  /** losango que JUNTA caminhos (marcado por `blocosParaDesenho`). Sem a marca, um losango de
+   *  uma saída e uma entrada DIVIDE: é uma Escolha/Ao mesmo tempo de um caminho só. */
+  junta?: true
+}
+export interface SetaDesenho {
+  id: string; de: string; para: string
+  /** só nas setas que saem de um losango de Escolha */
+  condition?: string; conditionSpec?: EdgeConditionSpec; rotulo?: string
+  /** o "Senão" antigo (caminho padrão) */
+  padrao?: true
+}
+export interface DesenhoV2 {
+  versao: 2
+  formas: FormaDesenho[]
+  setas: SetaDesenho[]
+  posicoes: Record<string, { x: number; y: number }>
+  raias: RaiaDesenho[]
+}
+
 export interface ProcessFormSchema {
   steps: StepFormSchema[]
   /** Desenho BPMN do editor por blocos (posições e raias). Ausente = layout automático. */
-  desenho?: DesenhoBpmn
+  desenho?: DesenhoBpmn | DesenhoV2
   /** Quem pode iniciar este workflow. Ausente = qualquer usuário. */
   quemInicia?: QuemInicia
   /** Posições MANUAIS por id de nó (editor Storyboard). Quando presente para um nó,

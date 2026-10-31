@@ -71,21 +71,20 @@ describe('validarDesenho — mensagens com nome, sem id interno', () => {
       { from: 'Node_4rfpntj', to: 'End_1' },
     ])).toEqual([])
   })
-  /* Beco sem saída deixou de ser erro (decisão do PO, 2026-08-27): a atividade é
-     executada e o ramo morre ali; quem termina o processo é o evento de fim. Vira
-     AVISO — nomeando a atividade, sem id interno, e sem barrar a ativação. */
-  it('atividade sem saída vira AVISO que não impede ativar — nomeando a atividade', () => {
+  /* Beco sem saída volta a IMPEDIR a ativação (decisão do PO, 30/10/2026 — desenho livre:
+     no desenho, uma etapa que não leva ao Fim costuma ser uma seta esquecida). A frase
+     continua nomeando a atividade, sem id interno. */
+  it('atividade sem saída IMPEDE ativar — nomeando a atividade', () => {
     const problemas = validarDesenho(nos, [{ from: 'Start_1', to: 'Node_4rfpntj' }])
     const p = problemas.find((x) => x.tipo === 'sem-saida')!
-    expect(p.severidade).toBe('aviso')
+    expect(p.severidade).toBeUndefined()
     expect(p.mensagem).toContain('"Realizar validação do RH"')
     expect(p.mensagem).toContain('o processo não termina por ela')
     expect(p.mensagem).not.toContain('Node_4rfpntj')
     expect(p.mensagem).not.toContain('userTask')
     expect(p.nodeId).toBe('Node_4rfpntj')
-    // o fim ficou inalcançável NESTE desenho — isso sim barra; o beco, não
-    expect(bloqueantes(problemas).map((x) => x.tipo)).toEqual(['fim-inalcancavel'])
-    expect(avisos(problemas)).toHaveLength(1)
+    expect(bloqueantes(problemas).map((x) => x.tipo)).toEqual(['sem-saida', 'fim-inalcancavel'])
+    expect(avisos(problemas)).toHaveLength(0)
   })
   it('atividade solta (sem chegada nem saída) gera UMA mensagem, de exclusão/conexão', () => {
     const problemas = validarDesenho(nos, [{ from: 'Start_1', to: 'End_1' }])
@@ -176,24 +175,22 @@ describe('validarDesenho — caminho até o fim (regra do PO, 2026-08-27)', () =
   const start = { id: 'Start_1', type: 'start', name: 'Início' }
   const fim = { id: 'End_1', type: 'end', name: 'Fim' }
 
-  it('basta UM caminho até o fim: o ramo que não chega vira aviso e a ativação passa', () => {
+  it('um ramo que não chega ao fim impede ativar, mesmo havendo outro caminho até ele', () => {
     const problemas = validarDesenho(
       [start, { id: 'a', type: 'userTask', name: 'Analisar' }, { id: 'b', type: 'userTask', name: 'Arquivar' }, fim],
       [{ from: 'Start_1', to: 'a' }, { from: 'a', to: 'End_1' }, { from: 'a', to: 'b' }],
     )
-    expect(bloqueantes(problemas)).toEqual([])
-    const [aviso] = avisos(problemas)
-    expect(aviso.nodeId).toBe('b')
-    expect(aviso.tipo).toBe('sem-saida')
+    const [erro] = bloqueantes(problemas)
+    expect(erro.nodeId).toBe('b')
+    expect(erro.tipo).toBe('sem-saida')
   })
 
-  it('atividade que tem saída mas cujo caminho NUNCA chega ao fim também é aviso', () => {
+  it('atividade que tem saída mas cujo caminho NUNCA chega ao fim também impede ativar', () => {
     const problemas = validarDesenho(
       [start, { id: 'a', type: 'userTask', name: 'Analisar' }, { id: 'b', type: 'userTask', name: 'Revisar' }, { id: 'c', type: 'userTask', name: 'Reprocessar' }, fim],
       [{ from: 'Start_1', to: 'a' }, { from: 'a', to: 'End_1' }, { from: 'a', to: 'b' }, { from: 'b', to: 'c' }, { from: 'c', to: 'b' }],
     )
-    expect(bloqueantes(problemas)).toEqual([])
-    expect(avisos(problemas).map((p) => p.tipo).sort()).toEqual(['nao-alcanca-fim', 'nao-alcanca-fim'])
+    expect(bloqueantes(problemas).map((p) => p.tipo).sort()).toEqual(['nao-alcanca-fim', 'nao-alcanca-fim'])
   })
 
   it('NENHUM caminho chegando ao fim continua barrando a ativação', () => {
@@ -201,8 +198,8 @@ describe('validarDesenho — caminho até o fim (regra do PO, 2026-08-27)', () =
       [start, { id: 'a', type: 'userTask', name: 'Analisar' }, fim],
       [{ from: 'Start_1', to: 'a' }],
     )
-    expect(bloqueantes(problemas).map((p) => p.tipo)).toEqual(['fim-inalcancavel'])
-    expect(bloqueantes(problemas)[0].mensagem).toContain('nunca terminaria')
+    expect(bloqueantes(problemas).map((p) => p.tipo)).toEqual(['sem-saida', 'fim-inalcancavel'])
+    expect(bloqueantes(problemas).find((p) => p.tipo === 'fim-inalcancavel')!.mensagem).toContain('nunca terminaria')
   })
 
   /* Grau de entrada/saída não bastava: um bloco ligado entre si, longe do início,
