@@ -29,8 +29,10 @@ import { EXECUTOR_CONTRATO_DO_PROCESSO, EXECUTOR_QUEM_INICIOU, nasceDeContrato, 
 import { QuemIniciaPill } from './quem-inicia'
 import { ConfiguracaoDoBloco, comNomes, novoItem, type NovoItem, type Simulacao } from './workflow-blocos'
 import { NoticeDialog } from '@/components/ui/confirm-dialog'
+import { aoSairDoEditor, destinoInterno } from '@/lib/sair-do-editor'
+import { SairSemSalvarDialog } from './sair-sem-salvar'
 import { ATRIBUTO_GAVETA, GavetaLateral, ehEscDaGaveta } from './desenho-bpmn/gaveta'
-import { CanvasBpmn } from './desenho-bpmn/canvas-bpmn'
+import { CanvasBpmn, modeloDeExportacao } from './desenho-bpmn/canvas-bpmn'
 import { PaletaBpmn } from './desenho-bpmn/paleta'
 import { MenuMais, NomeNoTopo, SeletorDeVista, SobreDoWorkflow, tamanhoDoNome, useNivelDoTopo, type VistaDoEditor } from './desenho-bpmn/topo'
 import { cn } from '@/lib/utils'
@@ -57,7 +59,7 @@ export interface FlowInitial {
   name: string
   description?: string | null
   kind?: string | null
-  /** ATIVO: gravar mudança devolve o workflow a rascunho (o "gravar ao sair" avisa) */
+  /** ATIVO: gravar mudança no FLUXO devolve o workflow a rascunho (o "gravar ao sair" avisa); só desenho, não */
   status?: string
   bpmnXml: string
   steps: StepFormSchema[]
@@ -752,6 +754,17 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   if (realinharLimpo.current && desenho) { limpoRef.current = assinatura; realinharLimpo.current = false }
   const sujo = !somenteLeitura && assinatura !== limpoRef.current
   const ativoNoServidor = initial?.status === 'ACTIVE'
+  /* Só mudar o FLUXO devolve um workflow ativo a rascunho; arrumar o desenho (posições,
+     raias, ordem das raias), o nome ou o tipo não (PO, 30/10/2026 — `mudaOFluxo` na API).
+     Esta assinatura deixa o desenho de fora para o aviso dizer a verdade. */
+  const assinaturaFluxo = useMemo(
+    () => (fluxo ? JSON.stringify({ quemInicia, fluxo: comNomes(fluxo, steps), steps }) : ''),
+    [quemInicia, fluxo, steps],
+  )
+  const assinaturaFluxoRef = useRef(assinaturaFluxo)
+  assinaturaFluxoRef.current = assinaturaFluxo
+  const limpoFluxoRef = useRef<string>(assinaturaFluxo)
+  const voltaARascunho = sujo && ativoNoServidor && assinaturaFluxo !== limpoFluxoRef.current
 
   /* ─── Abertura do desenho e posições que faltam ──────────────────────────────
      Sem desenho gravado (workflow anterior ao desenho BPMN, ou novo), ele nasce de
@@ -798,6 +811,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const persist = useCallback(async (confirmarReducao?: boolean, auto?: { keepalive?: boolean }): Promise<string> => {
     if (!fluxo) throw new Error('Workflow do editor antigo: aberto só para leitura.')
     const assinaturaGravada = assinaturaRef.current
+    const fluxoGravado = assinaturaFluxoRef.current
     const bpmnXml = generateBpmn(buildWfGraph(nodes, edges))
     const stepsVivos = nodes.filter((n) => isActivity(n.type) && n.step).map((n) => ({ ...n.step!, stepId: n.id, stepName: n.step!.stepName, stepType: n.type as 'userTask' | 'serviceTask' }))
     // grafo GERADO (a API valida e compila por ele; telas de leitura o desenham)
@@ -825,11 +839,13 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       }
       if (!res.ok) throw new Error('Erro ao salvar')
       limpoRef.current = assinaturaGravada
+      limpoFluxoRef.current = fluxoGravado
       return initial!.id
     }
     const res = await apiFetch(`/api/processes`, { method: 'POST', body, keepalive })
     if (!res.ok) throw new Error('Erro ao salvar')
     limpoRef.current = assinaturaGravada
+    limpoFluxoRef.current = fluxoGravado
     return (await res.json()).id as string
   }, [editing, initial, name, description, kind, quemInicia, fluxo, stepsEfetivos, nodes, edges, laneOrder, desenhoVisto])
 
@@ -838,18 +854,27 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   /* "sujo" lido NA HORA (não o da última renderização): logo depois de um Salvar a tela pode
      sair antes de se redesenhar — e gravaria de novo (num workflow novo, uma CÓPIA). */
   const somenteLeituraRef = useRef(somenteLeitura)
+  /* Workflow ATIVO não grava sozinho ao sair (decisão do PO, 30/10/2026): gravar mudança
+     de etapa o devolve a rascunho, e isso não acontece sem a pessoa escolher. */
+  const ativoRef = useRef(ativoNoServidor)
+  ativoRef.current = ativoNoServidor
+  const aoSairAgora = useCallback(() => aoSairDoEditor({
+    somenteLeitura: somenteLeituraRef.current, ativo: ativoRef.current, sujo: assinaturaRef.current !== limpoRef.current,
+  }), [])
   const gravandoSozinho = useRef(false)
   const gravarAoSair = useCallback((keepalive: boolean) => {
-    if (somenteLeituraRef.current || gravandoSozinho.current || assinaturaRef.current === limpoRef.current) return false
+    if (gravandoSozinho.current || aoSairAgora() !== 'gravar') return false
     gravandoSozinho.current = true
     void persistRef.current(undefined, { keepalive }).catch(() => { /* 409 destrutiva ou rede: fica o que estava */ })
     return true
-  }, [])
+  }, [aoSairAgora])
   useEffect(() => {
     const LIMITE_KEEPALIVE = 60_000 // o navegador recusa keepalive acima de ~64 KB
     const aoFechar = (e: BeforeUnloadEvent) => {
-      if (somenteLeituraRef.current || assinaturaRef.current === limpoRef.current) return
-      if (assinaturaRef.current.length * 2 > LIMITE_KEEPALIVE) { e.preventDefault(); e.returnValue = ''; return }
+      const acao = aoSairAgora()
+      if (acao === 'nada') return
+      // ativo: o "sair sem salvar?" do navegador (fechar a aba não deixa mostrar o nosso)
+      if (acao === 'perguntar' || assinaturaRef.current.length * 2 > LIMITE_KEEPALIVE) { e.preventDefault(); e.returnValue = ''; return }
       gravarAoSair(true) // fechando a aba: só o keepalive sobrevive à página
     }
     window.addEventListener('beforeunload', aoFechar)
@@ -857,7 +882,31 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       window.removeEventListener('beforeunload', aoFechar)
       gravarAoSair(false) // saiu da tela por dentro do sistema (menu, outra aba): a página segue viva
     }
-  }, [gravarAoSair])
+  }, [gravarAoSair, aoSairAgora])
+
+  /* Saída por link (menu lateral, topo, breadcrumb) de um workflow ATIVO com alterações:
+     segura o clique e pergunta. Escuta na captura, antes do Link do Next navegar. */
+  const [saida, setSaida] = useState<string | null>(null)
+  const sairPara = useCallback((destino: string) => {
+    if (aoSairAgora() === 'perguntar') setSaida(destino)
+    else router.push(destino)
+  }, [aoSairAgora, router])
+  useEffect(() => {
+    const aoClicar = (e: MouseEvent) => {
+      if (aoSairAgora() !== 'perguntar') return
+      const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null
+      if (!a) return
+      const destino = destinoInterno({
+        button: e.button, ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey, altKey: e.altKey,
+        defaultPrevented: e.defaultPrevented, href: a.href, target: a.target, download: a.hasAttribute('download'),
+      }, window.location.origin, window.location.pathname)
+      if (!destino) return
+      e.preventDefault(); e.stopPropagation()
+      setSaida(destino)
+    }
+    document.addEventListener('click', aoClicar, true)
+    return () => document.removeEventListener('click', aoClicar, true)
+  }, [aoSairAgora])
 
   const handleSaveDraft = useCallback(async (confirmarReducao?: boolean) => {
     if (!name.trim()) { setAviso({ msg: 'Dê um nome ao workflow antes de salvar.' }); return }
@@ -897,6 +946,19 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
   // Monta o modelo do grafo (posições da raia + textos) para o exportador desenhar em 2D.
   const buildExportModel = useCallback((): ExportModel => {
+    /* O arquivo é o que está na TELA: no desenho BPMN, as posições, raias e setas dele (os
+       textos vêm da mesma fonte do cartão); em "Ver por raia", a vista por raia, abaixo. */
+    if (vista === 'desenho' && grafo && desenhoVisto) {
+      return modeloDeExportacao(grafo, desenhoVisto, (g) => {
+        const n = nodeById[g.id]
+        if (isActivity(g.type)) {
+          const meta = n ? metaDaAtividade(n, resolvePapel, resolveEntidade).map((m) => m.text) : []
+          return { name: n?.step?.stepName || 'Sem nome', typeLabel: g.type === 'serviceTask' ? 'Ação automática' : 'Tarefa', meta }
+        }
+        if (g.type === 'exclusiveGateway' || g.type === 'parallelGateway' || g.type === 'inclusiveGateway') return { name: g.name ?? '', isFork: !!g.name }
+        return { name: g.name || (g.type === 'start' ? 'Início' : g.type === 'end' ? 'Fim' : '') }
+      })
+    }
     const enodes: ExportNode[] = nodes.map((n) => {
       const p = layout.nodes[n.id]
       const base = { id: n.id, type: n.type, x: p.x, y: p.y, w: p.w, h: p.h }
@@ -921,7 +983,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       }
     })
     return { width: layout.width, height: layout.height, nodes: enodes, edges: eedges, lanes: layout.lanes }
-  }, [nodes, edges, layout, nodeById, resolvePapel, resolveEntidade])
+  }, [nodes, edges, layout, nodeById, resolvePapel, resolveEntidade, vista, grafo, desenhoVisto])
 
   // Exporta o desenho atual (edições ao vivo, sem precisar salvar) como JPG ou PDF.
   const handleExport = useCallback(async (format: FlowExportFormat) => {
@@ -1049,7 +1111,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const [sobreAberto, setSobreAberto] = useState(false)
   const [maisAberto, setMaisAberto] = useState(false)
   const nivelTopo = useNivelDoTopo(topoRef, [
-    tamanhoDoNome(name), !name.trim(), sujo, ativoNoServidor, pendencias.length, bloqueantes(pendencias).length, kind,
+    tamanhoDoNome(name), !name.trim(), sujo, voltaARascunho, pendencias.length, bloqueantes(pendencias).length, kind,
     exportError ?? '', editing,
     // fechar um balão do topo remede desde o 0 (o que mudou com ele aberto — ex.: "Quem inicia" — conta)
     quemIniciaAberto || sobreAberto || maisAberto,
@@ -1068,7 +1130,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       {/* TOPO numa linha só (spec "Topo"). `relative z-40`: o painel da saúde abre para
           baixo, por cima do desenho e da gaveta. */}
       <div ref={topoRef} className="relative z-40 flex min-w-0 items-center gap-2 border-b bg-card px-3 py-2 shrink-0">
-        <Button variant="ghost" size="icon" onClick={() => router.push('/workflows')} className="h-8 w-8 shrink-0" aria-label="Voltar para Workflows" title="Voltar para Workflows"><ArrowLeft className="h-4 w-4" /></Button>
+        <Button variant="ghost" size="icon" onClick={() => sairPara('/workflows')} className="h-8 w-8 shrink-0" aria-label="Voltar para Workflows" title="Voltar para Workflows"><ArrowLeft className="h-4 w-4" /></Button>
         <NomeNoTopo nome={name} onNome={setName} autoFocus={!editing} podeEncolher={nivelTopo >= 7} />
         <SeletorDeVista vista={vista} onVista={setVista} soIcone={nivelTopo >= 4}
           roteiroDesabilitado={somenteLeitura ? 'Este workflow foi desenhado no editor antigo e abre só para leitura.' : undefined} />
@@ -1083,12 +1145,14 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         {exportError && <span className="shrink-0 text-[11px] text-destructive font-medium">{exportError}</span>}
         {/* Frase CURTA: o detalhe fica no title. */}
         {sujo && (
-          <span className={cn('inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px]', ativoNoServidor ? 'font-medium text-amber-800 dark:text-amber-300' : 'text-muted-foreground')}
-            title={ativoNoServidor
+          <span className={cn('inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px]', voltaARascunho ? 'font-medium text-amber-800 dark:text-amber-300' : 'text-muted-foreground')}
+            title={voltaARascunho
               ? 'Alterações não salvas. Ao sair, gravam sozinhas e o workflow volta a rascunho — sai do "Novo processo" até ser reativado. Processos em andamento não são afetados.'
-              : 'Alterações não salvas. Gravam sozinhas ao sair.'}>
+              : ativoNoServidor
+                ? 'Alterações não salvas, só no desenho. Gravam sozinhas ao sair e o workflow continua ativo.'
+                : 'Alterações não salvas. Gravam sozinhas ao sair.'}>
             <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-            <span className={nivelTopo >= 5 ? 'sr-only' : undefined}>{ativoNoServidor ? 'Não salvo · volta a rascunho' : 'Não salvo'}</span>
+            <span className={nivelTopo >= 5 ? 'sr-only' : undefined}>{voltaARascunho ? 'Não salvo · volta a rascunho' : 'Não salvo'}</span>
           </span>
         )}
         <div className="flex shrink-0 items-center rounded-md border bg-card shadow-sm">
@@ -1157,6 +1221,19 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
       <NoticeDialog open={!!aviso} title={aviso?.titulo} message={aviso?.msg}
         onClose={() => { const depois = aviso?.aoFechar; setAviso(null); depois?.() }} />
+      <SairSemSalvarDialog open={!!saida} voltaARascunho={voltaARascunho}
+        onContinuar={() => setSaida(null)}
+        onDescartar={() => { const destino = saida!; limpoRef.current = assinaturaRef.current; setSaida(null); router.push(destino) }}
+        onSalvar={async () => {
+          const destino = saida!
+          setSaida(null)
+          if (!name.trim()) { setAviso({ msg: 'Dê um nome ao workflow antes de salvar.' }); return }
+          try { await persist(); router.push(destino) }
+          catch (err) {
+            if (err instanceof ReducaoDestrutiva) { setReducao({ msg: err.message, acao: 'rascunho' }); return }
+            setAviso({ msg: 'Não foi possível salvar o workflow.' }); console.error(err)
+          }
+        }} />
 
       {/* `relative`: as gavetas laterais (absolute) encostam à direita desta faixa, por cima do desenho. */}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
