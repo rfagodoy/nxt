@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { validarDesenho, validarDecisoes, validarAtividades, validarTelasDasAtividades, formatarProblemas, bloqueantes, avisos } from '../src/activation-guard'
+import { faltasDaAtividade, validarDesenho, validarDecisoes, validarAtividades, validarTelasDasAtividades, formatarProblemas, bloqueantes, avisos } from '../src/activation-guard'
 import type { ProblemaAtivacao } from '../src/activation-guard'
 
 const g = (edges: Array<{ from: string; condition?: string; isDefault?: boolean }>) =>
@@ -327,5 +327,17 @@ describe('validarTelasDasAtividades — a tela tem que servir ao que a atividade
   it('é BLOQUEANTE (não é aviso)', () => {
     const ps = validarTelasDasAtividades([{ stepId: 'a1', stepName: 'X', screenRef: 't2', entityMode: 'CREATE' }], telas)
     expect(bloqueantes(ps)).toHaveLength(1)
+  })
+})
+
+describe('faltasDaAtividade', () => {
+  it('sem nada: falta nome, quem faz e prazo', () => {
+    expect(faltasDaAtividade({})).toEqual(['nome', 'quem faz', 'prazo'])
+  })
+  it('completa: não falta nada', () => {
+    expect(faltasDaAtividade({ stepName: 'Analisar', executor: { papelId: 'p1' }, slaBusinessDays: 1 })).toEqual([])
+  })
+  it('prazo só em horas também conta', () => {
+    expect(faltasDaAtividade({ stepName: 'Analisar', executor: { papelId: 'p1' }, slaBusinessHours: 4 })).toEqual([])
   })
 })

@@ -3,7 +3,7 @@
    desenha o que estas funções calculam. O desenho é VISUAL; a verdade continua
    sendo o fluxo em blocos. */
 import type { DesenhoBpmn, RaiaDesenho } from '@nxt/types'
-import type { GrafoGerado } from '@nxt/workflow-core'
+import { SUFIXO_REENCONTRO, type GrafoGerado, type ItemFluxo } from '@nxt/workflow-core'
 import { layoutGraph, nodeSize, LANE_SEM_RESPONSAVEL, type FlowGraph, type FlowNodeType } from '@/lib/flow-layout'
 
 export const GRADE = 16
@@ -317,4 +317,21 @@ export function polilinhaDaSeta(s: Pt, ladoS: LadoDaSeta, t: Pt, ladoT: LadoDaSe
   }
   // um lado vertical e o outro horizontal: um cotovelo
   return horizontal(ladoS) ? [s, { x: t.x, y: s.y }, t] : [s, { x: s.x, y: t.y }, t]
+}
+
+/** As formas do desenho que pertencem a um item do fluxo: ele, o reencontro (escolha /
+ *  ao mesmo tempo) e tudo que mora nos caminhos dele. */
+export function formasDoItem(it: ItemFluxo): string[] {
+  if (it.kind === 'atividade') return [it.id]
+  const caminhos = it.kind === 'escolha' ? [...it.caminhos, it.casoContrario] : it.caminhos
+  return [it.id, it.id + SUFIXO_REENCONTRO, ...caminhos.flatMap((c) => c.itens.flatMap(formasDoItem))]
+}
+
+/** Item movido pela lista do Roteiro: perde a posição antiga (e o reencontro dela) para
+ *  `completarPosicoes` colocá-lo perto do novo lugar. Os outros não se mexem. */
+export function posicoesAoMover(d: DesenhoBpmn, ids: Iterable<string>): DesenhoBpmn {
+  const fora = new Set<string>()
+  for (const id of ids) { fora.add(id); fora.add(id + SUFIXO_REENCONTRO) }
+  if (!fora.size) return d
+  return { ...d, posicoes: Object.fromEntries(Object.entries(d.posicoes).filter(([id]) => !fora.has(id))) }
 }
