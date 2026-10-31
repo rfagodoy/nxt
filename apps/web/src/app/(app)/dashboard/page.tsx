@@ -125,8 +125,8 @@ function CountUp({ value, format }: { value: number; format?: (n: number) => str
 const CARTAO = cn(
   'vidro flex min-w-0 flex-col rounded-2xl bg-[var(--dash-cartao)] p-4 [--vidro-solido:var(--dash-cartao-solido)] lg:px-5',
   'transition-[transform,background-color,border-color,box-shadow] duration-200 ease-out hover:-translate-y-0.5 motion-reduce:transition-none motion-reduce:hover:translate-y-0',
-  'hover:border-[#159D62]/35 hover:bg-white/90 hover:shadow-[inset_0_1px_0_var(--vidro-spec),0_18px_36px_-14px_rgba(12,40,26,0.28)]',
-  'dark:hover:border-[#3DD68C]/40 dark:hover:bg-[#1E2723]/90 dark:hover:shadow-[inset_0_1px_0_var(--vidro-spec),0_18px_40px_-12px_rgba(0,0,0,0.6)]',
+  'hover:border-[color-mix(in_srgb,var(--e-159D62)_35%,transparent)] hover:bg-white/90 hover:shadow-[inset_0_1px_0_var(--vidro-spec),0_18px_36px_-14px_rgba(12,40,26,0.28)]',
+  'dark:hover:border-[color-mix(in_srgb,var(--e-3DD68C)_40%,transparent)] dark:hover:bg-[color-mix(in_srgb,var(--e-1E2723)_90%,transparent)] dark:hover:shadow-[inset_0_1px_0_var(--vidro-spec),0_18px_40px_-12px_rgba(0,0,0,0.6)]',
 )
 const LINK = 'text-xs font-bold text-[var(--marca-link)] hover:underline'
 
@@ -178,12 +178,12 @@ function VazioFantasma({ fantasma, titulo, texto, acao, onAcao, extra }: {
   return (
     <div className="relative flex min-h-[150px] flex-1 items-center justify-center">
       <div className="pointer-events-none absolute inset-0" aria-hidden><Fantasma tipo={fantasma} /></div>
-      <div className="relative flex max-w-[300px] flex-col items-center gap-1 rounded-xl bg-white/85 px-4 py-3 text-center ring-1 ring-foreground/[0.08] dark:bg-[#161B18]/85">
+      <div className="relative flex max-w-[300px] flex-col items-center gap-1 rounded-xl bg-white/85 px-4 py-3 text-center ring-1 ring-foreground/[0.08] dark:bg-[color-mix(in_srgb,var(--e-161B18)_85%,transparent)]">
         <p className="text-[13px] font-extrabold">{titulo}</p>
         <p className="text-xs text-muted-foreground">{texto}</p>
         <div className="mt-1.5 flex flex-wrap items-center justify-center gap-x-3 gap-y-1.5">
           <button type="button" onClick={onAcao}
-            className="inline-flex items-center gap-1 rounded-md border border-[#159D62]/45 px-3 py-1.5 text-xs font-bold text-[#0E7A4B] transition-colors hover:bg-[#159D62]/[0.08] dark:border-[#3DD68C]/45 dark:text-[#3DD68C] dark:hover:bg-[#3DD68C]/10">
+            className="inline-flex items-center gap-1 rounded-md border border-[color-mix(in_srgb,var(--e-159D62)_45%,transparent)] px-3 py-1.5 text-xs font-bold text-[var(--e-0E7A4B)] transition-colors hover:bg-[color-mix(in_srgb,var(--e-159D62)_8%,transparent)] dark:border-[color-mix(in_srgb,var(--e-3DD68C)_45%,transparent)] dark:text-[var(--e-3DD68C)] dark:hover:bg-[color-mix(in_srgb,var(--e-3DD68C)_10%,transparent)]">
             {acao}<ArrowRight className="h-3.5 w-3.5" aria-hidden />
           </button>
           {extra}
@@ -301,7 +301,7 @@ const FATIAS = [
   { chave: 'VIGENTE',     nome: 'Vigentes',    traco: 'stroke-[var(--marca)]', ponto: 'bg-[var(--marca)]' },
   { chave: 'VENCIDO',     nome: 'Vencidos',    traco: 'stroke-[#C2410C] dark:stroke-[#F59E0B]', ponto: 'bg-[#C2410C] dark:bg-[#F59E0B]' },
   { chave: 'EM_CADASTRO', nome: 'Em cadastro', traco: 'stroke-[#2F7FD6] dark:stroke-[#5FA8F0]', ponto: 'bg-[#2F7FD6] dark:bg-[#5FA8F0]' },
-  { chave: 'ENCERRADO',   nome: 'Encerrados',  traco: 'stroke-[#A3B0A9] dark:stroke-[#5E6B64]', ponto: 'bg-[#A3B0A9] dark:bg-[#5E6B64]' },
+  { chave: 'ENCERRADO',   nome: 'Encerrados',  traco: 'stroke-[var(--e-A3B0A9)] dark:stroke-[var(--e-5E6B64)]', ponto: 'bg-[var(--e-A3B0A9)] dark:bg-[var(--e-5E6B64)]' },
   { chave: 'RESCINDIDO',  nome: 'Rescindidos', traco: 'stroke-[#C2416B] dark:stroke-[#F07A9F]', ponto: 'bg-[#C2416B] dark:bg-[#F07A9F]' },
 ] as const
 
@@ -367,7 +367,7 @@ function CartaoContratos({ className, dados, vencimentos, onAbrir, onNovo, onImp
                   {vencidos.qtd} vencido{vencidos.qtd === 1 ? '' : 's'} sem renovação
                 </span>
               ) : prox90 && prox90.qtd > 0 ? (
-                <span className="mt-1.5 inline-block rounded-full bg-[#EEF6F1] px-2 py-0.5 text-[11.5px] font-extrabold text-[var(--marca-texto)] dark:bg-[#3DD68C]/15">
+                <span className="mt-1.5 inline-block rounded-full bg-[var(--e-EEF6F1)] px-2 py-0.5 text-[11.5px] font-extrabold text-[var(--marca-texto)] dark:bg-[color-mix(in_srgb,var(--e-3DD68C)_15%,transparent)]">
                   {prox90.qtd} vence{prox90.qtd === 1 ? '' : 'm'} em 90 dias
                 </span>
               ) : null}
@@ -425,7 +425,7 @@ function CartaoValorPorMes({ className, dados, onAbrirContratos }: { className?:
                   title={`${MES_CURTO(m.mes)}: ${m.qtd} contrato${m.qtd === 1 ? '' : 's'} · ${BRL_CURTO.format(m.valor)}`}>
                   {rotulo && (
                     <span className={cn('whitespace-nowrap font-mono text-[10px] font-bold tabular-nums',
-                      perto ? 'text-[var(--marca-texto)]' : 'rounded bg-[#142420] px-1 text-white dark:bg-[#F1F5F2] dark:text-[#0E1210]')}>
+                      perto ? 'text-[var(--marca-texto)]' : 'rounded bg-[var(--e-142420)] px-1 text-white dark:bg-[var(--e-F1F5F2)] dark:text-[var(--e-0E1210)]')}>
                       {BRL_CURTO.format(m.valor).replace('R$', '').trim()}
                     </span>
                   )}
@@ -579,7 +579,7 @@ const COR_PARCEIRO = [
   'bg-[var(--marca)]',
   'bg-[#2F7FD6] dark:bg-[#5FA8F0]',
   'bg-[#C77A0A] dark:bg-[#F2B544]',
-  'bg-[#7C8B83] dark:bg-[#8A9A92]',
+  'bg-[var(--e-7C8B83)] dark:bg-[var(--e-8A9A92)]',
   'bg-[#C2416B] dark:bg-[#F07A9F]',
 ]
 const TEXTURA_OUTROS = 'bg-[repeating-linear-gradient(135deg,hsl(var(--foreground)/0.22)_0_3px,hsl(var(--foreground)/0.07)_3px_7px)]'

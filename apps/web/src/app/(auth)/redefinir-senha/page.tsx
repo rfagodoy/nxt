@@ -71,7 +71,7 @@ function Formulario() {
         </div>
         <Link
           href="/sign-in"
-          className="inline-flex w-full items-center justify-center gap-2 h-10 rounded-md bg-primary px-4 text-sm font-semibold text-forest hover:bg-primary/90 transition-colors"
+          className="inline-flex w-full items-center justify-center gap-2 h-10 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
         >
           Entrar com a nova senha
         </Link>
@@ -119,7 +119,7 @@ function Formulario() {
 
       <button
         type="submit" disabled={!podeEnviar}
-        className="inline-flex w-full items-center justify-center gap-2 h-10 rounded-md bg-primary px-4 text-sm font-semibold text-forest hover:bg-primary/90 disabled:opacity-50 transition-colors"
+        className="inline-flex w-full items-center justify-center gap-2 h-10 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
       >
         {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
         {loading ? 'Salvando...' : 'Definir nova senha'}

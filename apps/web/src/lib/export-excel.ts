@@ -5,10 +5,19 @@
 
    Regra: onde houver tabela de dados, há botão Exportar — e ele chama esta função. */
 
-/** Cor da marca (ver identidade visual): Forest Ink, Esmeralda, Mist. */
-const FOREST = 'FF0C1410'
-const ESMERALDA = 'FF18C07A'
-const ESMERALDA_TINT = 'FFE7F7EF'
+import { corDoTema, misturarHex, paraHex } from './cor-do-tema'
+
+/** Cor da marca (ver identidade visual): Forest Ink, Esmeralda, Mist. O cabeçalho e os
+ *  destaques seguem o TEMA do usuário (no Nxt: #0C1410 / #18C07A); a planilha continua clara. */
+const argb = (hex: string) => `FF${hex.slice(1)}`
+function coresDoTema() {
+  const marca = paraHex(corDoTema('--e-18C07A', '#18C07A'), '#18C07A')
+  return {
+    FOREST: argb(paraHex(corDoTema('--forest', '#0C1410'), '#0C1410')),
+    ESMERALDA: argb(marca),
+    ESMERALDA_TINT: argb(misturarHex(marca, '#FFFFFF', 0.88)),
+  }
+}
 const MIST = 'FFF1F5F3'
 const ZEBRA = 'FFF8FAF9'
 const CINZA = 'FF5B6B63'
@@ -38,6 +47,7 @@ export interface ExportExcelOptions {
 /** Gera o .xlsx e dispara o download. `exceljs` entra por import dinâmico: são ~900 kB que
  *  não têm por que pesar no bundle de quem nunca clica em Exportar. */
 export async function exportExcel(opts: ExportExcelOptions): Promise<void> {
+  const { FOREST, ESMERALDA, ESMERALDA_TINT } = coresDoTema()
   const { default: ExcelJS } = await import('exceljs')
   const { columns, rows } = opts
   const n = columns.length
