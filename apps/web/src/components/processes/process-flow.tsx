@@ -43,7 +43,7 @@ import { NoticeDialog } from '@/components/ui/confirm-dialog'
 import { aoSairDoEditor, destinoInterno } from '@/lib/sair-do-editor'
 import { SairSemSalvarDialog } from './sair-sem-salvar'
 import { ATRIBUTO_GAVETA, GavetaLateral, ehEscDaGaveta } from './desenho-bpmn/gaveta'
-import { CanvasBpmn } from './desenho-bpmn/canvas-bpmn'
+import { CanvasBpmn, modeloDeExportacao } from './desenho-bpmn/canvas-bpmn'
 import { PaletaBpmn } from './desenho-bpmn/paleta'
 import { MenuMais, NomeNoTopo, SobreDoWorkflow, tamanhoDoNome, useNivelDoTopo } from './desenho-bpmn/topo'
 import { cn } from '@/lib/utils'
@@ -70,7 +70,7 @@ export interface FlowInitial {
   name: string
   description?: string | null
   kind?: string | null
-  /** ATIVO: gravar mudança devolve o workflow a rascunho (o "gravar ao sair" avisa) */
+  /** ATIVO: gravar mudança no FLUXO devolve o workflow a rascunho (o "gravar ao sair" avisa); só desenho, não */
   status?: string
   bpmnXml: string
   steps: StepFormSchema[]
@@ -743,6 +743,17 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   if (realinharLimpo.current && desenho) { limpoRef.current = assinatura; realinharLimpo.current = false }
   const sujo = !somenteLeitura && assinatura !== limpoRef.current
   const ativoNoServidor = initial?.status === 'ACTIVE'
+  /* Só mudar o FLUXO devolve um workflow ativo a rascunho; arrumar o desenho (posições,
+     raias, ordem das raias), o nome ou o tipo não (PO, 30/10/2026 — `mudaOFluxo` na API).
+     Esta assinatura deixa o desenho de fora para o aviso dizer a verdade. */
+  const assinaturaFluxo = useMemo(
+    () => (fluxo ? JSON.stringify({ quemInicia, fluxo: comNomes(fluxo, steps), steps }) : ''),
+    [quemInicia, fluxo, steps],
+  )
+  const assinaturaFluxoRef = useRef(assinaturaFluxo)
+  assinaturaFluxoRef.current = assinaturaFluxo
+  const limpoFluxoRef = useRef<string>(assinaturaFluxo)
+  const voltaARascunho = sujo && ativoNoServidor && assinaturaFluxo !== limpoFluxoRef.current
 
   /* ─── Abertura do desenho e posições que faltam ──────────────────────────────
      Sem desenho gravado (workflow anterior ao desenho BPMN, ou novo), ele nasce de
@@ -789,6 +800,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const persist = useCallback(async (confirmarReducao?: boolean, auto?: { keepalive?: boolean }): Promise<string> => {
     if (!fluxo) throw new Error('Workflow do editor antigo: aberto só para leitura.')
     const assinaturaGravada = assinaturaRef.current
+    const fluxoGravado = assinaturaFluxoRef.current
     const bpmnXml = generateBpmn(buildWfGraph(nodes, edges))
     const stepsVivos = nodes.filter((n) => isActivity(n.type) && n.step).map((n) => ({ ...n.step!, stepId: n.id, stepName: n.step!.stepName, stepType: n.type as 'userTask' | 'serviceTask' }))
     // grafo GERADO (a API valida e compila por ele; telas de leitura o desenham)
@@ -816,11 +828,13 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       }
       if (!res.ok) throw new Error('Erro ao salvar')
       limpoRef.current = assinaturaGravada
+      limpoFluxoRef.current = fluxoGravado
       return initial!.id
     }
     const res = await apiFetch(`/api/processes`, { method: 'POST', body, keepalive })
     if (!res.ok) throw new Error('Erro ao salvar')
     limpoRef.current = assinaturaGravada
+    limpoFluxoRef.current = fluxoGravado
     return (await res.json()).id as string
   }, [editing, initial, name, description, kind, quemInicia, fluxo, stepsEfetivos, nodes, edges, laneOrder, desenhoVisto])
 
@@ -921,6 +935,19 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
   // Monta o modelo do grafo (posições da raia + textos) para o exportador desenhar em 2D.
   const buildExportModel = useCallback((): ExportModel => {
+    /* O arquivo é o que está na TELA: no desenho BPMN, as posições, raias e setas dele (os
+       textos vêm da mesma fonte do cartão); em "Ver por raia", a vista por raia, abaixo. */
+    if (vista === 'desenho' && grafo && desenhoVisto) {
+      return modeloDeExportacao(grafo, desenhoVisto, (g) => {
+        const n = nodeById[g.id]
+        if (isActivity(g.type)) {
+          const meta = n ? metaDaAtividade(n, resolvePapel, resolveEntidade).map((m) => m.text) : []
+          return { name: n?.step?.stepName || 'Sem nome', typeLabel: g.type === 'serviceTask' ? 'Ação automática' : 'Tarefa', meta }
+        }
+        if (g.type === 'exclusiveGateway' || g.type === 'parallelGateway' || g.type === 'inclusiveGateway') return { name: g.name ?? '', isFork: !!g.name }
+        return { name: g.name || (g.type === 'start' ? 'Início' : g.type === 'end' ? 'Fim' : '') }
+      })
+    }
     const enodes: ExportNode[] = nodes.map((n) => {
       const p = layout.nodes[n.id]
       const base = { id: n.id, type: n.type, x: p.x, y: p.y, w: p.w, h: p.h }
@@ -945,7 +972,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       }
     })
     return { width: layout.width, height: layout.height, nodes: enodes, edges: eedges, lanes: layout.lanes }
-  }, [nodes, edges, layout, nodeById, resolvePapel, resolveEntidade])
+  }, [nodes, edges, layout, nodeById, resolvePapel, resolveEntidade, vista, grafo, desenhoVisto])
 
   // Exporta o desenho atual (edições ao vivo, sem precisar salvar) como JPG ou PDF.
   const handleExport = useCallback(async (format: FlowExportFormat) => {
@@ -1006,7 +1033,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const [sobreAberto, setSobreAberto] = useState(false)
   const [maisAberto, setMaisAberto] = useState(false)
   const nivelTopo = useNivelDoTopo(topoRef, [
-    tamanhoDoNome(name), !name.trim(), sujo, ativoNoServidor, pendencias.length, bloqueantes(pendencias).length, kind,
+    tamanhoDoNome(name), !name.trim(), sujo, voltaARascunho, pendencias.length, bloqueantes(pendencias).length, kind,
     exportError ?? '', editing,
     // fechar um balão do topo remede desde o 0 (o que mudou com ele aberto — ex.: "Quem inicia" — conta)
     quemIniciaAberto || sobreAberto || maisAberto,
@@ -1038,12 +1065,14 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         {exportError && <span className="shrink-0 text-[11px] text-destructive font-medium">{exportError}</span>}
         {/* Frase CURTA: o detalhe fica no title. */}
         {sujo && (
-          <span className={cn('inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px]', ativoNoServidor ? 'font-medium text-amber-800 dark:text-amber-300' : 'text-muted-foreground')}
-            title={ativoNoServidor
+          <span className={cn('inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px]', voltaARascunho ? 'font-medium text-amber-800 dark:text-amber-300' : 'text-muted-foreground')}
+            title={voltaARascunho
               ? 'Alterações não salvas. Ao sair, gravam sozinhas e o workflow volta a rascunho — sai do "Novo processo" até ser reativado. Processos em andamento não são afetados.'
-              : 'Alterações não salvas. Gravam sozinhas ao sair.'}>
+              : ativoNoServidor
+                ? 'Alterações não salvas, só no desenho. Gravam sozinhas ao sair e o workflow continua ativo.'
+                : 'Alterações não salvas. Gravam sozinhas ao sair.'}>
             <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-            <span className={nivelTopo >= 5 ? 'sr-only' : undefined}>{ativoNoServidor ? 'Não salvo · volta a rascunho' : 'Não salvo'}</span>
+            <span className={nivelTopo >= 5 ? 'sr-only' : undefined}>{voltaARascunho ? 'Não salvo · volta a rascunho' : 'Não salvo'}</span>
           </span>
         )}
         <div className="flex shrink-0 items-center rounded-md border bg-card shadow-sm">
