@@ -1449,3 +1449,11 @@
     --e-0A110D: #000000;
   }
 }
+
+/* Cursor no desenho BPMN: o React Flow usa a "mãozinha" (grab), que no Windows é BRANCA e
+   some sobre o fundo claro do desenho. Aqui, como no Bizagi: seta no vazio, cursor de mover
+   sobre o que se arrasta e durante o arrasto. */
+.desenho-bpmn .react-flow__pane.draggable { cursor: default; }
+.desenho-bpmn .react-flow__pane.dragging,
+.desenho-bpmn .react-flow__node.draggable,
+.desenho-bpmn .react-flow__node.draggable.dragging { cursor: move; }

@@ -694,7 +694,7 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   const ACAO = 'flex h-[22px] w-[26px] items-center justify-center rounded-md border-0 bg-transparent hover:bg-[rgba(20,36,32,0.06)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--e-11804F)] dark:hover:bg-white/5 dark:focus-visible:outline-spark'
 
   return (
-    <div className="relative h-full w-full font-sans [--bpmn-seta:var(--e-5E6F66)] [--bpmn-seta-destaque:var(--e-11804F)] dark:[--bpmn-seta:var(--e-7B8F84)] dark:[--bpmn-seta-destaque:var(--e-C6F24E)]"
+    <div className="desenho-bpmn relative h-full w-full font-sans [--bpmn-seta:var(--e-5E6F66)] [--bpmn-seta-destaque:var(--e-11804F)] dark:[--bpmn-seta:var(--e-7B8F84)] dark:[--bpmn-seta-destaque:var(--e-C6F24E)]"
       onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop} onKeyDown={teclaNaForma}>
       {/* pontas das setas, uma vez por canvas; a cor vem da mesma variável do traço */}
       <svg aria-hidden className="absolute h-0 w-0">
