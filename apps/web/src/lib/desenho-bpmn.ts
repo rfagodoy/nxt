@@ -2,8 +2,8 @@
    Posições iniciais, "organizar", raias e acerto de pontos. Sem React: a tela só
    desenha o que estas funções calculam. O desenho é VISUAL; a verdade continua
    sendo o fluxo em blocos. */
-import type { DesenhoBpmn, RaiaDesenho } from '@nxt/types'
-import { SUFIXO_REENCONTRO, type GrafoGerado, type ItemFluxo } from '@nxt/workflow-core'
+import type { DesenhoBpmn, DesenhoV2, FormaDesenho, RaiaDesenho, SetaDesenho } from '@nxt/types'
+import { SUFIXO_REENCONTRO, semIdsReservados, type GrafoGerado, type ItemFluxo } from '@nxt/workflow-core'
 import { layoutGraph, nodeSize, LANE_SEM_RESPONSAVEL, type FlowGraph, type FlowNodeType } from '@/lib/flow-layout'
 
 export const GRADE = 16
@@ -384,4 +384,101 @@ export function posicoesAoMover(d: DesenhoBpmn, ids: Iterable<string>): DesenhoB
   for (const id of ids) { fora.add(id); fora.add(id + SUFIXO_REENCONTRO) }
   if (!fora.size) return d
   return { ...d, posicoes: Object.fromEntries(Object.entries(d.posicoes).filter(([id]) => !fora.has(id))) }
+}
+
+/* ─── Setas livres (desenho v2, PO 30/10/2026) ──────────────────────────────────
+   Na hora de desenhar só se recusa o que não faz sentido em desenho nenhum; o resto é
+   aceito e a verificação (o conversor) diz o que o motor não executa. */
+
+/** `null` = pode ligar; senão, a frase. */
+export function podeLigar(d: DesenhoV2, de: string, para: string): string | null {
+  const tipo = (id: string) => d.formas.find((f) => f.id === id)?.tipo
+  if (tipo(para) === 'start') return 'Nenhuma seta pode chegar no Início.'
+  if (tipo(de) === 'end') return 'O Fim não tem saída.'
+  if (de === para) return 'Uma seta não pode sair e chegar na mesma forma.'
+  if (d.setas.some((s) => s.de === de && s.para === para)) return 'Já existe uma seta entre essas duas formas.'
+  return null
+}
+
+/** Id de seta novo: válido como id de caminho (um caminho de escolha usa o id da seta). */
+function idDeSeta(d: DesenhoV2): string {
+  const usados = new Set(d.setas.map((s) => s.id))
+  for (;;) {
+    const id = `Seta_${Math.random().toString(36).slice(2, 9)}`
+    if (!usados.has(id)) return id
+  }
+}
+
+export function ligar(d: DesenhoV2, de: string, para: string): DesenhoV2 {
+  if (podeLigar(d, de, para)) return d
+  const seta: SetaDesenho = { id: idDeSeta(d), de, para }
+  // uma 2ª saída no losango que junta gerado pelo Roteiro: ele passa a dividir (id livre)
+  return semIdsReservados({ ...d, setas: [...d.setas, seta] })
+}
+
+export function religar(d: DesenhoV2, setaId: string, para: string): DesenhoV2 {
+  const s = d.setas.find((x) => x.id === setaId)
+  if (!s || s.para === para || podeLigar({ ...d, setas: d.setas.filter((x) => x.id !== setaId) }, s.de, para)) return d
+  return { ...d, setas: d.setas.map((x) => (x.id === setaId ? { ...x, para } : x)) }
+}
+
+/** A ponta de SAÍDA arrastada para outra forma (PO, 30/10/2026: religar pelas duas pontas).
+ *  A seta é a mesma: condição e rótulo vão junto. */
+export function religarSaida(d: DesenhoV2, setaId: string, de: string): DesenhoV2 {
+  const s = d.setas.find((x) => x.id === setaId)
+  if (!s || s.de === de || podeLigar({ ...d, setas: d.setas.filter((x) => x.id !== setaId) }, de, s.para)) return d
+  return semIdsReservados({ ...d, setas: d.setas.map((x) => (x.id === setaId ? { ...x, de } : x)) })
+}
+
+/** Condição, especificação e rótulo de uma seta (o caminho de uma escolha mora nela). */
+export function atualizarSeta(d: DesenhoV2, setaId: string, patch: Partial<Pick<SetaDesenho, 'condition' | 'conditionSpec' | 'rotulo'>>): DesenhoV2 {
+  if (!d.setas.some((s) => s.id === setaId)) return d
+  return { ...d, setas: d.setas.map((s) => (s.id === setaId ? { ...s, ...patch } : s)) }
+}
+
+export function apagarSeta(d: DesenhoV2, setaId: string): DesenhoV2 {
+  return { ...d, setas: d.setas.filter((s) => s.id !== setaId) }
+}
+
+/** Forma nova vinda da paleta. Sobre uma seta, ela entra no meio: a seta passa a chegar
+ *  nela (com o id, a condição e o rótulo de antes — é o mesmo caminho) e uma seta nova
+ *  segue dela para o destino antigo. Em área vazia, fica solta até alguém ligá-la. */
+export function soltarForma(d: DesenhoV2, forma: FormaDesenho, posicao: { x: number; y: number }, sobreSeta?: string): DesenhoV2 {
+  const comForma = { ...d, formas: [...d.formas, forma], posicoes: { ...d.posicoes, [forma.id]: posicao } }
+  const s = sobreSeta ? d.setas.find((x) => x.id === sobreSeta) : undefined
+  if (!s) return comForma
+  const depois: SetaDesenho = { id: idDeSeta(d), de: forma.id, para: s.para }
+  return { ...comForma, setas: [...d.setas.map((x) => (x.id === s.id ? { ...x, para: forma.id } : x)), depois] }
+}
+
+/** Apaga a forma, as setas dela e a posição. Início e Fim não se apagam. `costurar`: a
+ *  ETAPA de uma chegada e uma saída sai da sequência sem abrir buraco — a seta que chegava
+ *  nela passa a ir para onde ela ia (como o editor sempre fez ao excluir uma etapa). */
+export function apagarForma(d: DesenhoV2, id: string, costurar = false): DesenhoV2 {
+  const f = d.formas.find((x) => x.id === id)
+  if (!f || f.tipo === 'start' || f.tipo === 'end') return d
+  const posicoes = { ...d.posicoes }
+  delete posicoes[id]
+  const chegam = d.setas.filter((s) => s.para === id), saem = d.setas.filter((s) => s.de === id)
+  const etapa = f.tipo === 'userTask' || f.tipo === 'serviceTask'
+  const costura = costurar && etapa && chegam.length === 1 && saem.length === 1 && chegam[0].de !== saem[0].para
+    && !d.setas.some((s) => s.de === chegam[0].de && s.para === saem[0].para)
+    ? { ...chegam[0], para: saem[0].para } : null
+  const setas = d.setas.flatMap((s) => (costura && s.id === costura.id ? [costura] : s.de !== id && s.para !== id ? [s] : []))
+  return { ...d, formas: d.formas.filter((x) => x.id !== id), setas, posicoes }
+}
+
+/** Recusa da ativação por desenho que não converte (400): além das frases, a API devolve os
+ *  culpados de cada uma (`problemas`, com formas e setas). A primeira frase com culpado vira
+ *  a pendência que o editor destaca; `null` = nada a destacar (outra recusa qualquer). */
+export function pendenciaDaRecusa(corpo: unknown): { tipo: string; nodeId?: string; mensagem: string; setas: string[] } | null {
+  const problemas = (corpo as { problemas?: unknown } | null)?.problemas
+  if (!Array.isArray(problemas)) return null
+  for (const p of problemas as Array<{ tipo?: unknown; mensagem?: unknown; formas?: unknown; setas?: unknown }>) {
+    const formas = Array.isArray(p?.formas) ? p.formas.filter((x): x is string => typeof x === 'string') : []
+    const setas = Array.isArray(p?.setas) ? p.setas.filter((x): x is string => typeof x === 'string') : []
+    if (!formas.length && !setas.length) continue
+    return { tipo: String(p.tipo ?? ''), ...(formas.length ? { nodeId: formas[0] } : {}), mensagem: String(p.mensagem ?? ''), setas }
+  }
+  return null
 }

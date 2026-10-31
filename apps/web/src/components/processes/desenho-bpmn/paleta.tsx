@@ -3,8 +3,9 @@
 /* ─── Paleta de formas do desenho BPMN ─────────────────────────────────────────
    Barra vertical à esquerda do canvas. Tarefa, Automática, Escolha e Ao mesmo tempo
    são arrastadas para o desenho (o tipo vai no `dataTransfer` em `TIPO_ARRASTO_FORMA`);
-   o canvas decide onde a forma entra. Pelo clique ou pelo teclado (Enter/espaço) a forma
-   vai para `onEscolher`, e a página decide a vaga (depois do item selecionado ou no fim).
+   sobre uma seta a forma entra no meio dela; em área vazia, fica solta. Escolha e Ao mesmo
+   tempo são UM losango (quem junta é outro, desenhado à mão). Pelo clique ou pelo teclado
+   (Enter/espaço) a forma vai para `onEscolher`, e a página a põe depois da selecionada.
    "Raia" é clique. A página monta a paleta ao lado do canvas, como no mockup. */
 import type { DragEvent, JSX, ReactNode } from 'react'
 import type { NovoItem } from '@/components/processes/workflow-blocos'

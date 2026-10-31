@@ -80,9 +80,9 @@ function alcancaveis(origens: string[], edges: EdgeLike[], reverso = false): Set
  *    gateway tem saída — e, agora, o início ALCANÇA de fato o que desenhou. Grau de
  *    entrada/saída não bastava: um punhado de atividades ligadas entre si, mas longe
  *    do início, passava na checagem antiga e nunca executaria.
- * 2. CAMINHO ATÉ O FIM: basta UM caminho do início ao evento de fim para ativar
- *    (erro se não houver nenhum). Atividade que executa mas não leva ao fim é
- *    legítima — vira AVISO: ela roda, e o processo simplesmente não termina por ela.
+ * 2. CAMINHO ATÉ O FIM: toda atividade alcançada precisa levar ao evento de fim
+ *    (PO, 30/10/2026 — antes, de 27/08, era só aviso). No desenho livre, uma etapa que
+ *    não leva ao Fim costuma ser uma seta esquecida: impede ativar, nomeando a etapa.
  */
 export function validarDesenho(nodes: NodeLike[], edges: EdgeLike[]): ProblemaAtivacao[] {
   const problemas: ProblemaAtivacao[] = []
@@ -128,14 +128,15 @@ export function validarDesenho(nodes: NodeLike[], edges: EdgeLike[]): ProblemaAt
     }
   }
 
-  // Executa, mas não termina o processo: AVISO (a partir daqui é desenho válido).
+  // Executa, mas não termina o processo: IMPEDE ativar (PO, 30/10/2026 — desenho livre:
+  // no desenho, uma etapa que não leva ao Fim costuma ser uma seta esquecida).
   for (const n of nodes) {
     if (n.type === 'start' || n.type === 'end') continue
     if (jaCulpado.has(n.id) || !doInicio.has(n.id) || chegamAoFim.has(n.id)) continue
     const semSaida = !edges.some((e) => e.from === n.id)
     problemas.push(semSaida
-      ? { tipo: 'sem-saida', severidade: 'aviso', nodeId: n.id, rotulo: nomeCurto(n), mensagem: `${rotuloLongo(n)} será executada, mas o processo não termina por ela: ela não leva a lugar nenhum. Se ela deve encerrar o processo, ligue-a ao evento de fim.` }
-      : { tipo: 'nao-alcanca-fim', severidade: 'aviso', nodeId: n.id, rotulo: nomeCurto(n), mensagem: `${rotuloLongo(n)} será executada, mas nenhum caminho a partir dela chega ao evento de fim — o processo não termina por esse lado.` })
+      ? { tipo: 'sem-saida', nodeId: n.id, rotulo: nomeCurto(n), mensagem: `${rotuloLongo(n)} será executada, mas o processo não termina por ela: ela não leva a lugar nenhum. Se ela deve encerrar o processo, ligue-a ao evento de fim.` }
+      : { tipo: 'nao-alcanca-fim', nodeId: n.id, rotulo: nomeCurto(n), mensagem: `${rotuloLongo(n)} será executada, mas nenhum caminho a partir dela chega ao evento de fim — o processo não termina por esse lado.` })
   }
 
   // ── junção paralela que nunca sincroniza ────────────────────────────────────

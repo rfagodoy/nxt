@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import type { GrafoGerado } from '@nxt/workflow-core'
-import type { DesenhoBpmn } from '@nxt/types'
+import type { DesenhoBpmn, DesenhoV2 } from '@nxt/types'
 import { nodeSize } from './flow-layout'
 import {
   GRADE, RAIA_ALTURA_PADRAO, RAIA_ALTURA_MINIMA, RAIA_ALTURA_MAXIMA, desenhoInicial, organizar, completarPosicoes, raiaNaAltura, avisoDeRaia, setaSobPonto, polilinhaDaSeta,
   adicionarRaia, renomearRaia, redimensionarRaia, moverRaia, removerRaia, abrirEspaco, larguraDaInsercao, reordenarNoDesenho, pontoDoRotuloNaPolilinha,
-  formasDoItem, posicoesAoMover,
+  formasDoItem, posicoesAoMover, podeLigar, ligar, religar, apagarSeta, apagarForma, soltarForma, atualizarSeta, religarSaida,
+  pendenciaDaRecusa,
 } from './desenho-bpmn'
 
 const no = (id: string, type: string) => ({ id, type }) as GrafoGerado['nodes'][number]
@@ -392,5 +393,140 @@ describe('posicoesAoMover', () => {
   })
   it('sem ids, devolve igual', () => {
     expect(posicoesAoMover(d, []).posicoes).toEqual(d.posicoes)
+  })
+})
+
+describe('setas livres (desenho v2)', () => {
+  const doc = (): DesenhoV2 => ({
+    versao: 2, posicoes: {}, raias: [],
+    formas: [{ id: 'start', tipo: 'start' }, { id: 'a1', tipo: 'userTask' }, { id: 'a2', tipo: 'userTask' }, { id: 'end', tipo: 'end' }],
+    setas: [{ id: 's1', de: 'start', para: 'a1' }, { id: 's2', de: 'a1', para: 'a2' }, { id: 's3', de: 'a2', para: 'end' }],
+  })
+  it('podeLigar recusa só o que não faz sentido em desenho nenhum', () => {
+    expect(podeLigar(doc(), 'a1', 'start')).toBe('Nenhuma seta pode chegar no Início.')
+    expect(podeLigar(doc(), 'end', 'a1')).toBe('O Fim não tem saída.')
+    expect(podeLigar(doc(), 'a1', 'a1')).toBe('Uma seta não pode sair e chegar na mesma forma.')
+    expect(podeLigar(doc(), 'a1', 'a2')).toBe('Já existe uma seta entre essas duas formas.')
+    expect(podeLigar(doc(), 'a2', 'a1')).toBeNull()
+  })
+  it('ligar cria uma seta nova com id válido e único', () => {
+    const d = ligar(ligar(doc(), 'a2', 'a1'), 'a1', 'end')
+    const novas = d.setas.slice(3)
+    expect(novas.map((s) => [s.de, s.para])).toEqual([['a2', 'a1'], ['a1', 'end']])
+    expect(new Set(d.setas.map((s) => s.id)).size).toBe(5)
+    for (const s of novas) expect(s.id).toMatch(/^[A-Za-z_][A-Za-z0-9_.-]*$/)
+    for (const s of novas) expect(s.id.endsWith('__fim')).toBe(false)
+  })
+  it('religar muda só o destino', () => {
+    const d = religar(doc(), 's2', 'end')
+    expect(d.setas.find((s) => s.id === 's2')).toEqual({ id: 's2', de: 'a1', para: 'end' })
+  })
+  it('apagarSeta tira só aquela seta', () => {
+    expect(apagarSeta(doc(), 's2').setas.map((s) => s.id)).toEqual(['s1', 's3'])
+  })
+  it('apagarForma leva as setas dela e a posição', () => {
+    const d = apagarForma({ ...doc(), posicoes: { a1: { x: 1, y: 1 } } }, 'a1')
+    expect(d.formas.map((f) => f.id)).toEqual(['start', 'a2', 'end'])
+    expect(d.setas.map((s) => s.id)).toEqual(['s3'])
+    expect(d.posicoes).toEqual({})
+  })
+  it('apagarForma costurando: etapa de uma chegada e uma saída — a chegada segue para o destino dela', () => {
+    const d = apagarForma(doc(), 'a1', true)
+    expect(d.setas).toEqual([{ id: 's1', de: 'start', para: 'a2' }, { id: 's3', de: 'a2', para: 'end' }])
+  })
+  it('apagarForma costurando não costura losango nem cria seta repetida', () => {
+    const comLosango: DesenhoV2 = { ...doc(), formas: [...doc().formas, { id: 'L', tipo: 'exclusiveGateway' }],
+      setas: [{ id: 's1', de: 'start', para: 'L' }, { id: 'sL', de: 'L', para: 'a2' }, { id: 's3', de: 'a2', para: 'end' }] }
+    expect(apagarForma(comLosango, 'L', true).setas.map((s) => s.id)).toEqual(['s3'])
+    const repetida: DesenhoV2 = { ...doc(), setas: [...doc().setas, { id: 'sx', de: 'start', para: 'a2' }] }
+    expect(apagarForma(repetida, 'a1', true).setas.map((s) => s.id)).toEqual(['s3', 'sx'])
+  })
+})
+
+describe('soltarForma', () => {
+  const base = (): DesenhoV2 => ({
+    versao: 2,
+    formas: [{ id: 'start', tipo: 'start' }, { id: 'e1', tipo: 'exclusiveGateway' }, { id: 'a1', tipo: 'userTask' }, { id: 'end', tipo: 'end' }],
+    setas: [{ id: 's0', de: 'start', para: 'e1' }, { id: 'c1', de: 'e1', para: 'a1', condition: 'x', rotulo: 'Sim' }, { id: 's2', de: 'a1', para: 'end' }],
+    posicoes: {}, raias: [],
+  })
+  it('em área vazia: a forma entra solta, na posição', () => {
+    const d = soltarForma(base(), { id: 'L', tipo: 'parallelGateway' }, { x: 40, y: 80 })
+    expect(d.formas.map((f) => f.id)).toContain('L')
+    expect(d.posicoes.L).toEqual({ x: 40, y: 80 })
+    expect(d.setas).toEqual(base().setas)
+  })
+  it('sobre uma seta: divide a seta e a condição fica na primeira metade', () => {
+    const d = soltarForma(base(), { id: 'n', tipo: 'userTask' }, { x: 0, y: 0 }, 'c1')
+    const primeira = d.setas.find((s) => s.id === 'c1')
+    expect(primeira).toEqual({ id: 'c1', de: 'e1', para: 'n', condition: 'x', rotulo: 'Sim' })
+    const segunda = d.setas.find((s) => s.de === 'n')
+    expect(segunda).toMatchObject({ para: 'a1' })
+    expect(segunda?.condition).toBeUndefined()
+    expect(segunda?.id).not.toBe('c1')
+    expect(d.setas).toHaveLength(4)
+  })
+})
+
+describe('atualizarSeta', () => {
+  const d: DesenhoV2 = {
+    versao: 2, formas: [], posicoes: {}, raias: [],
+    setas: [{ id: 'c1', de: 'e1', para: 'a1', condition: 'x', rotulo: 'Sim' }, { id: 'c2', de: 'e1', para: 'a2' }],
+  }
+  it('grava condição, especificação e rótulo só na seta pedida', () => {
+    const spec = { logic: 'AND', rules: [] } as unknown as NonNullable<DesenhoV2['setas'][number]['conditionSpec']>
+    const n = atualizarSeta(d, 'c2', { condition: 'y', conditionSpec: spec, rotulo: 'Não' })
+    expect(n.setas[1]).toEqual({ id: 'c2', de: 'e1', para: 'a2', condition: 'y', conditionSpec: spec, rotulo: 'Não' })
+    expect(n.setas[0]).toBe(d.setas[0])
+  })
+  it('seta que não existe: devolve o mesmo desenho', () => {
+    expect(atualizarSeta(d, 'nada', { rotulo: 'x' })).toBe(d)
+  })
+})
+
+describe('religarSaida', () => {
+  const d: DesenhoV2 = {
+    versao: 2, posicoes: {}, raias: [],
+    formas: [{ id: 'start', tipo: 'start' }, { id: 'e1', tipo: 'exclusiveGateway' }, { id: 'a1', tipo: 'userTask' }, { id: 'a2', tipo: 'userTask' }, { id: 'end', tipo: 'end' }],
+    setas: [{ id: 'c1', de: 'e1', para: 'a2', condition: 'x', rotulo: 'Sim' }, { id: 's2', de: 'a1', para: 'end' }],
+  }
+  it('muda a forma de onde a seta sai; a condição vai junto', () => {
+    expect(religarSaida(d, 'c1', 'a1').setas[0]).toEqual({ id: 'c1', de: 'a1', para: 'a2', condition: 'x', rotulo: 'Sim' })
+  })
+  it('recusa saída do Fim, laço na mesma forma e seta repetida', () => {
+    expect(religarSaida(d, 'c1', 'end')).toBe(d)
+    expect(religarSaida(d, 'c1', 'a2')).toBe(d)
+    expect(religarSaida({ ...d, setas: [...d.setas, { id: 'x', de: 'a1', para: 'a2' }] }, 'c1', 'a1').setas[0].de).toBe('e1')
+  })
+})
+
+describe('pendenciaDaRecusa (recusa da ativação com os culpados)', () => {
+  it('a primeira frase com culpado vira pendência: a forma é o nó, e as setas vêm junto', () => {
+    const corpo = { message: 'x y', problemas: [
+      { tipo: 'inicio-fim', mensagem: 'x', formas: [], setas: [] },
+      { tipo: 'saidas-multiplas', mensagem: 'y', formas: ['a1'], setas: ['s2', 's3'] },
+    ] }
+    expect(pendenciaDaRecusa(corpo)).toEqual({ tipo: 'saidas-multiplas', nodeId: 'a1', mensagem: 'y', setas: ['s2', 's3'] })
+  })
+  it('sem culpados (ou outra recusa qualquer): nada a destacar', () => {
+    expect(pendenciaDaRecusa({ message: 'Informe o tipo do workflow' })).toBeNull()
+    expect(pendenciaDaRecusa({ message: 'x', problemas: [{ tipo: 't', mensagem: 'x', formas: [], setas: [] }] })).toBeNull()
+    expect(pendenciaDaRecusa(null)).toBeNull()
+  })
+})
+
+describe('ligar/religarSaida: o losango que junta gerado pelo Roteiro passa a dividir', () => {
+  const d: DesenhoV2 = {
+    versao: 2, posicoes: {}, raias: [],
+    formas: [{ id: 'start', tipo: 'start' }, { id: 'E__fim', tipo: 'exclusiveGateway', junta: true }, { id: 'a', tipo: 'userTask' }, { id: 'b', tipo: 'userTask' }, { id: 'end', tipo: 'end' }],
+    setas: [{ id: 's1', de: 'start', para: 'E__fim' }, { id: 's2', de: 'E__fim', para: 'a' }, { id: 's3', de: 'a', para: 'end' }, { id: 's4', de: 'b', para: 'end' }],
+  }
+  it('ligar uma segunda saída troca o id reservado', () => {
+    const r = ligar(d, 'E__fim', 'b')
+    expect(r.formas.map((f) => f.id)).toContain('E_divide')
+    expect(r.setas.filter((s) => s.de === 'E_divide').map((s) => s.para)).toEqual(['a', 'b'])
+  })
+  it('religar a saída de outra seta para ele também', () => {
+    expect(religarSaida(d, 's4', 'E__fim').formas.map((f) => f.id)).toContain('E_divide')
   })
 })

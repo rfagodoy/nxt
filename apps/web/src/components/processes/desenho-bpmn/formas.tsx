@@ -32,7 +32,8 @@ export type DadosLosango = { tipo: TipoLosango; nome?: string; reencontro: boole
 export type DadosEvento = { tipo: 'inicio' | 'fim'; problemas: string[] }
 export type DadosRaia = { id: string; nome: string; largura: number; altura: number; indice: number; primeira: boolean; ultima: boolean }
 export type DadosPiscina = { nome: string; altura: number }
-export type DadosSeta = { rotulo?: string; senao: boolean; /** Seta sob o ponteiro durante um arrasto: a forma entra aqui. */ destacada?: boolean }
+export type DadosSeta = { rotulo?: string; senao: boolean; /** Seta sob o ponteiro durante um arrasto: a forma entra aqui. */ destacada?: boolean
+  /** Culpada da pendência escolhida na pílula: vermelho tracejado, como a seta recusada. */ problema?: boolean }
 
 export type NoTarefa = Node<DadosTarefa, 'tarefa'>
 export type NoLosango = Node<DadosLosango, 'losango'>
@@ -431,7 +432,7 @@ export function pontoDoRotulo(caminho: string): { x: number; y: number } | null 
   return pontoDoRotuloNaPolilinha(pts)
 }
 
-export function SetaComRotulo({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, markerEnd }: EdgeProps<SetaBpmn>) {
+export function SetaComRotulo({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, markerEnd, selected }: EdgeProps<SetaBpmn>) {
   const [caminho, mx, my] = getSmoothStepPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, borderRadius: 0, offset: 20 })
   const perto = pontoDoRotulo(caminho)
   const lx = perto?.x ?? mx, ly = perto?.y ?? my
@@ -440,7 +441,9 @@ export function SetaComRotulo({ sourceX, sourceY, targetX, targetY, sourcePositi
   return (
     <>
       <BaseEdge path={caminho} markerEnd={markerEnd}
-        style={data?.destacada
+        style={data?.problema
+          ? { stroke: '#D64535', strokeWidth: 2.4, strokeDasharray: '6 5', strokeLinejoin: 'round' }
+          : data?.destacada || selected
           ? { stroke: 'var(--bpmn-seta-destaque)', strokeWidth: 3, strokeLinejoin: 'round' }
           : { stroke: 'var(--bpmn-seta)', strokeWidth: 1.6, strokeLinejoin: 'round' }} />
       {rotulo && (

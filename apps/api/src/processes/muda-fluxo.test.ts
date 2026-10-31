@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { mudaOFluxo } from './processes.service'
+import { blocosParaDesenho, desenhoParaBlocos } from '@nxt/workflow-core'
 
 /* Decisão do PO (30/10/2026): arrumar o DESENHO de um workflow ativo (posições, raias,
    ordem das raias) não o devolve a rascunho. Só o que muda o que o motor executa conta. */
@@ -44,5 +45,50 @@ describe('mudaOFluxo', () => {
 
   it('gravação sem diagrama nem campos (só renomear) não muda o fluxo', () => {
     expect(mudaOFluxo(antes, {})).toBe(false)
+  })
+})
+
+describe('mudaOFluxo — desenho v2 (desenho livre)', () => {
+  const v2 = (setas: Array<{ id: string; de: string; para: string }>, posA = { x: 1, y: 1 }) => ({
+    versao: 2, formas: [{ id: 'i', tipo: 'start' }, { id: 'a', tipo: 'userTask' }, { id: 'f', tipo: 'end' }],
+    setas, posicoes: { a: posA }, raias: [],
+  })
+  const setas = [{ id: 's1', de: 'i', para: 'a' }, { id: 's2', de: 'a', para: 'f' }]
+  const comV2 = { ...base, desenho: v2(setas) }
+  const antesV2 = { bpmnXml: '<x/>', formSchema: comV2 }
+
+  it('só mover formas no v2 NÃO muda o fluxo', () => {
+    expect(mudaOFluxo(antesV2, { formSchema: { ...comV2, desenho: v2(setas, { x: 500, y: 300 }) } })).toBe(false)
+  })
+  it('mudar uma seta do v2 MUDA o fluxo', () => {
+    expect(mudaOFluxo(antesV2, { formSchema: { ...comV2, desenho: v2([setas[0]]) } })).toBe(true)
+  })
+})
+
+describe('mudaOFluxo — 1º salvamento de um ativo em blocos que abriu como desenho v2', () => {
+  /* Revisão final (30/10/2026): o editor migra o workflow em blocos para o desenho v2 ao
+     abrir; o 1º salvamento traz o desenho v2, um grafo com o losango que junta e o id do
+     "senão" vazio regenerado. Nada disso muda o que o motor executa. */
+  const fluxoAntes = {
+    versao: 1, inicioId: 'i', fimId: 'f', itens: [
+      { kind: 'atividade', id: 'a', tipo: 'userTask' },
+      { kind: 'escolha', id: 'e', modo: 'primeiro', caminhos: [{ id: 'c1', condition: 'x', itens: [{ kind: 'atividade', id: 'b', tipo: 'userTask' }], fim: { tipo: 'segue' } }],
+        casoContrario: { id: 'cc_antigo', itens: [], fim: { tipo: 'segue' } } },
+    ],
+  }
+  const steps = [{ stepId: 'a', stepName: 'A', stepType: 'userTask', fields: [] }, { stepId: 'b', stepName: 'B', stepType: 'userTask', fields: [] }]
+  const antigo = { bpmnXml: '<x/>', formSchema: { steps, blocos: fluxoAntes, graph: { nodes: [], edges: [] }, desenho: { versao: 1, posicoes: { a: { x: 0, y: 0 } }, raias: [] } } }
+  const migrado = (condicao: string) => {
+    const desenho = blocosParaDesenho(fluxoAntes as never, { posicoes: { a: { x: 40, y: 0 } }, raias: [] })
+    desenho.setas = desenho.setas.map((s) => (s.id === 'c1' ? { ...s, condition: condicao } : s))
+    const c = desenhoParaBlocos(desenho)
+    if (!c.ok) throw new Error(c.problemas[0].mensagem)
+    return { steps, blocos: c.fluxo, graph: { nodes: [{ id: 'e__fim' }], edges: [] }, desenho }
+  }
+  it('só abrir e mover uma forma: continua ativo', () => {
+    expect(mudaOFluxo(antigo, { formSchema: migrado('x') })).toBe(false)
+  })
+  it('mudar a condição de um caminho: volta a rascunho', () => {
+    expect(mudaOFluxo(antigo, { formSchema: migrado('y') })).toBe(true)
   })
 })

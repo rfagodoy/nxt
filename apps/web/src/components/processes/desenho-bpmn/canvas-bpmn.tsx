@@ -6,7 +6,8 @@
    `DesenhoBpmn` por `onDesenho`; selecionar avisa `onSelecionar`. As intenções que mudam
    o fluxo só são AVISADAS: soltar uma forma da paleta (`onInserir`), arrastar uma forma
    para cima de uma seta (`onMoverItem`), puxar uma seta à mão (`onLigar`, depois de
-   `ligacaoPermitida`) e as ações rápidas da forma selecionada. Quem muda o fluxo é a página.
+   `podeLigar`), arrastar a ponta de uma seta (`onReligar`), apagar a seta selecionada
+   (`onApagarSeta`) e as ações rápidas da forma selecionada. Quem muda o fluxo é a página.
    As raias são só visuais: renomear, mudar a altura, subir/descer, remover e "+ raia"
    também saem por `onDesenho` (as formas ficam onde estão). */
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type DragEvent, type JSX, type KeyboardEvent as TeclaReact } from 'react'
@@ -14,18 +15,18 @@ import { useTheme } from 'next-themes'
 import { useTema } from '@/lib/temas-provider'
 import {
   ReactFlow, Background, BackgroundVariant, Controls, MiniMap, NodeToolbar, Panel, Position, ViewportPortal, applyNodeChanges,
-  type AriaLabelConfig, type Connection, type Edge, type NodeChange, type OnConnectEnd,
+  type AriaLabelConfig, type Connection, type Edge, type NodeChange, type OnConnectEnd, type OnReconnect,
   type OnNodeDrag, type ReactFlowInstance,
 } from '@xyflow/react'
 import { Link2, Map as MapIcon, Trash2 } from 'lucide-react'
 import '@xyflow/react/dist/style.css'
-import type { DesenhoBpmn, StepFormSchema } from '@nxt/types'
+import type { DesenhoBpmn, DesenhoV2, StepFormSchema } from '@nxt/types'
 import {
-  SUFIXO_REENCONTRO, acharItem, ligacaoPermitida, localDoItem, pontoDaSeta,
-  type FimCaminho, type FluxoBlocos, type GrafoGerado, type ItemFluxo, type PontoDeInsercao,
+  SUFIXO_REENCONTRO, acharItem, localDoItem, pontoDaSeta,
+  type FluxoBlocos, type GrafoGerado, type ItemFluxo, type PontoDeInsercao,
 } from '@nxt/workflow-core'
 import {
-  GRADE, RAIA_ROTULO_W, adicionarRaia, avisoDeRaia, moverRaia, polilinhaDaSeta, raiaNaAltura, redimensionarRaia, removerRaia,
+  GRADE, RAIA_ROTULO_W, adicionarRaia, avisoDeRaia, moverRaia, podeLigar, polilinhaDaSeta, raiaNaAltura, redimensionarRaia, removerRaia,
   renomearRaia, reordenarNoDesenho, setaSobPonto, type LadoDaSeta,
 } from '@/lib/desenho-bpmn'
 import { nodeSize, type FlowNodeType } from '@/lib/flow-layout'
@@ -40,6 +41,8 @@ import { TIPO_ARRASTO_FORMA } from './paleta'
 
 export interface CanvasBpmnProps {
   fluxo: FluxoBlocos; grafo: GrafoGerado; desenho: DesenhoBpmn
+  /** O desenho livre (formas e setas como desenhadas): é o que decide se uma seta pode existir. */
+  doc: DesenhoV2
   steps: Record<string, StepFormSchema>
   selecionado: string | null
   somenteLeitura?: boolean
@@ -51,9 +54,21 @@ export interface CanvasBpmnProps {
   /** `perto` = canto superior esquerdo sugerido para a forma nova, já na grade
    *  (a página o passa a `completarPosicoes`). */
   onInserir: (ponto: PontoDeInsercao, tipo: NovoItem, perto: { x: number; y: number }) => void
+  /** Forma da paleta solta no desenho: sobre uma seta (`sobreSeta`) entra no meio dela; em
+   *  área vazia fica solta. Escolha e Ao mesmo tempo chegam como UM losango (sem o par). */
+  onSoltar: (tipo: NovoItem, perto: { x: number; y: number }, sobreSeta?: string) => void
   onMoverItem: (id: string, ponto: PontoDeInsercao) => void
-  /** Seta desenhada à mão e aceita por `ligacaoPermitida`: o caminho passa a voltar/encerrar. */
-  onLigar: (caminhoId: string, fim: FimCaminho) => void
+  /** Seta desenhada à mão entre duas formas quaisquer (aceita por `podeLigar`). */
+  onLigar: (de: string, para: string) => void
+  /** A ponta de chegada da seta foi arrastada para outra forma. */
+  onReligar: (setaId: string, para: string) => void
+  /** A ponta de saída da seta foi arrastada para outra forma (a condição vai junto). */
+  onReligarSaida: (setaId: string, de: string) => void
+  onApagarSeta: (setaId: string) => void
+  /** A seta selecionada mudou (null = nenhuma): a página abre a condição dela. */
+  onSelecionarSeta?: (setaId: string | null) => void
+  /** Setas culpadas da pendência escolhida na pílula (ficam em vermelho tracejado). */
+  setasComProblema?: readonly string[]
   onRemover: (id: string) => void
   /** Nome do processo, na faixa vertical da piscina. */
   nomeDoProcesso?: string
@@ -338,8 +353,8 @@ type Recusa = { motivo: string; pontos: Pt[]; vez: number }
 /* ─── Componente ──────────────────────────────────────────────────────────── */
 export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   const {
-    fluxo, grafo, desenho, steps, selecionado, nomeDoProcesso, revisaoDasConsultas, somenteLeitura = false,
-    onSelecionar, onDesenho, onInserir, onMoverItem, onLigar, onRemover, vinculaveis, onInserirVinculada, focoEm, enquadrar,
+    fluxo, grafo, desenho, doc, steps, selecionado, nomeDoProcesso, revisaoDasConsultas, somenteLeitura = false,
+    onSelecionar, onDesenho, onInserir, onSoltar, onMoverItem, onLigar, onReligar, onReligarSaida, onApagarSeta, onSelecionarSeta, setasComProblema, onRemover, vinculaveis, onInserirVinculada, focoEm, enquadrar,
   } = props
   const { resolvedTheme } = useTheme()
   const escuro = resolvedTheme === 'dark'
@@ -392,10 +407,21 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
 
   /** Seta sob o ponteiro durante um arrasto (paleta ou forma): é onde a forma entraria. */
   const [destaque, setDestaque] = useState<string | null>(null)
-  const setasVistas = useMemo(
-    () => (destaque ? setas.map((s) => (s.id === destaque ? { ...s, data: { ...s.data!, destacada: true } } : s)) : setas),
-    [setas, destaque],
-  )
+  /** Seta selecionada (clique): Delete ou "Apagar seta" a remove. */
+  const [setaSel, setSetaSel] = useState<string | null>(null)
+  // a seta sumiu ou o desenho virou só leitura: descarta (ajuste durante o render)
+  if (setaSel && (somenteLeitura || !setas.some((s) => s.id === setaSel))) setSetaSel(null)
+  const avisarSeta = useRef(onSelecionarSeta)
+  avisarSeta.current = onSelecionarSeta
+  useEffect(() => { avisarSeta.current?.(setaSel) }, [setaSel])
+  const setasVistas = useMemo(() => setas.map((s) => ({
+    ...s,
+    // a seta é escolhida pelo clique e qualquer das pontas pode ser arrastada para outra forma
+    selectable: !somenteLeitura, focusable: !somenteLeitura, selected: s.id === setaSel,
+    reconnectable: !somenteLeitura,
+    ...(s.id === destaque ? { data: { ...s.data!, destacada: true } } : {}),
+    ...(setasComProblema?.includes(s.id) ? { data: { ...s.data!, problema: true } } : {}),
+  })), [setas, destaque, setaSel, somenteLeitura, setasComProblema])
 
   /** O que há sob o ponto: `vaga` = a seta mais próxima, se ela for uma vaga do fluxo;
    *  `sobreSeta` = o ponto está em cima de alguma seta (vaga ou não — volta, encerra).
@@ -413,6 +439,12 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     const ponto = t ? pontoDaSeta(fluxo, t.de, t.para) : null
     return { vaga: t && ponto && !internas.has(ponto.ref) ? { setaId: t.id, ponto, antesDe: t.para } : null, sobreSeta: !!t }
   }, [fluxo, tracados])
+
+  /** Qualquer seta sob o ponto (a paleta pode entrar no meio de qualquer uma). */
+  const setaNoPonto = useCallback((p: Pt): string | null => {
+    const zoom = instancia.current?.getZoom() ?? 1
+    return setaSobPonto(tracados, p, Math.min(TOLERANCIA_MAX, Math.max(TOLERANCIA_MIN, TOLERANCIA_TELA / zoom)))
+  }, [tracados])
 
   const noFluxo = useCallback((e: Parameters<typeof ponteiro>[0]): Pt | null => {
     const q = ponteiro(e)
@@ -488,7 +520,7 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     e.preventDefault()
     e.dataTransfer.dropEffect = 'copy'
     const p = noFluxo(e)
-    setDestaque(p ? alvoNoPonto(p).vaga?.setaId ?? null : null)
+    setDestaque(p ? setaNoPonto(p) : null)
   }
   const onDragLeave = (e: DragEvent<HTMLDivElement>) => {
     if (!e.currentTarget.contains(e.relatedTarget as globalThis.Node | null)) setDestaque(null)
@@ -500,13 +532,9 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     const tipo = e.dataTransfer.getData(TIPO_ARRASTO_FORMA)
     const p = noFluxo(e)
     if (!ehNovoItem(tipo) || !p) return
-    // em cima de uma seta entra naquela vaga; em área vazia, no fim do fluxo principal;
-    // em cima de uma seta que não é vaga (volta, encerra) não faz nada
-    const { vaga, sobreSeta } = alvoNoPonto(p)
-    if (!vaga && sobreSeta) return
-    const ponto = vaga?.ponto ?? { ref: 'raiz', indice: fluxo.itens.length }
+    // em cima de uma seta entra no meio dela; em área vazia fica solta, para ligar à mão
     const c = caixaNova(tipo)
-    onInserir(ponto, tipo, { x: naGrade(p.x - c.w / 2), y: naGrade(p.y - c.h / 2) })
+    onSoltar(tipo, { x: naGrade(p.x - c.w / 2), y: naGrade(p.y - c.h / 2) }, setaNoPonto(p) ?? undefined)
   }
 
   /* ─── Setas à mão ──────────────────────────────────────────────────────── */
@@ -524,16 +552,41 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     return polilinhaDaSeta(geo.alca(de, ladoS), ladoS, geo.alca(para, ladoT), ladoT)
   }, [geo])
 
+  const recusar = useCallback((motivo: string, de: string, para: string) =>
+    setRecusa((antes) => ({ motivo, pontos: tracoRecusado(de, para), vez: (antes?.vez ?? 0) + 1 })), [tracoRecusado])
+  /* Qualquer forma liga a qualquer outra: o traço só é recusado no que nunca faz sentido (seta
+     no Início, saída do Fim, laço na mesma forma, seta repetida). O resto — uma etapa com duas
+     saídas, um caminho sem fim — vira pendência do desenho, não bloqueio do traço. */
   const tentarLigar = useCallback((de: string, para: string) => {
     if (somenteLeitura || de === para) return
-    const r = ligacaoPermitida(fluxo, de, para)
-    if (r.ok) { setRecusa(null); onLigar(r.caminhoId, r.fim) }
-    else setRecusa((antes) => ({ motivo: r.motivo, pontos: tracoRecusado(de, para), vez: (antes?.vez ?? 0) + 1 }))
-  }, [fluxo, onLigar, somenteLeitura, tracoRecusado])
+    const motivo = podeLigar(doc, de, para)
+    if (motivo) recusar(motivo, de, para)
+    else { setRecusa(null); onLigar(de, para) }
+  }, [doc, onLigar, somenteLeitura, recusar])
 
-  const isValidConnection = useCallback((c: Edge | Connection) =>
-    c.source !== c.target && ligacaoPermitida(fluxo, c.source, c.target).ok, [fluxo])
+  const isValidConnection = useCallback((c: Edge | Connection) => !podeLigar(doc, c.source, c.target), [doc])
   const onConnect = useCallback((c: Connection) => tentarLigar(c.source, c.target), [tentarLigar])
+  /** Arrastou uma das pontas de uma seta para outra forma (só uma muda por vez). */
+  const onReconnect = useCallback<OnReconnect<SetaBpmn>>((velha, nova) => {
+    if (somenteLeitura) return
+    const mudouSaida = nova.source !== velha.source, mudouChegada = nova.target !== velha.target
+    if (mudouSaida === mudouChegada) return
+    const motivo = podeLigar({ ...doc, setas: doc.setas.filter((s) => s.id !== velha.id) }, nova.source, nova.target)
+    if (motivo) { recusar(motivo, nova.source, nova.target); return }
+    setRecusa(null)
+    if (mudouSaida) onReligarSaida(velha.id, nova.source)
+    else onReligar(velha.id, nova.target)
+  }, [doc, onReligar, onReligarSaida, somenteLeitura, recusar])
+  const apagarSetaSel = useCallback(() => {
+    if (!setaSel || somenteLeitura) return
+    onApagarSeta(setaSel)
+    setSetaSel(null)
+  }, [setaSel, somenteLeitura, onApagarSeta])
+  const onEdgeClick = useCallback((_e: unknown, s: SetaBpmn) => {
+    if (somenteLeitura) return
+    setSetaSel(s.id)
+    onSelecionar(null)
+  }, [somenteLeitura, onSelecionar])
   /** Soltou fora de uma alça válida: se caiu numa forma, julga a ligação (aceita ou explica). */
   const onConnectEnd = useCallback<OnConnectEnd>((e, estado) => {
     if (estado.isValid || !estado.fromNode) return
@@ -556,7 +609,7 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   }, [ligandoDe])
   // só leitura desliga o modo (ajuste durante o render, como a cópia dos nós)
   if (somenteLeitura && ligandoDe) setLigandoDe(null)
-  const onPaneClick = useCallback(() => setLigandoDe(null), [])
+  const onPaneClick = useCallback(() => { setLigandoDe(null); setSetaSel(null) }, [])
   /* Clicar (ou Enter/espaço) na forma que JÁ está selecionada: o React Flow não emite mudança
      de seleção, mas a pessoa quer a gaveta de volta (fechada pelo X, por exemplo). */
   const ehForma = (id: string | null | undefined) => !!id && !id.startsWith('raia:') && id !== 'piscina'
@@ -564,6 +617,8 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     if (n.id === selecionado && ehForma(n.id) && !ligandoDe) onSelecionar(n.id)
   }, [selecionado, ligandoDe, onSelecionar])
   const teclaNaForma = (e: TeclaReact<HTMLDivElement>) => {
+    const campo = (e.target as HTMLElement).closest?.('input, textarea, select, [contenteditable="true"]')
+    if ((e.key === 'Delete' || e.key === 'Backspace') && setaSel && !campo) { e.preventDefault(); apagarSetaSel(); return }
     if (e.key !== 'Enter' && e.key !== ' ') return
     const id = (e.target as HTMLElement).closest?.('.react-flow__node')?.getAttribute('data-id')
     if (id && id === selecionado && ehForma(id) && !ligandoDe) onSelecionar(id)
@@ -575,7 +630,7 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     const escolhido = sel.find((m) => m.selected)
     // no modo "Ligar com seta", escolher uma forma (clique, ou Enter/espaço no teclado) é o destino
     if (ligandoDe && escolhido) { setLigandoDe(null); tentarLigar(ligandoDe, escolhido.id) }
-    if (escolhido) onSelecionar(escolhido.id)
+    if (escolhido) { setSetaSel(null); onSelecionar(escolhido.id) }
     else if (sel.length) onSelecionar(null)
     // mover pelo teclado não passa por onNodeDragStop: grava aqui
     if (!arrastando) {
@@ -588,7 +643,11 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   /* ─── Ações rápidas da forma selecionada ───────────────────────────────── */
   const itemSel = selecionado ? acharItem(fluxo, selecionado) : undefined
   const acoes = !somenteLeitura && !arrastando && itemSel ? itemSel : null
-  const podeLigar = !!acoes && ligacaoPermitida(fluxo, acoes.id, fluxo.fimId).ok
+  /* Ligar e excluir valem para QUALQUER forma do desenho (losango solto, o que junta, e
+     também com o desenho incompleto); "Próxima: …" precisa do lugar no fluxo (`acoes`). */
+  const formaSel = selecionado ? doc.formas.find((f) => f.id === selecionado) : undefined
+  const editavelSel = !somenteLeitura && !arrastando && formaSel && formaSel.tipo !== 'start' && formaSel.tipo !== 'end' ? formaSel : null
+  const podeLigarDaqui = !!editavelSel
   /** Vaga logo depois do item selecionado e o lugar da forma nova: à direita do item (do
    *  reencontro, se for um bloco), centrada na altura dele. */
   const depoisDoSelecionado = (tipo: NovoItem): { ponto: PontoDeInsercao; perto: Pt } | null => {
@@ -727,9 +786,11 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
           isValidConnection={isValidConnection}
           onConnect={onConnect}
           onConnectEnd={onConnectEnd}
+          onReconnect={onReconnect}
+          onEdgeClick={onEdgeClick}
           nodesDraggable={!somenteLeitura}
           nodesConnectable={!somenteLeitura}
-          edgesReconnectable={false}
+          edgesReconnectable={!somenteLeitura}
           deleteKeyCode={null}
           selectionKeyCode={null}
           multiSelectionKeyCode={null}
@@ -756,6 +817,18 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
             </button>
           </Panel>
           <Controls showInteractive={false} position="bottom-left" />
+          {setaSel && !somenteLeitura && (
+            <Panel position="top-left">
+              <div role="toolbar" aria-label="Seta selecionada"
+                className="flex items-center gap-2 rounded-[10px] bg-white py-1 pl-3 pr-1 font-sans text-[11.5px] text-[var(--e-2E3E36)] shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[var(--e-0F1914)] dark:text-[var(--e-C9D6CE)] dark:shadow-[0_0_0_1px_var(--e-2A3B32)]">
+                Seta selecionada · arraste uma das pontas para religar
+                <button type="button" onClick={apagarSetaSel}
+                  className="flex h-7 items-center gap-1.5 rounded-md px-2 font-bold text-[#B42318] hover:bg-[rgba(180,35,24,0.08)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--e-11804F)] dark:text-[#FDA29B] dark:hover:bg-white/5">
+                  <Trash2 aria-hidden className="h-3.5 w-3.5" />Apagar seta
+                </button>
+              </div>
+            </Panel>
+          )}
           {recusa && (
             <ViewportPortal>
               <svg aria-hidden className="pointer-events-none absolute left-0 top-0 overflow-visible" width={1} height={1}>
@@ -764,16 +837,20 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
               </svg>
             </ViewportPortal>
           )}
-          <NodeToolbar nodeId={acoes?.id} isVisible={!!acoes} position={Position.Right} offset={14}>
+          <NodeToolbar nodeId={editavelSel?.id} isVisible={!!editavelSel} position={Position.Right} offset={14}>
             <div role="toolbar" aria-label="Ações rápidas" aria-orientation="vertical"
               className="flex flex-col gap-1 rounded-[10px] bg-white p-1 shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[var(--e-0F1914)] dark:shadow-[0_0_0_1px_var(--e-2A3B32),0_12px_24px_-12px_rgba(0,0,0,0.7)]">
-              <button type="button" title="Próxima: tarefa" aria-label="Próxima: tarefa" className={ACAO} onClick={() => proxima('userTask')}>
-                <span aria-hidden className="box-border h-[11px] w-4 rounded-[3px] border-[1.5px] border-[#0369A1] bg-[#E0F2FE] dark:border-[#7DD3FC] dark:bg-[rgba(56,189,248,0.12)]" />
-              </button>
-              <button type="button" title="Próxima: escolha" aria-label="Próxima: escolha" className={ACAO} onClick={() => proxima('escolha')}>
-                <span aria-hidden className="box-border h-2.5 w-2.5 rotate-45 border-[1.5px] border-[#6D28D9] bg-[#EDE9FE] dark:border-[#C4B5FD] dark:bg-[rgba(167,139,250,0.14)]" />
-              </button>
-              {podeVincular && (
+              {acoes && (
+                <>
+                  <button type="button" title="Próxima: tarefa" aria-label="Próxima: tarefa" className={ACAO} onClick={() => proxima('userTask')}>
+                    <span aria-hidden className="box-border h-[11px] w-4 rounded-[3px] border-[1.5px] border-[#0369A1] bg-[#E0F2FE] dark:border-[#7DD3FC] dark:bg-[rgba(56,189,248,0.12)]" />
+                  </button>
+                  <button type="button" title="Próxima: escolha" aria-label="Próxima: escolha" className={ACAO} onClick={() => proxima('escolha')}>
+                    <span aria-hidden className="box-border h-2.5 w-2.5 rotate-45 border-[1.5px] border-[#6D28D9] bg-[#EDE9FE] dark:border-[#C4B5FD] dark:bg-[rgba(167,139,250,0.14)]" />
+                  </button>
+                </>
+              )}
+              {acoes && podeVincular && (
                 <button type="button" title="Próxima: mesma configuração de…" aria-label="Próxima: mesma configuração de…"
                   aria-haspopup="menu" aria-expanded={menuVinculo} data-vinculo-de={sufixoId}
                   className={`${ACAO} text-[#0369A1] dark:text-[#7DD3FC] ${menuVinculo ? 'bg-[rgba(20,36,32,0.08)] dark:bg-white/10' : ''}`}
@@ -781,15 +858,15 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
                   <Link2 aria-hidden className="h-3.5 w-3.5" />
                 </button>
               )}
-              {podeLigar && (
-                <button type="button" title="Ligar com seta" aria-label="Ligar com seta" aria-pressed={ligandoDe === acoes?.id}
-                  className={`${ACAO} text-[13px] text-[var(--e-142420)] dark:text-white ${ligandoDe === acoes?.id ? 'bg-[rgba(198,242,78,0.35)] dark:bg-[rgba(198,242,78,0.14)]' : ''}`}
-                  onClick={() => setLigandoDe((x) => (x === acoes?.id ? null : acoes?.id ?? null))}>
+              {podeLigarDaqui && (
+                <button type="button" title="Ligar com seta" aria-label="Ligar com seta" aria-pressed={ligandoDe === editavelSel?.id}
+                  className={`${ACAO} text-[13px] text-[var(--e-142420)] dark:text-white ${ligandoDe === editavelSel?.id ? 'bg-[rgba(198,242,78,0.35)] dark:bg-[rgba(198,242,78,0.14)]' : ''}`}
+                  onClick={() => setLigandoDe((x) => (x === editavelSel?.id ? null : editavelSel?.id ?? null))}>
                   <span aria-hidden>→</span>
                 </button>
               )}
               <button type="button" title="Excluir" aria-label="Excluir" className={`${ACAO} text-[#B42318] dark:text-[#FDA29B]`}
-                onClick={() => acoes && onRemover(acoes.id)}>
+                onClick={() => editavelSel && onRemover(editavelSel.id)}>
                 <Trash2 aria-hidden className="h-3.5 w-3.5" />
               </button>
             </div>
