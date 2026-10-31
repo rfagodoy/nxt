@@ -77,7 +77,7 @@ function SignInForm() {
 
       <button
         type="submit" disabled={loading || !email || !password}
-        className="inline-flex w-full items-center justify-center gap-2 h-10 rounded-md bg-primary px-4 text-sm font-semibold text-forest hover:bg-primary/90 disabled:opacity-50 transition-colors"
+        className="inline-flex w-full items-center justify-center gap-2 h-10 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
       >
         {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
         {loading ? 'Entrando...' : 'Entrar'}
@@ -91,7 +91,7 @@ export default function SignInPage() {
     <div className="min-h-screen grid lg:grid-cols-2 bg-forest text-white font-sans">
       {/* Painel esquerdo — marca (Forest Ink) */}
       <div className="relative hidden lg:flex flex-col justify-between overflow-hidden p-12
-                      bg-gradient-to-br from-[hsl(156_40%_10%)] to-[hsl(150_46%_5%)]">
+                      bg-gradient-to-br from-[var(--login-de)] to-[var(--login-ate)]">
         {/* faíscas de luz da marca */}
         <div className="pointer-events-none absolute -right-16 -top-20 h-72 w-72 rounded-full bg-primary/20 blur-3xl" />
         <div className="pointer-events-none absolute bottom-10 right-24 h-40 w-40 rounded-full bg-spark/10 blur-3xl" />

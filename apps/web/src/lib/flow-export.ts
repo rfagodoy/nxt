@@ -8,6 +8,7 @@
    (extensão cently interferindo no carregamento interno de imagem da lib).
    Saída: JPG (toDataURL) ou PDF (jspdf, import dinâmico). CSP já cobre data:/blob:. */
 
+import { comAlfa, corDoTema } from './cor-do-tema'
 import { titleLineCount, LABEL_W, LANE_HEADER_W } from './flow-layout'
 import { pontoDoRotuloNaPolilinha } from './desenho-bpmn'
 
@@ -35,11 +36,15 @@ export interface ExportLane { key: string; label: string; y: number; h: number }
 export interface ExportModel { width: number; height: number; nodes: ExportNode[]; edges: ExportEdge[]; lanes?: ExportLane[] }
 
 const KIND_LABEL: Record<string, string> = { CONTRATO: 'Contrato', ADITIVO: 'Aditivo', PARCEIRO: 'Parceiro' }
-const BRAND = { tile: '#0C1410', bar: '#18C07A', chevron: '#C6F24E' }
+/* Logo e eventos seguem o TEMA (lidos na hora da exportação). No Nxt: #0C1410 / #18C07A / #C6F24E. */
+const brand = () => ({ tile: corDoTema('--forest', '#0C1410'), bar: corDoTema('--e-18C07A', '#18C07A'), chevron: corDoTema('--spark', '#C6F24E') })
 // Cores fixas (Tailwind) — independem do tema, iguais às do editor.
 const SKY = { bar: '#0ea5e9', chip: 'rgba(14,165,233,0.16)', text: '#0ea5e9' }
 const AMBER = { bar: '#f59e0b', chip: 'rgba(245,158,11,0.16)', text: '#f59e0b' }
-const EMERALD = { fill: 'rgba(16,185,129,0.12)', stroke: 'rgba(16,185,129,0.35)', text: '#10b981' }
+const emerald = () => {
+  const c = corDoTema('--emerald-500', '#10b981')
+  return { fill: comAlfa(c, 0.12), stroke: comAlfa(c, 0.35), text: c }
+}
 const VIOLET = { fill: 'rgba(124,58,237,0.12)', stroke: 'rgba(124,58,237,0.45)', text: '#8b5cf6', edge: '#7c3aed' }
 const ROSE = { fill: 'rgba(225,29,104,0.12)', stroke: 'rgba(225,29,104,0.45)', text: '#f43f5e', edge: '#e11d68' }
 
@@ -122,6 +127,7 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, x: number, y: num
 function drawMark(ctx: CanvasRenderingContext2D, x: number, y: number, size: number) {
   const k = size / 120
   ctx.save(); ctx.translate(x, y)
+  const BRAND = brand()
   ctx.fillStyle = BRAND.tile; roundRect(ctx, 0, 0, size, size, 28 * k); ctx.fill()
   ctx.fillStyle = BRAND.bar; ctx.fillRect(37 * k, 36 * k, 10 * k, 48 * k)
   ctx.strokeStyle = BRAND.chevron; ctx.lineWidth = 10 * k; ctx.lineCap = 'round'; ctx.lineJoin = 'round'
@@ -254,6 +260,7 @@ function drawEvent(ctx: CanvasRenderingContext2D, n: ExportNode, x: number, y: n
   const cx = x + w / 2, cy = y + h / 2
   const sw = n.type === 'start' ? 2 : 4.5
   ctx.beginPath(); ctx.arc(cx, cy, w / 2 - sw / 2, 0, Math.PI * 2)
+  const EMERALD = emerald()
   ctx.fillStyle = EMERALD.fill; ctx.fill()
   ctx.strokeStyle = EMERALD.text; ctx.lineWidth = sw; ctx.stroke()
   drawNodeLabel(ctx, n.name, cx, y + h + 4, C)

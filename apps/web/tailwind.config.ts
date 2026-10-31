@@ -1,5 +1,11 @@
 import type { Config } from 'tailwindcss'
 
+/* Paletas que seguem o TEMA (globals.css, "Escalas de cor por tema"): nos temas Nxt valem o
+   original do Tailwind; nos outros, a escala do tema. `<alpha-value>` mantém o `/40` etc. */
+const escalaDoTema = (nome: string) => Object.fromEntries(
+  ['50', '100', '200', '300', '400', '500', '600', '700', '800', '900', '950'].map((k) => [k, `rgb(var(--${nome}-${k}) / <alpha-value>)`]),
+)
+
 const config: Config = {
   darkMode: ['class'],
   content: ['./src/**/*.{ts,tsx}'],
@@ -11,9 +17,13 @@ const config: Config = {
       },
       colors: {
         // Marca Nxt (valores fixos da identidade — usar direto: bg-forest, text-spark…)
-        forest: '#0C1410', // Forest Ink
-        spark: '#C6F24E', // Lime Spark
-        mist: '#F2F6F1', // Mist
+        forest: 'rgb(var(--forest) / <alpha-value>)', // Forest Ink (no Nxt: #0C1410)
+        spark: 'rgb(var(--spark) / <alpha-value>)', // Lime Spark (no Nxt: #C6F24E)
+        mist: 'rgb(var(--mist) / <alpha-value>)', // Mist (no Nxt: #F2F6F1)
+        emerald: escalaDoTema('emerald'),
+        green: escalaDoTema('green'),
+        teal: escalaDoTema('teal'),
+        lime: escalaDoTema('lime'),
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',

@@ -349,8 +349,8 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
       <GavetaLateral rotulo={`${meta.label} · só leitura`} rotuloTom={meta.tone} rotuloIcone={<meta.Icon className="h-3 w-3" />}
         titulo={step.stepName?.trim() || 'Etapa sem nome'} onFechar={onClose}>
         <div className="flex flex-col gap-4 px-4 py-4">
-          <div className="rounded-xl bg-[#0C1410] p-4 text-[#C9D6CE] shadow-[0_18px_40px_-24px_rgba(12,20,16,0.7)] ring-1 ring-white/5">
-            <span className="inline-block rounded bg-[#C6F24E] px-1.5 py-0.5 text-[10.5px] font-extrabold tracking-wide text-[#0C1410]">EM RESUMO</span>
+          <div className="rounded-xl bg-forest p-4 text-white/80 shadow-[0_18px_40px_-24px_rgba(12,20,16,0.7)] ring-1 ring-white/5">
+            <span className="inline-block rounded bg-spark px-1.5 py-0.5 text-[10.5px] font-extrabold tracking-wide text-forest">EM RESUMO</span>
             <p className="mt-2 text-[13px] leading-relaxed">{frase}</p>
           </div>
           <dl className="divide-y rounded-lg border bg-muted/20">
@@ -408,8 +408,8 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
         )}
 
         <div className="flex flex-col gap-7 px-4 py-4">
-          <div className="rounded-xl bg-[#0C1410] p-4 text-[#C9D6CE] shadow-[0_18px_40px_-24px_rgba(12,20,16,0.7)] ring-1 ring-white/5">
-            <span className="inline-block rounded bg-[#C6F24E] px-1.5 py-0.5 text-[10.5px] font-extrabold tracking-wide text-[#0C1410]">EM RESUMO</span>
+          <div className="rounded-xl bg-forest p-4 text-white/80 shadow-[0_18px_40px_-24px_rgba(12,20,16,0.7)] ring-1 ring-white/5">
+            <span className="inline-block rounded bg-spark px-1.5 py-0.5 text-[10.5px] font-extrabold tracking-wide text-forest">EM RESUMO</span>
             <p className="mt-2 text-[13px] leading-relaxed" aria-live="polite">{frase}</p>
           </div>
 

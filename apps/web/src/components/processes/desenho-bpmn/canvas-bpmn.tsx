@@ -11,6 +11,7 @@
    também saem por `onDesenho` (as formas ficam onde estão). */
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type DragEvent, type JSX, type KeyboardEvent as TeclaReact } from 'react'
 import { useTheme } from 'next-themes'
+import { useTema } from '@/lib/temas-provider'
 import {
   ReactFlow, Background, BackgroundVariant, Controls, MiniMap, NodeToolbar, Panel, Position, ViewportPortal, applyNodeChanges,
   type AriaLabelConfig, type Connection, type Edge, type NodeChange, type OnConnectEnd,
@@ -112,8 +113,8 @@ const rotulosAria = (somenteLeitura: boolean): Partial<AriaLabelConfig> => ({
 
 /* Cores que o React Flow pinta por prop (não aceitam classe `dark:`). */
 const CORES = {
-  claro: { fundo: '#F4F7F4', ponto: 'rgba(20,36,32,0.13)', mini: '#FFFFFF', miniRaia: '#E6EDE8', miniTarefa: '#075985', miniEscolha: '#5B21B6', miniParalelo: '#9F1239', miniEvento: '#11804F', mascara: 'rgba(20,36,32,0.08)' },
-  escuro: { fundo: '#0C1511', ponto: 'rgba(255,255,255,0.07)', mini: '#0F1914', miniRaia: 'rgba(255,255,255,0.06)', miniTarefa: '#7DD3FC', miniEscolha: '#C4B5FD', miniParalelo: '#FDA4B8', miniEvento: '#C6F24E', mascara: 'rgba(0,0,0,0.35)' },
+  claro: { fundo: 'var(--e-F4F7F4)', ponto: 'rgba(20,36,32,0.13)', mini: '#FFFFFF', miniRaia: 'var(--e-E6EDE8)', miniTarefa: '#075985', miniEscolha: '#5B21B6', miniParalelo: '#9F1239', miniEvento: 'var(--e-11804F)', mascara: 'rgba(20,36,32,0.08)' },
+  escuro: { fundo: 'var(--e-0C1511)', ponto: 'rgba(255,255,255,0.07)', mini: 'var(--e-0F1914)', miniRaia: 'rgba(255,255,255,0.06)', miniTarefa: '#7DD3FC', miniEscolha: '#C4B5FD', miniParalelo: '#FDA4B8', miniEvento: 'var(--e-C6F24E)', mascara: 'rgba(0,0,0,0.35)' },
 }
 
 /* ─── Projeção: grafo + desenho → nós e setas do React Flow ───────────────── */
@@ -342,7 +343,16 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   } = props
   const { resolvedTheme } = useTheme()
   const escuro = resolvedTheme === 'dark'
-  const cor = escuro ? CORES.escuro : CORES.claro
+  /* O React Flow (fundo, miniatura) precisa de cor RESOLVIDA: as `var(--e-…)` do tema viram o
+     valor da hora — e de novo a cada troca de tema. */
+  const { tema } = useTema()
+  const cor = useMemo(() => {
+    const base = escuro ? CORES.escuro : CORES.claro
+    if (typeof document === 'undefined') return base
+    const cs = getComputedStyle(document.documentElement)
+    const resolver = (v: string) => (v.startsWith('var(') ? cs.getPropertyValue(v.slice(4, -1)).trim() || v : v)
+    return Object.fromEntries(Object.entries(base).map(([k, v]) => [k, resolver(v)])) as typeof base
+  }, [escuro, tema]) // eslint-disable-line react-hooks/exhaustive-deps -- `tema` não é lido: é o sinal de que as variáveis do <html> mudaram
   const sufixoId = useId().replace(/:/g, '')
   const marcador = `${MARCADOR_SETA}-${sufixoId}`
   const marcadorRecusa = `${MARCADOR_SETA}-recusa-${sufixoId}`
@@ -681,10 +691,10 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     return n.data.tipo === 'paralelo' ? cor.miniParalelo : cor.miniEscolha
   }, [cor])
 
-  const ACAO = 'flex h-[22px] w-[26px] items-center justify-center rounded-md border-0 bg-transparent hover:bg-[rgba(20,36,32,0.06)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#11804F] dark:hover:bg-white/5 dark:focus-visible:outline-spark'
+  const ACAO = 'flex h-[22px] w-[26px] items-center justify-center rounded-md border-0 bg-transparent hover:bg-[rgba(20,36,32,0.06)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--e-11804F)] dark:hover:bg-white/5 dark:focus-visible:outline-spark'
 
   return (
-    <div className="desenho-bpmn relative h-full w-full font-sans [--bpmn-seta:#5E6F66] [--bpmn-seta-destaque:#11804F] dark:[--bpmn-seta:#7B8F84] dark:[--bpmn-seta-destaque:#C6F24E]"
+    <div className="desenho-bpmn relative h-full w-full font-sans [--bpmn-seta:var(--e-5E6F66)] [--bpmn-seta-destaque:var(--e-11804F)] dark:[--bpmn-seta:var(--e-7B8F84)] dark:[--bpmn-seta-destaque:var(--e-C6F24E)]"
       onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop} onKeyDown={teclaNaForma}>
       {/* pontas das setas, uma vez por canvas; a cor vem da mesma variável do traço */}
       <svg aria-hidden className="absolute h-0 w-0">
@@ -736,12 +746,12 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
           {miniatura && (
             <MiniMap<NoBpmn> pannable zoomable nodeColor={corNoMini} nodeStrokeWidth={0} maskColor={cor.mascara} bgColor={cor.mini}
               style={{ width: 168, height: 108, marginBottom: 44 }}
-              className="!rounded-lg shadow-[0_0_0_1px_rgba(20,36,32,0.12)] dark:shadow-[0_0_0_1px_#2A3B32]" />
+              className="!rounded-lg shadow-[0_0_0_1px_rgba(20,36,32,0.12)] dark:shadow-[0_0_0_1px_var(--e-2A3B32)]" />
           )}
           <Panel position="bottom-right">
             <button type="button" onClick={alternarMiniatura} aria-pressed={miniatura}
               title={miniatura ? 'Esconder a miniatura' : 'Mostrar a miniatura do desenho'}
-              className="flex h-7 items-center gap-1.5 rounded-md bg-white px-2 font-sans text-[11px] font-bold text-[#2E3E36] shadow-[0_0_0_1px_rgba(20,36,32,0.12)] hover:bg-[#F2F6F1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#11804F] dark:bg-[#0F1914] dark:text-[#C9D6CE] dark:shadow-[0_0_0_1px_#2A3B32] dark:hover:bg-white/5 dark:focus-visible:outline-spark">
+              className="flex h-7 items-center gap-1.5 rounded-md bg-white px-2 font-sans text-[11px] font-bold text-[var(--e-2E3E36)] shadow-[0_0_0_1px_rgba(20,36,32,0.12)] hover:bg-[var(--e-F2F6F1)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--e-11804F)] dark:bg-[var(--e-0F1914)] dark:text-[var(--e-C9D6CE)] dark:shadow-[0_0_0_1px_var(--e-2A3B32)] dark:hover:bg-white/5 dark:focus-visible:outline-spark">
               <MapIcon aria-hidden className="h-3.5 w-3.5" />Miniatura
             </button>
           </Panel>
@@ -756,7 +766,7 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
           )}
           <NodeToolbar nodeId={acoes?.id} isVisible={!!acoes} position={Position.Right} offset={14}>
             <div role="toolbar" aria-label="Ações rápidas" aria-orientation="vertical"
-              className="flex flex-col gap-1 rounded-[10px] bg-white p-1 shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[#0F1914] dark:shadow-[0_0_0_1px_#2A3B32,0_12px_24px_-12px_rgba(0,0,0,0.7)]">
+              className="flex flex-col gap-1 rounded-[10px] bg-white p-1 shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[var(--e-0F1914)] dark:shadow-[0_0_0_1px_var(--e-2A3B32),0_12px_24px_-12px_rgba(0,0,0,0.7)]">
               <button type="button" title="Próxima: tarefa" aria-label="Próxima: tarefa" className={ACAO} onClick={() => proxima('userTask')}>
                 <span aria-hidden className="box-border h-[11px] w-4 rounded-[3px] border-[1.5px] border-[#0369A1] bg-[#E0F2FE] dark:border-[#7DD3FC] dark:bg-[rgba(56,189,248,0.12)]" />
               </button>
@@ -773,7 +783,7 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
               )}
               {podeLigar && (
                 <button type="button" title="Ligar com seta" aria-label="Ligar com seta" aria-pressed={ligandoDe === acoes?.id}
-                  className={`${ACAO} text-[13px] text-[#142420] dark:text-white ${ligandoDe === acoes?.id ? 'bg-[rgba(198,242,78,0.35)] dark:bg-[rgba(198,242,78,0.14)]' : ''}`}
+                  className={`${ACAO} text-[13px] text-[var(--e-142420)] dark:text-white ${ligandoDe === acoes?.id ? 'bg-[rgba(198,242,78,0.35)] dark:bg-[rgba(198,242,78,0.14)]' : ''}`}
                   onClick={() => setLigandoDe((x) => (x === acoes?.id ? null : acoes?.id ?? null))}>
                   <span aria-hidden>→</span>
                 </button>
@@ -785,11 +795,11 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
             </div>
             {menuVinculo && podeVincular && (
               <div ref={listaVinculo} role="menu" aria-label="Repetir com a mesma configuração de" onKeyDown={teclasDoVinculo}
-                className="absolute left-full top-0 ml-2 max-h-[260px] w-[240px] overflow-y-auto rounded-[10px] bg-white p-1 font-sans shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[#0F1914] dark:shadow-[0_0_0_1px_#2A3B32,0_12px_24px_-12px_rgba(0,0,0,0.7)]">
-                <p className="px-2 pb-1 pt-1.5 text-[10.5px] font-bold uppercase tracking-wide text-[#5E6F66] dark:text-[#9DB0A5]">Mesma configuração de</p>
+                className="absolute left-full top-0 ml-2 max-h-[260px] w-[240px] overflow-y-auto rounded-[10px] bg-white p-1 font-sans shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[var(--e-0F1914)] dark:shadow-[0_0_0_1px_var(--e-2A3B32),0_12px_24px_-12px_rgba(0,0,0,0.7)]">
+                <p className="px-2 pb-1 pt-1.5 text-[10.5px] font-bold uppercase tracking-wide text-[var(--e-5E6F66)] dark:text-[var(--e-9DB0A5)]">Mesma configuração de</p>
                 {vinculaveis!.map((v) => (
                   <button key={v.id} type="button" role="menuitem" tabIndex={-1} onClick={() => vincular(v.id)}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs font-semibold text-[#142420] hover:bg-[rgba(20,36,32,0.06)] focus-visible:bg-[rgba(20,36,32,0.06)] focus-visible:outline-none dark:text-[#E3ECE6] dark:hover:bg-white/5 dark:focus-visible:bg-white/5">
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs font-semibold text-[var(--e-142420)] hover:bg-[rgba(20,36,32,0.06)] focus-visible:bg-[rgba(20,36,32,0.06)] focus-visible:outline-none dark:text-[var(--e-E3ECE6)] dark:hover:bg-white/5 dark:focus-visible:bg-white/5">
                     <Link2 aria-hidden className="h-3 w-3 shrink-0 text-[#0369A1] dark:text-[#7DD3FC]" />
                     <span className="truncate">{v.nome}</span>
                   </button>
@@ -800,7 +810,7 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
         </ReactFlow>
       </ContextoRaias.Provider>
       {ligandoDe && (
-        <p role="status" className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-[10px] bg-white px-3 py-2 text-xs font-semibold text-[#2E3E36] shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[#0F1914] dark:text-[#C9D6CE] dark:shadow-[0_0_0_1px_#2A3B32]">
+        <p role="status" className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-[10px] bg-white px-3 py-2 text-xs font-semibold text-[var(--e-2E3E36)] shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[var(--e-0F1914)] dark:text-[var(--e-C9D6CE)] dark:shadow-[0_0_0_1px_var(--e-2A3B32)]">
           Clique na forma para onde a seta vai. Esc cancela.
         </p>
       )}
