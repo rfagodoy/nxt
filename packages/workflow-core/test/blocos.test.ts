@@ -292,3 +292,32 @@ describe('editar a árvore', () => {
     expect(blocosParaGrafo(novoFluxo()).edges.map((e) => `${e.from}>${e.to}`)).toEqual(['start>end'])
   })
 })
+
+describe('juntaId e junção sempre (desenho livre)', () => {
+  const esc = (extra: Record<string, unknown> = {}) => ({
+    versao: 1 as const, inicioId: 'start', fimId: 'end',
+    itens: [{
+      kind: 'escolha' as const, id: 'e1', modo: 'primeiro' as const,
+      caminhos: [
+        { id: 'c1', condition: 'x', itens: [{ kind: 'atividade' as const, id: 'a1', tipo: 'userTask' as const }], fim: { tipo: 'segue' as const } },
+        { id: 'c2', condition: 'y', itens: [], fim: { tipo: 'encerra' as const } },
+      ],
+      casoContrario: { id: 'cc', itens: [], fim: { tipo: 'segue' as const } }, ...extra,
+    }, { kind: 'atividade' as const, id: 'a2', tipo: 'userTask' as const }],
+  })
+  it('juntaId dá o nome do losango que junta', () => {
+    const g = blocosParaGrafo(esc({ juntaId: 'J1' }), { juncaoSempre: true })
+    expect(g.nodes.map((n) => n.id)).toContain('J1')
+    expect(g.edges.some((e) => e.from === 'a1' && e.to === 'J1')).toBe(true)
+    expect(g.edges.some((e) => e.from === 'J1' && e.to === 'a2')).toBe(true)
+  })
+  it('sem a opção, um único caminho que segue emenda direto (como sempre foi)', () => {
+    const g = blocosParaGrafo(esc())
+    expect(g.edges.some((e) => e.from === 'a1' && e.to === 'a2')).toBe(true)
+    expect(g.nodes.map((n) => n.id)).not.toContain('e1__fim')
+  })
+  it('com juncaoSempre, a escolha ganha o losango que junta mesmo com um caminho só', () => {
+    const g = blocosParaGrafo(esc(), { juncaoSempre: true })
+    expect(g.nodes.find((n) => n.id === 'e1__fim')?.type).toBe('exclusiveGateway')
+  })
+})

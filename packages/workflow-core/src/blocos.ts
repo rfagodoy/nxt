@@ -70,10 +70,12 @@ export interface BlocoEscolha {
   modo?: ModoEscolha
   caminhos: CaminhoCondicional[]
   casoContrario: CaminhoPadrao
+  /** id do losango que junta, quando desenhado à mão (desenho livre). Ausente = id + SUFIXO_REENCONTRO. */
+  juntaId?: string
 }
 
 export interface CaminhoParalelo { id: string; itens: ItemFluxo[] }
-export interface BlocoParalelo { kind: 'paralelo'; id: string; nome?: string; caminhos: CaminhoParalelo[] }
+export interface BlocoParalelo { kind: 'paralelo'; id: string; nome?: string; caminhos: CaminhoParalelo[]; juntaId?: string }
 
 export type ItemFluxo = ItemAtividade | BlocoEscolha | BlocoParalelo
 
@@ -104,7 +106,10 @@ type PropsSeta = Pick<SetaGerada, 'condition' | 'conditionSpec' | 'label' | 'isD
 /** Uma seta que ainda vai nascer: sai de `from` e aponta para o próximo item. */
 interface Pendente { from: string; props?: PropsSeta }
 
-export function blocosParaGrafo(f: FluxoBlocos): GrafoGerado {
+/** `juncaoSempre` (desenho livre): a escolha ganha o losango que junta mesmo quando só um
+ *  caminho segue — no desenho é ele que marca onde a escolha termina. Para o motor, um
+ *  losango de uma saída é passagem pura. */
+export function blocosParaGrafo(f: FluxoBlocos, opcoes: { juncaoSempre?: boolean } = {}): GrafoGerado {
   const nodes: NoGerado[] = [{ id: f.inicioId, type: 'start' }]
   const edges: SetaGerada[] = []
   const ids = new Map<string, number>()
@@ -171,12 +176,18 @@ export function blocosParaGrafo(f: FluxoBlocos): GrafoGerado {
         /* o reencontro do inclusivo existe SEMPRE e conta chegadas: é ele que espera os
            caminhos ativados (o motor acha o par pelo id da saída + sufixo) */
         if (!seguem.length) return []
-        const reencontro = it.id + SUFIXO_REENCONTRO
+        const reencontro = it.juntaId ?? it.id + SUFIXO_REENCONTRO
         nodes.push({ id: reencontro, type: 'inclusiveGateway' })
         seguem.forEach((p) => ligar(p, reencontro))
         return [{ from: reencontro }]
       }
-      return reencontrar(seguem, it.id + SUFIXO_REENCONTRO)
+      const junta = it.juntaId ?? it.id + SUFIXO_REENCONTRO
+      if (opcoes.juncaoSempre && seguem.length === 1) {
+        nodes.push({ id: junta, type: 'exclusiveGateway' })
+        ligar(seguem[0], junta)
+        return [{ from: junta }]
+      }
+      return reencontrar(seguem, junta)
     }
 
     // paralelo
@@ -187,7 +198,7 @@ export function blocosParaGrafo(f: FluxoBlocos): GrafoGerado {
       /* armadilha 1: um caminho entrega UMA chegada à junção, mesmo com escolhas dentro */
       chegadas.push(...reencontrar(sequencia(c.itens, [{ from: it.id }]), c.id + SUFIXO_REENCONTRO))
     }
-    const juncao = it.id + SUFIXO_REENCONTRO
+    const juncao = it.juntaId ?? it.id + SUFIXO_REENCONTRO
     nodes.push({ id: juncao, type: 'parallelGateway' })
     chegadas.forEach((p) => ligar(p, juncao))
     return [{ from: juncao }]
@@ -412,12 +423,12 @@ export function lerFluxoBlocos(bruto: unknown): FluxoBlocos | null {
     if (!obj(it) || !idNovo(it.id)) return false
     if (it.kind === 'atividade') return (it.tipo === 'userTask' || it.tipo === 'serviceTask') && texto(it.nome) && texto(it.vinculoDe)
     if (it.kind === 'escolha') {
-      return texto(it.pergunta) && (it.modo === undefined || it.modo === 'primeiro' || it.modo === 'todos') && Array.isArray(it.caminhos)
+      return texto(it.pergunta) && texto(it.juntaId) && (it.modo === undefined || it.modo === 'primeiro' || it.modo === 'todos') && Array.isArray(it.caminhos)
         && it.caminhos.every((c) => obj(c) && idNovo(c.id) && texto(c.rotulo) && texto(c.condition) && condicaoOk(c.conditionSpec) && fimOk(c.fim) && itensOk(c.itens))
         && obj(it.casoContrario) && idNovo(it.casoContrario.id) && fimOk(it.casoContrario.fim) && itensOk(it.casoContrario.itens)
     }
     if (it.kind === 'paralelo') {
-      return texto(it.nome) && Array.isArray(it.caminhos) && it.caminhos.every((c) => obj(c) && idNovo(c.id) && itensOk(c.itens))
+      return texto(it.nome) && texto(it.juntaId) && Array.isArray(it.caminhos) && it.caminhos.every((c) => obj(c) && idNovo(c.id) && itensOk(c.itens))
     }
     return false
   }
