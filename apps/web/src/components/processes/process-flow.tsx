@@ -334,6 +334,13 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     return it && it.kind !== 'atividade' ? it : null
   }, [fluxo, selectedId])
   const configNode = configId ? nodeById[configId] : null
+  /* Retrato da etapa na ABERTURA (para o Cancelar): sobrevive à troca Roteiro ↔ Desenho,
+     que remonta as perguntas. Tirado na primeira renderização com a etapa aberta. */
+  const retratoDaAbertura = useRef<{ id: string; step: StepFormSchema; type: 'userTask' | 'serviceTask' } | null>(null)
+  if (!configNode?.step) retratoDaAbertura.current = null
+  else if (retratoDaAbertura.current?.id !== configNode.id) {
+    retratoDaAbertura.current = { id: configNode.id, step: { ...configNode.step }, type: configNode.type as 'userTask' | 'serviceTask' }
+  }
 
   /* ─── Consultas do desenho ────────────────────────────────────────────────────
      Quem executa, em texto ("Analista de Central de Contratos", "Quem iniciou o processo"):
@@ -957,7 +964,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
   /* A configuração aberta — a MESMA no painel do Desenho e dentro da lista do Roteiro. */
   const perguntasDaEtapa = (moldura: 'gaveta' | 'embutida') => (configNode && configNode.step && fluxo ? (
-    <PerguntasDaEtapa key={configNode.id} moldura={moldura} node={configNode} nodes={nodes} edges={edges} screens={screens} papeis={papeis} resolveEntidade={resolveEntidade}
+    <PerguntasDaEtapa key={configNode.id} moldura={moldura} retratoDaAbertura={retratoDaAbertura.current ?? undefined} node={configNode} nodes={nodes} edges={edges} screens={screens} papeis={papeis} resolveEntidade={resolveEntidade}
       secaoInicial={configSecao} focarAoAbrir={focarGaveta}
       onPatchStep={(p) => patchStep(configNode.id, p)}
       onChangeType={(t) => changeNodeType(configNode.id, t)}
