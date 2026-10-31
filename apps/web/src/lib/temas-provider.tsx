@@ -39,7 +39,7 @@ export function TemaProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const ouvir = (e: StorageEvent) => {
       if (e.key !== CHAVE_TEMA || !e.newValue) return
-      try { const t: unknown = JSON.parse(e.newValue); if (temaValido(t)) setEstado(t) } catch { /* valor estranho */ }
+      try { const t: unknown = JSON.parse(e.newValue); if (temaValido(t)) { aplicar(t); setEstado(t) } } catch { /* valor estranho */ }
     }
     window.addEventListener('storage', ouvir)
     return () => window.removeEventListener('storage', ouvir)
@@ -49,15 +49,9 @@ export function TemaProvider({ children }: { children: React.ReactNode }) {
   const setThemeRef = useRef(setTheme)
   setThemeRef.current = setTheme
   useEffect(() => {
-<<<<<<< HEAD
     aplicar(tema)
-    setTheme(baseDoTema(tema))
-  }, [tema, setTheme])
-=======
-    document.documentElement.dataset.tema = tema
     setThemeRef.current(baseDoTema(tema))
   }, [tema])
->>>>>>> feat/temas
 
   const setTema = useCallback((t: IdTema) => {
     aplicar(t)
