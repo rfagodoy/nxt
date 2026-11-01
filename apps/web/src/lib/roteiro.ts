@@ -11,6 +11,8 @@ import type { StepFormSchema } from '@nxt/types'
 export type Etiqueta =
   | { tipo: 'quem' | 'prazo' | 'tela' | 'devolve' | 'acao' | 'vinculo'; texto: string }
   | { tipo: 'falta'; texto: string }
+  /** resposta que não vale mais (o papel escolhido foi excluído): pede outra */
+  | { tipo: 'aviso'; texto: string }
   | { tipo: 'carregando'; texto: 'carregando…' }
 
 export interface EtapaRoteiro {
@@ -39,8 +41,9 @@ export type NoRoteiro = EtapaRoteiro | EscolhaRoteiro | ParaleloRoteiro
 
 export interface ConsultasDoRoteiro {
   steps: Record<string, StepFormSchema>
-  /** undefined = sem papel; null = papel definido mas o nome ainda não chegou */
-  quemFaz: (id: string) => string | null | undefined
+  /** undefined = sem papel; null = papel definido mas o nome ainda não chegou;
+   *  false = a lista de papéis já chegou e o papel não está nela (foi excluído) */
+  quemFaz: (id: string) => string | null | false | undefined
   prazo: (id: string) => string | null
   tela: (id: string) => string | null
   /** null = o padrão ("qualquer etapa anterior") */
@@ -68,6 +71,7 @@ function etapa(it: Extract<ItemFluxo, { kind: 'atividade' }>, ref: string, indic
   } else {
     const quem = c.quemFaz(fonte)
     if (quem === null) etiquetas.push({ tipo: 'carregando', texto: 'carregando…' })
+    else if (quem === false) etiquetas.push({ tipo: 'aviso', texto: 'Papel removido — escolha outro' })
     else if (quem) etiquetas.push({ tipo: 'quem', texto: quem })
     const prazo = c.prazo(fonte)
     if (prazo) etiquetas.push({ tipo: 'prazo', texto: prazo })
@@ -81,7 +85,7 @@ function etapa(it: Extract<ItemFluxo, { kind: 'atividade' }>, ref: string, indic
   return {
     kind: 'etapa', id: it.id, ref, indice,
     nome: passo?.stepName?.trim() ?? '', tipo: it.tipo,
-    etiquetas, completa: faltas.length === 0,
+    etiquetas, completa: faltas.length === 0 && !etiquetas.some((e) => e.tipo === 'aviso'),
   }
 }
 

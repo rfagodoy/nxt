@@ -18,6 +18,8 @@ export function useLookupTable(storageKey: string, initialData: LookupEntry[]) {
   const [entries, setEntries] = useState<LookupEntry[]>([])
   const ref     = useRef<LookupEntry[]>([])
   const loaded  = useRef(false)
+  /** a resposta do backend já chegou (antes dela, a lista pode ser só o cache local) */
+  const [carregado, setCarregado] = useState(false)
   const changeEvent = `${storageKey}:change`
 
   const apply = useCallback((next: LookupEntry[]) => {
@@ -42,6 +44,7 @@ export function useLookupTable(storageKey: string, initialData: LookupEntry[]) {
     void pullSetting<LookupEntry[]>(storageKey).then(remote => {
       if (remote) apply(remote)
       else        pushSetting(storageKey, ref.current)
+      setCarregado(true)
     })
 
     const handler = () => {
@@ -63,5 +66,5 @@ export function useLookupTable(storageKey: string, initialData: LookupEntry[]) {
 
   const active = entries.filter(e => e.active)
 
-  return { entries, active, add, remove, update, toggle, replace }
+  return { entries, active, carregado, add, remove, update, toggle, replace }
 }

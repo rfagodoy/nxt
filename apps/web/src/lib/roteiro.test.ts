@@ -57,6 +57,15 @@ describe('montarRoteiro', () => {
     expect(textos(e)).not.toContain('falta quem faz')
   })
 
+  it('papel excluído (lista já carregada): aviso para escolher outro, sem "carregando…"', () => {
+    const f = fluxo([at('a1')])
+    const [e] = montarRoteiro(f, consultas({ a1: passo('a1') }, { quemFaz: () => false })) as EtapaRoteiro[]
+    expect(e.etiquetas).toContainEqual({ tipo: 'aviso', texto: 'Papel removido — escolha outro' })
+    expect(e.etiquetas.map((x) => x.tipo)).not.toContain('carregando')
+    expect(textos(e)).not.toContain('falta quem faz')
+    expect(e.completa).toBe(false)
+  })
+
   it('escolha: condição, itens com ref do caminho e fim em frase', () => {
     const f = fluxo([at('a1'), {
       kind: 'escolha', id: 'e1', pergunta: 'Aprovado?', modo: 'primeiro',

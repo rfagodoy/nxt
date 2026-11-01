@@ -1263,7 +1263,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         const ex = stepsEfetivos[id]?.executor
         if (!ex?.papelId) return undefined
         const papel = resolvePapel(ex.papelId)
-        if (!papel) return null
+        // sem o nome: ainda carregando, ou (lista já chegou) o papel foi excluído
+        if (!papel) return papeis.carregado ? false : null
         const entidade = ex.mode !== 'VARIAVEL' && ex.entityId ? resolveEntidade(ex.entityType, ex.entityId) : undefined
         return entidade ? `${papel} · ${entidade}` : papel
       },
@@ -1285,7 +1286,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       problemasDe: (id) => (pendenciasPorNo.get(id) ?? []).map((p) => p.mensagem),
     }
     return montarRoteiro(fluxo, consultas)
-  }, [fluxoDoRoteiro, vista, stepsEfetivos, resolvePapel, resolveEntidade, screens, pendenciasPorNo])
+  }, [fluxoDoRoteiro, vista, stepsEfetivos, resolvePapel, papeis.carregado, resolveEntidade, screens, pendenciasPorNo])
 
   /* Topo: compacta pela largura DISPONÍVEL (ver useNivelDoTopo). A chave lista o que pode
      ENCOLHER o conteúdo (aí vale tentar um nível menor); o que só cresce (o texto de "Quem
