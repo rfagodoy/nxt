@@ -141,14 +141,15 @@ export function Roteiro({ nos, inicio, selecionado, onSelecionar, previa, render
           const sel = selecionado === no.id
           const entre = estrutura && <Inserir estrutura={estrutura} refLista={ref} indice={i} />
           const acoes = estrutura && (
-            <MenuDaLinha rotulo={no.kind === 'etapa' ? (no.nome || 'Etapa sem nome') : (no.nome || (no.kind === 'escolha' ? 'Escolha' : 'Ao mesmo tempo'))}
+            <MenuDaLinha id={no.id} rotulo={no.kind === 'etapa' ? (no.nome || 'Etapa sem nome') : (no.nome || (no.kind === 'escolha' ? 'Escolha' : 'Ao mesmo tempo'))}
               onRemover={() => pedirRemocao(no)}
               onCima={i > 0 ? () => moverPeloMenu(no.id, { ref, indice: i - 1 }) : undefined}
               onBaixo={i < itens.length - 1 ? () => moverPeloMenu(no.id, { ref, indice: i + 2 }) : undefined}
               lugares={() => lugaresParaMover(fluxo, nos, no.id).map((l) => ({ ref: l.destino.ref, rotulo: l.rotulo, onMover: () => moverPeloMenu(no.id, l.destino) }))}
               onDesvincular={no.kind === 'etapa' && no.etiquetas.some((e) => e.tipo === 'vinculo') ? () => estrutura.desvincular(no.id) : undefined} />
           )
-          const alca = estrutura && <Alca id={no.id} rotulo={no.kind === 'etapa' ? (no.nome || 'etapa') : (no.nome || 'bloco')} onIniciar={() => iniciar(no.id)} onTecla={(d) => moverPeloTeclado(no.id, d)} />
+          const alca = estrutura && <Alca id={no.id} rotulo={no.kind === 'etapa' ? (no.nome || 'etapa') : (no.nome || 'bloco')} onIniciar={() => iniciar(no.id)} onTecla={(d) => moverPeloTeclado(no.id, d)}
+            onMenu={() => listaArrasto.current?.querySelector<HTMLElement>(`[data-menu-de="${CSS.escape(no.id)}"]`)?.click()} />
           let linha: ReactNode
           if (no.kind === 'etapa') {
             linha = <LinhaEtapa no={no} selecionada={sel} onSelecionar={onSelecionar} aberto={sel ? renderAberto(no.id) : undefined} acoes={acoes} alca={alca} />

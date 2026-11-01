@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { FluxoBlocos, ItemFluxo, CaminhoCondicional } from '@nxt/workflow-core'
 import type { StepFormSchema } from '@nxt/types'
-import { anunciar, contagem, descreverLugar, destinoVizinho, itensDaLista, listasDoRoteiro, lugaresParaMover, montarRoteiro, podeSoltar, removerCaminhoComVinculos, rotuloDoFimDaLista, secaoDaPendencia, type ConsultasDoRoteiro, type EtapaRoteiro, type EscolhaRoteiro, type ParaleloRoteiro } from './roteiro'
+import { acaoDaTeclaNaAlca, anunciar, contagem, descreverLugar, destinoVizinho, itensDaLista, listasDoRoteiro, lugaresParaMover, montarRoteiro, podeSoltar, removerCaminhoComVinculos, rotuloDoFimDaLista, secaoDaPendencia, type ConsultasDoRoteiro, type EtapaRoteiro, type EscolhaRoteiro, type ParaleloRoteiro } from './roteiro'
 
 const at = (id: string, tipo: 'userTask' | 'serviceTask' = 'userTask', vinculoDe?: string): ItemFluxo =>
   ({ kind: 'atividade', id, tipo, ...(vinculoDe ? { vinculoDe } : {}) })
@@ -343,5 +343,16 @@ describe('anúncio da região viva', () => {
     expect(dois.trim()).toBe('Não dá para subir mais.')
     expect(anunciar(dois, 'Não dá para subir mais.')).toBe(um)
     expect(anunciar(dois, 'Agora em Lista principal, posição 1 de 2.')).toBe('Agora em Lista principal, posição 1 de 2.')
+  })
+})
+
+describe('alça pelo teclado', () => {
+  it('↑ / ↓ movem (com ou sem Alt); Enter e Espaço abrem o menu da linha; o resto, nada', () => {
+    expect(acaoDaTeclaNaAlca('ArrowUp')).toEqual({ mover: -1 })
+    expect(acaoDaTeclaNaAlca('ArrowDown')).toEqual({ mover: 1 })
+    expect(acaoDaTeclaNaAlca('Enter')).toBe('menu')
+    expect(acaoDaTeclaNaAlca(' ')).toBe('menu')
+    expect(acaoDaTeclaNaAlca('Tab')).toBeNull()
+    expect(acaoDaTeclaNaAlca('a')).toBeNull()
   })
 })

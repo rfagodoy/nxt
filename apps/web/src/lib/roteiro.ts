@@ -233,6 +233,15 @@ export function destinoVizinho(f: FluxoBlocos, nos: NoRoteiro[], itemId: string,
   return null
 }
 
+/** Tecla na alça: ↑ / ↓ (com ou sem Alt) movem uma vaga; Enter e Espaço abrem o menu ⋯
+ *  da linha (o "Mover para…"), para a alça ser um botão de verdade. */
+export function acaoDaTeclaNaAlca(tecla: string): { mover: -1 | 1 } | 'menu' | null {
+  if (tecla === 'ArrowUp') return { mover: -1 }
+  if (tecla === 'ArrowDown') return { mover: 1 }
+  if (tecla === 'Enter' || tecla === ' ') return 'menu'
+  return null
+}
+
 /** Texto novo da região viva (aria-live): o leitor de tela só lê quando o texto MUDA, então
  *  a mesma mensagem duas vezes seguidas alterna um espaço inseparável no fim. */
 export function anunciar(anterior: string, texto: string): string {
