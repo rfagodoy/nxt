@@ -233,6 +233,12 @@ export function destinoVizinho(f: FluxoBlocos, nos: NoRoteiro[], itemId: string,
   return null
 }
 
+/** Texto novo da região viva (aria-live): o leitor de tela só lê quando o texto MUDA, então
+ *  a mesma mensagem duas vezes seguidas alterna um espaço inseparável no fim. */
+export function anunciar(anterior: string, texto: string): string {
+  return anterior === texto ? `${texto} ` : texto
+}
+
 /** Onde o item mora, em palavras ("Aprovado? → Se Sim, posição 2 de 3"), para anunciar. */
 export function descreverLugar(nos: NoRoteiro[], itemId: string): string | undefined {
   const acha = (itens: NoRoteiro[], ref: string): { ref: string; posicao: number; quantos: number } | undefined => {

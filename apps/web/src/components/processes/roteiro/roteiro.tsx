@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
 import { CircleDot, CircleStop, Plus, Workflow, X } from 'lucide-react'
 import { adicionarCaminho, type FluxoBlocos } from '@nxt/workflow-core'
-import { descreverLugar, destinoVizinho, lugaresParaMover, rotuloDoFimDaLista, type NoRoteiro } from '@/lib/roteiro'
+import { anunciar, descreverLugar, destinoVizinho, lugaresParaMover, rotuloDoFimDaLista, type NoRoteiro } from '@/lib/roteiro'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog, NoticeDialog } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
@@ -80,7 +80,7 @@ export function Roteiro({ nos, inicio, selecionado, onSelecionar, previa, render
   const moverPeloTeclado = (id: string, direcao: -1 | 1) => {
     if (!estrutura) return
     const d = destinoVizinho(fluxo, nos, id, direcao)
-    if (!d) { setAnuncio(direcao < 0 ? 'Não dá para subir mais.' : 'Não dá para descer mais.'); return }
+    if (!d) { setAnuncio((a) => anunciar(a, direcao < 0 ? 'Não dá para subir mais.' : 'Não dá para descer mais.')); return }
     estrutura.mover(id, d)
     setMovido(id)
   }
@@ -88,7 +88,7 @@ export function Roteiro({ nos, inicio, selecionado, onSelecionar, previa, render
     if (!movido) return
     listaArrasto.current?.querySelector<HTMLElement>(`[data-alca-de="${CSS.escape(movido)}"]`)?.focus()
     const lugar = descreverLugar(nos, movido)
-    if (lugar) setAnuncio(`Agora em ${lugar}.`)
+    if (lugar) setAnuncio((a) => anunciar(a, `Agora em ${lugar}.`))
     setMovido(null)
   }, [movido, nos])
   /* Remover escolha / ao mesmo tempo com etapas dentro pede confirmação dizendo o que vai junto. */

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { FluxoBlocos, ItemFluxo, CaminhoCondicional } from '@nxt/workflow-core'
 import type { StepFormSchema } from '@nxt/types'
-import { contagem, descreverLugar, destinoVizinho, itensDaLista, listasDoRoteiro, lugaresParaMover, montarRoteiro, podeSoltar, removerCaminhoComVinculos, rotuloDoFimDaLista, secaoDaPendencia, type ConsultasDoRoteiro, type EtapaRoteiro, type EscolhaRoteiro, type ParaleloRoteiro } from './roteiro'
+import { anunciar, contagem, descreverLugar, destinoVizinho, itensDaLista, listasDoRoteiro, lugaresParaMover, montarRoteiro, podeSoltar, removerCaminhoComVinculos, rotuloDoFimDaLista, secaoDaPendencia, type ConsultasDoRoteiro, type EtapaRoteiro, type EscolhaRoteiro, type ParaleloRoteiro } from './roteiro'
 
 const at = (id: string, tipo: 'userTask' | 'serviceTask' = 'userTask', vinculoDe?: string): ItemFluxo =>
   ({ kind: 'atividade', id, tipo, ...(vinculoDe ? { vinculoDe } : {}) })
@@ -331,5 +331,17 @@ describe('mover pelo teclado e pelo menu', () => {
     expect(descreverLugar(nosDe(f), 'a3')).toBe('Aprovado? → Se Sim, posição 2 de 2')
     expect(descreverLugar(nosDe(f), 'a1')).toBe('Lista principal, posição 1 de 2')
     expect(descreverLugar(nosDe(f), 'nada')).toBeUndefined()
+  })
+})
+
+describe('anúncio da região viva', () => {
+  it('mensagem repetida muda (espaço inseparável alternado) para ser lida de novo', () => {
+    const um = anunciar('', 'Não dá para subir mais.')
+    expect(um).toBe('Não dá para subir mais.')
+    const dois = anunciar(um, 'Não dá para subir mais.')
+    expect(dois).not.toBe(um)
+    expect(dois.trim()).toBe('Não dá para subir mais.')
+    expect(anunciar(dois, 'Não dá para subir mais.')).toBe(um)
+    expect(anunciar(dois, 'Agora em Lista principal, posição 1 de 2.')).toBe('Agora em Lista principal, posição 1 de 2.')
   })
 })
