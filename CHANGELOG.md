@@ -4,6 +4,21 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ## [Não lançado]
 
+## [1.1.1] — Ada — 2026-10-31
+
+### Corrigido
+
+- **Papéis:**
+  - uma etapa cujo papel foi apagado mostra "Papel removido — escolha outro" em vez de "carregando…" para sempre, e deixa de contar como completa;
+  - se a leitura dos papéis falhar (sem rede, ou erro do servidor), o sistema não grava mais a lista padrão por cima da lista real, nem acusa papel removido.
+- **Roteiro:**
+  - a alça de arrastar funciona pelo teclado: ↑/↓ movem a etapa, inclusive para dentro e para fora dos caminhos, e Enter/Espaço abrem o menu;
+  - o menu ganhou "Mover para…" outro caminho;
+  - o leitor de tela anuncia o novo lugar.
+- Remover um caminho pelo painel da escolha promove a cópia vinculada da etapa, no Desenho como no Roteiro.
+- Textos: "1 ramo" no singular, frente única com frase própria e "+ Primeira etapa" num workflow vazio.
+- Frase mais clara quando parte do desenho está danificada.
+
 ## [1.1.0] — Ada — 2026-10-31
 
 ### Adicionado
@@ -54,6 +69,7 @@ Primeira versão numerada do Nxt. Ela reúne o que foi entregue até aqui (PRs #
 - Recuperação de senha, trilha de auditoria e mutações de configuração restritas a administradores.
 - Dependências sem nenhum alerta alto ou crítico, com portão de auditoria no CI (`follow-redirects` 1.16.2).
 
-[Não lançado]: https://github.com/rfagodoy/nxt/compare/v1.1.0-ada...HEAD
+[Não lançado]: https://github.com/rfagodoy/nxt/compare/v1.1.1-ada...HEAD
+[1.1.1]: https://github.com/rfagodoy/nxt/compare/v1.1.0-ada...v1.1.1-ada
 [1.1.0]: https://github.com/rfagodoy/nxt/compare/v1.0.0-ada...v1.1.0-ada
 [1.0.0]: https://github.com/rfagodoy/nxt/releases/tag/v1.0.0-ada
