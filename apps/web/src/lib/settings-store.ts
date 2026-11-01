@@ -56,23 +56,36 @@ export function pushSetting(key: string, value: unknown): void {
   }).catch(() => { /* offline: o cache já guardou */ })
 }
 
+/** Leitura do backend que distingue "respondeu vazio" (ok, valor null) de "falhou"
+ *  (sem rede, 401, 500…): na falha, o que se tem é só o cache local. */
+export type LeituraSetting<T> = { ok: true; valor: T | null } | { ok: false }
+
+/**
+ * Busca o valor no backend. Se existir, atualiza o cache local. Vazio e falha vêm
+ * separados (ver `LeituraSetting`).
+ */
+export async function lerSetting<T = unknown>(key: string): Promise<LeituraSetting<T>> {
+  try {
+    const res = await apiFetch(`/api/settings/${encodeURIComponent(key)}`)
+    if (!res.ok) return { ok: false }
+    const data = await res.json() as { value: T | null }
+    if (data.value !== null && data.value !== undefined) {
+      cacheWrite(key, data.value)
+      return { ok: true, valor: data.value }
+    }
+    return { ok: true, valor: null }
+  } catch {
+    return { ok: false }
+  }
+}
+
 /**
  * Busca o valor no backend. Se existir, atualiza o cache local e retorna o valor;
  * se não existir (null) ou falhar, retorna null (mantém o cache atual).
  */
 export async function pullSetting<T = unknown>(key: string): Promise<T | null> {
-  try {
-    const res = await apiFetch(`/api/settings/${encodeURIComponent(key)}`)
-    if (!res.ok) return null
-    const data = await res.json() as { value: T | null }
-    if (data.value !== null && data.value !== undefined) {
-      cacheWrite(key, data.value)
-      return data.value
-    }
-    return null
-  } catch {
-    return null
-  }
+  const r = await lerSetting<T>(key)
+  return r.ok ? r.valor : null
 }
 
 /**

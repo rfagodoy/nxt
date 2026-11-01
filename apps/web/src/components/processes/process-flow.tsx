@@ -748,8 +748,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     setSelectedId((cur) => (cur === id ? null : cur))
     setConfigId((cur) => (cur === id ? null : cur))
   }, [fluxo, raizDe, vinculos, remover])
-  /** Remover um caminho de escolha: as etapas vão junto e a cópia de uma etapa vinculada cuja
-   *  raiz estava ali vira a raiz, com a configuração (como `remover`). */
+  /** Remover um caminho de escolha (ou frente de ao mesmo tempo), pelo Roteiro ou pelo painel
+   *  do bloco: as etapas vão junto e a cópia de uma etapa vinculada cuja raiz estava ali vira
+   *  a raiz, com a configuração (como `remover`). */
   const removerCaminhoDaEscolha = useCallback((blocoId: string, caminhoId: string) => {
     setFluxo((f) => {
       if (!f) return f
@@ -1237,7 +1238,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   ) : null)
   const configDoBloco = () => (selectedBloco && fluxo ? (
     <ConfiguracaoDoBloco blocoId={selectedBloco.id} fluxo={fluxo} steps={stepsEfetivos} simulacao={simulacao}
-      onRemover={remover} onFluxo={mudarFluxo}
+      onRemover={remover} onRemoverCaminho={removerCaminhoDaEscolha} onFluxo={mudarFluxo}
       screens={screens} onSimulacao={setSimulacao} onConfigurarAtividade={configurarAtividadeDaEscolha} problemas={pendenciasPorNo} />
   ) : null)
 
@@ -1263,7 +1264,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         const ex = stepsEfetivos[id]?.executor
         if (!ex?.papelId) return undefined
         const papel = resolvePapel(ex.papelId)
-        if (!papel) return null
+        // sem o nome: ainda carregando, ou (lista já chegou) o papel foi excluído
+        if (!papel) return papeis.carregado ? false : null
         const entidade = ex.mode !== 'VARIAVEL' && ex.entityId ? resolveEntidade(ex.entityType, ex.entityId) : undefined
         return entidade ? `${papel} · ${entidade}` : papel
       },
@@ -1285,7 +1287,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       problemasDe: (id) => (pendenciasPorNo.get(id) ?? []).map((p) => p.mensagem),
     }
     return montarRoteiro(fluxo, consultas)
-  }, [fluxoDoRoteiro, vista, stepsEfetivos, resolvePapel, resolveEntidade, screens, pendenciasPorNo])
+  }, [fluxoDoRoteiro, vista, stepsEfetivos, resolvePapel, papeis.carregado, resolveEntidade, screens, pendenciasPorNo])
 
   /* Topo: compacta pela largura DISPONÍVEL (ver useNivelDoTopo). A chave lista o que pode
      ENCOLHER o conteúdo (aí vale tentar um nível menor); o que só cresce (o texto de "Quem

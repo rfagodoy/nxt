@@ -11,6 +11,8 @@ import type { StepFormSchema } from '@nxt/types'
 export type Etiqueta =
   | { tipo: 'quem' | 'prazo' | 'tela' | 'devolve' | 'acao' | 'vinculo'; texto: string }
   | { tipo: 'falta'; texto: string }
+  /** resposta que não vale mais (o papel escolhido foi excluído): pede outra */
+  | { tipo: 'aviso'; texto: string }
   | { tipo: 'carregando'; texto: 'carregando…' }
 
 export interface EtapaRoteiro {
@@ -39,8 +41,9 @@ export type NoRoteiro = EtapaRoteiro | EscolhaRoteiro | ParaleloRoteiro
 
 export interface ConsultasDoRoteiro {
   steps: Record<string, StepFormSchema>
-  /** undefined = sem papel; null = papel definido mas o nome ainda não chegou */
-  quemFaz: (id: string) => string | null | undefined
+  /** undefined = sem papel; null = papel definido mas o nome ainda não chegou;
+   *  false = a lista de papéis já chegou e o papel não está nela (foi excluído) */
+  quemFaz: (id: string) => string | null | false | undefined
   prazo: (id: string) => string | null
   tela: (id: string) => string | null
   /** null = o padrão ("qualquer etapa anterior") */
@@ -68,6 +71,7 @@ function etapa(it: Extract<ItemFluxo, { kind: 'atividade' }>, ref: string, indic
   } else {
     const quem = c.quemFaz(fonte)
     if (quem === null) etiquetas.push({ tipo: 'carregando', texto: 'carregando…' })
+    else if (quem === false) etiquetas.push({ tipo: 'aviso', texto: 'Papel removido — escolha outro' })
     else if (quem) etiquetas.push({ tipo: 'quem', texto: quem })
     const prazo = c.prazo(fonte)
     if (prazo) etiquetas.push({ tipo: 'prazo', texto: prazo })
@@ -81,7 +85,7 @@ function etapa(it: Extract<ItemFluxo, { kind: 'atividade' }>, ref: string, indic
   return {
     kind: 'etapa', id: it.id, ref, indice,
     nome: passo?.stepName?.trim() ?? '', tipo: it.tipo,
-    etiquetas, completa: faltas.length === 0,
+    etiquetas, completa: faltas.length === 0 && !etiquetas.some((e) => e.tipo === 'aviso'),
   }
 }
 
@@ -122,6 +126,17 @@ export function montarRoteiro(f: FluxoBlocos, c: ConsultasDoRoteiro): NoRoteiro[
   return lista(f.itens, 'raiz', c)
 }
 
+/** "1 ramo", "2 ramos": o número com a palavra no singular ou no plural. */
+export function contagem(n: number, singular: string, plural: string): string {
+  return `${n} ${n === 1 ? singular : plural}`
+}
+
+/** Rótulo do "+" fixo no fim de uma lista: o workflow vazio pede a primeira etapa. */
+export function rotuloDoFimDaLista(ref: string, quantos: number): string {
+  if (ref !== 'raiz') return 'Etapa neste caminho'
+  return quantos ? 'Etapa no fim' : 'Primeira etapa'
+}
+
 export type Soltura = { ok: true; fluxo: FluxoBlocos } | { ok: false; motivo: string }
 
 /** Arrastar `itemId` para `destino` (mesma convenção de `moverItem`): só solta onde o motor
@@ -144,6 +159,113 @@ export function podeSoltar(f: FluxoBlocos, itemId: string, destino: { ref: strin
     return { ok: false, motivo: p.mensagem }
   }
   return { ok: true, fluxo: g }
+}
+
+/* ─── mover sem arrastar: teclado na alça e "Mover para…" no menu ⋯ ─────────────
+   Mesma regra do arrasto (`podeSoltar`); aqui só se escolhe O LUGAR. */
+
+type Lugar = { ref: string; indice: number }
+
+export interface ListaDoRoteiro {
+  ref: string; rotulo: string; quantos: number
+  /** blocos em volta da lista, do mais externo ao mais interno */
+  dentroDe: string[]
+}
+
+/** Todas as listas do Roteiro (a principal, caminhos e ramos), na ordem da leitura. */
+export function listasDoRoteiro(nos: NoRoteiro[]): ListaDoRoteiro[] {
+  const out: ListaDoRoteiro[] = [{ ref: 'raiz', rotulo: 'Lista principal', quantos: nos.length, dentroDe: [] }]
+  const visitar = (itens: NoRoteiro[], dentroDe: string[]) => {
+    for (const no of itens) {
+      if (no.kind === 'etapa') continue
+      const em = [...dentroDe, no.id]
+      const subs = no.kind === 'escolha'
+        ? no.caminhos.map((c) => ({
+          id: c.id, itens: c.itens,
+          rotulo: `${no.nome || 'Escolha sem pergunta'} → ${c.senao ? 'Senão' : `Se ${c.semCondicao ? '… (falta a condição)' : c.condicao}`}`,
+        }))
+        : no.ramos.map((r, i) => ({ id: r.id, itens: r.itens, rotulo: `${no.nome || 'Ao mesmo tempo'} → Ramo ${i + 1}` }))
+      for (const sub of subs) {
+        out.push({ ref: sub.id, rotulo: sub.rotulo, quantos: sub.itens.length, dentroDe: em })
+        visitar(sub.itens, em)
+      }
+    }
+  }
+  visitar(nos, [])
+  return out
+}
+
+/** "Mover para…": as OUTRAS listas onde o arrasto soltaria o item (no fim de cada uma). */
+export function lugaresParaMover(f: FluxoBlocos, nos: NoRoteiro[], itemId: string): Array<{ rotulo: string; destino: Lugar }> {
+  const aqui = localDoItem(f, itemId)
+  if (!aqui) return []
+  return listasDoRoteiro(nos)
+    .filter((l) => l.ref !== aqui.ref && !l.dentroDe.includes(itemId))
+    .map((l) => ({ rotulo: l.rotulo, destino: { ref: l.ref, indice: l.quantos } }))
+    .filter((l) => podeSoltar(f, itemId, l.destino).ok)
+}
+
+/** Vagas onde um item pode cair, na ordem da leitura (as de dentro de `fora` não entram). */
+function vagas(nos: NoRoteiro[], ref: string, fora: string): Lugar[] {
+  const out: Lugar[] = []
+  nos.forEach((no, indice) => {
+    out.push({ ref, indice })
+    if (no.kind === 'etapa' || no.id === fora) return
+    const subs = no.kind === 'escolha' ? no.caminhos.map((c) => ({ id: c.id, itens: c.itens })) : no.ramos
+    for (const sub of subs) out.push(...vagas(sub.itens, sub.id, fora))
+  })
+  out.push({ ref, indice: nos.length })
+  return out
+}
+
+/** Alça pelo teclado (↑ / ↓): a vaga vizinha, na ordem da leitura, onde o arrasto soltaria
+ *  o item — entra e sai de caminhos e ramos; pula as que o motor recusa. Sem nenhuma, null. */
+export function destinoVizinho(f: FluxoBlocos, nos: NoRoteiro[], itemId: string, direcao: -1 | 1): Lugar | null {
+  const aqui = localDoItem(f, itemId)
+  if (!aqui) return null
+  const todas = vagas(nos, 'raiz', itemId)
+  const k = todas.findIndex((v) => v.ref === aqui.ref && v.indice === aqui.indice)
+  if (k < 0) return null
+  for (let i = k + direcao; i >= 0 && i < todas.length; i += direcao) {
+    const s = podeSoltar(f, itemId, todas[i])
+    if (s.ok && s.fluxo !== f) return todas[i]
+  }
+  return null
+}
+
+/** Tecla na alça: ↑ / ↓ (com ou sem Alt) movem uma vaga; Enter e Espaço abrem o menu ⋯
+ *  da linha (o "Mover para…"), para a alça ser um botão de verdade. */
+export function acaoDaTeclaNaAlca(tecla: string): { mover: -1 | 1 } | 'menu' | null {
+  if (tecla === 'ArrowUp') return { mover: -1 }
+  if (tecla === 'ArrowDown') return { mover: 1 }
+  if (tecla === 'Enter' || tecla === ' ') return 'menu'
+  return null
+}
+
+/** Texto novo da região viva (aria-live): o leitor de tela só lê quando o texto MUDA, então
+ *  a mesma mensagem duas vezes seguidas alterna um espaço inseparável no fim. */
+export function anunciar(anterior: string, texto: string): string {
+  return anterior === texto ? `${texto} ` : texto
+}
+
+/** Onde o item mora, em palavras ("Aprovado? → Se Sim, posição 2 de 3"), para anunciar. */
+export function descreverLugar(nos: NoRoteiro[], itemId: string): string | undefined {
+  const acha = (itens: NoRoteiro[], ref: string): { ref: string; posicao: number; quantos: number } | undefined => {
+    for (const [i, no] of itens.entries()) {
+      if (no.id === itemId) return { ref, posicao: i + 1, quantos: itens.length }
+      if (no.kind === 'etapa') continue
+      const subs = no.kind === 'escolha' ? no.caminhos : no.ramos
+      for (const sub of subs) {
+        const r = acha(sub.itens, sub.id)
+        if (r) return r
+      }
+    }
+    return undefined
+  }
+  const r = acha(nos, 'raiz')
+  if (!r) return undefined
+  const lista = listasDoRoteiro(nos).find((l) => l.ref === r.ref)
+  return `${lista?.rotulo ?? ''}, posição ${r.posicao} de ${r.quantos}`
 }
 
 /** Os itens da lista `ref` ('raiz' ou id de caminho / ramo), em qualquer profundidade. */

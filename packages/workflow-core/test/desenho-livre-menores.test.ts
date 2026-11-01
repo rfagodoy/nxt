@@ -195,7 +195,7 @@ describe('revisão: blocos que a ativação não lê por outro motivo que não o
     if (c.ok) throw new Error('deveria recusar')
     expect(c.problemas[0]).toEqual({
       tipo: 'desenho-ilegivel', formas: [], setas: [],
-      mensagem: 'O desenho tem dados que o motor não consegue ler (desenho corrompido). Desfaça a última mudança ou refaça as formas alteradas por último.',
+      mensagem: 'Parte do desenho está danificada e o sistema não consegue lê-la. Desfaça a última mudança ou refaça as formas alteradas por último.',
     })
   })
 })

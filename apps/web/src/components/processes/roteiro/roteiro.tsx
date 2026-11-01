@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
 import { CircleDot, CircleStop, Plus, Workflow, X } from 'lucide-react'
 import { adicionarCaminho, type FluxoBlocos } from '@nxt/workflow-core'
-import type { NoRoteiro } from '@/lib/roteiro'
+import { anunciar, descreverLugar, destinoVizinho, lugaresParaMover, rotuloDoFimDaLista, type NoRoteiro } from '@/lib/roteiro'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog, NoticeDialog } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
@@ -64,13 +64,33 @@ export function Roteiro({ nos, inicio, selecionado, onSelecionar, previa, render
     avaliar: (id, d) => estrutura?.avaliar(id, d) ?? { ok: false, motivo: '' },
     mover: (id, d) => estrutura?.mover(id, d),
   })
-  /* Mover para cima / para baixo pelo menu: mesma regra do arrasto; recusado, diz o porquê. */
+  /* item recém-movido (para devolver o foco à alça) e o anúncio do lugar novo */
+  const [movido, setMovido] = useState<string | null>(null)
+  const [anuncio, setAnuncio] = useState('')
+  /* Mover pelo menu: mesma regra do arrasto; recusado, diz o porquê. */
   const moverPeloMenu = (id: string, d: Destino) => {
     if (!estrutura) return
     const a = estrutura.avaliar(id, d)
-    if (a.ok) estrutura.mover(id, d)
+    if (a.ok) { estrutura.mover(id, d); setMovido(id) }
     else setRecusa(a.motivo)
   }
+  /* Alça pelo teclado: a vaga vizinha onde o arrasto soltaria (`destinoVizinho`). Depois de
+     mover, o foco volta à alça do item (a linha pode ter mudado de lista) e o lugar novo
+     é anunciado. */
+  const moverPeloTeclado = (id: string, direcao: -1 | 1) => {
+    if (!estrutura) return
+    const d = destinoVizinho(fluxo, nos, id, direcao)
+    if (!d) { setAnuncio((a) => anunciar(a, direcao < 0 ? 'Não dá para subir mais.' : 'Não dá para descer mais.')); return }
+    estrutura.mover(id, d)
+    setMovido(id)
+  }
+  useEffect(() => {
+    if (!movido) return
+    listaArrasto.current?.querySelector<HTMLElement>(`[data-alca-de="${CSS.escape(movido)}"]`)?.focus()
+    const lugar = descreverLugar(nos, movido)
+    if (lugar) setAnuncio((a) => anunciar(a, `Agora em ${lugar}.`))
+    setMovido(null)
+  }, [movido, nos])
   /* Remover escolha / ao mesmo tempo com etapas dentro pede confirmação dizendo o que vai junto. */
   const pedirRemocao = (no: NoRoteiro) => {
     if (!estrutura) return
@@ -108,7 +128,7 @@ export function Roteiro({ nos, inicio, selecionado, onSelecionar, previa, render
 
   const renderLista = (itens: NoRoteiro[], ref: string): ReactNode => {
     const fimDaLista = estrutura
-      ? <Inserir estrutura={estrutura} refLista={ref} indice={itens.length} rotulo={ref === 'raiz' ? 'Etapa no fim' : 'Etapa neste caminho'} />
+      ? <Inserir estrutura={estrutura} refLista={ref} indice={itens.length} rotulo={rotuloDoFimDaLista(ref, itens.length)} />
       : null
     if (!itens.length) {
       return fimDaLista
@@ -121,13 +141,15 @@ export function Roteiro({ nos, inicio, selecionado, onSelecionar, previa, render
           const sel = selecionado === no.id
           const entre = estrutura && <Inserir estrutura={estrutura} refLista={ref} indice={i} />
           const acoes = estrutura && (
-            <MenuDaLinha rotulo={no.kind === 'etapa' ? (no.nome || 'Etapa sem nome') : (no.nome || (no.kind === 'escolha' ? 'Escolha' : 'Ao mesmo tempo'))}
+            <MenuDaLinha id={no.id} rotulo={no.kind === 'etapa' ? (no.nome || 'Etapa sem nome') : (no.nome || (no.kind === 'escolha' ? 'Escolha' : 'Ao mesmo tempo'))}
               onRemover={() => pedirRemocao(no)}
               onCima={i > 0 ? () => moverPeloMenu(no.id, { ref, indice: i - 1 }) : undefined}
               onBaixo={i < itens.length - 1 ? () => moverPeloMenu(no.id, { ref, indice: i + 2 }) : undefined}
+              lugares={() => lugaresParaMover(fluxo, nos, no.id).map((l) => ({ ref: l.destino.ref, rotulo: l.rotulo, onMover: () => moverPeloMenu(no.id, l.destino) }))}
               onDesvincular={no.kind === 'etapa' && no.etiquetas.some((e) => e.tipo === 'vinculo') ? () => estrutura.desvincular(no.id) : undefined} />
           )
-          const alca = estrutura && <Alca rotulo={no.kind === 'etapa' ? (no.nome || 'etapa') : (no.nome || 'bloco')} onIniciar={() => iniciar(no.id)} />
+          const alca = estrutura && <Alca id={no.id} rotulo={no.kind === 'etapa' ? (no.nome || 'etapa') : (no.nome || 'bloco')} onIniciar={() => iniciar(no.id)} onTecla={(d) => moverPeloTeclado(no.id, d)}
+            onMenu={() => listaArrasto.current?.querySelector<HTMLElement>(`[data-menu-de="${CSS.escape(no.id)}"]`)?.click()} />
           let linha: ReactNode
           if (no.kind === 'etapa') {
             linha = <LinhaEtapa no={no} selecionada={sel} onSelecionar={onSelecionar} aberto={sel ? renderAberto(no.id) : undefined} acoes={acoes} alca={alca} />
@@ -192,6 +214,7 @@ export function Roteiro({ nos, inicio, selecionado, onSelecionar, previa, render
           <div className="py-1.5">{renderLista(nos, 'raiz')}</div>
           <EventoNaLista icone={<CircleStop className="h-3.5 w-3.5 text-primary" />} texto="Fim" />
           <LinhaDeSoltar arrasto={arrasto} />
+          <p aria-live="polite" className="sr-only">{anuncio}</p>
         </div>
       </div>
       {comPrevia && <div className="relative min-w-0 flex-1">{previa}</div>}

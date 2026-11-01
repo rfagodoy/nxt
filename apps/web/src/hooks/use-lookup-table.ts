@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { cacheRead, pushSetting, pullSetting } from '@/lib/settings-store'
+import { cacheRead, lerSetting, pushSetting, type LeituraSetting } from '@/lib/settings-store'
 
 export interface LookupEntry {
   id: string
@@ -14,10 +14,20 @@ export interface LookupEntry {
   efeito?: string         // tipos de aditivo: termino | valor | objeto | partes | nenhum
 }
 
+/** O que fazer com a resposta do backend. Só a resposta OK (vazia inclusive) torna a lista
+ *  "carregada"; na falha (sem rede, 401, 500) ela é só o cache local — não semeia por cima
+ *  do backend nem afirma que um item sumiu. */
+export function depoisDoBackend(r: LeituraSetting<unknown>): { aplicar: boolean; semear: boolean; carregado: boolean } {
+  if (!r.ok) return { aplicar: false, semear: false, carregado: false }
+  return { aplicar: r.valor !== null, semear: r.valor === null, carregado: true }
+}
+
 export function useLookupTable(storageKey: string, initialData: LookupEntry[]) {
   const [entries, setEntries] = useState<LookupEntry[]>([])
   const ref     = useRef<LookupEntry[]>([])
   const loaded  = useRef(false)
+  /** o backend respondeu OK (antes disso, ou se ele falhou, a lista pode ser só o cache local) */
+  const [carregado, setCarregado] = useState(false)
   const changeEvent = `${storageKey}:change`
 
   const apply = useCallback((next: LookupEntry[]) => {
@@ -39,9 +49,11 @@ export function useLookupTable(storageKey: string, initialData: LookupEntry[]) {
     }
 
     // hidrata do backend; se vazio, semeia o default (cache atual ou initialData)
-    void pullSetting<LookupEntry[]>(storageKey).then(remote => {
-      if (remote) apply(remote)
-      else        pushSetting(storageKey, ref.current)
+    void lerSetting<LookupEntry[]>(storageKey).then(r => {
+      const d = depoisDoBackend(r)
+      if (d.aplicar && r.ok && r.valor) apply(r.valor)
+      if (d.semear) pushSetting(storageKey, ref.current)
+      if (d.carregado) setCarregado(true)
     })
 
     const handler = () => {
@@ -63,5 +75,5 @@ export function useLookupTable(storageKey: string, initialData: LookupEntry[]) {
 
   const active = entries.filter(e => e.active)
 
-  return { entries, active, add, remove, update, toggle, replace }
+  return { entries, active, carregado, add, remove, update, toggle, replace }
 }

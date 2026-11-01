@@ -5,8 +5,9 @@
    `data-alvo-ref` / `data-alvo-indice` (onde ele mora); passar na metade de cima solta
    ANTES dele, na de baixo, DEPOIS. O "+ etapa neste caminho" (data-alvo-fim) é o fim da
    lista. A linha fica verde onde o motor aceita e vermelha, com o motivo, onde não. */
-import { useCallback, useEffect, useRef, useState, type JSX, type RefObject } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type JSX, type RefObject } from 'react'
 import { GripVertical } from 'lucide-react'
+import { acaoDaTeclaNaAlca } from '@/lib/roteiro'
 import { cn } from '@/lib/utils'
 
 export type Destino = { ref: string; indice: number }
@@ -68,13 +69,29 @@ export function useArrastar({ lista, avaliar, mover }: {
   return { arrasto, iniciar }
 }
 
-/** Alça ⋮⋮ de uma linha. */
-export function Alca({ rotulo, onIniciar }: { rotulo: string; onIniciar: () => void }): JSX.Element {
+/** Alça ⋮⋮ de uma linha. Pelo teclado (`acaoDaTeclaNaAlca`), ↑ / ↓ movem o item uma vaga
+ *  e Enter / Espaço abrem o menu ⋯ da linha, onde está o "Mover para…". */
+export function Alca({ id, rotulo, onIniciar, onTecla, onMenu }: {
+  id: string; rotulo: string; onIniciar: () => void
+  onTecla: (direcao: -1 | 1) => void
+  onMenu: () => void
+}): JSX.Element {
+  const ajuda = useId()
   return (
-    <span role="button" tabIndex={-1} aria-label={`Arrastar ${rotulo}`} title="Arrastar para mudar de lugar"
+    <span role="button" tabIndex={0} data-alca-de={id} aria-label={`Mover ${rotulo}`} aria-describedby={ajuda}
+      aria-haspopup="menu" aria-keyshortcuts="ArrowUp ArrowDown Enter Space"
+      title="Arraste, ou use ↑ e ↓, para mudar de lugar"
       onPointerDown={(e) => { if (e.button !== 0) return; e.preventDefault(); onIniciar() }}
-      className="mt-0.5 flex h-6 w-4 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground/60 hover:bg-muted hover:text-foreground active:cursor-grabbing">
+      onKeyDown={(e) => {
+        const acao = acaoDaTeclaNaAlca(e.key)
+        if (!acao) return
+        e.preventDefault()
+        if (acao === 'menu') onMenu()
+        else onTecla(acao.mover)
+      }}
+      className="mt-0.5 flex h-6 w-4 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground/60 hover:bg-muted hover:text-foreground active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
       <GripVertical className="h-3.5 w-3.5" />
+      <span id={ajuda} className="sr-only">Seta para cima ou para baixo muda de lugar; Enter abre o menu para mover.</span>
     </span>
   )
 }
