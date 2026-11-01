@@ -513,7 +513,7 @@ export function desenhoParaBlocos(d: DesenhoV2, opcoes: { nomeDe?: (id: string) 
       const ruins = idsRecusados(fluxo)
       if (ruins.size) recusarIds(ruins)
       // outro motivo (campo que não é texto, em dado antigo): sem culpado a apontar
-      recusar('desenho-ilegivel', 'O desenho tem dados que o motor não consegue ler (desenho corrompido). Desfaça a última mudança ou refaça as formas alteradas por último.')
+      recusar('desenho-ilegivel', 'Parte do desenho está danificada e o sistema não consegue lê-la. Desfaça a última mudança ou refaça as formas alteradas por último.')
     }
     const soltas = d.formas.filter((f) => f.tipo !== 'start' && f.tipo !== 'end' && !percorridas.has(f.id))
     if (soltas.length) {
