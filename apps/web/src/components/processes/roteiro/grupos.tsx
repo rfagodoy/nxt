@@ -2,7 +2,7 @@
 
 import type { JSX, ReactNode } from 'react'
 import { AlertTriangle, ArrowRight, CircleStop, Undo2 } from 'lucide-react'
-import type { CaminhoRoteiro, EscolhaRoteiro, NoRoteiro, ParaleloRoteiro } from '@/lib/roteiro'
+import { contagem, type CaminhoRoteiro, type EscolhaRoteiro, type NoRoteiro, type ParaleloRoteiro } from '@/lib/roteiro'
 import { cn } from '@/lib/utils'
 import { GatewayGlyph } from '../flow-shared'
 
@@ -106,7 +106,7 @@ export function GrupoParalelo({ no, selecionado, onSelecionar, aberto, renderLis
       className={cn('rounded-xl border bg-rose-500/[0.06] p-2', selecionado ? 'border-rose-500/60 shadow-[0_0_0_3px_rgb(244_63_94/0.15)]' : 'border-rose-500/20')}>
       <Cabecalho id={no.id} selecionado={selecionado} onSelecionar={onSelecionar} tom="paralelo" acoes={acoes} alca={alca}
         glifo={<GatewayGlyph kind="parallel" className="h-3.5 w-3.5 shrink-0" />}
-        titulo={no.nome || 'Ao mesmo tempo'} detalhe={`${no.ramos.length} ramos`} />
+        titulo={no.nome || 'Ao mesmo tempo'} detalhe={contagem(no.ramos.length, 'ramo', 'ramos')} />
       <Problemas problemas={no.problemas} />
       {selecionado && aberto && <div className="mb-2 overflow-hidden rounded-lg border bg-card">{aberto}</div>}
       <div className="flex flex-col gap-2">

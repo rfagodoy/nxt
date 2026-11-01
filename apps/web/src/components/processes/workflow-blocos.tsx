@@ -527,7 +527,9 @@ export function ConfiguracaoDoBloco({ blocoId, ...props }: BlocoProps & { blocoI
         <p className="text-[11px] leading-snug text-muted-foreground">
           {b.kind === 'escolha'
             ? <>Clique na <span className="font-medium">condição</span> de um caminho para montar o filtro, e use <span className="font-medium">Testar</span> para ver por onde o processo seguiria. As etapas de cada caminho ficam no desenho.</>
-            : <>As {b.caminhos.length} frentes começam juntas, e o processo só segue quando todas terminarem. As etapas de cada frente ficam no desenho.</>}
+            : b.caminhos.length === 1
+              ? <>Só há uma frente: o processo segue quando ela terminar. As etapas da frente ficam no desenho.</>
+              : <>As {b.caminhos.length} frentes começam juntas, e o processo só segue quando todas terminarem. As etapas de cada frente ficam no desenho.</>}
         </p>
       </div>
     </Ctx.Provider>

@@ -126,6 +126,17 @@ export function montarRoteiro(f: FluxoBlocos, c: ConsultasDoRoteiro): NoRoteiro[
   return lista(f.itens, 'raiz', c)
 }
 
+/** "1 ramo", "2 ramos": o número com a palavra no singular ou no plural. */
+export function contagem(n: number, singular: string, plural: string): string {
+  return `${n} ${n === 1 ? singular : plural}`
+}
+
+/** Rótulo do "+" fixo no fim de uma lista: o workflow vazio pede a primeira etapa. */
+export function rotuloDoFimDaLista(ref: string, quantos: number): string {
+  if (ref !== 'raiz') return 'Etapa neste caminho'
+  return quantos ? 'Etapa no fim' : 'Primeira etapa'
+}
+
 export type Soltura = { ok: true; fluxo: FluxoBlocos } | { ok: false; motivo: string }
 
 /** Arrastar `itemId` para `destino` (mesma convenção de `moverItem`): só solta onde o motor

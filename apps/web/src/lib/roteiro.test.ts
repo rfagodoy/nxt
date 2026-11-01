@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { FluxoBlocos, ItemFluxo, CaminhoCondicional } from '@nxt/workflow-core'
 import type { StepFormSchema } from '@nxt/types'
-import { itensDaLista, montarRoteiro, podeSoltar, removerCaminhoComVinculos, secaoDaPendencia, type ConsultasDoRoteiro, type EtapaRoteiro, type EscolhaRoteiro, type ParaleloRoteiro } from './roteiro'
+import { contagem, itensDaLista, montarRoteiro, podeSoltar, removerCaminhoComVinculos, rotuloDoFimDaLista, secaoDaPendencia, type ConsultasDoRoteiro, type EtapaRoteiro, type EscolhaRoteiro, type ParaleloRoteiro } from './roteiro'
 
 const at = (id: string, tipo: 'userTask' | 'serviceTask' = 'userTask', vinculoDe?: string): ItemFluxo =>
   ({ kind: 'atividade', id, tipo, ...(vinculoDe ? { vinculoDe } : {}) })
@@ -231,5 +231,21 @@ describe('revisão final', () => {
     const cond = (id: string, alvoId: string): CaminhoCondicional => ({ id, condition: 'x', itens: [], fim: { tipo: 'volta', alvoId } })
     const f = fluxo([at('a1'), { kind: 'escolha', id: 'e1', modo: 'primeiro', caminhos: [cond('c1', 'a1'), cond('c2', 'a3')], casoContrario: { id: 'cc', itens: [], fim: { tipo: 'segue' } } }, at('a3')])
     expect(podeSoltar(f, 'a1', { ref: 'raiz', indice: 3 }).ok).toBe(false)
+  })
+})
+
+describe('textos', () => {
+  it('contagem no singular e no plural', () => {
+    expect(contagem(1, 'ramo', 'ramos')).toBe('1 ramo')
+    expect(contagem(2, 'ramo', 'ramos')).toBe('2 ramos')
+    expect(contagem(0, 'ramo', 'ramos')).toBe('0 ramos')
+    expect(contagem(1, 'frente', 'frentes')).toBe('1 frente')
+  })
+
+  it('"+" do fim da lista: primeira etapa no workflow vazio, no fim ou no caminho nos demais', () => {
+    expect(rotuloDoFimDaLista('raiz', 0)).toBe('Primeira etapa')
+    expect(rotuloDoFimDaLista('raiz', 2)).toBe('Etapa no fim')
+    expect(rotuloDoFimDaLista('c1', 0)).toBe('Etapa neste caminho')
+    expect(rotuloDoFimDaLista('c1', 3)).toBe('Etapa neste caminho')
   })
 })

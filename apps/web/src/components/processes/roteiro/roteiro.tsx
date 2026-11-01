@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
 import { CircleDot, CircleStop, Plus, Workflow, X } from 'lucide-react'
 import { adicionarCaminho, type FluxoBlocos } from '@nxt/workflow-core'
-import type { NoRoteiro } from '@/lib/roteiro'
+import { rotuloDoFimDaLista, type NoRoteiro } from '@/lib/roteiro'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog, NoticeDialog } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
@@ -108,7 +108,7 @@ export function Roteiro({ nos, inicio, selecionado, onSelecionar, previa, render
 
   const renderLista = (itens: NoRoteiro[], ref: string): ReactNode => {
     const fimDaLista = estrutura
-      ? <Inserir estrutura={estrutura} refLista={ref} indice={itens.length} rotulo={ref === 'raiz' ? 'Etapa no fim' : 'Etapa neste caminho'} />
+      ? <Inserir estrutura={estrutura} refLista={ref} indice={itens.length} rotulo={rotuloDoFimDaLista(ref, itens.length)} />
       : null
     if (!itens.length) {
       return fimDaLista
