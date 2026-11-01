@@ -4,8 +4,6 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ## [Não lançado]
 
-## [1.1.2] — Ada — 2026-11-01
-
 ### Alterado
 
 - **Menu do usuário** reorganizado em seções:
@@ -80,8 +78,7 @@ Primeira versão numerada do Nxt. Ela reúne o que foi entregue até aqui (PRs #
 - Recuperação de senha, trilha de auditoria e mutações de configuração restritas a administradores.
 - Dependências sem nenhum alerta alto ou crítico, com portão de auditoria no CI (`follow-redirects` 1.16.2).
 
-[Não lançado]: https://github.com/rfagodoy/nxt/compare/v1.1.2-ada...HEAD
-[1.1.2]: https://github.com/rfagodoy/nxt/compare/v1.1.1-ada...v1.1.2-ada
+[Não lançado]: https://github.com/rfagodoy/nxt/compare/v1.1.1-ada...HEAD
 [1.1.1]: https://github.com/rfagodoy/nxt/compare/v1.1.0-ada...v1.1.1-ada
 [1.1.0]: https://github.com/rfagodoy/nxt/compare/v1.0.0-ada...v1.1.0-ada
 [1.0.0]: https://github.com/rfagodoy/nxt/releases/tag/v1.0.0-ada
