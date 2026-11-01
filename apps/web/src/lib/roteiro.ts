@@ -161,6 +161,98 @@ export function podeSoltar(f: FluxoBlocos, itemId: string, destino: { ref: strin
   return { ok: true, fluxo: g }
 }
 
+/* ─── mover sem arrastar: teclado na alça e "Mover para…" no menu ⋯ ─────────────
+   Mesma regra do arrasto (`podeSoltar`); aqui só se escolhe O LUGAR. */
+
+type Lugar = { ref: string; indice: number }
+
+export interface ListaDoRoteiro {
+  ref: string; rotulo: string; quantos: number
+  /** blocos em volta da lista, do mais externo ao mais interno */
+  dentroDe: string[]
+}
+
+/** Todas as listas do Roteiro (a principal, caminhos e ramos), na ordem da leitura. */
+export function listasDoRoteiro(nos: NoRoteiro[]): ListaDoRoteiro[] {
+  const out: ListaDoRoteiro[] = [{ ref: 'raiz', rotulo: 'Lista principal', quantos: nos.length, dentroDe: [] }]
+  const visitar = (itens: NoRoteiro[], dentroDe: string[]) => {
+    for (const no of itens) {
+      if (no.kind === 'etapa') continue
+      const em = [...dentroDe, no.id]
+      const subs = no.kind === 'escolha'
+        ? no.caminhos.map((c) => ({
+          id: c.id, itens: c.itens,
+          rotulo: `${no.nome || 'Escolha sem pergunta'} → ${c.senao ? 'Senão' : `Se ${c.semCondicao ? '… (falta a condição)' : c.condicao}`}`,
+        }))
+        : no.ramos.map((r, i) => ({ id: r.id, itens: r.itens, rotulo: `${no.nome || 'Ao mesmo tempo'} → Ramo ${i + 1}` }))
+      for (const sub of subs) {
+        out.push({ ref: sub.id, rotulo: sub.rotulo, quantos: sub.itens.length, dentroDe: em })
+        visitar(sub.itens, em)
+      }
+    }
+  }
+  visitar(nos, [])
+  return out
+}
+
+/** "Mover para…": as OUTRAS listas onde o arrasto soltaria o item (no fim de cada uma). */
+export function lugaresParaMover(f: FluxoBlocos, nos: NoRoteiro[], itemId: string): Array<{ rotulo: string; destino: Lugar }> {
+  const aqui = localDoItem(f, itemId)
+  if (!aqui) return []
+  return listasDoRoteiro(nos)
+    .filter((l) => l.ref !== aqui.ref && !l.dentroDe.includes(itemId))
+    .map((l) => ({ rotulo: l.rotulo, destino: { ref: l.ref, indice: l.quantos } }))
+    .filter((l) => podeSoltar(f, itemId, l.destino).ok)
+}
+
+/** Vagas onde um item pode cair, na ordem da leitura (as de dentro de `fora` não entram). */
+function vagas(nos: NoRoteiro[], ref: string, fora: string): Lugar[] {
+  const out: Lugar[] = []
+  nos.forEach((no, indice) => {
+    out.push({ ref, indice })
+    if (no.kind === 'etapa' || no.id === fora) return
+    const subs = no.kind === 'escolha' ? no.caminhos.map((c) => ({ id: c.id, itens: c.itens })) : no.ramos
+    for (const sub of subs) out.push(...vagas(sub.itens, sub.id, fora))
+  })
+  out.push({ ref, indice: nos.length })
+  return out
+}
+
+/** Alça pelo teclado (↑ / ↓): a vaga vizinha, na ordem da leitura, onde o arrasto soltaria
+ *  o item — entra e sai de caminhos e ramos; pula as que o motor recusa. Sem nenhuma, null. */
+export function destinoVizinho(f: FluxoBlocos, nos: NoRoteiro[], itemId: string, direcao: -1 | 1): Lugar | null {
+  const aqui = localDoItem(f, itemId)
+  if (!aqui) return null
+  const todas = vagas(nos, 'raiz', itemId)
+  const k = todas.findIndex((v) => v.ref === aqui.ref && v.indice === aqui.indice)
+  if (k < 0) return null
+  for (let i = k + direcao; i >= 0 && i < todas.length; i += direcao) {
+    const s = podeSoltar(f, itemId, todas[i])
+    if (s.ok && s.fluxo !== f) return todas[i]
+  }
+  return null
+}
+
+/** Onde o item mora, em palavras ("Aprovado? → Se Sim, posição 2 de 3"), para anunciar. */
+export function descreverLugar(nos: NoRoteiro[], itemId: string): string | undefined {
+  const acha = (itens: NoRoteiro[], ref: string): { ref: string; posicao: number; quantos: number } | undefined => {
+    for (const [i, no] of itens.entries()) {
+      if (no.id === itemId) return { ref, posicao: i + 1, quantos: itens.length }
+      if (no.kind === 'etapa') continue
+      const subs = no.kind === 'escolha' ? no.caminhos : no.ramos
+      for (const sub of subs) {
+        const r = acha(sub.itens, sub.id)
+        if (r) return r
+      }
+    }
+    return undefined
+  }
+  const r = acha(nos, 'raiz')
+  if (!r) return undefined
+  const lista = listasDoRoteiro(nos).find((l) => l.ref === r.ref)
+  return `${lista?.rotulo ?? ''}, posição ${r.posicao} de ${r.quantos}`
+}
+
 /** Os itens da lista `ref` ('raiz' ou id de caminho / ramo), em qualquer profundidade. */
 export function itensDaLista(f: FluxoBlocos, ref: string): ItemFluxo[] | undefined {
   if (ref === 'raiz') return f.itens

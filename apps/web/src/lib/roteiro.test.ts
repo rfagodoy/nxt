@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { FluxoBlocos, ItemFluxo, CaminhoCondicional } from '@nxt/workflow-core'
 import type { StepFormSchema } from '@nxt/types'
-import { contagem, itensDaLista, montarRoteiro, podeSoltar, removerCaminhoComVinculos, rotuloDoFimDaLista, secaoDaPendencia, type ConsultasDoRoteiro, type EtapaRoteiro, type EscolhaRoteiro, type ParaleloRoteiro } from './roteiro'
+import { contagem, descreverLugar, destinoVizinho, itensDaLista, listasDoRoteiro, lugaresParaMover, montarRoteiro, podeSoltar, removerCaminhoComVinculos, rotuloDoFimDaLista, secaoDaPendencia, type ConsultasDoRoteiro, type EtapaRoteiro, type EscolhaRoteiro, type ParaleloRoteiro } from './roteiro'
 
 const at = (id: string, tipo: 'userTask' | 'serviceTask' = 'userTask', vinculoDe?: string): ItemFluxo =>
   ({ kind: 'atividade', id, tipo, ...(vinculoDe ? { vinculoDe } : {}) })
@@ -247,5 +247,79 @@ describe('textos', () => {
     expect(rotuloDoFimDaLista('raiz', 2)).toBe('Etapa no fim')
     expect(rotuloDoFimDaLista('c1', 0)).toBe('Etapa neste caminho')
     expect(rotuloDoFimDaLista('c1', 3)).toBe('Etapa neste caminho')
+  })
+})
+
+describe('mover pelo teclado e pelo menu', () => {
+  const cond = (id: string, rotulo: string, itens: ItemFluxo[], fim: CaminhoCondicional['fim'] = { tipo: 'segue' }): CaminhoCondicional =>
+    ({ id, rotulo, condition: 'x', itens, fim })
+  const escolha = (id: string, caminhos: CaminhoCondicional[], pergunta = 'Aprovado?'): ItemFluxo =>
+    ({ kind: 'escolha', id, pergunta, modo: 'primeiro', caminhos, casoContrario: { id: `${id}-cc`, itens: [], fim: { tipo: 'segue' } } })
+  const paralelo = (id: string, ramos: ItemFluxo[][]): ItemFluxo =>
+    ({ kind: 'paralelo', id, nome: 'Pareceres', caminhos: ramos.map((itens, i) => ({ id: `${id}-r${i + 1}`, itens })) })
+  const steps = { a1: passo('a1'), a2: passo('a2'), a3: passo('a3'), a4: passo('a4') }
+  const nosDe = (f: FluxoBlocos) => montarRoteiro(f, consultas(steps))
+
+  it('listas do roteiro na ordem da leitura, com rótulo e os blocos em volta', () => {
+    const f = fluxo([at('a1'), escolha('e1', [cond('c1', 'Sim', [at('a2')]), cond('c2', 'Não', [paralelo('p1', [[], [at('a3')]])])])])
+    expect(listasDoRoteiro(nosDe(f)).map((l) => [l.ref, l.rotulo, l.quantos, l.dentroDe])).toEqual([
+      ['raiz', 'Lista principal', 2, []],
+      ['c1', 'Aprovado? → Se Sim', 1, ['e1']],
+      ['c2', 'Aprovado? → Se Não', 1, ['e1']],
+      ['p1-r1', 'Pareceres → Ramo 1', 0, ['e1', 'p1']],
+      ['p1-r2', 'Pareceres → Ramo 2', 1, ['e1', 'p1']],
+    ])
+  })
+
+  it('menu: outras listas onde o arrasto soltaria (no fim de cada uma); nem a própria, nem dentro de si', () => {
+    const f = fluxo([at('a1'), escolha('e1', [cond('c1', 'Sim', [at('a2')]), cond('c2', 'Não', [])])])
+    const nos = nosDe(f)
+    expect(lugaresParaMover(f, nos, 'a1').map((l) => [l.rotulo, l.destino])).toEqual([
+      ['Aprovado? → Se Sim', { ref: 'c1', indice: 1 }],
+      ['Aprovado? → Se Não', { ref: 'c2', indice: 0 }],
+    ])
+    expect(lugaresParaMover(f, nos, 'a2').map((l) => l.destino)).toEqual([{ ref: 'raiz', indice: 2 }, { ref: 'c2', indice: 0 }])
+    expect(lugaresParaMover(f, nos, 'e1')).toEqual([])
+  })
+
+  it('menu: lugar que o motor recusa fica de fora', () => {
+    // a escolha que encerra não entra num ao mesmo tempo
+    const f = fluxo([escolha('e1', [cond('c1', 'Sim', []), cond('c2', 'Não', [], { tipo: 'encerra' })]), paralelo('p1', [[at('a1')], [at('a2')]])])
+    expect(lugaresParaMover(f, nosDe(f), 'e1')).toEqual([])
+    expect(lugaresParaMover(f, nosDe(f), 'a1').map((l) => l.destino.ref)).toEqual(['raiz', 'c1', 'c2', 'p1-r2'])
+  })
+
+  it('teclado: desce e sobe uma vaga por vez, entrando e saindo dos caminhos', () => {
+    const f = fluxo([at('a1'), escolha('e1', [cond('c1', 'Sim', [at('a2')]), cond('c2', 'Não', [])]), at('a3')])
+    const nos = nosDe(f)
+    expect(destinoVizinho(f, nos, 'a1', 1)).toEqual({ ref: 'c1', indice: 0 })
+    expect(destinoVizinho(f, nos, 'a2', 1)).toEqual({ ref: 'c2', indice: 0 })
+    expect(destinoVizinho(f, nos, 'a2', -1)).toEqual({ ref: 'raiz', indice: 1 })
+    expect(destinoVizinho(f, nos, 'a3', -1)).toEqual({ ref: 'c2', indice: 0 })
+    expect(destinoVizinho(f, nos, 'e1', 1)).toEqual({ ref: 'raiz', indice: 3 })
+  })
+
+  it('teclado: nas pontas não há para onde ir', () => {
+    const f = fluxo([at('a1'), at('a2')])
+    expect(destinoVizinho(f, nosDe(f), 'a1', -1)).toBeNull()
+    expect(destinoVizinho(f, nosDe(f), 'a2', 1)).toBeNull()
+    expect(destinoVizinho(f, nosDe(f), 'a1', 1)).toEqual({ ref: 'raiz', indice: 2 })
+  })
+
+  it('teclado: pula as vagas que o motor recusa', () => {
+    // a escolha que encerra não entra nos ramos do ao mesmo tempo: desce direto para depois dele
+    const f = fluxo([escolha('e1', [cond('c1', 'Sim', []), cond('c2', 'Não', [], { tipo: 'encerra' })]), paralelo('p1', [[at('a1')], [at('a2')]])])
+    expect(podeSoltar(f, 'e1', { ref: 'p1-r1', indice: 0 }).ok).toBe(false)
+    expect(destinoVizinho(f, nosDe(f), 'e1', 1)).toEqual({ ref: 'raiz', indice: 2 })
+    // a volta não pode passar a apontar para frente: a1 não tem para onde descer
+    const g = fluxo([at('a1'), escolha('e1', [cond('c1', 'Sim', [], { tipo: 'volta', alvoId: 'a1' })])])
+    expect(destinoVizinho(g, nosDe(g), 'a1', 1)).toBeNull()
+  })
+
+  it('lugar em palavras, para anunciar depois de mover', () => {
+    const f = fluxo([at('a1'), escolha('e1', [cond('c1', 'Sim', [at('a2'), at('a3')])])])
+    expect(descreverLugar(nosDe(f), 'a3')).toBe('Aprovado? → Se Sim, posição 2 de 2')
+    expect(descreverLugar(nosDe(f), 'a1')).toBe('Lista principal, posição 1 de 2')
+    expect(descreverLugar(nosDe(f), 'nada')).toBeUndefined()
   })
 })

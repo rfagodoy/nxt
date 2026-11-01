@@ -4,7 +4,7 @@
    O "+" que inclui itens e o menu ⋯ de cada linha. Quem muda o fluxo é o editor, pelas
    MESMAS funções do desenho (`EstruturaDoRoteiro`); aqui só se pede. */
 import { useRef, useState, type JSX } from 'react'
-import { ArrowDown, ArrowUp, Link2, MoreHorizontal, Plus, Trash2, Unlink, UserSquare, Zap } from 'lucide-react'
+import { ArrowDown, ArrowUp, CornerDownRight, Link2, MoreHorizontal, Plus, Trash2, Unlink, UserSquare, Zap } from 'lucide-react'
 import type { FluxoBlocos } from '@nxt/workflow-core'
 import { FloatingMenu } from '@/components/ui/floating-menu'
 import { cn } from '@/lib/utils'
@@ -80,17 +80,20 @@ export function Inserir({ estrutura, refLista, indice, rotulo }: {
   )
 }
 
-/** Menu ⋯ de uma linha: mover, desvincular, remover. */
-export function MenuDaLinha({ rotulo, onRemover, onCima, onBaixo, onDesvincular }: {
+/** Menu ⋯ de uma linha: mover (na lista ou para outro caminho), desvincular, remover. */
+export function MenuDaLinha({ rotulo, onRemover, onCima, onBaixo, lugares, onDesvincular }: {
   rotulo: string
   onRemover: () => void
   onCima?: () => void
   onBaixo?: () => void
+  /** outros caminhos / ramos onde o item cabe (calculado ao abrir o menu) */
+  lugares?: () => Array<{ ref: string; rotulo: string; onMover: () => void }>
   onDesvincular?: () => void
 }): JSX.Element {
   const botao = useRef<HTMLButtonElement>(null)
   const [aberto, setAberto] = useState(false)
   const escolher = (fn?: () => void) => () => { setAberto(false); fn?.() }
+  const outros = aberto ? lugares?.() ?? [] : []
   return (
     <>
       <button ref={botao} type="button" onClick={() => setAberto((v) => !v)} aria-expanded={aberto} aria-label={`Mais ações: ${rotulo}`} title="Mais ações"
@@ -99,9 +102,21 @@ export function MenuDaLinha({ rotulo, onRemover, onCima, onBaixo, onDesvincular 
       </button>
       {aberto && (
         <FloatingMenu anchor={botao} align="end" onClose={() => setAberto(false)} role="menu" aria-label={`Ações: ${rotulo}`}
-          className="w-[210px] rounded-xl border bg-card p-1 text-card-foreground shadow-2xl">
+          className="w-[240px] rounded-xl border bg-card p-1 text-card-foreground shadow-2xl">
           <button type="button" role="menuitem" className={item} disabled={!onCima} onClick={escolher(onCima)}><ArrowUp className="h-4 w-4 text-muted-foreground" />Mover para cima</button>
           <button type="button" role="menuitem" className={item} disabled={!onBaixo} onClick={escolher(onBaixo)}><ArrowDown className="h-4 w-4 text-muted-foreground" />Mover para baixo</button>
+          {outros.length > 0 && (
+            <>
+              <p className="mt-1 border-t px-2.5 pb-0.5 pt-1.5 text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">Mover para…</p>
+              <div className="max-h-48 overflow-y-auto border-b pb-1">
+                {outros.map((l) => (
+                  <button key={l.ref} type="button" role="menuitem" className={item} title={l.rotulo} onClick={escolher(l.onMover)}>
+                    <CornerDownRight className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="truncate">{l.rotulo}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
           {onDesvincular && (
             <button type="button" role="menuitem" className={item} onClick={escolher(onDesvincular)}><Unlink className="h-4 w-4 text-muted-foreground" />Tornar independente</button>
           )}

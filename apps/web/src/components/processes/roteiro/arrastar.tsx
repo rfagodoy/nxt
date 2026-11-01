@@ -68,12 +68,21 @@ export function useArrastar({ lista, avaliar, mover }: {
   return { arrasto, iniciar }
 }
 
-/** Alça ⋮⋮ de uma linha. */
-export function Alca({ rotulo, onIniciar }: { rotulo: string; onIniciar: () => void }): JSX.Element {
+/** Alça ⋮⋮ de uma linha. Pelo teclado, ↑ / ↓ (com ou sem Alt) movem o item uma vaga. */
+export function Alca({ id, rotulo, onIniciar, onTecla }: {
+  id: string; rotulo: string; onIniciar: () => void
+  onTecla: (direcao: -1 | 1) => void
+}): JSX.Element {
   return (
-    <span role="button" tabIndex={-1} aria-label={`Arrastar ${rotulo}`} title="Arrastar para mudar de lugar"
+    <span role="button" tabIndex={0} data-alca-de={id} aria-label={`Mover ${rotulo}`} aria-keyshortcuts="ArrowUp ArrowDown"
+      title="Arraste, ou use ↑ e ↓, para mudar de lugar"
       onPointerDown={(e) => { if (e.button !== 0) return; e.preventDefault(); onIniciar() }}
-      className="mt-0.5 flex h-6 w-4 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground/60 hover:bg-muted hover:text-foreground active:cursor-grabbing">
+      onKeyDown={(e) => {
+        if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+        e.preventDefault()
+        onTecla(e.key === 'ArrowUp' ? -1 : 1)
+      }}
+      className="mt-0.5 flex h-6 w-4 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground/60 hover:bg-muted hover:text-foreground active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
       <GripVertical className="h-3.5 w-3.5" />
     </span>
   )
