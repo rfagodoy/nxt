@@ -748,8 +748,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     setSelectedId((cur) => (cur === id ? null : cur))
     setConfigId((cur) => (cur === id ? null : cur))
   }, [fluxo, raizDe, vinculos, remover])
-  /** Remover um caminho de escolha: as etapas vão junto e a cópia de uma etapa vinculada cuja
-   *  raiz estava ali vira a raiz, com a configuração (como `remover`). */
+  /** Remover um caminho de escolha (ou frente de ao mesmo tempo), pelo Roteiro ou pelo painel
+   *  do bloco: as etapas vão junto e a cópia de uma etapa vinculada cuja raiz estava ali vira
+   *  a raiz, com a configuração (como `remover`). */
   const removerCaminhoDaEscolha = useCallback((blocoId: string, caminhoId: string) => {
     setFluxo((f) => {
       if (!f) return f
@@ -1237,7 +1238,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   ) : null)
   const configDoBloco = () => (selectedBloco && fluxo ? (
     <ConfiguracaoDoBloco blocoId={selectedBloco.id} fluxo={fluxo} steps={stepsEfetivos} simulacao={simulacao}
-      onRemover={remover} onFluxo={mudarFluxo}
+      onRemover={remover} onRemoverCaminho={removerCaminhoDaEscolha} onFluxo={mudarFluxo}
       screens={screens} onSimulacao={setSimulacao} onConfigurarAtividade={configurarAtividadeDaEscolha} problemas={pendenciasPorNo} />
   ) : null)
 

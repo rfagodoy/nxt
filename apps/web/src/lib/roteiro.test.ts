@@ -227,6 +227,16 @@ describe('revisão final', () => {
     expect(copia.kind === 'atividade' && copia.vinculoDe).toBeFalsy()
   })
 
+  it('remover frente de ao mesmo tempo (painel do bloco no Desenho) também promove a cópia', () => {
+    const f = fluxo([
+      { kind: 'paralelo', id: 'p1', caminhos: [{ id: 'r1', itens: [at('a1')] }, { id: 'r2', itens: [] }, { id: 'r3', itens: [] }] },
+      at('a9', 'userTask', 'a1'), at('a8', 'userTask', 'a1'),
+    ])
+    const r = removerCaminhoComVinculos(f, 'p1', 'r1')
+    expect(r.promovidas).toEqual([{ de: 'a1', para: 'a9' }])
+    expect(r.fluxo.itens.slice(1)).toEqual([at('a9'), at('a8', 'userTask', 'a9')])
+  })
+
   it('arrasto que cria uma segunda volta inválida na mesma escolha é recusado', () => {
     const cond = (id: string, alvoId: string): CaminhoCondicional => ({ id, condition: 'x', itens: [], fim: { tipo: 'volta', alvoId } })
     const f = fluxo([at('a1'), { kind: 'escolha', id: 'e1', modo: 'primeiro', caminhos: [cond('c1', 'a1'), cond('c2', 'a3')], casoContrario: { id: 'cc', itens: [], fim: { tipo: 'segue' } } }, at('a3')])

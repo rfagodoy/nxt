@@ -12,7 +12,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { AlertTriangle, ArrowDown, ArrowUp, CornerDownRight, Info, Play, Plus, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import {
-  acharItem, adicionarCaminho, atualizarCaminho, atualizarItem, destinosDeVolta, modoDaEscolha, moverCaminho, removerCaminho, senaoParaCaminho, temSenaoAntigo,
+  acharItem, adicionarCaminho, atualizarCaminho, atualizarItem, destinosDeVolta, modoDaEscolha, moverCaminho, senaoParaCaminho, temSenaoAntigo,
   type BlocoEscolha, type ModoEscolha, type BlocoParalelo, type CaminhoCondicional, type FimCaminho, type FluxoBlocos,
   type ItemAtividade, type ItemFluxo, type ProblemaAtivacao,
 } from '@nxt/workflow-core'
@@ -112,6 +112,9 @@ interface BlocoProps {
   steps: Record<string, StepFormSchema>
   simulacao: Simulacao | null
   onRemover: (id: string) => void
+  /** remove um caminho / frente (e as etapas dele), promovendo cópias vinculadas — a mesma
+   *  função do Roteiro (`removerCaminhoComVinculos`) */
+  onRemoverCaminho: (blocoId: string, caminhoId: string) => void
   onFluxo: (fn: (f: FluxoBlocos) => FluxoBlocos) => void
   /** telas — de onde saem os campos que o filtro de cada caminho pode usar */
   screens: Screens
@@ -393,7 +396,7 @@ function BlocoEscolhaView({ bloco }: { bloco: BlocoEscolha }) {
                   <BotaoIcone title="Testar este caminho depois do seguinte" disabled={i === bloco.caminhos.length - 1} onClick={() => t.onFluxo((f) => moverCaminho(f, bloco.id, c.id, 1))}><ArrowDown className="h-3.5 w-3.5" /></BotaoIcone>
                 </>)}
                 {bloco.caminhos.length > 1 && (
-                  <BotaoIcone title="Remover este caminho" perigo onClick={() => t.onFluxo((f) => removerCaminho(f, bloco.id, c.id))}><X className="h-3.5 w-3.5" /></BotaoIcone>
+                  <BotaoIcone title="Remover este caminho" perigo onClick={() => t.onRemoverCaminho(bloco.id, c.id)}><X className="h-3.5 w-3.5" /></BotaoIcone>
                 )}
               </div>
             </div>
@@ -457,7 +460,7 @@ function BlocoParaleloView({ bloco }: { bloco: BlocoParalelo }) {
             <span className="w-[64px] shrink-0 text-[11px] font-semibold text-muted-foreground">{i === 0 ? 'Frente 1' : `e frente ${i + 1}`}</span>
             <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground" title={resumoItens(c.itens, t.nomeDe)}>{resumoItens(c.itens, t.nomeDe)}</span>
             {bloco.caminhos.length > 1 && (
-              <BotaoIcone title="Remover esta frente" perigo onClick={() => t.onFluxo((f) => removerCaminho(f, bloco.id, c.id))}><X className="h-3.5 w-3.5" /></BotaoIcone>
+              <BotaoIcone title="Remover esta frente" perigo onClick={() => t.onRemoverCaminho(bloco.id, c.id)}><X className="h-3.5 w-3.5" /></BotaoIcone>
             )}
           </div>
         ))}
