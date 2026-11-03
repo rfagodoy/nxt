@@ -20,9 +20,9 @@ import {
 } from '@xyflow/react'
 import { Link2, Map as MapIcon, Trash2 } from 'lucide-react'
 import '@xyflow/react/dist/style.css'
-import type { DesenhoBpmn, DesenhoV2, StepFormSchema } from '@nxt/types'
+import type { DesenhoBpmn, DesenhoV2, FormaDesenho, LayoutDesenho, StepFormSchema, TipoForma } from '@nxt/types'
 import {
-  SUFIXO_REENCONTRO, acharItem, localDoItem, pontoDaSeta,
+  SUFIXO_REENCONTRO, acharItem, localDoItem, pontoDaSeta, varianteDe,
   type FluxoBlocos, type GrafoGerado, type ItemFluxo, type PontoDeInsercao,
 } from '@nxt/workflow-core'
 import {
@@ -34,11 +34,13 @@ import type { ExportModel, ExportNode, ExportNodeType } from '@/lib/flow-export'
 import { ZOOM_MAX, ZOOM_MIN } from '@/components/processes/flow-shared'
 import type { NovoItem } from '@/components/processes/workflow-blocos'
 import {
-  ContextoRaias, EVENTO_RECUO, FAIXA_PISCINA, MARCADOR_SETA, rotuloDaForma, tiposDeNo, tiposDeSeta,
-  type AcoesDeRaia, type NoBpmn, type SetaBpmn, type TipoLosango,
+  ContextoFormas, ContextoRaias, EVENTO_RECUO, FAIXA_PISCINA, MARCADOR_SETA, rotuloDaForma, tiposDeNo, tiposDeSeta,
+  type AcoesDeForma, type AcoesDeRaia, type NoBpmn, type SetaBpmn, type TipoLosango,
 } from './formas'
 import { TIPO_ARRASTO_FORMA } from './paleta'
 import { itemDoArrasto, type ItemCatalogo } from '@/lib/editor-bizagi/catalogo'
+import { layoutDe } from '@/lib/editor-bizagi/layout'
+import { caixaDaForma, familiaDaForma, tipoDoEvento } from '@/lib/editor-bizagi/formas-do-canvas'
 
 export interface CanvasBpmnProps {
   fluxo: FluxoBlocos; grafo: GrafoGerado; desenho: DesenhoBpmn
@@ -65,6 +67,8 @@ export interface CanvasBpmnProps {
   onReligar: (setaId: string, para: string) => void
   /** A ponta de saída da seta foi arrastada para outra forma (a condição vai junto). */
   onReligarSaida: (setaId: string, de: string) => void
+  /** Tarefa ou subprocesso redimensionado pela alça (a página grava em `layout.tamanhos`). */
+  onTamanho: (id: string, tam: { largura: number; altura: number }) => void
   onApagarSeta: (setaId: string) => void
   /** A seta selecionada mudou (null = nenhuma): a página abre a condição dela. */
   onSelecionarSeta?: (setaId: string | null) => void
@@ -101,12 +105,18 @@ const DESNIVEL = GRADE / 2
 
 type No = GrafoGerado['nodes'][number]
 const ehAtividade = (t: No['type']) => t === 'userTask' || t === 'serviceTask'
-const ehLosango = (t: No['type']) => t === 'exclusiveGateway' || t === 'inclusiveGateway' || t === 'parallelGateway'
-/** A mesma caixa que o layout reserva (tarefa 190 × altura pelas linhas do nome; símbolos 56). */
-const tamanho = (n: No) => nodeSize({ id: n.id, type: n.type as FlowNodeType, name: n.name }, 0, 0)
+const ehLosango = (t: No['type']) => familiaDaForma(t) === 'losango'
+/** Evento (início, intermediário, fim): a alça fica recuada até o círculo. */
+const ehEvento = (t: No['type'] | undefined) => !!t && familiaDaForma(t) === 'evento'
+type Tamanhos = LayoutDesenho['tamanhos']
+const SEM_TAMANHOS: Tamanhos = {}
+/** A mesma caixa que o layout reserva (tarefa 190 × altura pelas linhas do nome; símbolos 56),
+ *  ou o tamanho gravado da tarefa/subprocesso redimensionado. */
+const tamanho = (n: No, tamanhos: Tamanhos = SEM_TAMANHOS) =>
+  caixaDaForma(n.id, n.type, nodeSize({ id: n.id, type: n.type as FlowNodeType, name: n.name }, 0, 0), tamanhos)
 
-const TIPO_LOSANGO: Partial<Record<No['type'], TipoLosango>> = {
-  exclusiveGateway: 'escolha', inclusiveGateway: 'inclusivo', parallelGateway: 'paralelo',
+const TIPO_LOSANGO: Partial<Record<string, TipoLosango>> = {
+  exclusiveGateway: 'escolha', inclusiveGateway: 'inclusivo', parallelGateway: 'paralelo', eventGateway: 'evento',
 }
 
 /* O React Flow usa a descrição "keyboardDisabled" justamente quando o teclado está LIGADO
@@ -134,16 +144,21 @@ const CORES = {
 }
 
 /* ─── Projeção: grafo + desenho → nós e setas do React Flow ───────────────── */
-type Projecao = Pick<CanvasBpmnProps, 'grafo' | 'desenho' | 'steps' | 'selecionado' | 'responsavelDe' | 'prazoDe' | 'problemasDe' | 'nomeDoProcesso'>
+type Projecao = Pick<CanvasBpmnProps, 'grafo' | 'desenho' | 'steps' | 'selecionado' | 'responsavelDe' | 'prazoDe' | 'problemasDe' | 'nomeDoProcesso'> & {
+  /** As formas do desenho livre (variante e nome de cada uma). */
+  formas: readonly FormaDesenho[]
+  tamanhos: Tamanhos
+}
 
-function projetarNos({ grafo, desenho, steps, selecionado, responsavelDe, prazoDe, problemasDe, nomeDoProcesso }: Projecao): NoBpmn[] {
+function projetarNos({ grafo, desenho, steps, selecionado, responsavelDe, prazoDe, problemasDe, nomeDoProcesso, formas, tamanhos }: Projecao): NoBpmn[] {
   const pos = (id: string) => desenho.posicoes[id] ?? { x: 0, y: 0 }
   const nos: NoBpmn[] = []
 
   // piscina + raias: fundo empilhado a partir de y = 0, na ordem de `desenho.raias`. À esquerda
   // do x = 0 ficam a coluna do rótulo das raias e, antes dela, a faixa vertical com o nome do
   // processo. A borda direita fica FOLGA_RAIA (160) depois da forma mais à direita.
-  const direita = grafo.nodes.reduce((m, n) => Math.max(m, pos(n.id).x + tamanho(n).w), 0)
+  const forma = new Map(formas.map((f) => [f.id, f]))
+  const direita = grafo.nodes.reduce((m, n) => Math.max(m, pos(n.id).x + tamanho(n, tamanhos).w), 0)
   const largura = Math.max(LARGURA_MINIMA_RAIA, RAIA_ROTULO_W + direita + FOLGA_RAIA)
   let topo = 0
   desenho.raias.forEach((r, i) => {
@@ -169,11 +184,18 @@ function projetarNos({ grafo, desenho, steps, selecionado, responsavelDe, prazoD
   }
 
   for (const n of grafo.nodes) {
-    const { w, h } = tamanho(n)
+    const { w, h } = tamanho(n, tamanhos)
     const comum = { id: n.id, position: pos(n.id), width: w, height: h, selected: n.id === selecionado, deletable: false }
     const problemas = [...problemasDe(n.id)]
+    const f = forma.get(n.id)
+    /* sem forma gravada (não deveria acontecer) vale a variante padrão do tipo */
+    const variante = varianteDe({ tipo: n.type as TipoForma, variante: f?.variante })
     let no: NoBpmn
-    if (ehAtividade(n.type)) {
+    if ((n.type as string) === 'subProcess') {
+      const sub = variante === 'embutido' ? 'embutido' : 'chamada'
+      const nome = n.name?.trim() || f?.nome?.trim() || 'Subprocesso sem nome'
+      no = { ...comum, type: 'tarefa', data: { nome, automatica: false, meta: '', problemas, largura: w, altura: h, variante: sub, subprocesso: sub } }
+    } else if (ehAtividade(n.type)) {
       const automatica = n.type === 'serviceTask'
       const responsavel = responsavelDe(n.id)
       if (desenho.raias.length) {
@@ -183,11 +205,12 @@ function projetarNos({ grafo, desenho, steps, selecionado, responsavelDe, prazoD
       }
       const nome = n.name?.trim() || steps[n.id]?.stepName?.trim() || (automatica ? 'Ação automática' : 'Tarefa sem nome')
       const meta = [responsavel ?? (automatica ? 'Automática' : 'Sem responsável'), prazoDe(n.id)].filter(Boolean).join(' · ')
-      no = { ...comum, type: 'tarefa', data: { nome, automatica, meta, problemas, largura: w, altura: h } }
+      no = { ...comum, type: 'tarefa', data: { nome, automatica, meta, problemas, largura: w, altura: h, variante } }
     } else if (ehLosango(n.type)) {
       no = { ...comum, type: 'losango', data: { tipo: TIPO_LOSANGO[n.type]!, nome: n.name?.trim() || undefined, reencontro: n.id.endsWith(SUFIXO_REENCONTRO), problemas } }
     } else {
-      no = { ...comum, type: 'evento', data: { tipo: n.type === 'start' ? 'inicio' : 'fim', problemas } }
+      // o nome vem da forma: no grafo, início e fim levam sempre "Início"/"Fim"
+      no = { ...comum, type: 'evento', data: { tipo: tipoDoEvento(n.type), variante: variante ?? 'simples', nome: f?.nome?.trim() || undefined, problemas } }
     }
     no.ariaLabel = rotuloDaForma(no)
     nos.push(no)
@@ -195,9 +218,9 @@ function projetarNos({ grafo, desenho, steps, selecionado, responsavelDe, prazoD
   return nos
 }
 
-function projetarSetas(grafo: GrafoGerado, desenho: DesenhoBpmn, marcador: string): SetaBpmn[] {
+function projetarSetas(grafo: GrafoGerado, desenho: DesenhoBpmn, marcador: string, tamanhos: Tamanhos = SEM_TAMANHOS): SetaBpmn[] {
   const tipo = new Map(grafo.nodes.map((n) => [n.id, n.type]))
-  const caixa = new Map(grafo.nodes.map((n) => [n.id, tamanho(n)]))
+  const caixa = new Map(grafo.nodes.map((n) => [n.id, tamanho(n, tamanhos)]))
   const nomes = new Map(grafo.nodes.map((n) => [n.id, n.name?.trim() || (n.type === 'start' ? 'Início' : n.type === 'end' ? 'Fim' : n.id)]))
   const centro = (id: string) => {
     const p = desenho.posicoes[id] ?? { x: 0, y: 0 }
@@ -252,12 +275,12 @@ function pontoDaAlca(p: Pt, c: Caixa, lado: LadoDaSeta, recuo: number): Pt {
   }
 }
 
-function geometria(grafo: GrafoGerado, desenho: DesenhoBpmn) {
+function geometria(grafo: GrafoGerado, desenho: DesenhoBpmn, tamanhos: Tamanhos = SEM_TAMANHOS) {
   const nos = new Map(grafo.nodes.map((n) => [n.id, n]))
   const pos = (id: string): Pt => desenho.posicoes[id] ?? { x: 0, y: 0 }
-  const caixa = (id: string): Caixa => { const n = nos.get(id); return n ? tamanho(n) : { w: 0, h: 0 } }
+  const caixa = (id: string): Caixa => { const n = nos.get(id); return n ? tamanho(n, tamanhos) : { w: 0, h: 0 } }
   const alca = (id: string, lado: LadoDaSeta): Pt => {
-    const recuo = nos.get(id)?.type === 'start' || nos.get(id)?.type === 'end' ? EVENTO_RECUO : 0
+    const recuo = ehEvento(nos.get(id)?.type) ? EVENTO_RECUO : 0
     return pontoDaAlca(pos(id), caixa(id), lado, recuo)
   }
   const posicionado = (id: string) => !!desenho.posicoes[id]
@@ -280,17 +303,17 @@ export type InfoDaExportacao = (n: No) => Pick<ExportNode, 'name' | 'typeLabel' 
 /** O arquivo exportado é o desenho da TELA: as mesmas posições, raias e setas (o mesmo
  *  traçado em cantos retos). Antes ele saía do layout antigo, de raias por papel, e não
  *  batia com o que a pessoa desenhou. Tudo é deslocado para começar em (0, 0). */
-export function modeloDeExportacao(grafo: GrafoGerado, desenho: DesenhoBpmn, info: InfoDaExportacao): ExportModel {
+export function modeloDeExportacao(grafo: GrafoGerado, desenho: DesenhoBpmn, info: InfoDaExportacao, tamanhos: Tamanhos = SEM_TAMANHOS): ExportModel {
   const posicionados = grafo.nodes.filter((n) => desenho.posicoes[n.id])
   const xs = posicionados.map((n) => desenho.posicoes[n.id].x), ys = posicionados.map((n) => desenho.posicoes[n.id].y)
   const dx = -Math.min(0, ...xs), dy = -Math.min(0, ...ys)
   const nodes: ExportNode[] = posicionados.map((n) => {
-    const p = desenho.posicoes[n.id], { w, h } = tamanho(n)
+    const p = desenho.posicoes[n.id], { w, h } = tamanho(n, tamanhos)
     return { id: n.id, type: n.type as ExportNodeType, x: p.x + dx, y: p.y + dy, w, h, ...info(n) }
   })
-  const setas = projetarSetas(grafo, desenho, '')
+  const setas = projetarSetas(grafo, desenho, '', tamanhos)
   const rotulo = new Map(setas.map((s) => [s.id, s.data?.rotulo]))
-  const edges = tracarSetas(setas, geometria(grafo, desenho)).filter((t) => t.pontos.length > 1).map((t) => {
+  const edges = tracarSetas(setas, geometria(grafo, desenho, tamanhos)).filter((t) => t.pontos.length > 1).map((t) => {
     const pontos = t.pontos.map((p) => ({ x: p.x + dx, y: p.y + dy }))
     const a = pontos[0], a2 = pontos[1], b = pontos[pontos.length - 1], b2 = pontos[pontos.length - 2]
     const unit = (x: number, y: number) => { const d = Math.hypot(x, y) || 1; return { x: x / d, y: y / d } }
@@ -355,7 +378,7 @@ type Recusa = { motivo: string; pontos: Pt[]; vez: number }
 export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   const {
     fluxo, grafo, desenho, doc, steps, selecionado, nomeDoProcesso, revisaoDasConsultas, somenteLeitura = false,
-    onSelecionar, onDesenho, onInserir, onSoltar, onMoverItem, onLigar, onReligar, onReligarSaida, onApagarSeta, onSelecionarSeta, setasComProblema, onRemover, vinculaveis, onInserirVinculada, focoEm, enquadrar,
+    onSelecionar, onDesenho, onInserir, onSoltar, onMoverItem, onLigar, onReligar, onReligarSaida, onTamanho, onApagarSeta, onSelecionarSeta, setasComProblema, onRemover, vinculaveis, onInserirVinculada, focoEm, enquadrar,
   } = props
   const { resolvedTheme } = useTheme()
   const escuro = resolvedTheme === 'dark'
@@ -383,20 +406,22 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   const [previa, setPrevia] = useState<{ id: string; altura: number } | null>(null)
   // a raia da prévia sumiu ou o desenho virou só leitura: descarta (ajuste durante o render)
   if (previa && (somenteLeitura || !desenho.raias.some((r) => r.id === previa.id))) setPrevia(null)
+  /** Tamanhos gravados das tarefas/subprocessos redimensionados. */
+  const tamanhos = layoutDe(doc).tamanhos
   /** Altura de cada forma: as edições de raia levam as formas pelo CENTRO delas. */
   const alturaDe = useMemo(() => {
-    const h = new Map(grafo.nodes.map((n) => [n.id, tamanho(n).h]))
+    const h = new Map(grafo.nodes.map((n) => [n.id, tamanho(n, tamanhos).h]))
     return (id: string) => h.get(id) ?? 0
-  }, [grafo])
+  }, [grafo, tamanhos])
   const desenhoVisto = useMemo(() => (previa ? redimensionarRaia(desenho, previa.id, previa.altura, alturaDe) : desenho), [desenho, previa, alturaDe])
   const projetados = useMemo(
-    () => projetarNos({ grafo, desenho: desenhoVisto, steps, selecionado, nomeDoProcesso, ...consultas.current }),
+    () => projetarNos({ grafo, desenho: desenhoVisto, steps, selecionado, nomeDoProcesso, formas: doc.formas, tamanhos, ...consultas.current }),
     // revisaoDasConsultas não é lida aqui: só sinaliza que as consultas passaram a responder outra coisa
     // eslint-disable-next-line react-hooks/exhaustive-deps -- revisão intencional (ver CanvasBpmnProps)
-    [grafo, desenhoVisto, steps, selecionado, nomeDoProcesso, revisaoDasConsultas],
+    [grafo, desenhoVisto, steps, selecionado, nomeDoProcesso, doc.formas, tamanhos, revisaoDasConsultas],
   )
-  const setas = useMemo(() => projetarSetas(grafo, desenho, marcador), [grafo, desenho, marcador])
-  const geo = useMemo(() => geometria(grafo, desenho), [grafo, desenho])
+  const setas = useMemo(() => projetarSetas(grafo, desenho, marcador, tamanhos), [grafo, desenho, marcador, tamanhos])
+  const geo = useMemo(() => geometria(grafo, desenho, tamanhos), [grafo, desenho, tamanhos])
   const tracados = useMemo(() => tracarSetas(setas, geo), [setas, geo])
 
   /* Cópia local dos nós só para o arrasto ficar fluido; a cada nova projeção ela é
@@ -742,6 +767,19 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     }
   }, [desenho, onDesenho, somenteLeitura, alturaDe])
 
+  /* ─── Tamanho da tarefa/subprocesso (alça no canto da forma selecionada) ── */
+  const projetadosAtuais = useRef(projetados)
+  projetadosAtuais.current = projetados
+  const acoesDeForma = useMemo<AcoesDeForma>(() => ({
+    editavel: !somenteLeitura,
+    redimensionar: (id, tam) => {
+      // a caixa volta à projeção: se o tamanho gravado não mudar (mesma grade), nenhuma
+      // projeção nova chega para desfazer o arrasto; se mudar, a nova a substitui
+      setNos(projetadosAtuais.current)
+      onTamanho(id, tam)
+    },
+  }), [somenteLeitura, onTamanho])
+
   const rotulosDeAcesso = useMemo(() => rotulosAria(somenteLeitura), [somenteLeitura])
 
   const corNoMini = useCallback((n: NoBpmn) => {
@@ -768,6 +806,7 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
         </defs>
       </svg>
       <ContextoRaias.Provider value={acoesDeRaia}>
+      <ContextoFormas.Provider value={acoesDeForma}>
         <ReactFlow<NoBpmn, SetaBpmn>
           nodes={nos}
           edges={setasVistas}
@@ -886,6 +925,7 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
             )}
           </NodeToolbar>
         </ReactFlow>
+      </ContextoFormas.Provider>
       </ContextoRaias.Provider>
       {ligandoDe && (
         <p role="status" className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-[10px] bg-white px-3 py-2 text-xs font-semibold text-[var(--e-2E3E36)] shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[var(--e-0F1914)] dark:text-[var(--e-C9D6CE)] dark:shadow-[0_0_0_1px_var(--e-2A3B32)]">

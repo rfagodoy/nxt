@@ -43,7 +43,7 @@ import { STEP_TONE, dueText, entityKindLabel, type EEdge, type ENode } from './e
 import { ENTITY_MODE_LABEL, PerguntasDaEtapa } from './perguntas-da-etapa'
 import { aplicarExecutorDasRaias, raiaDaForma } from '@/lib/editor-bizagi/raias'
 import { formaNova, type GrupoPaleta, type ItemCatalogo } from '@/lib/editor-bizagi/catalogo'
-import { adicionarFase, adicionarPiscinaExterna } from '@/lib/editor-bizagi/layout'
+import { adicionarFase, adicionarPiscinaExterna, layoutDe, redimensionarForma } from '@/lib/editor-bizagi/layout'
 import { Roteiro } from './roteiro/roteiro'
 import { itensDaLista, montarRoteiro, podeSoltar, removerCaminhoComVinculos, secaoDaPendencia, type ConsultasDoRoteiro } from '@/lib/roteiro'
 
@@ -831,6 +831,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   /* Fase e piscina externa mudam o DOC (o retrato do desfazer pega a mudança como um passo). */
   const aoAdicionarFase = useCallback(() => setDoc((d) => adicionarFase(d)), [])
   const aoAdicionarPiscina = useCallback(() => setDoc((d) => adicionarPiscinaExterna(d)), [])
+  /* Tarefa/subprocesso redimensionado pela alça: também é do DOC (um passo do desfazer); a
+     função pura devolve o mesmo desenho quando o tamanho não muda (aí não há passo). */
+  const aoTamanho = useCallback((id: string, tam: { largura: number; altura: number }) => setDoc((d) => redimensionarForma(d, id, tam)), [])
   /* Paleta: a variação mostrada em cada grupo e o conector ativo (o tipo das setas novas). */
   const [escolhidas, setEscolhidas] = useState<Record<GrupoPaleta, number>>(ESCOLHIDAS_INICIAIS)
   const aoTrocarVariante = useCallback((g: GrupoPaleta, indice: number) => setEscolhidas((e) => ({ ...e, [g]: indice })), [])
@@ -1201,7 +1204,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         }
         if (g.type === 'exclusiveGateway' || g.type === 'parallelGateway' || g.type === 'inclusiveGateway') return { name: g.name ?? '', isFork: !!g.name }
         return { name: g.name || (g.type === 'start' ? 'Início' : g.type === 'end' ? 'Fim' : '') }
-      })
+      }, layoutDe(doc).tamanhos)
     }
     const enodes: ExportNode[] = nodes.map((n) => {
       const p = layout.nodes[n.id]
@@ -1227,7 +1230,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       }
     })
     return { width: layout.width, height: layout.height, nodes: enodes, edges: eedges, lanes: layout.lanes }
-  }, [nodes, edges, layout, nodeById, resolvePapel, resolveEntidade, vista, grafo, desenhoVisto])
+  }, [nodes, edges, layout, nodeById, resolvePapel, resolveEntidade, vista, grafo, desenhoVisto, doc])
 
   // Exporta o desenho atual (edições ao vivo, sem precisar salvar) como JPG ou PDF.
   const handleExport = useCallback(async (format: FlowExportFormat) => {
@@ -1554,7 +1557,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
                 nomeDoProcesso={name} revisaoDasConsultas={revisaoDasConsultas} somenteLeitura
                 responsavelDe={responsavelDe} prazoDe={prazoDe} problemasDe={problemasDe}
                 onSelecionar={(id) => { setFocarGaveta(false); abrir(id) }} onDesenho={() => {}} onInserir={() => {}} onSoltar={() => {}} onMoverItem={() => {}}
-                doc={doc} onLigar={() => {}} onReligar={() => {}} onReligarSaida={() => {}} onApagarSeta={() => {}} onRemover={() => {}}
+                doc={doc} onLigar={() => {}} onReligar={() => {}} onReligarSaida={() => {}} onTamanho={() => {}} onApagarSeta={() => {}} onRemover={() => {}}
                 vinculaveis={[]} onInserirVinculada={() => {}} focoEm={focoEm} enquadrar={enquadrar} />
             ) : (
               <div role="status" className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
@@ -1572,7 +1575,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
                   nomeDoProcesso={name} revisaoDasConsultas={revisaoDasConsultas}
                   responsavelDe={responsavelDe} prazoDe={prazoDe} problemasDe={problemasDe}
                   onSelecionar={aoSelecionarNoDesenho} onDesenho={aoMudarDesenho} onInserir={aoInserir} onSoltar={aoSoltar} onMoverItem={aoMoverItem}
-                  doc={doc} onLigar={aoLigar} onReligar={aoReligar} onReligarSaida={aoReligarSaida} onApagarSeta={aoApagarSeta} onSelecionarSeta={setSetaAberta} setasComProblema={setasComProblema ?? undefined} onRemover={removerNoDesenho}
+                  doc={doc} onLigar={aoLigar} onReligar={aoReligar} onReligarSaida={aoReligarSaida} onTamanho={aoTamanho} onApagarSeta={aoApagarSeta} onSelecionarSeta={setSetaAberta} setasComProblema={setasComProblema ?? undefined} onRemover={removerNoDesenho}
                   vinculaveis={vinculaveis} onInserirVinculada={aoInserirVinculada} focoEm={focoEm} enquadrar={enquadrar} />
               ) : (
                 <div role="status" className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">

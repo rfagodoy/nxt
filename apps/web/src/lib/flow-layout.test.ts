@@ -493,4 +493,8 @@ describe('nodeSize com os tipos novos do editor', () => {
       expect(c.h).toBeGreaterThan(0)
     }
   })
+  it('subprocesso é uma caixa do tamanho da tarefa', () => {
+    const sub = nodeSize({ id: 's', type: 'subProcess' as FlowGraph['nodes'][number]['type'], name: 'Aprovar' }, 0, 0)
+    expect(sub).toEqual(nodeSize({ id: 't', type: 'userTask', name: 'Aprovar' }, 0, 0))
+  })
 })

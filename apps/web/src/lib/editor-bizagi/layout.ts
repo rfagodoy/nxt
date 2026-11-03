@@ -11,7 +11,9 @@ export const FASE_LARGURA_MINIMA = 160
 export const PISCINA_LARGURA_PADRAO = 1280
 export const PISCINA_LARGURA_MINIMA = 640
 export const FORMA_MINIMA = { largura: 128, altura: 64 }
-const TIPOS_REDIMENSIONAVEIS = ['userTask', 'serviceTask', 'subProcess']
+const TIPOS_REDIMENSIONAVEIS: readonly string[] = ['userTask', 'serviceTask', 'subProcess']
+/** Só tarefa, ação automática e subprocesso mudam de tamanho no desenho. */
+export const ehRedimensionavel = (tipo: string): boolean => TIPOS_REDIMENSIONAVEIS.includes(tipo)
 
 const naGrade = (v: number) => Math.round(v / GRADE) * GRADE
 const sufixo = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
@@ -158,7 +160,7 @@ export function apagarMensagem(d: DesenhoV2, id: string): DesenhoV2 {
 
 export function redimensionarForma(d: DesenhoV2, id: string, tam: { largura: number; altura: number }): DesenhoV2 {
   const f = d.formas.find((x) => x.id === id)
-  if (!f || !TIPOS_REDIMENSIONAVEIS.includes(f.tipo)) return d
+  if (!f || !ehRedimensionavel(f.tipo)) return d
   if (!Number.isFinite(tam.largura) || !Number.isFinite(tam.altura)) return d
   const l = layoutDe(d)
   const novo = {

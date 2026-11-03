@@ -1,16 +1,20 @@
 'use client'
 
 /* ─── Formas do desenho BPMN na identidade Nxt ─────────────────────────────────
-   Cada forma é um nó do React Flow: tarefa, losango (escolha / ao mesmo tempo /
-   reencontro), evento (início e fim) e a raia, que é fundo (só o rótulo e a alça de
+   Cada forma é um nó do React Flow: tarefa (e subprocesso), losango (escolha / ao mesmo
+   tempo / reencontro / baseado em evento), evento (início, intermediário e fim, com o
+   ícone da variante) e a raia, que é fundo (só o rótulo e a alça de
    baixo recebem o ponteiro, para editá-la). A seta é ortogonal,
    com o rótulo do caminho numa pílula. As cores seguem o mockup aprovado: o tema
    claro é o padrão e o escuro vem pelas variantes `dark:`. */
 import { createContext, useContext, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { BaseEdge, EdgeLabelRenderer, Handle, Position, getSmoothStepPath, useReactFlow, type Edge, type EdgeProps, type Node, type NodeProps } from '@xyflow/react'
+import { BaseEdge, EdgeLabelRenderer, Handle, NodeResizeControl, Position, getSmoothStepPath, useReactFlow, type Edge, type EdgeProps, type Node, type NodeProps } from '@xyflow/react'
 import { MoreHorizontal, Plus, Settings, UserSquare } from 'lucide-react'
+import type { VarianteForma } from '@nxt/types'
 import { GRADE, RAIA_ALTURA_MAXIMA, RAIA_ALTURA_MINIMA, RAIA_ROTULO_W, pontoDoRotuloNaPolilinha } from '@/lib/desenho-bpmn'
+import { FORMA_MINIMA } from '@/lib/editor-bizagi/layout'
+import { iconeDaTarefa, iconeDoEvento, nomeDoEvento, tipoDaTarefa, type IconeDoEvento, type TipoDoEvento } from '@/lib/editor-bizagi/formas-do-canvas'
 
 /* ─── Medidas ─────────────────────────────────────────────────────────────── */
 /* A caixa de cada forma é a que o layout (`nodeSize` de flow-layout) reserva: a tarefa
@@ -26,10 +30,14 @@ const EVENTO_D = 32
 export const EVENTO_RECUO = (SIMBOLO - EVENTO_D) / 2
 
 /* ─── Dados de cada forma ─────────────────────────────────────────────────── */
-export type DadosTarefa = { nome: string; automatica: boolean; meta: string; problemas: string[]; largura: number; altura: number }
-export type TipoLosango = 'escolha' | 'paralelo' | 'inclusivo'
+export type DadosTarefa = { nome: string; automatica: boolean; meta: string; problemas: string[]; largura: number; altura: number
+  /** Variante da tarefa (usuário, envio, recebimento; a do subprocesso). Sem ela, a de sempre. */
+  variante?: VarianteForma
+  /** Presente = é um subprocesso: sem ícone, com o quadrinho "+" embaixo; `chamada` tem a borda grossa. */
+  subprocesso?: 'chamada' | 'embutido' }
+export type TipoLosango = 'escolha' | 'paralelo' | 'inclusivo' | 'evento'
 export type DadosLosango = { tipo: TipoLosango; nome?: string; reencontro: boolean; problemas: string[] }
-export type DadosEvento = { tipo: 'inicio' | 'fim'; problemas: string[] }
+export type DadosEvento = { tipo: TipoDoEvento; variante: VarianteForma; nome?: string; problemas: string[] }
 export type DadosRaia = { id: string; nome: string; largura: number; altura: number; indice: number; primeira: boolean; ultima: boolean }
 export type DadosPiscina = { nome: string; altura: number }
 export type DadosSeta = { rotulo?: string; senao: boolean; /** Seta sob o ponteiro durante um arrasto: a forma entra aqui. */ destacada?: boolean
@@ -47,15 +55,18 @@ export type SetaBpmn = Edge<DadosSeta, 'seta'>
 export function rotuloDaForma(n: NoBpmn): string {
   const comProblemas = (txt: string, p: string[]) => (p.length ? `${txt}. ${p.length === 1 ? '1 pendência' : `${p.length} pendências`}: ${p.join(' ')}` : txt)
   switch (n.type) {
-    case 'tarefa': return comProblemas(`${n.data.automatica ? 'Ação automática' : 'Tarefa'}: ${n.data.nome}${n.data.meta ? ` (${n.data.meta})` : ''}`, n.data.problemas)
+    case 'tarefa': {
+      const d = n.data
+      return comProblemas(`${tipoDaTarefa(d.automatica, d.variante, d.subprocesso)}: ${d.nome}${d.meta ? ` (${d.meta})` : ''}`, d.problemas)
+    }
     case 'losango': {
       const d = n.data
       const base = d.reencontro
         ? (d.tipo === 'paralelo' ? 'Fim do “ao mesmo tempo”: segue quando todas as frentes terminarem' : 'Reencontro dos caminhos')
-        : d.tipo === 'paralelo' ? `Ao mesmo tempo${d.nome ? `: ${d.nome}` : ''}` : `Escolha${d.nome ? `: ${d.nome}` : ''}`
+        : `${d.tipo === 'paralelo' ? 'Ao mesmo tempo' : d.tipo === 'evento' ? 'Baseado em evento' : 'Escolha'}${d.nome ? `: ${d.nome}` : ''}`
       return comProblemas(base, d.problemas)
     }
-    case 'evento': return comProblemas(n.data.tipo === 'inicio' ? 'Início do processo' : 'Fim do processo', n.data.problemas)
+    case 'evento': return comProblemas(nomeDoEvento(n.data.tipo, n.data.variante, n.data.nome), n.data.problemas)
     case 'raia': return `Raia ${n.data.nome || 'sem nome'}`
     case 'piscina': return `Processo ${n.data.nome || 'sem nome'}`
   }
@@ -102,25 +113,99 @@ function RotuloExterno({ texto }: { texto?: string }) {
   )
 }
 
-/* ─── Tarefa ──────────────────────────────────────────────────────────────── */
-export function FormaTarefa({ data, selected, isConnectable }: NodeProps<NoTarefa>) {
+/* ─── Ícones das variantes (traços do mockup aprovado, numa caixa 20 × 20) ── */
+/** Envelope: vazado (recebe) ou cheio (envia). No cheio, a dobra é traçada na cor do fundo. */
+function Envelope({ cheio, className, dobra }: { cheio: boolean; className: string; dobra: string }) {
   return (
-    <div className="group relative" style={{ width: data.largura, height: data.altura }}>
-      <div className={`flex h-full w-full flex-col justify-between gap-1 rounded-[10px] px-[9px] py-[7px] font-sans
-        bg-white dark:bg-[linear-gradient(180deg,var(--e-16251E),var(--e-111C17))]
-        ${selected
-          ? 'shadow-[0_0_0_2px_var(--e-11804F),0_0_0_6px_rgba(198,242,78,0.55)] dark:shadow-[0_0_0_2px_var(--e-C6F24E),0_0_24px_-6px_rgba(198,242,78,0.55)]'
-          : 'shadow-[0_0_0_1px_var(--e-9DB0A5),0_8px_16px_-12px_rgba(12,20,16,0.45)] dark:shadow-[0_0_0_1px_var(--e-2E4238),0_8px_18px_-12px_rgba(0,0,0,0.6)]'}`}>
+    <svg aria-hidden viewBox="0 0 20 20" className={className}>
+      <rect x="4" y="6" width="12" height="8.5" rx="1" fill={cheio ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={1.4} />
+      <path d="M4 6.4L10 10.8L16 6.4" fill="none" stroke={cheio ? undefined : 'currentColor'} className={cheio ? dobra : undefined} strokeWidth={1.3} />
+    </svg>
+  )
+}
+
+/** Marca dentro do círculo do evento. */
+function IconeEvento({ icone }: { icone: IconeDoEvento }) {
+  const cls = 'h-4 w-4'
+  switch (icone) {
+    case 'relogio':
+      return <svg aria-hidden viewBox="0 0 20 20" className={cls} fill="none" stroke="currentColor" strokeWidth={1.5}><circle cx="10" cy="10" r="7.5" /><path d="M10 5.5V10l3 2" /></svg>
+    case 'envelope':
+    case 'envelopeCheio':
+      return <Envelope cheio={icone === 'envelopeCheio'} className={cls} dobra="stroke-white dark:stroke-[var(--e-0F1914)]" />
+    case 'raio':
+      return <svg aria-hidden viewBox="0 0 20 20" className={cls}><path fill="currentColor" d="M12 2L5 11h4l-2 7 7-9h-4z" /></svg>
+    case 'xis':
+      return <svg aria-hidden viewBox="0 0 20 20" className={cls} stroke="currentColor" strokeWidth={2.6} strokeLinecap="round"><path d="M5 5L15 15M15 5L5 15" /></svg>
+    case 'disco':
+      return <svg aria-hidden viewBox="0 0 20 20" className={cls}><circle cx="10" cy="10" r="8" fill="currentColor" /></svg>
+  }
+}
+
+/* ─── Tamanho da tarefa ───────────────────────────────────────────────────── */
+/** O que o canvas oferece às caixas redimensionáveis (tarefa e subprocesso). Fica num
+ *  contexto (como as raias) para a projeção não refazer só porque uma função trocou. */
+export type AcoesDeForma = {
+  editavel: boolean
+  /** Fim do arrasto da alça de tamanho: a página grava (na grade, com o mínimo). */
+  redimensionar: (id: string, tam: { largura: number; altura: number }) => void
+}
+export const ContextoFormas = createContext<AcoesDeForma>({ editavel: false, redimensionar: () => {} })
+
+/* ─── Tarefa e subprocesso ────────────────────────────────────────────────── */
+const ICONE_TAREFA = 'mt-[1px] h-3.5 w-3.5 shrink-0 text-[#075985] dark:text-[#7DD3FC]'
+
+function IconeDaTarefa({ data }: { data: DadosTarefa }) {
+  const icone = iconeDaTarefa(data.subprocesso ? 'subProcess' : data.automatica ? 'serviceTask' : 'userTask', data.variante)
+  switch (icone) {
+    case 'engrenagem': return <Settings aria-hidden className={ICONE_TAREFA} />
+    case 'usuario': return <UserSquare aria-hidden className={ICONE_TAREFA} />
+    case 'envelope':
+    case 'envelopeCheio':
+      return <Envelope cheio={icone === 'envelopeCheio'} className={`${ICONE_TAREFA} scale-[1.35]`} dobra="stroke-white dark:stroke-[var(--e-16251E)]" />
+    default: return null
+  }
+}
+
+const CONTORNO_TAREFA = {
+  normal: 'shadow-[0_0_0_1px_var(--e-9DB0A5),0_8px_16px_-12px_rgba(12,20,16,0.45)] dark:shadow-[0_0_0_1px_var(--e-2E4238),0_8px_18px_-12px_rgba(0,0,0,0.6)]',
+  selecionada: 'shadow-[0_0_0_2px_var(--e-11804F),0_0_0_6px_rgba(198,242,78,0.55)] dark:shadow-[0_0_0_2px_var(--e-C6F24E),0_0_24px_-6px_rgba(198,242,78,0.55)]',
+  /* subprocesso que chama outro workflow: borda grossa */
+  chamada: 'shadow-[0_0_0_3px_var(--e-9DB0A5),0_8px_16px_-12px_rgba(12,20,16,0.45)] dark:shadow-[0_0_0_3px_var(--e-2E4238),0_8px_18px_-12px_rgba(0,0,0,0.6)]',
+  chamadaSelecionada: 'shadow-[0_0_0_3.5px_var(--e-11804F),0_0_0_7px_rgba(198,242,78,0.55)] dark:shadow-[0_0_0_3.5px_var(--e-C6F24E),0_0_24px_-6px_rgba(198,242,78,0.55)]',
+}
+
+export function FormaTarefa({ id, data, selected, isConnectable }: NodeProps<NoTarefa>) {
+  const { editavel, redimensionar } = useContext(ContextoFormas)
+  const chamada = data.subprocesso === 'chamada'
+  const contorno = chamada
+    ? (selected ? CONTORNO_TAREFA.chamadaSelecionada : CONTORNO_TAREFA.chamada)
+    : (selected ? CONTORNO_TAREFA.selecionada : CONTORNO_TAREFA.normal)
+  /* a caixa ocupa o nó inteiro: ao arrastar a alça de tamanho, ela acompanha */
+  return (
+    <div className="group relative h-full w-full">
+      <div className={`flex h-full w-full flex-col justify-between gap-1 overflow-hidden rounded-[10px] px-[9px] py-[7px] font-sans
+        bg-white dark:bg-[linear-gradient(180deg,var(--e-16251E),var(--e-111C17))] ${contorno}`}>
         <span className="flex items-start gap-1.5">
-          {data.automatica
-            ? <Settings aria-hidden className="mt-[1px] h-3.5 w-3.5 shrink-0 text-[#075985] dark:text-[#7DD3FC]" />
-            : <UserSquare aria-hidden className="mt-[1px] h-3.5 w-3.5 shrink-0 text-[#075985] dark:text-[#7DD3FC]" />}
+          <IconeDaTarefa data={data} />
           <span className="line-clamp-3 text-[11.5px] font-extrabold leading-[1.25] text-[var(--e-142420)] dark:text-white">{data.nome}</span>
         </span>
-        <span className="truncate text-[10px] text-[var(--e-4F5F57)] dark:text-[var(--e-9DB0A5)]">{data.meta}</span>
+        {data.subprocesso
+          ? (
+            <span aria-hidden className="mx-auto flex h-3.5 w-3.5 shrink-0 items-center justify-center border border-[var(--e-9DB0A5)] text-[var(--e-142420)] dark:border-[var(--e-2E4238)] dark:text-white">
+              <Plus className="h-2.5 w-2.5" strokeWidth={2.4} />
+            </span>
+          )
+          : <span className="truncate text-[10px] text-[var(--e-4F5F57)] dark:text-[var(--e-9DB0A5)]">{data.meta}</span>}
       </div>
       <MarcaDeProblema problemas={data.problemas} className="-right-1 -top-1" />
       <Alcas conectavel={isConnectable} />
+      {/* alça de tamanho no canto de baixo (como no mockup): só com a forma selecionada e o desenho editável */}
+      {editavel && selected && (
+        <NodeResizeControl position="bottom-right" minWidth={FORMA_MINIMA.largura} minHeight={FORMA_MINIMA.altura}
+          onResizeEnd={(_e, p) => redimensionar(id, { largura: p.width, altura: p.height })}
+          className="!h-2.5 !w-2.5 !rounded-[2px] !border-[1.5px] !border-[var(--e-11804F)] !bg-white dark:!border-spark dark:!bg-[var(--e-0F1914)]" />
+      )}
     </div>
   )
 }
@@ -132,8 +217,21 @@ const COR_LOSANGO: Record<'escolha' | 'paralelo', string> = {
 }
 const LOSANGO_SEL = '!border-[var(--e-11804F)] shadow-[0_0_0_5px_rgba(198,242,78,0.6)] dark:!border-spark dark:shadow-[0_0_22px_-4px_rgba(198,242,78,0.55)]'
 
+/** Pentágono no círculo duplo do losango baseado em evento. */
+const PENTAGONO = [0, 1, 2, 3, 4].map((i) => {
+  const a = -Math.PI / 2 + (i * 2 * Math.PI) / 5
+  return `${(10 + Math.cos(a) * 4.6).toFixed(2)},${(10 + Math.sin(a) * 4.6).toFixed(2)}`
+}).join(' ')
+
 function MarcaDoLosango({ tipo }: { tipo: TipoLosango }) {
   if (tipo === 'paralelo') return <span className="text-[20px] font-bold leading-none">+</span>
+  if (tipo === 'evento') {
+    return (
+      <svg viewBox="0 0 20 20" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth={1.3}>
+        <circle cx="10" cy="10" r="9" /><circle cx="10" cy="10" r="7" /><polygon points={PENTAGONO} />
+      </svg>
+    )
+  }
   if (tipo === 'inclusivo') return <span className="block h-3.5 w-3.5 rounded-full border-2 border-current" />
   return (
     <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round">
@@ -157,16 +255,24 @@ export function FormaLosango({ data, selected, isConnectable }: NodeProps<NoLosa
   )
 }
 
-/* ─── Início e fim ────────────────────────────────────────────────────────── */
+/* ─── Eventos: início, intermediário e fim ────────────────────────────────── */
+/** Sem nome, o início e o fim mostram o rótulo de sempre; o intermediário, nada. */
+const ROTULO_PADRAO_DO_EVENTO: Record<TipoDoEvento, string | undefined> = { inicio: 'Início', intermediario: undefined, fim: 'Fim' }
+
 export function FormaEvento({ data, selected, isConnectable }: NodeProps<NoEvento>) {
-  const borda = data.tipo === 'inicio' ? 'border-2' : 'border-4'
+  const borda = data.tipo === 'fim' ? 'border-4' : 'border-2'
+  const icone = iconeDoEvento(data.variante)
   return (
     <div className="group relative flex items-center justify-center" style={{ width: SIMBOLO, height: SIMBOLO }}>
-      <div className={`rounded-full ${borda} border-[var(--e-11804F)] bg-white dark:border-spark dark:bg-[var(--e-0F1914)]
+      <div className={`relative flex items-center justify-center rounded-full ${borda} border-[var(--e-11804F)] bg-white text-[var(--e-11804F)] dark:border-spark dark:bg-[var(--e-0F1914)] dark:text-spark
         ${selected ? 'shadow-[0_0_0_4px_rgba(198,242,78,0.6)] dark:shadow-[0_0_20px_-4px_rgba(198,242,78,0.6)]' : ''}`}
-        style={{ width: EVENTO_D, height: EVENTO_D }} />
+        style={{ width: EVENTO_D, height: EVENTO_D }}>
+        {/* intermediário: anel duplo */}
+        {data.tipo === 'intermediario' && <span aria-hidden className="absolute inset-[1.5px] rounded-full border border-current" />}
+        {icone && <IconeEvento icone={icone} />}
+      </div>
       <MarcaDeProblema problemas={data.problemas} className="right-2.5 top-2.5" />
-      <RotuloExterno texto={data.tipo === 'inicio' ? 'Início' : 'Fim'} />
+      <RotuloExterno texto={data.nome || ROTULO_PADRAO_DO_EVENTO[data.tipo]} />
       <Alcas conectavel={isConnectable} recuo={EVENTO_RECUO} />
     </div>
   )
