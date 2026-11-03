@@ -41,6 +41,7 @@ import { MenuMais, NomeNoTopo, SeletorDeVista, SobreDoWorkflow, tamanhoDoNome, u
 import { cn } from '@/lib/utils'
 import { STEP_TONE, dueText, entityKindLabel, type EEdge, type ENode } from './editor-comum'
 import { ENTITY_MODE_LABEL, PerguntasDaEtapa } from './perguntas-da-etapa'
+import { aplicarExecutorDasRaias, raiaDaForma } from '@/lib/editor-bizagi/raias'
 import { Roteiro } from './roteiro/roteiro'
 import { itensDaLista, montarRoteiro, podeSoltar, removerCaminhoComVinculos, secaoDaPendencia, type ConsultasDoRoteiro } from '@/lib/roteiro'
 
@@ -459,6 +460,17 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     const entidade = ex.mode !== 'VARIAVEL' && ex.entityId ? resolveEntidade(ex.entityType, ex.entityId) : undefined
     return entidade ? `${papel} de ${entidade}` : papel
   }, [nodeById, resolvePapel, resolveEntidade])
+  /** A raia onde a etapa está desenhada (pelo centro) e o executor padrão dela, para o "Quem faz?". */
+  const raiaDaEtapa = (id: string) => {
+    if (!desenhoVisto) return undefined
+    const raia = raiaDaForma({ ...doc, posicoes: desenhoVisto.posicoes, raias: desenhoVisto.raias }, id,
+      (x) => { const n = nodeById[x]; return n ? nodeSize({ id: x, type: n.type as FlowNodeType, name: n.name }, 0, 0).h : 0 })
+    if (!raia) return undefined
+    const ex = raia.executor
+    const papel = ex?.papelId ? resolvePapel(ex.papelId) ?? 'Responsável' : undefined
+    const entidade = ex && ex.mode !== 'VARIAVEL' && ex.entityId ? resolveEntidade(ex.entityType, ex.entityId) : undefined
+    return { nome: raia.nome, executor: ex, rotuloExecutor: papel && (entidade ? `${papel} de ${entidade}` : papel) }
+  }
   const prazoDe = useCallback((id: string) => dueText(nodeById[id]?.step), [nodeById])
   /** Os nomes que `responsavelDe` usa já chegaram? (papéis e entidades vêm da rede) */
   const consultasProntas = useMemo(() => nodes.every((n) => {
@@ -972,7 +984,23 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     const assinaturaGravada = assinaturaRef.current
     const fluxoGravado = assinaturaFluxoRef.current
     const bpmnXml = generateBpmn(buildWfGraph(nodes, edges))
-    const stepsVivos = nodes.filter((n) => isActivity(n.type) && n.step).map((n) => ({ ...n.step!, stepId: n.id, stepName: n.step!.stepName, stepType: n.type as 'userTask' | 'serviceTask' }))
+    /* o desenho que vai ser gravado — também decide em que raia cada tarefa está */
+    const desenhoFinal = ((): DesenhoV2 => {
+      const visto = desenhoVisto ? podarDesenho(desenhoVisto, nodes.map((n) => n.id)) : null
+      const deEscolha = new Set(doc.formas.filter((f) => f.tipo === 'exclusiveGateway').map((f) => f.id))
+      return {
+        ...doc,
+        posicoes: visto?.posicoes ?? doc.posicoes, raias: visto?.raias ?? doc.raias,
+        // condição só vale em seta que sai de uma Escolha (a de uma seta religada some)
+        setas: doc.setas.map((x) => (deEscolha.has(x.de) ? x : { id: x.id, de: x.de, para: x.para })),
+      }
+    })()
+    const alturaDe = (id: string) => { const n = nodeById[id]; return n ? nodeSize({ id, type: n.type as FlowNodeType, name: n.name }, 0, 0).h : 0 }
+    // a tarefa que herda da raia leva o executor da raia onde está desenhada
+    const stepsVivos = aplicarExecutorDasRaias(
+      nodes.filter((n) => isActivity(n.type) && n.step).map((n) => ({ ...n.step!, stepId: n.id, stepName: n.step!.stepName, stepType: n.type as 'userTask' | 'serviceTask' })),
+      desenhoFinal, alturaDe,
+    )
     // grafo GERADO (a API valida e compila por ele; telas de leitura o desenham)
     const graph: ProcessFormSchema['graph'] = {
       nodes: nodes.map((n) => ({ id: n.id, type: n.type, name: isActivity(n.type) ? (n.step?.stepName || '') : n.name })),
@@ -985,16 +1013,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       laneOrder: laneOrder.length ? laneOrder : undefined,
       quemInicia,
       // só as posições de formas que existem (as de formas removidas ficam para trás)
-      desenho: ((): DesenhoV2 => {
-        const visto = desenhoVisto ? podarDesenho(desenhoVisto, nodes.map((n) => n.id)) : null
-        const deEscolha = new Set(doc.formas.filter((f) => f.tipo === 'exclusiveGateway').map((f) => f.id))
-        return {
-          ...doc,
-          posicoes: visto?.posicoes ?? doc.posicoes, raias: visto?.raias ?? doc.raias,
-          // condição só vale em seta que sai de uma Escolha (a de uma seta religada some)
-          setas: doc.setas.map((x) => (deEscolha.has(x.de) ? x : { id: x.id, de: x.de, para: x.para })),
-        }
-      })(),
+      desenho: desenhoFinal,
     }
     /* gravação automática de um workflow novo sem nome: não perde o trabalho */
     const nome = name.trim() || (auto ? 'Rascunho sem nome' : '')
@@ -1016,7 +1035,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     limpoRef.current = assinaturaGravada
     limpoFluxoRef.current = fluxoGravado
     return (await res.json()).id as string
-  }, [editing, initial, name, description, kind, quemInicia, fluxo, stepsEfetivos, nodes, edges, laneOrder, desenhoVisto, doc])
+  }, [editing, initial, name, description, kind, quemInicia, fluxo, stepsEfetivos, nodes, nodeById, edges, laneOrder, desenhoVisto, doc])
 
   const persistRef = useRef(persist)
   persistRef.current = persist
@@ -1221,7 +1240,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   /* A configuração aberta — a MESMA no painel do Desenho e dentro da lista do Roteiro. */
   const perguntasDaEtapa = (moldura: 'gaveta' | 'embutida') => (configNode && configNode.step && fluxo ? (
     <PerguntasDaEtapa key={configNode.id} moldura={moldura} retratoDaAbertura={retratoDaAbertura.current ?? undefined} node={configNode} nodes={nodes} edges={edges} screens={screens} papeis={papeis} resolveEntidade={resolveEntidade}
-      secaoInicial={configSecao} focarAoAbrir={focarGaveta}
+      secaoInicial={configSecao} focarAoAbrir={focarGaveta} raiaDaEtapa={raiaDaEtapa(configNode.id)}
       onPatchStep={(p) => patchStep(configNode.id, p)}
       onChangeType={(t) => changeNodeType(configNode.id, t)}
       vinculo={(() => {

@@ -1,7 +1,7 @@
 'use client'
 
 import { Fragment, useState, useMemo, useRef, useEffect } from 'react'
-import { Zap, Trash2, User, CircleDot, Loader2, UserSquare, AlertTriangle, ChevronUp, Plus, ChevronDown, Check, Info, Lock, Link2 } from 'lucide-react'
+import { Zap, Trash2, User, CircleDot, Loader2, UserSquare, AlertTriangle, ChevronUp, Plus, ChevronDown, Check, Info, Lock, Link2, Users } from 'lucide-react'
 import type { StepFormSchema } from '@nxt/types'
 import { CONNECTORS, findConnector, isRetiredConnector, isCompensable } from '@nxt/types'
 import { Button } from '@/components/ui/button'
@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { EntitySelect, type EntityKind } from '@/components/ui/entity-select'
 import type { ScreenSubject } from '@/lib/screen-types'
 import { fieldValueKey } from '@/lib/screen-types'
+import { herdaDaRaia } from '@/lib/editor-bizagi/raias'
 import { REFERENCIA, ORIGEM, referenciaDoPapelEntry } from '@/lib/contract-roles'
 import { apiFetch } from '@/lib/http'
 import { ExecutorDaVariavel } from './executor-da-variavel'
@@ -49,7 +50,9 @@ function predecessorasDe(edges: EEdge[], alvo: string): Set<string> {
  * aplica cada mudança ao vivo no grafo, então sem isso "Cancelar" seria só um "Fechar"
  * mentiroso. Fechar pelo X e o Esc também cancelam; só "Aplicar" mantém.
  */
-export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveEntidade, onPatchStep, onChangeType, onRemove, onClose, secaoInicial, vinculo, somenteLeitura, focarAoAbrir, moldura = 'gaveta', retratoDaAbertura }: {
+export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveEntidade, onPatchStep, onChangeType, onRemove, onClose, secaoInicial, vinculo, somenteLeitura, focarAoAbrir, moldura = 'gaveta', retratoDaAbertura, raiaDaEtapa }: {
+  /** a raia onde a etapa está desenhada e o executor padrão dela ("Quem faz?") */
+  raiaDaEtapa?: { nome: string; executor?: StepFormSchema['executor']; rotuloExecutor?: string }
   node: ENode; nodes: ENode[]; edges: EEdge[]; screens: Screens; papeis: Papeis
   /** nome da entidade fixa do executor, para a frase do "Em resumo" */
   resolveEntidade: (kind: string | undefined, id: string | undefined) => string | undefined
@@ -116,10 +119,12 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
   const execOrigem = papelSel?.origem
   /** executor "Quem iniciou o processo" (PO, 04/10/2026) */
   const porIniciador = executor?.papelId === EXECUTOR_QUEM_INICIOU
+  /** a etapa segue o executor padrão da raia (e a raia tem um) */
+  const herdando = herdaDaRaia(step) && !!raiaDaEtapa?.executor?.papelId
   const pickPapel = (papelId: string) => {
     if (!papelId) return
     const p = papeis.entries.find((pp) => pp.id === papelId)
-    onPatchStep({ executor: { papelId, entityType: p?.origem ?? 'CONTRATO', mode: 'FIXA', entityId: undefined, entityVar: undefined } })
+    onPatchStep({ executorDaRaia: false, executor: { papelId, entityType: p?.origem ?? 'CONTRATO', mode: 'FIXA', entityId: undefined, entityVar: undefined } })
   }
   const setExec = (patch: Partial<NonNullable<StepFormSchema['executor']>>) => executor && onPatchStep({ executor: { ...executor, ...patch } })
   /* Tela escolhida na atividade — a origem dos campos que esta etapa pode travar. */
@@ -225,7 +230,7 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
      "Em resumo" escreve a etapa numa frase — quem configura confere o que entendeu
      sem precisar ler campo por campo. */
   const faltaNome = !step.stepName?.trim()
-  const faltaQuem = type === 'userTask' && !porIniciador && (
+  const faltaQuem = type === 'userTask' && !porIniciador && !herdando && (
     !executor?.papelId
     || (!!execOrigem && execOrigem !== ORIGEM.ORG && (executor.mode === 'FIXA' ? !executor.entityId : !(executor.stakeholder || executor.entityVar)))
   )
@@ -290,7 +295,7 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── A frase do "Em resumo" ── */
-  const quem = porIniciador ? 'Quem iniciou o processo' : papelSel ? (() => {
+  const quem = herdando ? (raiaDaEtapa?.rotuloExecutor ?? null) : porIniciador ? 'Quem iniciou o processo' : papelSel ? (() => {
     if (!executor || !execOrigem || execOrigem === ORIGEM.ORG) return papelSel.label
     if (executor.mode === 'FIXA') {
       const nome = resolveEntidade(executor.entityType, executor.entityId)
@@ -443,12 +448,21 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
             <Pergunta id="executor" n={nPergunta('executor')} titulo="Quem faz?" ok={!faltaQuem}
               ajuda="A tarefa vai para quem ocupar o papel na hora em que ela nascer.">
               <div role="radiogroup" aria-label="Quem recebe a tarefa" className="grid gap-2 sm:grid-cols-2">
-                <Opcao ativo={!porIniciador} onClick={() => { if (porIniciador) onPatchStep({ executor: undefined }) }}
+                <Opcao ativo={herdando} disabled={!raiaDaEtapa?.executor?.papelId}
+                  onClick={() => { if (!herdando) onPatchStep({ executorDaRaia: true, executor: raiaDaEtapa?.executor ? { ...raiaDaEtapa.executor } : undefined }) }}
+                  icone={<Users className="h-4 w-4" />}
+                  titulo={raiaDaEtapa?.executor?.papelId ? `O padrão da raia: ${raiaDaEtapa.rotuloExecutor ?? 'Responsável'}` : 'O padrão da raia'}
+                  descricao={raiaDaEtapa?.executor?.papelId ? `Herdado de “${raiaDaEtapa.nome}”. Mudou a raia, muda junto.` : 'Esta raia não tem executor padrão'} />
+                <Opcao ativo={!herdando && !porIniciador} onClick={() => { if (herdando) onPatchStep({ executorDaRaia: false }); else if (porIniciador) onPatchStep({ executorDaRaia: false, executor: undefined }) }}
                   icone={<User className="h-4 w-4" />} titulo="Quem ocupa um papel" descricao="Ex.: o Analista da Central de Contratos." />
-                <Opcao ativo={porIniciador} onClick={() => onPatchStep({ executor: { papelId: EXECUTOR_QUEM_INICIOU, entityType: 'ORG', mode: 'FIXA' } })}
+                <Opcao ativo={!herdando && porIniciador} onClick={() => onPatchStep({ executorDaRaia: false, executor: { papelId: EXECUTOR_QUEM_INICIOU, entityType: 'ORG', mode: 'FIXA' } })}
                   icone={<CircleDot className="h-4 w-4" />} titulo="Quem iniciou o processo" descricao="A pessoa que clicou em “+ Novo processo”." />
               </div>
-              {porIniciador ? (
+              {herdando ? (
+                <p className="max-w-xl text-xs leading-relaxed text-muted-foreground">
+                  A tarefa vai para quem ocupa esse papel na raia “{raiaDaEtapa?.nome}”. Para escolher outra pessoa só para esta tarefa, use uma das outras opções.
+                </p>
+              ) : porIniciador ? (
                 <p className="max-w-xl text-xs leading-relaxed text-muted-foreground">
                   Na primeira etapa, a tarefa abre na hora, como aba; mais adiante, cai na caixa de tarefas dessa pessoa.
                   Se ela estiver inativa quando a tarefa nascer, vai para os administradores, com aviso.
