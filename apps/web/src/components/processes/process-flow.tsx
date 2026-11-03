@@ -916,19 +916,6 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     setConfigId(atividade ? forma.id : null)
   }, [aplicarGaveta, criarPassoDaForma])
 
-  /* Próximo item (a coluna ao lado da forma selecionada): a forma nasce à direita da base (ou
-     onde foi solta), já ligada a ela por uma seta de sequência — forma e seta num passo só do
-     desfazer. A base continua selecionada: clicar de novo cria outra, abaixo, se o lugar ao
-     lado já estiver ocupado. */
-  const aoProximo = useCallback((baseId: string, item: ItemCatalogo, soltoEm?: { x: number; y: number }) => {
-    if (!grafo || !desenhoVisto) return
-    const forma = formaDaPaleta(item)
-    const lugar = soltoEm ?? lugarDoProximo(baseId, forma, grafo.nodes, desenhoVisto.posicoes, tamanhos)
-    if (!lugar) return
-    criarPassoDaForma(forma)
-    setDoc((d) => ligar(soltarForma(d, forma, lugar), baseId, forma.id))
-  }, [grafo, desenhoVisto, tamanhos, criarPassoDaForma])
-
   /* Duplo clique, Enter ou "Parametrizar" no desenho. Raia, fase, piscina e fluxo de
      mensagem ainda não têm gaveta (chegam com a gaveta deles). */
   const aoAbrir = useCallback((alvo: AlvoDaGaveta) => {
@@ -955,20 +942,41 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     aoSoltar(item, perto, saem.length === 1 ? saem[0].id : undefined)
   }, [grafo, desenhoVisto, selectedId, doc.formas, doc.setas, aoSoltar])
 
+  /** Grava o estado de agora como um passo do desfazer (se mudou desde o último). */
+  const registrarPasso = useCallback(() => {
+    const atual = historia[hIndice]
+    if (atual && atual.doc === doc && atual.steps === steps && atual.laneOrder === laneOrder) return
+    const proximo = [...historia.slice(0, hIndice + 1), { doc, steps, laneOrder }] // um passo novo descarta o "refazer"
+    const excedente = Math.max(0, proximo.length - MAX_HISTORIA)
+    setHistoria(excedente ? proximo.slice(excedente) : proximo)
+    setHIndice(proximo.length - 1 - excedente)
+  }, [doc, steps, laneOrder, historia, hIndice])
   /* Registra um retrato quando a autoria para de mudar. A espera COALESCE o que é uma
-     ação só aos olhos de quem edita (digitar um nome, por exemplo). */
+     ação só aos olhos de quem edita (digitar um nome, por exemplo). Ações discretas que
+     podem vir em sequência rápida (o próximo item) fecham o passo pendente antes com
+     `registrarPasso`, para cada uma ter o seu. */
   useEffect(() => {
     if (aplicandoHistorico.current) { aplicandoHistorico.current = false; return }
-    const t = setTimeout(() => {
-      const atual = historia[hIndice]
-      if (atual && atual.doc === doc && atual.steps === steps && atual.laneOrder === laneOrder) return
-      const proximo = [...historia.slice(0, hIndice + 1), { doc, steps, laneOrder }] // um passo novo descarta o "refazer"
-      const excedente = Math.max(0, proximo.length - MAX_HISTORIA)
-      setHistoria(excedente ? proximo.slice(excedente) : proximo)
-      setHIndice(proximo.length - 1 - excedente)
-    }, 350)
+    const t = setTimeout(registrarPasso, 350)
     return () => clearTimeout(t)
-  }, [doc, steps, laneOrder, historia, hIndice])
+  }, [registrarPasso])
+
+  /* Próximo item (a coluna ao lado da forma selecionada): a forma nasce à direita da base (ou
+     onde foi solta), já ligada a ela por uma seta de sequência — forma e seta num passo só do
+     desfazer (o passo pendente, de uma criação anterior, fecha antes). A forma nova fica
+     selecionada, sem gaveta: a coluna passa para ela e a cadeia cresce para a direita. */
+  const aoProximo = useCallback((baseId: string, item: ItemCatalogo, soltoEm?: { x: number; y: number }) => {
+    if (!grafo || !desenhoVisto) return
+    const forma = formaDaPaleta(item)
+    const lugar = soltoEm ?? lugarDoProximo(baseId, forma, grafo.nodes, desenhoVisto.posicoes, tamanhos)
+    if (!lugar) return
+    registrarPasso()
+    criarPassoDaForma(forma)
+    setDoc((d) => ligar(soltarForma(d, forma, lugar), baseId, forma.id))
+    aplicarGaveta()
+    setSelectedId(forma.id)
+    setGavetaDe(null)
+  }, [grafo, desenhoVisto, tamanhos, registrarPasso, criarPassoDaForma, aplicarGaveta])
 
   const irPara = useCallback((i: number) => {
     const r = historia[i]
@@ -1295,7 +1303,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const gavetaDoBloco = !!selectedBloco && gavetaDe === selectedBloco.id && !(configNode && configNode.step)
   useEffect(() => {
     if (!gavetaDoBloco) return
-    const onKey = (e: KeyboardEvent) => { if (ehEscDaGaveta(e)) { e.stopPropagation(); setSelectedId(null) } }
+    const onKey = (e: KeyboardEvent) => { if (ehEscDaGaveta(e)) { e.stopPropagation(); setSelectedId(null); setGavetaDe(null) } }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [gavetaDoBloco])
@@ -1664,7 +1672,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
               || (selectedBloco.kind === 'escolha' ? 'Escolha sem pergunta' : 'Bloco sem nome')}
             rotuloTom={selectedBloco.kind === 'escolha' ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'}
             rotuloIcone={<GatewayGlyph kind={selectedBloco.kind === 'escolha' ? 'exclusive' : 'parallel'} className="h-3 w-3" />}
-            onFechar={() => setSelectedId(null)} focarAoAbrir={focarGaveta}>
+            onFechar={() => { setSelectedId(null); setGavetaDe(null) }} focarAoAbrir={focarGaveta}>
             {configDoBloco()}
           </GavetaLateral>
         )}
@@ -1684,7 +1692,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
           <GavetaLateral key={losangoSolto.id} rotulo="Escolha" titulo={losangoSolto.pergunta?.trim() || 'Escolha sem pergunta'}
             rotuloTom="bg-violet-500/10 text-violet-600 dark:text-violet-400"
             rotuloIcone={<GatewayGlyph kind="exclusive" className="h-3 w-3" />}
-            onFechar={() => setSelectedId(null)} focarAoAbrir={focarGaveta}>
+            onFechar={() => { setSelectedId(null); setGavetaDe(null) }} focarAoAbrir={focarGaveta}>
             <div className="space-y-4">
               <div className="space-y-1">
                 <label htmlFor={`pergunta-${losangoSolto.id}`} className="block text-xs font-medium">Pergunta</label>
