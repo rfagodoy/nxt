@@ -34,19 +34,25 @@ describe('layoutDe e orientação', () => {
 })
 
 describe('fases', () => {
-  it('sem fases cria "Fase 1" ocupando a piscina e a "Nova fase"', () => {
-    const d = adicionarFase(doc(), ids)
-    expect(layoutDe(d).fases.map((f) => [f.nome, f.largura])).toEqual([['Fase 1', 1280], ['Nova fase', 320]])
+  it('sem fases cria "Fase 1" ocupando a área das formas (raia menos o rótulo) e a "Nova fase"', () => {
+    const d = adicionarFase(doc(), { gerarId: ids })
+    expect(layoutDe(d).fases.map((f) => [f.nome, f.largura])).toEqual([['Fase 1', 1280 - 160], ['Nova fase', 320]])
+    expect(layoutDe(d).larguraPiscina).toBeUndefined()
     const l = larguraDaPiscina(doc(), 1600)
-    expect(layoutDe(adicionarFase(l, ids)).fases[0].largura).toBe(1600)
+    expect(layoutDe(adicionarFase(l, { gerarId: ids })).fases[0].largura).toBe(1600 - 160)
+  })
+  it('com a largura mostrada, a "Fase 1" fica com ela e a piscina é presa nela', () => {
+    const d = adicionarFase(doc(), { larguraAtual: 960, gerarId: ids })
+    expect(layoutDe(d).fases[0].largura).toBe(800)
+    expect(layoutDe(d).larguraPiscina).toBe(960)
   })
   it('com fases acrescenta "Nova fase" de 320', () => {
-    const d = adicionarFase(adicionarFase(doc(), ids), ids)
+    const d = adicionarFase(adicionarFase(doc(), { gerarId: ids }), { gerarId: ids })
     expect(layoutDe(d).fases).toHaveLength(3)
     expect(layoutDe(d).fases[2]).toMatchObject({ nome: 'Nova fase', largura: 320 })
   })
   it('renomear: nome em branco ou igual devolve o mesmo d', () => {
-    const d = adicionarFase(doc(), ids)
+    const d = adicionarFase(doc(), { gerarId: ids })
     const [f1] = layoutDe(d).fases
     expect(renomearFase(d, f1.id, '  ')).toBe(d)
     expect(renomearFase(d, f1.id, 'Fase 1')).toBe(d)
@@ -54,14 +60,14 @@ describe('fases', () => {
     expect(layoutDe(renomearFase(d, f1.id, ' Análise ')).fases[0].nome).toBe('Análise')
   })
   it('redimensionar: mínimo 160, na grade', () => {
-    const d = adicionarFase(doc(), ids)
+    const d = adicionarFase(doc(), { gerarId: ids })
     const id = layoutDe(d).fases[1].id
     expect(layoutDe(redimensionarFase(d, id, 50)).fases[1].largura).toBe(160)
     expect(layoutDe(redimensionarFase(d, id, 405)).fases[1].largura).toBe(400)
     expect(redimensionarFase(d, id, 320)).toBe(d)
   })
   it('removerFase e prazoDaFase', () => {
-    const d = adicionarFase(doc(), ids)
+    const d = adicionarFase(doc(), { gerarId: ids })
     const id = layoutDe(d).fases[1].id
     const p = prazoDaFase(d, id, 5)
     expect(layoutDe(p).fases[1].prazoDiasUteis).toBe(5)

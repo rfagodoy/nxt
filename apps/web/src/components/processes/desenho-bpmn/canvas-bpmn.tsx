@@ -856,9 +856,16 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
       const q = ponteiro(e)
       const el = q ? document.elementFromPoint(q.clientX, q.clientY) : null
       alvo = el?.closest('.react-flow__node')?.getAttribute('data-id') ?? null
+      /* o corpo da piscina externa deixa o ponteiro passar (fora do modo mensagem): o ponto
+         dentro dela também é ela — a Sequência ali é recusada com o aviso, não some calada */
+      if (!alvo || ehFaixa(alvo)) {
+        const p = noFluxo(e)
+        const ext = p && faixas.externas.find((x) => p.x >= x.caixa.x && p.x <= x.caixa.x + x.caixa.largura && p.y >= x.caixa.y && p.y <= x.caixa.y + x.caixa.altura)
+        if (ext) alvo = NO_EXTERNA + ext.id
+      }
     }
     if (alvo && (!ehFaixa(alvo) || alvo.startsWith(NO_EXTERNA))) tentarLigar(estado.fromNode.id, alvo)
-  }, [tentarLigar])
+  }, [tentarLigar, noFluxo, faixas])
 
   /* "Ligar com seta" nas ações rápidas: a próxima forma escolhida (clique ou teclado) é o destino. */
   const [ligandoDe, setLigandoDe] = useState<string | null>(null)
@@ -1091,7 +1098,8 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     },
     // a bolinha de ligar fica do lado oposto ao próximo item
     ladoDaBolinha: vertical ? Position.Right : Position.Bottom,
-  }), [somenteLeitura, onTamanho, orientacao, vertical, gravar])
+    varias: multi.length >= 2,
+  }), [somenteLeitura, onTamanho, orientacao, vertical, gravar, multi.length])
 
   const rotulosDeAcesso = useMemo(() => rotulosAria(somenteLeitura), [somenteLeitura])
 

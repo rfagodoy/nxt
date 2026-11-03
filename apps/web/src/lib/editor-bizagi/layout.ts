@@ -3,7 +3,7 @@
    (cópia de LAYOUT_PADRAO + a mudança), então o desenho só ganha `layout` quando alguém mexe. */
 import type { DesenhoV2, FaseDesenho, LayoutDesenho, PiscinaExterna } from '@nxt/types'
 import { LAYOUT_PADRAO } from '@nxt/workflow-core'
-import { GRADE } from '@/lib/desenho-bpmn'
+import { GRADE, RAIA_ROTULO_W } from '@/lib/desenho-bpmn'
 import type { Orientacao } from './geometria'
 
 export const FASE_LARGURA_PADRAO = 320
@@ -39,16 +39,26 @@ export function mudarOrientacao(d: DesenhoV2, o: Orientacao): DesenhoV2 {
 
 /* ── fases ── */
 
-export function adicionarFase(d: DesenhoV2, gerarId: () => string = idFase): DesenhoV2 {
+/** Sem fases, cria "Fase 1" ocupando a área das formas da piscina como ela está (a largura
+ *  da raia menos a coluna do rótulo) e a "Nova fase" depois dela — só os 320 da nova alargam a
+ *  piscina. `larguraAtual` = a largura da raia mostrada agora (com a coluna do rótulo); com
+ *  ela, a `larguraPiscina` fica presa nesse valor. Sem ela, vale a gravada (ou a padrão). */
+export function adicionarFase(d: DesenhoV2, opcoes: { larguraAtual?: number; gerarId?: () => string } = {}): DesenhoV2 {
+  const { larguraAtual, gerarId = idFase } = opcoes
   const l = layoutDe(d)
   const usados = new Set(l.fases.map((f) => f.id))
   const novas: FaseDesenho[] = []
+  let larguraPiscina = l.larguraPiscina
   if (l.fases.length === 0) {
-    novas.push({ id: idLivre(usados, gerarId), nome: 'Fase 1', largura: l.larguraPiscina ?? PISCINA_LARGURA_PADRAO })
+    const raia = larguraAtual !== undefined && Number.isFinite(larguraAtual) ? naGrade(larguraAtual) : l.larguraPiscina ?? PISCINA_LARGURA_PADRAO
+    if (larguraAtual !== undefined) larguraPiscina = raia
+    novas.push({ id: idLivre(usados, gerarId), nome: 'Fase 1', largura: Math.max(FASE_LARGURA_MINIMA, raia - RAIA_ROTULO_W) })
     usados.add(novas[0].id)
   }
   novas.push({ id: idLivre(usados, gerarId), nome: 'Nova fase', largura: FASE_LARGURA_PADRAO })
-  return comLayout(d, { ...l, fases: [...l.fases, ...novas] })
+  const novo: LayoutDesenho = { ...l, fases: [...l.fases, ...novas] }
+  if (larguraPiscina !== undefined) novo.larguraPiscina = larguraPiscina
+  return comLayout(d, novo)
 }
 
 function trocarFase(d: DesenhoV2, id: string, muda: (f: FaseDesenho) => FaseDesenho): DesenhoV2 {

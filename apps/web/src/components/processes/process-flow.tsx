@@ -45,7 +45,7 @@ import { aplicarExecutorDasRaias, raiaDaForma } from '@/lib/editor-bizagi/raias'
 import { formaNova, type GrupoPaleta, type ItemCatalogo } from '@/lib/editor-bizagi/catalogo'
 import { alturaPeloDesenho, caixaDaForma } from '@/lib/editor-bizagi/formas-do-canvas'
 import { adicionarFase, adicionarPiscinaExterna, layoutDe, mudarOrientacao, redimensionarForma } from '@/lib/editor-bizagi/layout'
-import { alinharNaTela } from '@/lib/editor-bizagi/faixas'
+import { alinharNaTela, conteudoDasFormas, faixasDoDesenho } from '@/lib/editor-bizagi/faixas'
 import type { ModoAlinhar, Orientacao } from '@/lib/editor-bizagi/geometria'
 import { lugarDoProximo } from '@/lib/editor-bizagi/proximo'
 import { Roteiro } from './roteiro/roteiro'
@@ -989,7 +989,22 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     registrarPasso()
     setDoc((d) => (d.layout === novo.layout ? d : { ...d, layout: novo.layout }))
   }, [registrarPasso])
-  const aoAdicionarFase = useCallback(() => { registrarPasso(); setDoc((d) => adicionarFase(d)) }, [registrarPasso])
+  /* A primeira fase ocupa a piscina como ela está na tela (a mesma conta do canvas): só a
+     "Nova fase" alarga a piscina. */
+  const aoAdicionarFase = useCallback(() => {
+    registrarPasso()
+    setDoc((d) => {
+      if (!grafo || !desenhoVisto || layoutDe(d).fases.length) return adicionarFase(d)
+      const caixas = grafo.nodes.flatMap((n) => {
+        const p = desenhoVisto.posicoes[n.id]
+        if (!p) return []
+        const c = caixaDaForma(n.id, n.type, nodeSize({ id: n.id, type: n.type as FlowNodeType, name: n.name }, 0, 0), layoutDe(d).tamanhos)
+        return [{ x: p.x, y: p.y, largura: c.w, altura: c.h }]
+      })
+      const larguraAtual = faixasDoDesenho(desenhoVisto.raias, layoutDe(d), conteudoDasFormas(caixas)).largura
+      return adicionarFase(d, { larguraAtual })
+    })
+  }, [registrarPasso, grafo, desenhoVisto])
   const aoAdicionarPiscina = useCallback(() => { registrarPasso(); setDoc((d) => adicionarPiscinaExterna(d)) }, [registrarPasso])
   /** Alinhar as formas do laço como se vê na TELA (na vertical também); grava no lógico. */
   const aoAlinhar = useCallback((modo: ModoAlinhar) => {

@@ -117,8 +117,10 @@ const BOLINHA_DIST = 14
 /** Bolinha de ligar (estilo Bizagi): embaixo da forma selecionada (à direita, na vertical);
  *  arrastá-la até outra forma cria a seta. Fica SEMPRE montada (invisível sem seleção): o
  *  React Flow só conhece as alças medidas com a forma, e uma que aparece depois não liga. */
-function BolinhaDeLigar({ visivel }: { visivel: boolean }) {
-  const { ladoDaBolinha } = useContext(ContextoFormas)
+function BolinhaDeLigar({ visivel: pedida }: { visivel: boolean }) {
+  const { ladoDaBolinha, varias } = useContext(ContextoFormas)
+  // só com UMA forma selecionada (no laço, nenhuma mostra)
+  const visivel = pedida && !varias
   const lado = ladoDaBolinha === Position.Right ? { right: -BOLINHA_DIST } : { bottom: -BOLINHA_DIST }
   return (
     <Handle id="ligar" type="source" position={ladoDaBolinha} isConnectable={visivel} title="Arraste até outra forma para ligar"
@@ -188,8 +190,10 @@ export type AcoesDeForma = {
   redimensionar: (id: string, tam: { largura: number; altura: number }, canto: { x: number; y: number }) => void
   /** Onde fica a bolinha de ligar: embaixo na horizontal, à direita na vertical. */
   ladoDaBolinha: Position
+  /** Seleção múltipla (laço): as selecionadas não mostram a alça de tamanho nem a bolinha. */
+  varias: boolean
 }
-export const ContextoFormas = createContext<AcoesDeForma>({ editavel: false, comecarTamanho: () => {}, redimensionar: () => {}, ladoDaBolinha: Position.Bottom })
+export const ContextoFormas = createContext<AcoesDeForma>({ editavel: false, comecarTamanho: () => {}, redimensionar: () => {}, ladoDaBolinha: Position.Bottom, varias: false })
 
 /* ─── Tarefa e subprocesso ────────────────────────────────────────────────── */
 const ICONE_TAREFA = 'mt-[1px] h-3.5 w-3.5 shrink-0 text-[#075985] dark:text-[#7DD3FC]'
@@ -215,7 +219,7 @@ const CONTORNO_TAREFA = {
 }
 
 export function FormaTarefa({ id, data, selected, isConnectable }: NodeProps<NoTarefa>) {
-  const { editavel, comecarTamanho, redimensionar } = useContext(ContextoFormas)
+  const { editavel, comecarTamanho, redimensionar, varias } = useContext(ContextoFormas)
   const chamada = data.subprocesso === 'chamada'
   const contorno = chamada
     ? (selected ? CONTORNO_TAREFA.chamadaSelecionada : CONTORNO_TAREFA.chamada)
@@ -240,8 +244,8 @@ export function FormaTarefa({ id, data, selected, isConnectable }: NodeProps<NoT
       <MarcaDeProblema problemas={data.problemas} className="-right-1 -top-1" />
       <Alcas conectavel={isConnectable} />
       <BolinhaDeLigar visivel={selected && isConnectable} />
-      {/* alça de tamanho no canto de baixo (como no mockup): só com a forma selecionada e o desenho editável */}
-      {editavel && selected && (
+      {/* alça de tamanho no canto de baixo (como no mockup): só com a forma selecionada SOZINHA e o desenho editável */}
+      {editavel && selected && !varias && (
         <NodeResizeControl position="bottom-right" minWidth={FORMA_MINIMA.largura} minHeight={FORMA_MINIMA.altura}
           onResizeStart={comecarTamanho}
           onResizeEnd={(_e, p: ResizeParams) => redimensionar(id, { largura: p.width, altura: p.height }, { x: p.x, y: p.y })}

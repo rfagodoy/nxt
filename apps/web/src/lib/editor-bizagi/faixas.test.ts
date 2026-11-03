@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { PiscinaExterna } from '@nxt/types'
 import { RAIA_ROTULO_W } from '@/lib/desenho-bpmn'
+import { adicionarFase, layoutDe } from './layout'
 import {
-  FAIXA_DO_NOME, FASE_ALTURA, INTERVALO_EXTERNAS, LARGURA_MINIMA_RAIA,
+  conteudoDasFormas, FAIXA_DO_NOME, FASE_ALTURA, INTERVALO_EXTERNAS, LARGURA_MINIMA_RAIA,
   alcaNaTela, alinharNaTela, faixasDoDesenho, faixasNaTela, pontoNaTela, rotaDaMensagem,
 } from './faixas'
 import { paraTela, type Caixa } from './geometria'
@@ -40,6 +41,16 @@ describe('faixasDoDesenho', () => {
     expect(f.fases[0]).toMatchObject({ id: 'f1', primeira: true, ultima: false, cabecalho: { x: 0, y: -FASE_ALTURA, largura: 320, altura: FASE_ALTURA } })
     expect(f.fases[1]).toMatchObject({ id: 'f2', ultima: true, cabecalho: { x: 320, largura: 1200 - RAIA_ROTULO_W - 320 } })
     expect(f.fases[1].coluna.altura).toBe(FASE_ALTURA + 304)
+  })
+
+  it('primeira fase mantém a largura atual: só a "Nova fase" alarga a piscina', () => {
+    const conteudo = conteudoDasFormas([{ x: 0, y: 0, largura: 190, altura: 64 }, { x: 610, y: 160, largura: 190, altura: 64 }])
+    expect(conteudo).toEqual({ direita: 800, fundo: 224 })
+    const antes = faixasDoDesenho(raias, semNada, conteudo)
+    const d = adicionarFase({ versao: 2, formas: [], setas: [], posicoes: {}, raias: [] }, { larguraAtual: antes.largura })
+    const depois = faixasDoDesenho(raias, layoutDe(d), conteudo)
+    expect(depois.fases[0].cabecalho.largura).toBe(antes.largura - RAIA_ROTULO_W)
+    expect(depois.largura).toBe(antes.largura + 320)
   })
 
   it('fases mais largas que a piscina a alargam', () => {

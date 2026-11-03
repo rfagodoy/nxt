@@ -78,6 +78,14 @@ export function faixasDoDesenho(
   return { largura, piscina, raias: raiasG, fases, externas }
 }
 
+/** Borda direita e fundo das formas (lógico): o `conteudo` de `faixasDoDesenho`. */
+export function conteudoDasFormas(caixas: ReadonlyArray<Retangulo>): { direita: number; fundo: number } {
+  return {
+    direita: caixas.reduce((m, c) => Math.max(m, c.x + c.largura), 0),
+    fundo: caixas.reduce((m, c) => Math.max(m, c.y + c.altura), 0),
+  }
+}
+
 const naTela = (r: Retangulo, o: Orientacao): Retangulo => {
   const { x, y, largura, altura } = retanguloParaTela({ id: '', ...r }, o)
   return { x, y, largura, altura }
