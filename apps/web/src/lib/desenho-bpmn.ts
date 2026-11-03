@@ -451,12 +451,14 @@ export function soltarForma(d: DesenhoV2, forma: FormaDesenho, posicao: { x: num
   return { ...comForma, setas: [...d.setas.map((x) => (x.id === s.id ? { ...x, para: forma.id } : x)), depois] }
 }
 
-/** Apaga a forma, as setas dela e a posição. Início e Fim não se apagam. `costurar`: a
+/** Apaga a forma, as setas dela, a posição, os fluxos de mensagem e o tamanho. Início e o último Fim não se apagam. `costurar`: a
  *  ETAPA de uma chegada e uma saída sai da sequência sem abrir buraco — a seta que chegava
  *  nela passa a ir para onde ela ia (como o editor sempre fez ao excluir uma etapa). */
 export function apagarForma(d: DesenhoV2, id: string, costurar = false): DesenhoV2 {
   const f = d.formas.find((x) => x.id === id)
-  if (!f || f.tipo === 'start' || f.tipo === 'end') return d
+  if (!f || f.tipo === 'start') return d
+  // vários Fins são permitidos; o último que sobra não se apaga
+  if (f.tipo === 'end' && d.formas.filter((x) => x.tipo === 'end').length < 2) return d
   const posicoes = { ...d.posicoes }
   delete posicoes[id]
   const chegam = d.setas.filter((s) => s.para === id), saem = d.setas.filter((s) => s.de === id)
@@ -465,7 +467,12 @@ export function apagarForma(d: DesenhoV2, id: string, costurar = false): Desenho
     && !d.setas.some((s) => s.de === chegam[0].de && s.para === saem[0].para)
     ? { ...chegam[0], para: saem[0].para } : null
   const setas = d.setas.flatMap((s) => (costura && s.id === costura.id ? [costura] : s.de !== id && s.para !== id ? [s] : []))
-  return { ...d, formas: d.formas.filter((x) => x.id !== id), setas, posicoes }
+  const base = { ...d, formas: d.formas.filter((x) => x.id !== id), setas, posicoes }
+  const l = d.layout
+  if (!l || (!l.fluxosMensagem.some((m) => m.de === id || m.para === id) && !(id in l.tamanhos))) return base
+  const tamanhos = { ...l.tamanhos }
+  delete tamanhos[id]
+  return { ...base, layout: { ...l, fluxosMensagem: l.fluxosMensagem.filter((m) => m.de !== id && m.para !== id), tamanhos } }
 }
 
 /** Recusa da ativação por desenho que não converte (400): além das frases, a API devolve os
