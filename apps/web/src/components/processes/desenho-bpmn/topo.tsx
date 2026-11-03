@@ -8,11 +8,16 @@
    ⚠️ O nome continua sendo o que mais pede atenção: sem ele a API recusa salvar e ativar.
    Vazio, o campo mostra a ordem ("Dê um nome…") e fundo âmbar tracejado. */
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type ReactNode, type RefObject } from 'react'
-import { ChevronDown, Download, FileImage, FileText, History, ListOrdered, Loader2, MoreHorizontal, Rows3, Workflow } from 'lucide-react'
+import {
+  AlignCenterHorizontal, AlignCenterVertical, AlignHorizontalDistributeCenter, AlignStartHorizontal, AlignStartVertical,
+  AlignVerticalDistributeCenter, ChevronDown, Columns3, Download, FileImage, FileText, Grid3x3, History, ListOrdered, Loader2,
+  MoreHorizontal, Rows3, Workflow,
+} from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { FloatingMenu } from '@/components/ui/floating-menu'
 import type { FlowExportFormat } from '@/lib/flow-export'
 import { cn } from '@/lib/utils'
+import type { ModoAlinhar, Orientacao } from '@/lib/editor-bizagi/geometria'
 import { WorkflowKindIcon } from '../workflow-kind-icon'
 
 export interface TipoDeWorkflow { value: string; label: string }
@@ -265,5 +270,63 @@ export function SeletorDeVista({ vista, onVista, roteiroDesabilitado, soIcone }:
         )
       })}
     </div>
+  )
+}
+
+const BOTAO_DO_DESENHO = 'inline-flex h-7 items-center justify-center gap-1.5 rounded px-2 text-[12.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40'
+
+const ALINHAR: ReadonlyArray<{ modo: ModoAlinhar; rotulo: string; Icone: typeof AlignStartVertical }> = [
+  { modo: 'esquerda', rotulo: 'Alinhar pela esquerda', Icone: AlignStartVertical },
+  { modo: 'centroX', rotulo: 'Centralizar na vertical', Icone: AlignCenterVertical },
+  { modo: 'topo', rotulo: 'Alinhar pelo topo', Icone: AlignStartHorizontal },
+  { modo: 'centroY', rotulo: 'Centralizar na horizontal', Icone: AlignCenterHorizontal },
+  { modo: 'distribuirX', rotulo: 'Distribuir na horizontal', Icone: AlignHorizontalDistributeCenter },
+  { modo: 'distribuirY', rotulo: 'Distribuir na vertical', Icone: AlignVerticalDistributeCenter },
+]
+
+/** Controles do desenho no topo: orientação (Horizontal | Vertical), grade e — com 2+ formas
+ *  no laço — os 6 botões de alinhar (como se vê na tela, nas duas orientações). */
+export function ControlesDoDesenho({ orientacao, onOrientacao, grade, onGrade, selecionadas, onAlinhar, soIcone }: {
+  orientacao: Orientacao; onOrientacao: (o: Orientacao) => void
+  grade: boolean; onGrade: (v: boolean) => void
+  /** Quantas formas estão selecionadas (o laço). */
+  selecionadas: number
+  onAlinhar: (m: ModoAlinhar) => void
+  /** Topo apertado: só os ícones. */
+  soIcone?: boolean
+}): JSX.Element {
+  const opcoes = [
+    { o: 'horizontal' as const, rotulo: 'Horizontal', titulo: 'Raias na horizontal', Icone: Rows3 },
+    { o: 'vertical' as const, rotulo: 'Vertical', titulo: 'Raias na vertical', Icone: Columns3 },
+  ]
+  return (
+    <>
+      <div role="radiogroup" aria-label="Orientação do desenho" className="flex shrink-0 items-center rounded-md border bg-muted/40 p-0.5">
+        {opcoes.map(({ o, rotulo, titulo, Icone }) => {
+          const ativo = orientacao === o
+          return (
+            <button key={o} type="button" role="radio" aria-checked={ativo} onClick={() => { if (!ativo) onOrientacao(o) }}
+              title={titulo} aria-label={rotulo}
+              className={cn(BOTAO_DO_DESENHO, ativo ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+              <Icone className="h-3.5 w-3.5" />{!soIcone && rotulo}
+            </button>
+          )
+        })}
+      </div>
+      <button type="button" aria-pressed={grade} onClick={() => onGrade(!grade)} title="Mostrar a grade e encaixar nela" aria-label="Grade"
+        className={cn(BOTAO_DO_DESENHO, 'h-8 shrink-0 rounded-md border shadow-sm', grade ? 'bg-primary/10 text-primary border-primary/30' : 'bg-card text-muted-foreground hover:text-foreground')}>
+        <Grid3x3 className="h-4 w-4" />{!soIcone && 'Grade'}
+      </button>
+      {selecionadas >= 2 && (
+        <div role="group" aria-label={`Alinhar ${selecionadas} formas`} className="flex shrink-0 items-center rounded-md border bg-card p-0.5 shadow-sm">
+          {ALINHAR.map(({ modo, rotulo, Icone }) => (
+            <button key={modo} type="button" onClick={() => onAlinhar(modo)} title={rotulo} aria-label={rotulo}
+              className={cn(BOTAO_DO_DESENHO, 'w-7 px-0 text-muted-foreground hover:bg-muted hover:text-foreground')}>
+              <Icone className="h-4 w-4" />
+            </button>
+          ))}
+        </div>
+      )}
+    </>
   )
 }

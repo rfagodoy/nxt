@@ -3,17 +3,20 @@
 /* ─── Formas do desenho BPMN na identidade Nxt ─────────────────────────────────
    Cada forma é um nó do React Flow: tarefa (e subprocesso), losango (escolha / ao mesmo
    tempo / reencontro / baseado em evento), evento (início, intermediário e fim, com o
-   ícone da variante) e a raia, que é fundo (só o rótulo e a alça de
-   baixo recebem o ponteiro, para editá-la). A seta é ortogonal,
-   com o rótulo do caminho numa pílula. As cores seguem o mockup aprovado: o tema
+   ícone da variante) e as faixas, que são fundo: piscina, raia, fase e piscina externa (só
+   os rótulos e as alças recebem o ponteiro, para editá-las). A seta é ortogonal, com o
+   rótulo do caminho numa pílula; o fluxo de mensagem é tracejado, com círculo na saída e
+   ponta vazada. Na vertical, as faixas são o retângulo lógico transposto: os nomes das
+   raias e da piscina ficam no topo, os das fases à esquerda. As cores seguem o mockup aprovado: o tema
    claro é o padrão e o escuro vem pelas variantes `dark:`. */
 import { createContext, useContext, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { BaseEdge, EdgeLabelRenderer, Handle, NodeResizeControl, Position, getSmoothStepPath, useReactFlow, type Edge, type EdgeProps, type Node, type NodeProps } from '@xyflow/react'
+import { BaseEdge, EdgeLabelRenderer, Handle, NodeResizeControl, Position, getSmoothStepPath, useReactFlow, type Edge, type EdgeProps, type Node, type NodeProps, type ResizeParams } from '@xyflow/react'
 import { MoreHorizontal, Plus, Settings, UserSquare } from 'lucide-react'
 import type { VarianteForma } from '@nxt/types'
 import { GRADE, RAIA_ALTURA_MAXIMA, RAIA_ALTURA_MINIMA, RAIA_ROTULO_W, pontoDoRotuloNaPolilinha } from '@/lib/desenho-bpmn'
-import { FORMA_MINIMA } from '@/lib/editor-bizagi/layout'
+import { FASE_LARGURA_MINIMA, FORMA_MINIMA, PISCINA_LARGURA_MINIMA } from '@/lib/editor-bizagi/layout'
+import { FASE_ALTURA, FAIXA_DO_NOME } from '@/lib/editor-bizagi/faixas'
 import { iconeDaTarefa, iconeDoEvento, nomeDoEvento, tipoDaTarefa, type IconeDoEvento, type TipoDoEvento } from '@/lib/editor-bizagi/formas-do-canvas'
 
 /* ─── Medidas ─────────────────────────────────────────────────────────────── */
@@ -22,7 +25,7 @@ import { iconeDaTarefa, iconeDoEvento, nomeDoEvento, tipoDaTarefa, type IconeDoE
 /** Caixa dos símbolos (evento e losango). */
 export const SIMBOLO = 56
 /** Largura da faixa vertical da piscina, com o nome do processo. */
-export const FAIXA_PISCINA = 28
+export const FAIXA_PISCINA = FAIXA_DO_NOME
 /** Lado do quadrado do losango; girado 45°, a diagonal (~56) preenche a caixa. */
 const LOSANGO_LADO = 40
 const EVENTO_D = 32
@@ -38,8 +41,14 @@ export type DadosTarefa = { nome: string; automatica: boolean; meta: string; pro
 export type TipoLosango = 'escolha' | 'paralelo' | 'inclusivo' | 'evento'
 export type DadosLosango = { tipo: TipoLosango; nome?: string; reencontro: boolean; problemas: string[] }
 export type DadosEvento = { tipo: TipoDoEvento; variante: VarianteForma; nome?: string; problemas: string[] }
-export type DadosRaia = { id: string; nome: string; largura: number; altura: number; indice: number; primeira: boolean; ultima: boolean }
-export type DadosPiscina = { nome: string; altura: number }
+export type DadosRaia = { id: string; nome: string; largura: number; altura: number; indice: number; primeira: boolean; ultima: boolean
+  /** A primeira raia SEM cabeçalho de fases fecha o contorno da piscina por cima. */ bordaDeCima: boolean }
+/** Piscina do processo: o retângulo inteiro (faixa do nome + cabeçalho das fases + raias).
+ *  `largura` = a da raia (lógica), que a alça do fim muda; `cabecalho` = há fases. */
+export type DadosPiscina = { nome: string; largura: number; cabecalho: boolean }
+/** Fase: a coluna inteira (cabeçalho + raias); `largura` lógica, que a alça muda. */
+export type DadosFase = { id: string; nome: string; largura: number; primeira: boolean; ultima: boolean }
+export type DadosPiscinaExterna = { id: string; nome: string }
 export type DadosSeta = { rotulo?: string; senao: boolean; /** Seta sob o ponteiro durante um arrasto: a forma entra aqui. */ destacada?: boolean
   /** Culpada da pendência escolhida na pílula: vermelho tracejado, como a seta recusada. */ problema?: boolean }
 
@@ -48,8 +57,14 @@ export type NoLosango = Node<DadosLosango, 'losango'>
 export type NoEvento = Node<DadosEvento, 'evento'>
 export type NoRaia = Node<DadosRaia, 'raia'>
 export type NoPiscina = Node<DadosPiscina, 'piscina'>
-export type NoBpmn = NoTarefa | NoLosango | NoEvento | NoRaia | NoPiscina
-export type SetaBpmn = Edge<DadosSeta, 'seta'>
+export type NoFase = Node<DadosFase, 'fase'>
+export type NoPiscinaExterna = Node<DadosPiscinaExterna, 'externa'>
+export type NoBpmn = NoTarefa | NoLosango | NoEvento | NoRaia | NoPiscina | NoFase | NoPiscinaExterna
+/** Fluxo de mensagem: `pontos` = o traço já na TELA (o canvas roteia; as alças só ancoram). */
+export type DadosMensagem = { pontos: Array<{ x: number; y: number }>; rotulo?: string }
+export type SetaDeSequencia = Edge<DadosSeta, 'seta'>
+export type SetaDeMensagem = Edge<DadosMensagem, 'mensagem'>
+export type SetaBpmn = SetaDeSequencia | SetaDeMensagem
 
 /** Nome que o leitor de tela anuncia para a forma. */
 export function rotuloDaForma(n: NoBpmn): string {
@@ -69,6 +84,8 @@ export function rotuloDaForma(n: NoBpmn): string {
     case 'evento': return comProblemas(nomeDoEvento(n.data.tipo, n.data.variante, n.data.nome), n.data.problemas)
     case 'raia': return `Raia ${n.data.nome || 'sem nome'}`
     case 'piscina': return `Processo ${n.data.nome || 'sem nome'}`
+    case 'fase': return `Fase ${n.data.nome || 'sem nome'}`
+    case 'externa': return `Participante externo ${n.data.nome || 'sem nome'}`
   }
 }
 
@@ -166,8 +183,9 @@ export type AcoesDeForma = {
   editavel: boolean
   /** Começo do arrasto da alça: o canvas segura a projeção (como no arrasto de uma forma). */
   comecarTamanho: () => void
-  /** Fim do arrasto da alça de tamanho: a página grava (na grade, com o mínimo). */
-  redimensionar: (id: string, tam: { largura: number; altura: number }) => void
+  /** Fim do arrasto da alça de tamanho: a página grava (na grade, com o mínimo). `canto` =
+   *  o canto superior esquerdo NA TELA (na vertical, a posição lógica acompanha). */
+  redimensionar: (id: string, tam: { largura: number; altura: number }, canto: { x: number; y: number }) => void
   /** Onde fica a bolinha de ligar: embaixo na horizontal, à direita na vertical. */
   ladoDaBolinha: Position
 }
@@ -226,7 +244,7 @@ export function FormaTarefa({ id, data, selected, isConnectable }: NodeProps<NoT
       {editavel && selected && (
         <NodeResizeControl position="bottom-right" minWidth={FORMA_MINIMA.largura} minHeight={FORMA_MINIMA.altura}
           onResizeStart={comecarTamanho}
-          onResizeEnd={(_e, p) => redimensionar(id, { largura: p.width, altura: p.height })}
+          onResizeEnd={(_e, p: ResizeParams) => redimensionar(id, { largura: p.width, altura: p.height }, { x: p.x, y: p.y })}
           className="!h-2.5 !w-2.5 !rounded-[2px] !border-[1.5px] !border-[var(--e-11804F)] !bg-white dark:!border-spark dark:!bg-[var(--e-0F1914)]" />
       )}
     </div>
@@ -322,12 +340,23 @@ export type AcoesDeRaia = {
   mover: (id: string, direcao: -1 | 1) => void
   remover: (id: string) => void
   adicionar: () => void
-  /** Duplo clique na faixa do nome (raia ou piscina): abre a parametrização. */
+  /** Duplo clique na faixa do nome (raia, fase ou piscina): abre a parametrização. */
   abrir: (alvo: AlvoDaGaveta) => void
+  /** Desenho na vertical: as faixas estão transpostas (nomes no topo, fases à esquerda). */
+  vertical: boolean
+  /** Conector ativo na paleta: com "mensagem", o corpo da piscina externa aceita a ponta. */
+  conector: 'sequencia' | 'mensagem'
+  /** Largura da fase ou da piscina principal: grava (a função pura prende ao mínimo e à grade). */
+  largura: (alvo: AlvoDeLargura, largura: number) => void
+  /** Largura provisória durante o arrasto da alça; `null` encerra a prévia. */
+  previaLargura: (alvo: AlvoDeLargura, largura: number | null) => void
 }
+/** A fase (pelo id) ou a piscina principal, que mudam de largura pela alça. */
+export type AlvoDeLargura = { k: 'fase'; id: string } | { k: 'piscina' }
 const nada = () => {}
 export const ContextoRaias = createContext<AcoesDeRaia>({
   editavel: false, renomear: nada, redimensionar: nada, previa: nada, mover: nada, remover: nada, adicionar: nada, abrir: nada,
+  vertical: false, conector: 'sequencia', largura: nada, previaLargura: nada,
 })
 
 /** `nodrag nopan`: o ponteiro aqui edita a raia, não arrasta nem move a vista. */
@@ -449,77 +478,106 @@ function MenuDaRaia({ id, nome, primeira, ultima, onRenomear }: { id: string; no
   )
 }
 
-/** Alça da borda de baixo: arrastar muda a altura (na grade, entre o mínimo e o máximo); com foco, ↑/↓ também. */
-function AlcaDaRaia({ id, nome, altura }: { id: string; nome: string; altura: number }) {
-  const { redimensionar, previa } = useContext(ContextoRaias)
+/** Alça de tamanho de uma faixa, no fim do eixo LÓGICO que ela muda (`y` = altura da raia,
+ *  `x` = largura da fase/piscina). Na tela o eixo troca com a orientação: a altura da raia
+ *  vira a borda direita na vertical. Arrastar mostra a prévia; soltar grava; com foco, as
+ *  setas do teclado andam uma grade. */
+function AlcaDeTamanho({ eixo, valor, min, max, rotulo, titulo, onPrevia, onFim }: {
+  eixo: 'x' | 'y'; valor: number; min: number; max: number; rotulo: string; titulo: string
+  onPrevia: (v: number | null) => void; onFim: (v: number) => void
+}) {
+  const { vertical } = useContext(ContextoRaias)
   const { getZoom } = useReactFlow()
-  const inicio = useRef<{ y: number; altura: number; zoom: number } | null>(null)
+  /** O eixo lógico corre no x da tela? (x na horizontal; y na vertical) */
+  const telaX = (eixo === 'x') !== vertical
+  const inicio = useRef<{ c: number; valor: number; zoom: number } | null>(null)
   // o deslocamento na tela vira unidades do fluxo pelo zoom do começo do arrasto
-  const alturaNoPonto = (e: PointerEvent, i: NonNullable<typeof inicio.current>) => i.altura + (e.clientY - i.y) / i.zoom
-  // desmontada no meio do arrasto (raia removida, desenho virou só leitura): a prévia não fica presa
+  const noPonto = (e: PointerEvent, i: NonNullable<typeof inicio.current>) => i.valor + ((telaX ? e.clientX : e.clientY) - i.c) / i.zoom
+  // desmontada no meio do arrasto (faixa removida, desenho virou só leitura): a prévia não fica presa
   const encerrarPrevia = useRef<() => void>(() => {})
-  encerrarPrevia.current = () => { if (inicio.current) { inicio.current = null; previa(id, null) } }
+  encerrarPrevia.current = () => { if (inicio.current) { inicio.current = null; onPrevia(null) } }
   useEffect(() => {
     const encerrar = encerrarPrevia
     return () => encerrar.current()
   }, [])
+  const [menos, mais] = telaX ? ['ArrowLeft', 'ArrowRight'] : ['ArrowUp', 'ArrowDown']
   return (
-    <div role="separator" aria-orientation="horizontal" tabIndex={0}
-      aria-label={`Altura da raia ${nome || 'sem nome'}`} aria-valuenow={altura} aria-valuemin={RAIA_ALTURA_MINIMA} aria-valuemax={RAIA_ALTURA_MAXIMA} aria-valuetext={`${altura} px`}
-      title="Arraste para mudar a altura (↑/↓ com o teclado)"
+    <div role="separator" aria-orientation={telaX ? 'vertical' : 'horizontal'} tabIndex={0}
+      aria-label={rotulo} aria-valuenow={valor} aria-valuemin={min} aria-valuemax={max} aria-valuetext={`${valor} px`}
+      title={`${titulo} (${telaX ? '←/→' : '↑/↓'} com o teclado)`}
       onPointerDown={(e) => {
         if (e.button !== 0) return
-        e.preventDefault()
+        e.preventDefault(); e.stopPropagation()
         e.currentTarget.setPointerCapture(e.pointerId)
-        inicio.current = { y: e.clientY, altura, zoom: getZoom() || 1 }
+        inicio.current = { c: telaX ? e.clientX : e.clientY, valor, zoom: getZoom() || 1 }
       }}
-      onPointerMove={(e) => { if (inicio.current) previa(id, alturaNoPonto(e, inicio.current)) }}
+      onPointerMove={(e) => { if (inicio.current) onPrevia(noPonto(e, inicio.current)) }}
       onPointerUp={(e) => {
         const i = inicio.current
         if (!i) return
         inicio.current = null
-        previa(id, null)
-        redimensionar(id, alturaNoPonto(e, i))
+        onPrevia(null)
+        onFim(noPonto(e, i))
       }}
-      onPointerCancel={() => { inicio.current = null; previa(id, null) }}
+      onPointerCancel={() => { inicio.current = null; onPrevia(null) }}
       onKeyDown={(e) => {
-        if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+        if (e.key !== menos && e.key !== mais) return
         e.preventDefault(); e.stopPropagation()
-        redimensionar(id, altura + (e.key === 'ArrowDown' ? GRADE : -GRADE))
+        onFim(valor + (e.key === mais ? GRADE : -GRADE))
       }}
-      className={`${INTERATIVO} group/alca absolute inset-x-0 -bottom-1 z-[1] flex h-2 cursor-ns-resize items-center justify-center outline-none`}>
-      <span aria-hidden className="h-[3px] w-10 rounded-full bg-[var(--e-11804F)] opacity-0 transition-opacity group-hover/alca:opacity-60 group-focus-visible/alca:opacity-100 dark:bg-spark" />
+      className={`${INTERATIVO} group/alca absolute z-[1] flex items-center justify-center outline-none
+        ${telaX ? 'inset-y-0 -right-1 w-2 cursor-ew-resize' : 'inset-x-0 -bottom-1 h-2 cursor-ns-resize'}`}>
+      <span aria-hidden className={`rounded-full bg-[var(--e-11804F)] opacity-0 transition-opacity group-hover/alca:opacity-60 group-focus-visible/alca:opacity-100 dark:bg-spark ${telaX ? 'h-10 w-[3px]' : 'h-[3px] w-10'}`} />
     </div>
+  )
+}
+
+/** Borda de baixo da raia (a direita, na vertical): muda a altura, entre o mínimo e o máximo. */
+function AlcaDaRaia({ id, nome, altura }: { id: string; nome: string; altura: number }) {
+  const { redimensionar, previa, vertical } = useContext(ContextoRaias)
+  return (
+    <AlcaDeTamanho eixo="y" valor={altura} min={RAIA_ALTURA_MINIMA} max={RAIA_ALTURA_MAXIMA}
+      rotulo={`${vertical ? 'Largura' : 'Altura'} da raia ${nome || 'sem nome'}`}
+      titulo={`Arraste para mudar a ${vertical ? 'largura' : 'altura'}`}
+      onPrevia={(v) => previa(id, v)} onFim={(v) => redimensionar(id, v)} />
   )
 }
 
 /* ─── Raia (fundo) ────────────────────────────────────────────────────────── */
 export function FormaRaia({ data }: NodeProps<NoRaia>) {
-  const { editavel, abrir } = useContext(ContextoRaias)
+  const { editavel, abrir, vertical } = useContext(ContextoRaias)
   const [editando, setEditando] = useState(false)
   const abrirRaia = () => abrir({ k: 'raia', id: data.id })
   const coluna = useRef<HTMLDivElement>(null)
-  // o nome corta nas linhas que cabem na raia (sem invadir a de baixo)
-  const linhas = Math.max(1, Math.floor((data.altura - LINHA_ROTULO) / LINHA_ROTULO))
+  // o nome corta nas linhas que cabem na raia (sem invadir a de baixo); na vertical, no rótulo do topo
+  const linhas = vertical ? 4 : Math.max(1, Math.floor((data.altura - LINHA_ROTULO) / LINHA_ROTULO))
   const faixa = data.indice % 2 === 0
     ? 'bg-[rgba(255,255,255,0.75)] dark:bg-[rgba(255,255,255,0.02)]'
     : 'bg-[rgba(242,246,241,0.85)] dark:bg-[rgba(255,255,255,0.045)]'
-  /* contorno da piscina por fora (a faixa do nome fecha à esquerda); entre raias, só a linha fina */
-  const contorno = [
+  /* contorno da piscina por fora (a faixa do nome fecha à esquerda); entre raias, só a linha
+     fina. Na vertical é o mesmo contorno transposto (o fim da piscina fica embaixo). */
+  const contorno = (vertical ? [
+    'border-b border-b-[var(--e-B8C6BE)] dark:border-b-[var(--e-2A3B32)]',
+    data.bordaDeCima ? 'rounded-bl-[10px] border-l border-l-[var(--e-B8C6BE)] dark:border-l-[var(--e-2A3B32)]' : '',
+    data.ultima
+      ? 'rounded-br-[10px] border-r border-r-[var(--e-B8C6BE)] dark:border-r-[var(--e-2A3B32)]'
+      : 'border-r border-r-[var(--e-D2DCD5)] dark:border-r-[var(--e-22332A)]',
+  ] : [
     'border-r border-r-[var(--e-B8C6BE)] dark:border-r-[var(--e-2A3B32)]',
-    data.primeira ? 'rounded-tr-[10px] border-t border-t-[var(--e-B8C6BE)] dark:border-t-[var(--e-2A3B32)]' : '',
+    data.bordaDeCima ? 'rounded-tr-[10px] border-t border-t-[var(--e-B8C6BE)] dark:border-t-[var(--e-2A3B32)]' : '',
     data.ultima
       ? 'rounded-br-[10px] border-b border-b-[var(--e-B8C6BE)] dark:border-b-[var(--e-2A3B32)]'
       : 'border-b border-b-[var(--e-D2DCD5)] dark:border-b-[var(--e-22332A)]',
-  ].join(' ')
+  ]).join(' ')
   const nome = data.nome || <span className="font-semibold italic opacity-70">Sem nome</span>
   const cortado = 'line-clamp-4 min-w-0 flex-1 [overflow-wrap:normal] [word-break:normal] hyphens-auto leading-[1.25]'
   /* o corpo deixa o ponteiro passar (formas por cima, clique no fundo tira a seleção);
      só o rótulo e a alça de baixo o recebem, e só quando o desenho é editável */
   return (
-    <div className={`pointer-events-none relative box-border ${faixa} ${contorno}`} style={{ width: data.largura, height: data.altura }}>
-      <div ref={coluna} lang="pt-BR" className="absolute inset-y-0 left-0 box-border overflow-hidden border-r border-r-[var(--e-D2DCD5)] px-2.5 py-2 font-sans text-xs font-extrabold text-[var(--e-3E4E46)] dark:border-r-[var(--e-22332A)] dark:text-[var(--e-9DB0A5)]"
-        style={{ width: RAIA_ROTULO_W }}>
+    <div className={`pointer-events-none relative box-border h-full w-full ${faixa} ${contorno}`}>
+      <div ref={coluna} lang="pt-BR" className={`absolute box-border overflow-hidden px-2.5 py-2 font-sans text-xs font-extrabold text-[var(--e-3E4E46)] dark:text-[var(--e-9DB0A5)]
+        ${vertical ? 'inset-x-0 top-0 border-b border-b-[var(--e-D2DCD5)] dark:border-b-[var(--e-22332A)]' : 'inset-y-0 left-0 border-r border-r-[var(--e-D2DCD5)] dark:border-r-[var(--e-22332A)]'}`}
+        style={vertical ? { height: RAIA_ROTULO_W } : { width: RAIA_ROTULO_W }}>
         {!editavel ? <span className={`${INTERATIVO} ${cortado}`} style={{ WebkitLineClamp: linhas }} onDoubleClick={abrirRaia}>{nome}</span> : editando ? (
           <NomeDaRaia id={data.id} nome={data.nome} onFim={(devolverFoco) => {
             setEditando(false)
@@ -538,22 +596,102 @@ export function FormaRaia({ data }: NodeProps<NoRaia>) {
   )
 }
 
-/* ─── Piscina: faixa vertical com o nome do processo (fundo) ─────────────── */
+/* ─── Piscina do processo (fundo) ───────────────────────────────────────── */
+const COR_FAIXA = 'border-[var(--e-B8C6BE)] bg-[var(--e-E6EDE8)] text-[var(--e-2E3E36)] dark:border-[var(--e-2A3B32)] dark:bg-[var(--e-13211A)] dark:text-[var(--e-C9D6CE)]'
+
+/** O retângulo inteiro da piscina: a faixa com o nome do processo (à esquerda; no topo, na
+ *  vertical), o canto do cabeçalho das fases e a alça do fim (largura da piscina). O resto é
+ *  das raias e das fases, desenhadas por cima. */
 export function FormaPiscina({ data }: NodeProps<NoPiscina>) {
-  const { editavel, adicionar, abrir } = useContext(ContextoRaias)
+  const { editavel, adicionar, abrir, vertical, largura, previaLargura } = useContext(ContextoRaias)
   return (
-    <div className="pointer-events-none relative" style={{ width: FAIXA_PISCINA, height: data.altura }}>
+    <div className="pointer-events-none relative h-full w-full">
       <div title="Duplo clique para parametrizar a piscina" onDoubleClick={() => abrir({ k: 'piscina', id: PISCINA_PRINCIPAL })}
-        className={`${INTERATIVO} box-border flex h-full w-full items-center justify-center overflow-hidden rounded-l-[10px] border border-[var(--e-B8C6BE)] bg-[var(--e-E6EDE8)] text-[var(--e-2E3E36)] dark:border-[var(--e-2A3B32)] dark:bg-[var(--e-13211A)] dark:text-[var(--e-C9D6CE)]`}>
-        <span className="-rotate-90 whitespace-nowrap font-sans text-[11.5px] font-extrabold uppercase tracking-[0.04em]">{data.nome}</span>
+        className={`${INTERATIVO} absolute box-border flex items-center justify-center overflow-hidden border ${COR_FAIXA}
+          ${vertical ? 'inset-x-0 top-0 rounded-t-[10px]' : 'inset-y-0 left-0 rounded-l-[10px]'}`}
+        style={vertical ? { height: FAIXA_PISCINA } : { width: FAIXA_PISCINA }}>
+        <span className={`${vertical ? '' : '-rotate-90'} whitespace-nowrap font-sans text-[11.5px] font-extrabold uppercase tracking-[0.04em]`}>{data.nome}</span>
       </div>
-      {/* "+ raia" ao pé da piscina */}
+      {/* canto do cabeçalho das fases, acima (à esquerda, na vertical) da coluna dos rótulos das raias */}
+      {data.cabecalho && (
+        <div aria-hidden className={`absolute box-border border ${COR_FAIXA}`}
+          style={vertical
+            ? { left: 0, top: FAIXA_PISCINA, width: FASE_ALTURA, height: RAIA_ROTULO_W }
+            : { top: 0, left: FAIXA_PISCINA, height: FASE_ALTURA, width: RAIA_ROTULO_W }} />
+      )}
+      {/* "+ raia" ao pé da piscina (à direita da faixa do nome, na vertical) */}
       {editavel && (
         <button type="button" data-raia-adicionar onClick={adicionar} title="Cria uma raia no fim da piscina"
-          className={`${INTERATIVO} absolute left-0 top-full mt-2 flex items-center gap-1 whitespace-nowrap rounded-md border border-dashed border-[var(--e-9DB0A5)] bg-white/80 px-2 py-1 font-sans text-[11px] font-bold text-[var(--e-2E3E36)] hover:border-[var(--e-11804F)] hover:text-[var(--e-11804F)] dark:border-[var(--e-2E4238)] dark:bg-[color-mix(in_srgb,var(--e-0F1914)_80%,transparent)] dark:text-[var(--e-C9D6CE)] dark:hover:border-spark dark:hover:text-spark ${FOCO}`}>
+          className={`${INTERATIVO} absolute flex items-center gap-1 whitespace-nowrap rounded-md border border-dashed border-[var(--e-9DB0A5)] bg-white/80 px-2 py-1 font-sans text-[11px] font-bold text-[var(--e-2E3E36)] hover:border-[var(--e-11804F)] hover:text-[var(--e-11804F)] dark:border-[var(--e-2E4238)] dark:bg-[color-mix(in_srgb,var(--e-0F1914)_80%,transparent)] dark:text-[var(--e-C9D6CE)] dark:hover:border-spark dark:hover:text-spark ${FOCO}
+            ${vertical ? 'left-full top-0 ml-2' : 'left-0 top-full mt-2'}`}>
           <Plus aria-hidden className="h-3 w-3" /> raia
         </button>
       )}
+      {editavel && (
+        <AlcaDeTamanho eixo="x" valor={data.largura} min={PISCINA_LARGURA_MINIMA} max={20000}
+          rotulo={`${vertical ? 'Altura' : 'Largura'} da piscina ${data.nome || 'sem nome'}`}
+          titulo={`Arraste para mudar a ${vertical ? 'altura' : 'largura'} da piscina`}
+          onPrevia={(v) => previaLargura({ k: 'piscina' }, v)} onFim={(v) => largura({ k: 'piscina' }, v)} />
+      )}
+    </div>
+  )
+}
+
+/* ─── Fase (fundo) ───────────────────────────────────────────────────────── */
+/** A coluna da fase: o cabeçalho com o nome (no topo; à esquerda e de lado, na vertical), a
+ *  divisória tracejada no começo (menos na primeira) e a alça no fim (menos na última, que se
+ *  estica até o fim da piscina — quem a muda é a alça da piscina). */
+export function FormaFase({ data }: NodeProps<NoFase>) {
+  const { editavel, abrir, vertical, largura, previaLargura } = useContext(ContextoRaias)
+  const alvo = { k: 'fase' as const, id: data.id }
+  const divisoria = data.primeira ? '' : vertical
+    ? 'border-t border-dashed border-t-[var(--e-9DB0A5)] dark:border-t-[var(--e-2E4238)]'
+    : 'border-l border-dashed border-l-[var(--e-9DB0A5)] dark:border-l-[var(--e-2E4238)]'
+  return (
+    <div className={`pointer-events-none relative box-border h-full w-full ${divisoria}`}>
+      <div title="Duplo clique para parametrizar a fase" onDoubleClick={() => abrir({ k: 'fase', id: data.id })}
+        className={`${INTERATIVO} absolute box-border flex items-center justify-center overflow-hidden border ${COR_FAIXA}
+          ${vertical ? 'inset-y-0 left-0' : 'inset-x-0 top-0'}`}
+        style={vertical ? { width: FASE_ALTURA } : { height: FASE_ALTURA }}>
+        <span className={`${vertical ? '-rotate-90' : ''} truncate whitespace-nowrap px-2 font-sans text-[11px] font-semibold uppercase tracking-[0.04em] text-[var(--e-4F5F57)] dark:text-[var(--e-9DB0A5)]`}>{data.nome}</span>
+      </div>
+      {editavel && !data.ultima && (
+        <AlcaDeTamanho eixo="x" valor={data.largura} min={FASE_LARGURA_MINIMA} max={20000}
+          rotulo={`${vertical ? 'Altura' : 'Largura'} da fase ${data.nome || 'sem nome'}`}
+          titulo={`Arraste para mudar a ${vertical ? 'altura' : 'largura'} da fase`}
+          onPrevia={(v) => previaLargura(alvo, v)} onFim={(v) => largura(alvo, v)} />
+      )}
+    </div>
+  )
+}
+
+/* ─── Piscina externa (participante caixa-preta) ──────────────────────────── */
+/** Faixa com o nome (duplo clique parametriza) e o corpo vazio: o participante é uma
+ *  caixa-preta. Com o conector "Fluxo de mensagem", o corpo inteiro aceita a ponta da seta
+ *  (alça invisível) e uma bolinha na borda que encara o processo começa uma mensagem daqui. */
+export function FormaPiscinaExterna({ data }: NodeProps<NoPiscinaExterna>) {
+  const { abrir, vertical, conector, editavel } = useContext(ContextoRaias)
+  const mensagem = editavel && conector === 'mensagem'
+  const lado = vertical ? Position.Left : Position.Top
+  return (
+    <div className="group pointer-events-none relative h-full w-full">
+      <div className={`absolute box-border flex items-center justify-center border border-[var(--e-B8C6BE)] bg-[rgba(230,237,232,0.4)] dark:border-[var(--e-2A3B32)] dark:bg-[rgba(19,33,26,0.4)]
+        ${vertical ? 'inset-x-0 bottom-0 rounded-b-[10px]' : 'inset-y-0 right-0 rounded-r-[10px]'}`}
+        style={vertical ? { top: FAIXA_PISCINA } : { left: FAIXA_PISCINA }}>
+        <span className="font-sans text-xs font-medium text-[var(--e-5E6F66)] dark:text-[var(--e-9DB0A5)]">Participante externo · caixa-preta</span>
+        {/* o corpo todo recebe a ponta do fluxo de mensagem; não começa seta (só chega) */}
+        <Handle id="msg-e" type="target" position={lado} isConnectable={mensagem} isConnectableStart={false}
+          className={`!absolute !inset-0 !h-full !w-full !min-h-0 !min-w-0 !translate-x-0 !translate-y-0 !rounded-none !border-0 !bg-transparent !opacity-0 ${mensagem ? '!pointer-events-auto' : '!pointer-events-none'}`} />
+        <Handle id="msg-s" type="source" position={lado} isConnectable={mensagem} title="Arraste até uma forma do processo para mandar uma mensagem a ela"
+          className={`!h-3 !w-3 !min-h-0 !min-w-0 !rounded-full !border-2 !border-[var(--e-11804F)] !bg-white !cursor-crosshair dark:!border-spark dark:!bg-[var(--e-0A110D)]
+            ${mensagem ? '!pointer-events-auto opacity-0 group-hover:opacity-100' : '!pointer-events-none opacity-0'}`} />
+      </div>
+      <div title="Duplo clique para parametrizar a piscina" onDoubleClick={() => abrir({ k: 'piscina', id: data.id })}
+        className={`${INTERATIVO} absolute box-border flex items-center justify-center overflow-hidden border ${COR_FAIXA}
+          ${vertical ? 'inset-x-0 top-0 rounded-t-[10px]' : 'inset-y-0 left-0 rounded-l-[10px]'}`}
+        style={vertical ? { height: FAIXA_PISCINA } : { width: FAIXA_PISCINA }}>
+        <span className={`${vertical ? '' : '-rotate-90'} whitespace-nowrap font-sans text-[11.5px] font-extrabold uppercase tracking-[0.04em]`}>{data.nome}</span>
+      </div>
     </div>
   )
 }
@@ -573,7 +711,7 @@ export function pontoDoRotulo(caminho: string): { x: number; y: number } | null 
   return pontoDoRotuloNaPolilinha(pts)
 }
 
-export function SetaComRotulo({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, markerEnd, selected }: EdgeProps<SetaBpmn>) {
+export function SetaComRotulo({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, markerEnd, selected }: EdgeProps<SetaDeSequencia>) {
   const [caminho, mx, my] = getSmoothStepPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, borderRadius: 0, offset: 20 })
   const perto = pontoDoRotulo(caminho)
   const lx = perto?.x ?? mx, ly = perto?.y ?? my
@@ -603,6 +741,33 @@ export function SetaComRotulo({ sourceX, sourceY, targetX, targetY, sourcePositi
   )
 }
 
+/** Fluxo de mensagem: tracejado, círculo vazado na saída e ponta vazada na chegada (os
+ *  marcadores vêm do canvas). O traço é o roteado pelo canvas, já na tela. */
+export function SetaMensagem({ data, markerStart, markerEnd, selected, sourceX, sourceY, targetX, targetY }: EdgeProps<SetaDeMensagem>) {
+  const pontos = data?.pontos?.length ? data.pontos : [{ x: sourceX, y: sourceY }, { x: targetX, y: targetY }]
+  const caminho = 'M' + pontos.map((p) => `${p.x} ${p.y}`).join(' L')
+  const perto = pontoDoRotuloNaPolilinha(pontos)
+  return (
+    <>
+      <BaseEdge path={caminho} markerStart={markerStart} markerEnd={markerEnd} interactionWidth={14}
+        style={selected
+          ? { stroke: 'var(--bpmn-seta-destaque)', strokeWidth: 2.4, strokeDasharray: '6 4' }
+          : { stroke: 'var(--bpmn-seta)', strokeWidth: 1.5, strokeDasharray: '6 4' }} />
+      {data?.rotulo && perto && (
+        <EdgeLabelRenderer>
+          <span className="nodrag nopan pointer-events-none absolute whitespace-nowrap rounded-md bg-[var(--e-F4F7F4)] px-1 font-sans text-[11px] font-medium italic text-[var(--e-5E6F66)] dark:bg-[var(--e-0C1511)] dark:text-[var(--e-9DB0A5)]"
+            style={{ transform: `translate(-50%, -50%) translate(${perto.x}px, ${perto.y}px)`, zIndex: Z_ROTULO }}>
+            {data.rotulo}
+          </span>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  )
+}
+
 /* Fora de qualquer componente: o React Flow pede tipos estáveis entre renders. */
-export const tiposDeNo = { tarefa: FormaTarefa, losango: FormaLosango, evento: FormaEvento, raia: FormaRaia, piscina: FormaPiscina }
-export const tiposDeSeta = { seta: SetaComRotulo }
+export const tiposDeNo = {
+  tarefa: FormaTarefa, losango: FormaLosango, evento: FormaEvento, raia: FormaRaia, piscina: FormaPiscina,
+  fase: FormaFase, externa: FormaPiscinaExterna,
+}
+export const tiposDeSeta = { seta: SetaComRotulo, mensagem: SetaMensagem }

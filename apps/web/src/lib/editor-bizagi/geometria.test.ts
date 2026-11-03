@@ -82,6 +82,18 @@ describe('encaixarComGuias', () => {
   });
 });
 
+describe('encaixarComGuias sem grade', () => {
+  it('não arredonda na grade, mas ainda cola na guia', () => {
+    const mov: Caixa = { id: 'm', x: 101, y: 203, largura: 56, altura: 56 };
+    expect(encaixarComGuias(mov, [], 6, false)).toEqual({ x: 101, y: 203, guias: [] });
+    const o: Caixa = { id: 'o', x: 500, y: 200, largura: 56, altura: 56 };
+    const r = encaixarComGuias(mov, [o], 6, false);
+    expect(r.x).toBe(101);
+    expect(r.y).toBe(200);
+    expect(r.guias).toEqual([{ eixo: 'y', valor: 228 }]);
+  });
+});
+
 describe('alinhar', () => {
   const caixas: Caixa[] = [
     { id: 'a', x: 0, y: 0, largura: 100, altura: 40 }, // centro 50, 20

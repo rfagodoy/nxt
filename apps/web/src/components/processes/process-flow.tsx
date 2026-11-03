@@ -37,14 +37,16 @@ import { Input } from '@/components/ui/input'
 import { camposDasTelasDasAtividades } from '@/lib/flow-conditions'
 import { CanvasBpmn, modeloDeExportacao, type AlvoDaGaveta } from './desenho-bpmn/canvas-bpmn'
 import { PaletaBpmn, type Conector } from './desenho-bpmn/paleta'
-import { MenuMais, NomeNoTopo, SeletorDeVista, SobreDoWorkflow, tamanhoDoNome, useNivelDoTopo, type VistaDoEditor } from './desenho-bpmn/topo'
+import { ControlesDoDesenho, MenuMais, NomeNoTopo, SeletorDeVista, SobreDoWorkflow, tamanhoDoNome, useNivelDoTopo, type VistaDoEditor } from './desenho-bpmn/topo'
 import { cn } from '@/lib/utils'
 import { STEP_TONE, dueText, entityKindLabel, type EEdge, type ENode } from './editor-comum'
 import { ENTITY_MODE_LABEL, PerguntasDaEtapa } from './perguntas-da-etapa'
 import { aplicarExecutorDasRaias, raiaDaForma } from '@/lib/editor-bizagi/raias'
 import { formaNova, type GrupoPaleta, type ItemCatalogo } from '@/lib/editor-bizagi/catalogo'
-import { alturaPeloDesenho } from '@/lib/editor-bizagi/formas-do-canvas'
-import { adicionarFase, adicionarPiscinaExterna, layoutDe, redimensionarForma } from '@/lib/editor-bizagi/layout'
+import { alturaPeloDesenho, caixaDaForma } from '@/lib/editor-bizagi/formas-do-canvas'
+import { adicionarFase, adicionarPiscinaExterna, layoutDe, mudarOrientacao, redimensionarForma } from '@/lib/editor-bizagi/layout'
+import { alinharNaTela } from '@/lib/editor-bizagi/faixas'
+import type { ModoAlinhar, Orientacao } from '@/lib/editor-bizagi/geometria'
 import { lugarDoProximo } from '@/lib/editor-bizagi/proximo'
 import { Roteiro } from './roteiro/roteiro'
 import { itensDaLista, montarRoteiro, podeSoltar, removerCaminhoComVinculos, secaoDaPendencia, type ConsultasDoRoteiro } from '@/lib/roteiro'
@@ -439,6 +441,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   /* Altura de cada forma como o canvas a desenha (tarefa redimensionada = tamanho gravado):
      a raia de uma forma é achada pelo centro dela, e canvas, gaveta e Salvar têm de concordar. */
   const tamanhos = layoutDe(doc).tamanhos
+  const orientacao = layoutDe(doc).orientacao
   const alturaDe = useMemo(() => alturaPeloDesenho(nodes, tamanhos), [nodes, tamanhos])
 
   /* As etapas COMO VÃO SER GRAVADAS: a tarefa que herda da raia já leva o executor dela
@@ -855,9 +858,6 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const aoReligarSaida = useCallback((setaId: string, de: string) => setDoc((d) => religarSaida(d, setaId, de)), [])
   const aoApagarSeta = useCallback((setaId: string) => setDoc((d) => apagarSeta(d, setaId)), [])
   const aoAdicionarRaia = useCallback(() => setDesenho((d) => (d ? adicionarRaia(d) : d)), [setDesenho])
-  /* Fase e piscina externa mudam o DOC (o retrato do desfazer pega a mudança como um passo). */
-  const aoAdicionarFase = useCallback(() => setDoc((d) => adicionarFase(d)), [])
-  const aoAdicionarPiscina = useCallback(() => setDoc((d) => adicionarPiscinaExterna(d)), [])
   /* Tarefa/subprocesso redimensionado pela alça: também é do DOC (um passo do desfazer); a
      função pura devolve o mesmo desenho quando o tamanho não muda (aí não há passo). */
   const aoTamanho = useCallback((id: string, tam: { largura: number; altura: number }) => setDoc((d) => redimensionarForma(d, id, tam)), [])
@@ -977,6 +977,33 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     setSelectedId(forma.id)
     setGavetaDe(null)
   }, [grafo, desenhoVisto, tamanhos, registrarPasso, criarPassoDaForma, aplicarGaveta])
+
+  /* DESENHO (orientação, grade, laço, fases, piscinas, mensagens). Cada ação aqui é UM passo
+     do desfazer: o passo pendente fecha antes (`registrarPasso`) e o retrato depois pega a
+     mudança. A orientação é do desenho (gravada com ele); a grade é só da tela. */
+  const [grade, setGrade] = useState(true)
+  const [selecaoMultipla, setSelecaoMultipla] = useState<string[]>([])
+  const aoOrientacao = useCallback((o: Orientacao) => { registrarPasso(); setDoc((d) => mudarOrientacao(d, o)) }, [registrarPasso])
+  /** Fase, largura da piscina e fluxo de mensagem vêm do canvas como o desenho com o layout novo. */
+  const aoLayout = useCallback((novo: DesenhoV2) => {
+    registrarPasso()
+    setDoc((d) => (d.layout === novo.layout ? d : { ...d, layout: novo.layout }))
+  }, [registrarPasso])
+  const aoAdicionarFase = useCallback(() => { registrarPasso(); setDoc((d) => adicionarFase(d)) }, [registrarPasso])
+  const aoAdicionarPiscina = useCallback(() => { registrarPasso(); setDoc((d) => adicionarPiscinaExterna(d)) }, [registrarPasso])
+  /** Alinhar as formas do laço como se vê na TELA (na vertical também); grava no lógico. */
+  const aoAlinhar = useCallback((modo: ModoAlinhar) => {
+    if (!grafo || !desenhoVisto || selecaoMultipla.length < 2) return
+    const caixas = selecaoMultipla.flatMap((id) => {
+      const n = grafo.nodes.find((x) => x.id === id), p = desenhoVisto.posicoes[id]
+      if (!n || !p) return []
+      const c = caixaDaForma(id, n.type, nodeSize({ id, type: n.type as FlowNodeType, name: n.name }, 0, 0), tamanhos)
+      return [{ id, x: p.x, y: p.y, largura: c.w, altura: c.h }]
+    })
+    const novas = alinharNaTela(caixas, modo, orientacao)
+    registrarPasso()
+    setDesenho((d) => (d ? { ...d, posicoes: { ...d.posicoes, ...novas } } : d))
+  }, [grafo, desenhoVisto, selecaoMultipla, tamanhos, orientacao, registrarPasso, setDesenho])
 
   const irPara = useCallback((i: number) => {
     const r = historia[i]
@@ -1427,7 +1454,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const [maisAberto, setMaisAberto] = useState(false)
   const nivelTopo = useNivelDoTopo(topoRef, [
     tamanhoDoNome(name), !name.trim(), sujo, voltaARascunho, pendencias.length, bloqueantes(pendencias).length, kind,
-    exportError ?? '', editing,
+    exportError ?? '', editing, vista, selecaoMultipla.length >= 2,
     // fechar um balão do topo remede desde o 0 (o que mudou com ele aberto — ex.: "Quem inicia" — conta)
     quemIniciaAberto || sobreAberto || maisAberto,
   ].join('|'), quemIniciaAberto || sobreAberto || maisAberto)
@@ -1481,6 +1508,10 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
             <Redo2 className="h-4 w-4" />
           </button>
         </div>
+        {noDesenho && (
+          <ControlesDoDesenho orientacao={orientacao} onOrientacao={aoOrientacao} grade={grade} onGrade={setGrade}
+            selecionadas={selecaoMultipla.length} onAlinhar={aoAlinhar} soIcone={nivelTopo >= 1} />
+        )}
         {nivelTopo < 6 && noDesenho && (
           <Button variant="outline" size="sm" className={cn('shrink-0', nivelTopo >= 1 && 'px-2')} onClick={organizarDesenho} disabled={!desenhoVisto}
             aria-label="Organizar" title="Organizar: arruma as formas na ordem do fluxo e cada uma na raia de quem a executa">
@@ -1612,6 +1643,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
                 nomeDoProcesso={name} revisaoDasConsultas={revisaoDasConsultas} somenteLeitura
                 responsavelDe={responsavelDe} prazoDe={prazoDe} problemasDe={problemasDe}
                 onSelecionar={aoSelecionarNoDesenho} onAbrir={aoAbrir} onProximo={() => {}} onDesenho={() => {}} onSoltar={() => {}} onMoverItem={() => {}}
+                orientacao={orientacao} grade={grade} conector="sequencia" onSelecaoMultipla={() => {}} onLayout={() => {}}
                 doc={doc} onLigar={() => {}} onReligar={() => {}} onReligarSaida={() => {}} onTamanho={() => {}} onApagarSeta={() => {}} onRemover={() => {}}
                 vinculaveis={[]} onInserirVinculada={() => {}} focoEm={focoEm} enquadrar={enquadrar} />
             ) : (
@@ -1630,6 +1662,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
                   nomeDoProcesso={name} revisaoDasConsultas={revisaoDasConsultas}
                   responsavelDe={responsavelDe} prazoDe={prazoDe} problemasDe={problemasDe}
                   onSelecionar={aoSelecionarNoDesenho} onAbrir={aoAbrir} onProximo={aoProximo} gavetaAberta={gavetaAberta}
+                  orientacao={orientacao} grade={grade} conector={conector} onSelecaoMultipla={setSelecaoMultipla} onLayout={aoLayout}
                   onDesenho={aoMudarDesenho} onSoltar={aoSoltar} onMoverItem={aoMoverItem}
                   doc={doc} onLigar={aoLigar} onReligar={aoReligar} onReligarSaida={aoReligarSaida} onTamanho={aoTamanho} onApagarSeta={aoApagarSeta} onSelecionarSeta={aoSelecionarSeta} setasComProblema={setasComProblema ?? undefined} onRemover={removerNoDesenho}
                   vinculaveis={vinculaveis} onInserirVinculada={aoInserirVinculada} focoEm={focoEm} enquadrar={enquadrar} />

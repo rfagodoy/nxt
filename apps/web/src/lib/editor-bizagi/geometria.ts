@@ -26,14 +26,15 @@ export function retanguloParaTela(r: Caixa, o: Orientacao): Caixa {
 
 const naGrade = (v: number) => Math.round(v / GRADE) * GRADE;
 
-/** Encaixa na grade e, se o centro de alguma outra estiver a ≤ tolerância, cola nele. */
+/** Encaixa na grade (se `grade`) e, se o centro de alguma outra estiver a ≤ tolerância, cola nele. */
 export function encaixarComGuias(
   movendo: Caixa,
   outras: Caixa[],
   tolerancia = 6,
+  grade = true,
 ): { x: number; y: number; guias: Array<{ eixo: 'x' | 'y'; valor: number }> } {
-  let x = naGrade(movendo.x);
-  let y = naGrade(movendo.y);
+  let x = grade ? naGrade(movendo.x) : movendo.x;
+  let y = grade ? naGrade(movendo.y) : movendo.y;
   const guias: Array<{ eixo: 'x' | 'y'; valor: number }> = [];
 
   const centroX = x + movendo.largura / 2;
