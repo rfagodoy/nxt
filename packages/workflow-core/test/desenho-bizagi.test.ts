@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { DesenhoV2, FormaDesenho, LayoutDesenho } from '@nxt/types'
-import { lerDesenhoV2 } from '../src/desenho-livre'
+import { lerDesenhoV2, desenhoParaBlocos } from '../src/desenho-livre'
 import { varianteDe, rotuloDaVariante, executaHoje, LAYOUT_PADRAO } from '../src/variantes'
 
 const base = (): DesenhoV2 => ({
@@ -96,3 +96,42 @@ describe('variantes', () => {
 })
 
 type VarianteEsperada = ReturnType<typeof varianteDe>
+
+describe('desenhoParaBlocos: o que ainda não executa', () => {
+  const comTemporizador = (): DesenhoV2 => ({
+    versao: 2,
+    formas: [
+      { id: 'start', tipo: 'start' }, { id: 'a1', tipo: 'userTask', nome: 'Analisar' },
+      { id: 't', tipo: 'intermediateEvent', variante: 'temporizador', nome: 'Esperar 5 dias' }, { id: 'end', tipo: 'end' },
+    ],
+    setas: [{ id: 's1', de: 'start', para: 'a1' }, { id: 's2', de: 'a1', para: 't' }, { id: 's3', de: 't', para: 'end' }],
+    posicoes: {}, raias: [],
+  })
+
+  it('recusa temporizador com a frase da spec', () => {
+    const r = desenhoParaBlocos(comTemporizador())
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.problemas).toEqual([{
+      tipo: 'ainda-nao-executa',
+      mensagem: '"Esperar 5 dias" é um temporizador, que ainda não executa. Troque por outro elemento ou deixe o workflow em rascunho.',
+      formas: ['t'], setas: [],
+    }])
+  })
+  it('lista todos os que não executam, um problema por forma', () => {
+    const d = comTemporizador()
+    d.formas[3] = { id: 'end', tipo: 'end', variante: 'erro' }
+    const r = desenhoParaBlocos(d, { nomeDe: (id) => (id === 'end' ? 'Falhou' : '') })
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.problemas.map((p) => [p.tipo, p.formas])).toEqual([['ainda-nao-executa', ['t']], ['ainda-nao-executa', ['end']]])
+    expect(r.problemas[1].mensagem).toBe('"Falhou" é um fim com erro, que ainda não executa. Troque por outro elemento ou deixe o workflow em rascunho.')
+  })
+  it('piscinas externas, fluxos de mensagem e fases não impedem', () => {
+    const sem = base()
+    const com: DesenhoV2 = { ...base(), layout: layoutValido() }
+    const a = desenhoParaBlocos(sem), b = desenhoParaBlocos(com)
+    expect(b.ok).toBe(true)
+    expect(a.ok && b.ok && b.fluxo).toEqual(a.ok && a.fluxo)
+  })
+})

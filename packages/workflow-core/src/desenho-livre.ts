@@ -5,6 +5,7 @@
 
 import type { DesenhoV2, FaseDesenho, FluxoMensagem, FormaDesenho, LayoutDesenho, PiscinaExterna, RaiaDesenho, SetaDesenho, TipoForma, VarianteForma } from '@nxt/types'
 import { lerDesenho } from './desenho'
+import { executaHoje, rotuloDaVariante } from './variantes'
 import {
   ID_VALIDO, SUFIXO_REENCONTRO, blocosParaGrafo, lerFluxoBlocos, modoDaEscolha, temSenaoAntigo,
   type BlocoEscolha, type BlocoParalelo, type CaminhoCondicional, type CaminhoPadrao, type FimCaminho, type FluxoBlocos, type ItemAtividade, type ItemFluxo, type SetaGerada,
@@ -317,6 +318,13 @@ type Fim = FimCaminho
 interface Trecho { itens: ItemFluxo[]; fim: Fim; /** forma onde o trecho parou (reencontro), quando segue */ ate?: string }
 
 export function desenhoParaBlocos(d: DesenhoV2, opcoes: { nomeDe?: (id: string) => string } = {}): Conversao {
+  // O desenho aceita o que o motor ainda não executa (rascunho); ativar, não.
+  const naoExecutam: ProblemaDoDesenho[] = d.formas.filter((f) => !executaHoje(f)).map((f) => ({
+    tipo: 'ainda-nao-executa',
+    mensagem: `"${f.nome?.trim() || opcoes.nomeDe?.(f.id) || 'Sem nome'}" é ${rotuloDaVariante(f)}, que ainda não executa. Troque por outro elemento ou deixe o workflow em rascunho.`,
+    formas: [f.id], setas: [],
+  }))
+  if (naoExecutam.length) return { ok: false, problemas: naoExecutam }
   const formas = new Map(d.formas.map((f) => [f.id, f]))
   const saidas = (id: string) => d.setas.filter((s) => s.de === id)
   const entradas = (id: string) => d.setas.filter((s) => s.para === id)
