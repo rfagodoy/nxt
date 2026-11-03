@@ -92,6 +92,10 @@ export function nodeSize(node: FlowNode, _outDeg: number, _inDeg: number): { w: 
         w: TASK_W,
         h: CARD_SHELL_H + titleLineCount(node.name) * CARD_LINE_H + (node.metaLines ?? CARD_META_PADRAO) * CARD_META_H,
       }
+    default:
+      /* tipos novos do desenho (evento intermediário, losango baseado em evento,
+         subprocesso) que o layout ainda não desenha: uma caixa de símbolo, para nada quebrar */
+      return { w: SYMBOL, h: SYMBOL }
   }
 }
 

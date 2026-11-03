@@ -38,6 +38,7 @@ import {
   type AcoesDeRaia, type NoBpmn, type SetaBpmn, type TipoLosango,
 } from './formas'
 import { TIPO_ARRASTO_FORMA } from './paleta'
+import { itemDoArrasto, type ItemCatalogo } from '@/lib/editor-bizagi/catalogo'
 
 export interface CanvasBpmnProps {
   fluxo: FluxoBlocos; grafo: GrafoGerado; desenho: DesenhoBpmn
@@ -56,7 +57,7 @@ export interface CanvasBpmnProps {
   onInserir: (ponto: PontoDeInsercao, tipo: NovoItem, perto: { x: number; y: number }) => void
   /** Forma da paleta solta no desenho: sobre uma seta (`sobreSeta`) entra no meio dela; em
    *  área vazia fica solta. Escolha e Ao mesmo tempo chegam como UM losango (sem o par). */
-  onSoltar: (tipo: NovoItem, perto: { x: number; y: number }, sobreSeta?: string) => void
+  onSoltar: (item: ItemCatalogo, perto: { x: number; y: number }, sobreSeta?: string) => void
   onMoverItem: (id: string, ponto: PontoDeInsercao) => void
   /** Seta desenhada à mão entre duas formas quaisquer (aceita por `podeLigar`). */
   onLigar: (de: string, para: string) => void
@@ -334,11 +335,11 @@ function formasDoItem(it: ItemFluxo): Set<string> {
   return ids
 }
 
-const TIPOS_NOVOS: readonly NovoItem[] =['userTask', 'serviceTask', 'escolha', 'paralelo']
-const ehNovoItem = (x: string): x is NovoItem => (TIPOS_NOVOS as readonly string[]).includes(x)
 /** Caixa que a forma nova vai ocupar (para centrá-la no ponto de soltar). */
 const caixaNova = (tipo: NovoItem): Caixa =>
   nodeSize({ id: 'nova', type: tipo === 'escolha' ? 'exclusiveGateway' : tipo === 'paralelo' ? 'parallelGateway' : tipo }, 0, 0)
+/** Caixa da forma que o item da paleta cria. */
+const caixaDoItem = (item: ItemCatalogo): Caixa => nodeSize({ id: 'nova', type: item.tipo as FlowNodeType }, 0, 0)
 
 /** Tempo que o aviso de seta recusada fica na tela. */
 const RECUSA_MS = 4000
@@ -529,12 +530,12 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     if (!aceitaArrasto(e)) return
     e.preventDefault()
     setDestaque(null)
-    const tipo = e.dataTransfer.getData(TIPO_ARRASTO_FORMA)
+    const item = itemDoArrasto(e.dataTransfer.getData(TIPO_ARRASTO_FORMA))
     const p = noFluxo(e)
-    if (!ehNovoItem(tipo) || !p) return
+    if (!item || !p) return
     // em cima de uma seta entra no meio dela; em área vazia fica solta, para ligar à mão
-    const c = caixaNova(tipo)
-    onSoltar(tipo, { x: naGrade(p.x - c.w / 2), y: naGrade(p.y - c.h / 2) }, setaNoPonto(p) ?? undefined)
+    const c = caixaDoItem(item)
+    onSoltar(item, { x: naGrade(p.x - c.w / 2), y: naGrade(p.y - c.h / 2) }, setaNoPonto(p) ?? undefined)
   }
 
   /* ─── Setas à mão ──────────────────────────────────────────────────────── */

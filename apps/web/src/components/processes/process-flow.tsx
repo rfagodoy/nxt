@@ -36,12 +36,14 @@ import { EditorDaSeta, PainelDasSetas, type PatchDaSeta } from './desenho-bpmn/p
 import { Input } from '@/components/ui/input'
 import { camposDasTelasDasAtividades } from '@/lib/flow-conditions'
 import { CanvasBpmn, modeloDeExportacao } from './desenho-bpmn/canvas-bpmn'
-import { PaletaBpmn } from './desenho-bpmn/paleta'
+import { PaletaBpmn, type Conector } from './desenho-bpmn/paleta'
 import { MenuMais, NomeNoTopo, SeletorDeVista, SobreDoWorkflow, tamanhoDoNome, useNivelDoTopo, type VistaDoEditor } from './desenho-bpmn/topo'
 import { cn } from '@/lib/utils'
 import { STEP_TONE, dueText, entityKindLabel, type EEdge, type ENode } from './editor-comum'
 import { ENTITY_MODE_LABEL, PerguntasDaEtapa } from './perguntas-da-etapa'
 import { aplicarExecutorDasRaias, raiaDaForma } from '@/lib/editor-bizagi/raias'
+import { formaNova, type GrupoPaleta, type ItemCatalogo } from '@/lib/editor-bizagi/catalogo'
+import { adicionarFase, adicionarPiscinaExterna } from '@/lib/editor-bizagi/layout'
 import { Roteiro } from './roteiro/roteiro'
 import { itensDaLista, montarRoteiro, podeSoltar, removerCaminhoComVinculos, secaoDaPendencia, type ConsultasDoRoteiro } from '@/lib/roteiro'
 
@@ -162,6 +164,22 @@ const TIPOS_DESENHO_INCOMPLETO = new Set(['fora-do-fluxo', 'sem-saida', 'inicio-
 
 
 const passoVazio = (id: string, tipo: 'userTask' | 'serviceTask'): StepFormSchema => ({ stepId: id, stepName: '', fields: [], stepType: tipo })
+
+/** Item da paleta que já existia antes da paleta Bizagi (Tarefa, Ação automática, Escolha,
+ *  Ao mesmo tempo e o Inclusivo, que é a Escolha "todos"): nasce pelo caminho de sempre
+ *  (`novoItem`). Os demais nascem por `formaNova`. */
+function novoItemDaPaleta(item: ItemCatalogo): NovoItem | null {
+  if (item.tipo === 'serviceTask') return 'serviceTask'
+  if (item.tipo === 'userTask' && item.variante === 'usuario') return 'userTask'
+  if (item.tipo === 'exclusiveGateway') return 'escolha'
+  if (item.tipo === 'parallelGateway') return 'paralelo'
+  return null
+}
+const PREFIXO_DO_GRUPO: Record<GrupoPaleta, string> = {
+  inicio: 'Inicio', tarefa: 'Node', subprocesso: 'Subprocesso', losango: 'Losango', intermediario: 'Evento', fim: 'Fim',
+}
+const idDaFormaNova = (item: ItemCatalogo) => `${PREFIXO_DO_GRUPO[item.grupo]}_${Math.random().toString(36).slice(2, 9)}`
+const ESCOLHIDAS_INICIAIS: Record<GrupoPaleta, number> = { inicio: 0, tarefa: 0, subprocesso: 0, losango: 0, intermediario: 0, fim: 0 }
 
 /** Grafo gravado de um workflow ANTERIOR aos blocos. Prefere `formSchema.graph` (preserva
  *  rótulos e aceita rascunho incompleto); cai no compileBpmn só para os mais antigos. */
@@ -810,6 +828,13 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const aoReligarSaida = useCallback((setaId: string, de: string) => setDoc((d) => religarSaida(d, setaId, de)), [])
   const aoApagarSeta = useCallback((setaId: string) => setDoc((d) => apagarSeta(d, setaId)), [])
   const aoAdicionarRaia = useCallback(() => setDesenho((d) => (d ? adicionarRaia(d) : d)), [setDesenho])
+  /* Fase e piscina externa mudam o DOC (o retrato do desfazer pega a mudança como um passo). */
+  const aoAdicionarFase = useCallback(() => setDoc((d) => adicionarFase(d)), [])
+  const aoAdicionarPiscina = useCallback(() => setDoc((d) => adicionarPiscinaExterna(d)), [])
+  /* Paleta: a variação mostrada em cada grupo e o conector ativo (o tipo das setas novas). */
+  const [escolhidas, setEscolhidas] = useState<Record<GrupoPaleta, number>>(ESCOLHIDAS_INICIAIS)
+  const aoTrocarVariante = useCallback((g: GrupoPaleta, indice: number) => setEscolhidas((e) => ({ ...e, [g]: indice })), [])
+  const [conector, setConector] = useState<Conector>('sequencia')
   const organizarDesenho = useCallback(() => {
     if (!grafo || !desenhoVisto) return
     aplicarGaveta()
@@ -833,31 +858,40 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   /* Forma da paleta no desenho (DESENHO LIVRE): entra no DESENHO, não nos blocos. Escolha e
      Ao mesmo tempo são um losango só — quem junta os caminhos é outro losango, desenhado à
      mão (pelo Roteiro, inserir continua criando o par). */
-  const aoSoltar = useCallback((tipo: NovoItem, perto: { x: number; y: number }, sobreSeta?: string) => {
-    const item = novoItem(tipo)
-    const forma: FormaDesenho = item.kind === 'atividade'
-      ? { id: item.id, tipo: item.tipo }
-      : item.kind === 'escolha' ? { id: item.id, tipo: 'exclusiveGateway', modo: item.modo } : { id: item.id, tipo: 'parallelGateway' }
-    if (item.kind === 'atividade') setSteps((prev) => ({ ...prev, [item.id]: passoVazio(item.id, item.tipo) }))
+  const aoSoltar = useCallback((daPaleta: ItemCatalogo, perto: { x: number; y: number }, sobreSeta?: string) => {
+    const tipo = novoItemDaPaleta(daPaleta)
+    let forma: FormaDesenho
+    if (tipo) {
+      const item = novoItem(tipo)
+      forma = item.kind === 'atividade'
+        ? { id: item.id, tipo: item.tipo }
+        : item.kind === 'escolha' ? { id: item.id, tipo: 'exclusiveGateway', modo: daPaleta.modo ?? item.modo } : { id: item.id, tipo: 'parallelGateway' }
+    } else {
+      forma = formaNova(daPaleta, idDaFormaNova(daPaleta))
+    }
+    const atividade = forma.tipo === 'userTask' || forma.tipo === 'serviceTask' ? forma.tipo : null
+    if (atividade) setSteps((prev) => ({ ...prev, [forma.id]: { ...passoVazio(forma.id, atividade), stepName: forma.nome ?? '' } }))
+    // nada chega num Início nem sai de um Fim: esses não entram no meio de uma seta
+    const naSeta = forma.tipo === 'start' || forma.tipo === 'end' ? undefined : sobreSeta
     setFocarGaveta(true)
     setDoc((d) => {
-      if (!sobreSeta) return soltarForma(d, forma, perto)
+      if (!naSeta) return soltarForma(d, forma, perto)
       /* No meio de uma seta, as formas daí em diante andam para a direita e a nova cabe sem
          cobrir ninguém (PO, 30/10/2026) — como ao incluir pelo Roteiro. A que começa um pouco
          antes dela também a cobriria: entra no empurrão. */
       const caixa = nodeSize({ id: forma.id, type: forma.tipo as FlowNodeType }, 0, 0)
       const largura = Math.ceil((caixa.w + 3 * GRADE) / GRADE) * GRADE
       const { posicoes } = abrirEspaco({ versao: 1, posicoes: d.posicoes, raias: d.raias }, perto.x - 2 * GRADE, largura)
-      return soltarForma({ ...d, posicoes }, forma, perto, sobreSeta)
+      return soltarForma({ ...d, posicoes }, forma, perto, naSeta)
     })
     aplicarGaveta()
-    setSelectedId(item.id)
-    setConfigId(item.kind === 'atividade' ? item.id : null)
+    setSelectedId(forma.id)
+    setConfigId(atividade ? forma.id : null)
   }, [aplicarGaveta])
 
   /* Clique (ou teclado) na paleta: a forma entra logo DEPOIS da selecionada — no meio da seta
      que sai dela, se for uma só — ou, sem seleção, antes do Fim. */
-  const aoEscolherNaPaleta = useCallback((tipo: NovoItem) => {
+  const aoEscolherNaPaleta = useCallback((item: ItemCatalogo) => {
     if (!grafo || !desenhoVisto) return
     const sel = selectedId ? doc.formas.find((f) => f.id === selectedId && f.tipo !== 'end') : undefined
     const fimId = doc.formas.find((f) => f.tipo === 'end')?.id
@@ -868,10 +902,10 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       const n = grafo.nodes.find((x) => x.id === id)
       return n ? nodeSize({ id, type: n.type as FlowNodeType, name: n.name }, 0, 0) : { w: 0, h: 0 }
     }
-    const nova = nodeSize({ id: 'nova', type: tipo === 'escolha' ? 'exclusiveGateway' : tipo === 'paralelo' ? 'parallelGateway' : tipo }, 0, 0)
+    const nova = nodeSize({ id: 'nova', type: item.tipo as FlowNodeType }, 0, 0)
     const p = desenhoVisto.posicoes[ancora] ?? { x: 0, y: 0 }, c = caixaDe(ancora)
     const perto = { x: naGrade(p.x + c.w + 3 * GRADE), y: naGrade(p.y + c.h / 2 - nova.h / 2) }
-    aoSoltar(tipo, perto, saem.length === 1 ? saem[0].id : undefined)
+    aoSoltar(item, perto, saem.length === 1 ? saem[0].id : undefined)
   }, [grafo, desenhoVisto, selectedId, doc.formas, doc.setas, aoSoltar])
 
   /* Registra um retrato quando a autoria para de mudar. A espera COALESCE o que é uma
@@ -1529,7 +1563,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
             )} />
         ) : noDesenho ? (
           <>
-            <PaletaBpmn onAdicionarRaia={aoAdicionarRaia} onEscolher={aoEscolherNaPaleta} desabilitada={!desenhoVisto} />
+            <PaletaBpmn escolhidas={escolhidas} onTrocarVariante={aoTrocarVariante} onEscolher={aoEscolherNaPaleta}
+              conector={conector} onConector={setConector}
+              onAdicionarRaia={aoAdicionarRaia} onAdicionarFase={aoAdicionarFase} onAdicionarPiscina={aoAdicionarPiscina} desabilitada={!desenhoVisto} />
             <div className="relative min-w-0 flex-1">
               {grafo && desenhoVisto ? (
                 <CanvasBpmn fluxo={fluxo ?? FLUXO_VAZIO} grafo={grafo} desenho={desenhoVisto} steps={stepsEfetivos} selecionado={selectedId}
