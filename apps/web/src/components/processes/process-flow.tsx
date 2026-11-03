@@ -35,7 +35,7 @@ import { ATRIBUTO_GAVETA, GavetaLateral, ehEscDaGaveta } from './desenho-bpmn/ga
 import { EditorDaSeta, PainelDasSetas, type PatchDaSeta } from './desenho-bpmn/painel-da-seta'
 import { Input } from '@/components/ui/input'
 import { camposDasTelasDasAtividades } from '@/lib/flow-conditions'
-import { CanvasBpmn, modeloDeExportacao } from './desenho-bpmn/canvas-bpmn'
+import { CanvasBpmn, modeloDeExportacao, type AlvoDaGaveta } from './desenho-bpmn/canvas-bpmn'
 import { PaletaBpmn, type Conector } from './desenho-bpmn/paleta'
 import { MenuMais, NomeNoTopo, SeletorDeVista, SobreDoWorkflow, tamanhoDoNome, useNivelDoTopo, type VistaDoEditor } from './desenho-bpmn/topo'
 import { cn } from '@/lib/utils'
@@ -45,6 +45,7 @@ import { aplicarExecutorDasRaias, raiaDaForma } from '@/lib/editor-bizagi/raias'
 import { formaNova, type GrupoPaleta, type ItemCatalogo } from '@/lib/editor-bizagi/catalogo'
 import { alturaPeloDesenho } from '@/lib/editor-bizagi/formas-do-canvas'
 import { adicionarFase, adicionarPiscinaExterna, layoutDe, redimensionarForma } from '@/lib/editor-bizagi/layout'
+import { lugarDoProximo } from '@/lib/editor-bizagi/proximo'
 import { Roteiro } from './roteiro/roteiro'
 import { itensDaLista, montarRoteiro, podeSoltar, removerCaminhoComVinculos, secaoDaPendencia, type ConsultasDoRoteiro } from '@/lib/roteiro'
 
@@ -180,6 +181,16 @@ const PREFIXO_DO_GRUPO: Record<GrupoPaleta, string> = {
   inicio: 'Inicio', tarefa: 'Node', subprocesso: 'Subprocesso', losango: 'Losango', intermediario: 'Evento', fim: 'Fim',
 }
 const idDaFormaNova = (item: ItemCatalogo) => `${PREFIXO_DO_GRUPO[item.grupo]}_${Math.random().toString(36).slice(2, 9)}`
+/** A forma que o item da paleta (ou do próximo item) cria: os de sempre nascem por `novoItem`
+ *  (ids de bloco/atividade), os demais por `formaNova`. */
+function formaDaPaleta(item: ItemCatalogo): FormaDesenho {
+  const tipo = novoItemDaPaleta(item)
+  if (!tipo) return formaNova(item, idDaFormaNova(item))
+  const novo = novoItem(tipo)
+  return novo.kind === 'atividade'
+    ? { id: novo.id, tipo: novo.tipo }
+    : novo.kind === 'escolha' ? { id: novo.id, tipo: 'exclusiveGateway', modo: item.modo ?? novo.modo } : { id: novo.id, tipo: 'parallelGateway' }
+}
 const ESCOLHIDAS_INICIAIS: Record<GrupoPaleta, number> = { inicio: 0, tarefa: 0, subprocesso: 0, losango: 0, intermediario: 0, fim: 0 }
 
 /** Grafo gravado de um workflow ANTERIOR aos blocos. Prefere `formSchema.graph` (preserva
@@ -350,6 +361,10 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   /* Vindo do aviso "sem campos" da escolha: abre a atividade já na seção Formulário e, ao
      fechar, devolve a pessoa para a escolha de onde ela saiu. */
   const [retornoEscolha, setRetornoEscolha] = useState<string | null>(null)
+  /* Forma cuja gaveta (escolha, "ao mesmo tempo", losango solto) está aberta. No desenho,
+     selecionar NÃO abre: só o duplo clique, o Enter ou "Parametrizar" (`abrir`). A gaveta
+     vale enquanto a forma seguir selecionada. A atividade usa `configId`. */
+  const [gavetaDe, setGavetaDe] = useState<string | null>(null)
   const [configSecao, setConfigSecao] = useState<string | undefined>(undefined)
   /* Painel de pendências de ativação (aberto pela pílula ou pelo "Ativar"). */
   const [pendAberto, setPendAberto] = useState(false)
@@ -633,16 +648,24 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     setConfigId(null); setConfigSecao(undefined); setRetornoEscolha(null)
   }, [])
 
-  /* Clicar é o gesto de "quero configurar isto": a atividade abre a gaveta das perguntas;
-     escolha e "ao mesmo tempo" selecionados abrem a gaveta da configuração do bloco. Pontos de
-     reencontro (gerados) não têm o que configurar. No desenho antigo, só seleciona. */
+  /* Abrir é o gesto de "quero configurar isto" (duplo clique no desenho, clique no Roteiro,
+     pendência): a atividade abre a gaveta das perguntas; escolha, "ao mesmo tempo" e o
+     losango solto abrem a gaveta da configuração deles. Pontos de reencontro (gerados) não
+     têm o que configurar. No desenho antigo, só seleciona. */
   const abrir = useCallback((id: string | null) => {
     const alvo = id && !id.endsWith(SUFIXO_REENCONTRO) ? id : null
     const it = alvo && fluxo ? acharItem(fluxo, alvo) : undefined
     aplicarGaveta()
     setSelectedId(alvo)
+    setGavetaDe(alvo)
     setConfigId(it?.kind === 'atividade' ? alvo : null)
   }, [fluxo, aplicarGaveta])
+  /* Clique no desenho: só seleciona (a gaveta aberta aplica e fecha, como o "Aplicar"). */
+  const selecionar = useCallback((id: string | null) => {
+    aplicarGaveta()
+    setSelectedId(id && !id.endsWith(SUFIXO_REENCONTRO) ? id : null)
+    setGavetaDe(null)
+  }, [aplicarGaveta])
 
   /* Conserto de "caminho sem campos" (aviso dentro da escolha): abre a atividade já na
      pergunta do formulário e, ao fechar, devolve a seleção para a escolha. */
@@ -656,7 +679,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
      do teclado seguem movendo-a, como a descrição acessível promete); vinda de outro lugar
      (pílula de saúde, ação rápida, paleta, aviso da escolha), o foco vai para a gaveta. */
   const [focarGaveta, setFocarGaveta] = useState(true)
-  const aoSelecionarNoDesenho = useCallback((id: string | null) => { setFocarGaveta(false); abrir(id) }, [abrir])
+  const aoSelecionarNoDesenho = useCallback((id: string | null) => { setFocarGaveta(false); selecionar(id) }, [selecionar])
+  /* Seta: só a seleção sumir fecha a condição dela; abrir é por `aoAbrir`. */
+  const aoSelecionarSeta = useCallback((id: string | null) => { if (!id) setSetaAberta(null) }, [])
   /* Setas culpadas da pendência clicada: vermelho tracejado até a próxima mudança. */
   const [setasComProblema, setSetasComProblema] = useState<string[] | null>(null)
   useEffect(() => { setSetasComProblema(null) }, [doc.setas, doc.formas])
@@ -764,6 +789,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     if (perto) darLugar(item.id, tipo, perto, ref, indice)
     aplicarGaveta()
     setSelectedId(item.id)
+    setGavetaDe(item.id)
     setConfigId(item.kind === 'atividade' ? item.id : null)
     return item.id
   }, [aplicarGaveta, darLugar, setFluxo])
@@ -820,9 +846,6 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
      arrasto pode chamar `onDesenho` (a posição) e depois `onMoverItem` (a vaga): as duas
      atualizações são funcionais e valem juntas. */
   const aoMudarDesenho = useCallback((d: DesenhoBpmn) => setDesenho(d), [setDesenho])
-  const aoInserir = useCallback((ponto: PontoDeInsercao, tipo: NovoItem, perto: { x: number; y: number }) => {
-    inserir(ponto.ref, ponto.indice, tipo, perto)
-  }, [inserir])
   const aoMoverItem = useCallback((id: string, ponto: PontoDeInsercao) => {
     mudarFluxo((f) => moverItem(f, id, ponto.ref, ponto.indice))
   }, [mudarFluxo])
@@ -865,19 +888,15 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   /* Forma da paleta no desenho (DESENHO LIVRE): entra no DESENHO, não nos blocos. Escolha e
      Ao mesmo tempo são um losango só — quem junta os caminhos é outro losango, desenhado à
      mão (pelo Roteiro, inserir continua criando o par). */
-  const aoSoltar = useCallback((daPaleta: ItemCatalogo, perto: { x: number; y: number }, sobreSeta?: string) => {
-    const tipo = novoItemDaPaleta(daPaleta)
-    let forma: FormaDesenho
-    if (tipo) {
-      const item = novoItem(tipo)
-      forma = item.kind === 'atividade'
-        ? { id: item.id, tipo: item.tipo }
-        : item.kind === 'escolha' ? { id: item.id, tipo: 'exclusiveGateway', modo: daPaleta.modo ?? item.modo } : { id: item.id, tipo: 'parallelGateway' }
-    } else {
-      forma = formaNova(daPaleta, idDaFormaNova(daPaleta))
-    }
+  /** A etapa (passo) da atividade que acabou de nascer no desenho. Devolve se é atividade. */
+  const criarPassoDaForma = useCallback((forma: FormaDesenho): boolean => {
     const atividade = forma.tipo === 'userTask' || forma.tipo === 'serviceTask' ? forma.tipo : null
     if (atividade) setSteps((prev) => ({ ...prev, [forma.id]: { ...passoVazio(forma.id, atividade), stepName: forma.nome ?? '' } }))
+    return !!atividade
+  }, [])
+  const aoSoltar = useCallback((daPaleta: ItemCatalogo, perto: { x: number; y: number }, sobreSeta?: string) => {
+    const forma = formaDaPaleta(daPaleta)
+    const atividade = criarPassoDaForma(forma)
     // nada chega num Início nem sai de um Fim: esses não entram no meio de uma seta
     const naSeta = forma.tipo === 'start' || forma.tipo === 'end' ? undefined : sobreSeta
     setFocarGaveta(true)
@@ -893,8 +912,29 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     })
     aplicarGaveta()
     setSelectedId(forma.id)
+    setGavetaDe(forma.id)
     setConfigId(atividade ? forma.id : null)
-  }, [aplicarGaveta])
+  }, [aplicarGaveta, criarPassoDaForma])
+
+  /* Próximo item (a coluna ao lado da forma selecionada): a forma nasce à direita da base (ou
+     onde foi solta), já ligada a ela por uma seta de sequência — forma e seta num passo só do
+     desfazer. A base continua selecionada: clicar de novo cria outra, abaixo, se o lugar ao
+     lado já estiver ocupado. */
+  const aoProximo = useCallback((baseId: string, item: ItemCatalogo, soltoEm?: { x: number; y: number }) => {
+    if (!grafo || !desenhoVisto) return
+    const forma = formaDaPaleta(item)
+    const lugar = soltoEm ?? lugarDoProximo(baseId, forma, grafo.nodes, desenhoVisto.posicoes, tamanhos)
+    if (!lugar) return
+    criarPassoDaForma(forma)
+    setDoc((d) => ligar(soltarForma(d, forma, lugar), baseId, forma.id))
+  }, [grafo, desenhoVisto, tamanhos, criarPassoDaForma])
+
+  /* Duplo clique, Enter ou "Parametrizar" no desenho. Raia, fase, piscina e fluxo de
+     mensagem ainda não têm gaveta (chegam com a gaveta deles). */
+  const aoAbrir = useCallback((alvo: AlvoDaGaveta) => {
+    if (alvo.k === 'forma') { setFocarGaveta(false); abrir(alvo.id); setSetaAberta(null) }
+    else if (alvo.k === 'seta') { selecionar(null); setSetaAberta(alvo.id) }
+  }, [abrir, selecionar])
 
   /* Clique (ou teclado) na paleta: a forma entra logo DEPOIS da selecionada — no meio da seta
      que sai dela, se for uma só — ou, sem seleção, antes do Fim. */
@@ -1252,7 +1292,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
   /* Esc DENTRO da gaveta de um bloco a fecha (deseleciona). Não há o que desfazer: a
      configuração do bloco vale ao vivo, como no resto do desenho. */
-  const gavetaDoBloco = !!selectedBloco && !(configNode && configNode.step)
+  const gavetaDoBloco = !!selectedBloco && gavetaDe === selectedBloco.id && !(configNode && configNode.step)
   useEffect(() => {
     if (!gavetaDoBloco) return
     const onKey = (e: KeyboardEvent) => { if (ehEscDaGaveta(e)) { e.stopPropagation(); setSelectedId(null) } }
@@ -1282,6 +1322,10 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     return [`${atv} ${atv === 1 ? 'atividade' : 'atividades'}`, ...(esc ? [`${esc} ${esc === 1 ? 'escolha' : 'escolhas'}`] : []), ...(par ? [`${par} ao mesmo tempo`] : [])].join(' · ')
   })()
   const noDesenho = vista === 'desenho'
+  /** Alguma gaveta do desenho está aberta: o menu da seleção e o próximo item se recolhem,
+   *  e a seleção passa a levar a gaveta junto. */
+  const gavetaAberta = !!(configNode && configNode.step) || (!!selectedBloco && gavetaDe === selectedBloco.id)
+    || (!!losangoSolto && gavetaDe === losangoSolto.id) || !!setaDoPainel
   const noRoteiro = vista === 'roteiro'
   /* Incluir pela lista: a forma nova entra no lugar de quem vai ficar DEPOIS dela (ou do Fim,
      no fim do fluxo) e o desenho abre espaço, como na paleta. Sem vizinho com posição, fica
@@ -1307,7 +1351,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       onRemove={() => { remover(configNode.id); setRetornoEscolha(null); setConfigSecao(undefined) }}
       onClose={() => {
         setConfigId(null); setConfigSecao(undefined)
-        if (retornoEscolha) { setSelectedId(retornoEscolha); setRetornoEscolha(null) }
+        if (retornoEscolha) { setSelectedId(retornoEscolha); setGavetaDe(retornoEscolha); setRetornoEscolha(null) }
       }} />
   ) : null)
   const configDoBloco = () => (selectedBloco && fluxo ? (
@@ -1507,7 +1551,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
               onAbrir: () => setQuemIniciaAberto(true),
             }}
             renderAberto={(id) => (configNode?.id === id ? perguntasDaEtapa('embutida')
-              : selectedBloco?.id === id && !(configNode && configNode.step)
+              : selectedBloco?.id === id && gavetaDe === id && !(configNode && configNode.step)
                 ? <div {...{ [ATRIBUTO_GAVETA]: '' }} tabIndex={-1} className="outline-none">{configDoBloco()}</div> : null)}
             onVerDesenho={() => setVista('desenho')}
             avisoDoDesenho={conversao.ok ? undefined : (
@@ -1559,7 +1603,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
               <CanvasBpmn fluxo={fluxo ?? FLUXO_VAZIO} grafo={grafo} desenho={desenhoVisto} steps={stepsEfetivos} selecionado={selectedId}
                 nomeDoProcesso={name} revisaoDasConsultas={revisaoDasConsultas} somenteLeitura
                 responsavelDe={responsavelDe} prazoDe={prazoDe} problemasDe={problemasDe}
-                onSelecionar={(id) => { setFocarGaveta(false); abrir(id) }} onDesenho={() => {}} onInserir={() => {}} onSoltar={() => {}} onMoverItem={() => {}}
+                onSelecionar={aoSelecionarNoDesenho} onAbrir={aoAbrir} onProximo={() => {}} onDesenho={() => {}} onSoltar={() => {}} onMoverItem={() => {}}
                 doc={doc} onLigar={() => {}} onReligar={() => {}} onReligarSaida={() => {}} onTamanho={() => {}} onApagarSeta={() => {}} onRemover={() => {}}
                 vinculaveis={[]} onInserirVinculada={() => {}} focoEm={focoEm} enquadrar={enquadrar} />
             ) : (
@@ -1577,8 +1621,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
                 <CanvasBpmn fluxo={fluxo ?? FLUXO_VAZIO} grafo={grafo} desenho={desenhoVisto} steps={stepsEfetivos} selecionado={selectedId}
                   nomeDoProcesso={name} revisaoDasConsultas={revisaoDasConsultas}
                   responsavelDe={responsavelDe} prazoDe={prazoDe} problemasDe={problemasDe}
-                  onSelecionar={aoSelecionarNoDesenho} onDesenho={aoMudarDesenho} onInserir={aoInserir} onSoltar={aoSoltar} onMoverItem={aoMoverItem}
-                  doc={doc} onLigar={aoLigar} onReligar={aoReligar} onReligarSaida={aoReligarSaida} onTamanho={aoTamanho} onApagarSeta={aoApagarSeta} onSelecionarSeta={setSetaAberta} setasComProblema={setasComProblema ?? undefined} onRemover={removerNoDesenho}
+                  onSelecionar={aoSelecionarNoDesenho} onAbrir={aoAbrir} onProximo={aoProximo} gavetaAberta={gavetaAberta}
+                  onDesenho={aoMudarDesenho} onSoltar={aoSoltar} onMoverItem={aoMoverItem}
+                  doc={doc} onLigar={aoLigar} onReligar={aoReligar} onReligarSaida={aoReligarSaida} onTamanho={aoTamanho} onApagarSeta={aoApagarSeta} onSelecionarSeta={aoSelecionarSeta} setasComProblema={setasComProblema ?? undefined} onRemover={removerNoDesenho}
                   vinculaveis={vinculaveis} onInserirVinculada={aoInserirVinculada} focoEm={focoEm} enquadrar={enquadrar} />
               ) : (
                 <div role="status" className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
@@ -1612,7 +1657,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         {/* Configuração da escolha / "ao mesmo tempo" selecionado: gaveta lateral por cima
             do desenho (as etapas dos caminhos estão nele). As perguntas de uma atividade em
             configuração têm a vez sobre ela. */}
-        {noDesenho && selectedBloco && fluxo && !(configNode && configNode.step) && (
+        {noDesenho && selectedBloco && gavetaDe === selectedBloco.id && fluxo && !(configNode && configNode.step) && (
           <GavetaLateral key={selectedBloco.id}
             rotulo={selectedBloco.kind === 'escolha' ? 'Escolha' : 'Ao mesmo tempo'}
             titulo={(selectedBloco.kind === 'escolha' ? selectedBloco.pergunta?.trim() : selectedBloco.nome?.trim())
@@ -1635,7 +1680,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         )}
 
         {/* Escolha que ainda não fecha em blocos: a pergunta e as setas que saem dela. */}
-        {noDesenho && losangoSolto && !setaDoPainel && !(configNode && configNode.step) && (
+        {noDesenho && losangoSolto && gavetaDe === losangoSolto.id && !setaDoPainel && !(configNode && configNode.step) && (
           <GavetaLateral key={losangoSolto.id} rotulo="Escolha" titulo={losangoSolto.pergunta?.trim() || 'Escolha sem pergunta'}
             rotuloTom="bg-violet-500/10 text-violet-600 dark:text-violet-400"
             rotuloIcone={<GatewayGlyph kind="exclusive" className="h-3 w-3" />}

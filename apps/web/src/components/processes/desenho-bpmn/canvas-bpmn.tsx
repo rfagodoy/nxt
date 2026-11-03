@@ -3,8 +3,11 @@
 /* ─── Canvas do desenho BPMN ───────────────────────────────────────────────────
    Projeta o grafo gerado dos blocos + o desenho gravado (posições e raias) em nós e
    setas do React Flow. O canvas não muda o fluxo: mover uma forma só devolve um novo
-   `DesenhoBpmn` por `onDesenho`; selecionar avisa `onSelecionar`. As intenções que mudam
-   o fluxo só são AVISADAS: soltar uma forma da paleta (`onInserir`), arrastar uma forma
+   `DesenhoBpmn` por `onDesenho`. Clique SÓ seleciona (`onSelecionar`, `onSelecionarSeta`);
+   duplo clique, Enter ou "Parametrizar" no menu da seleção pedem a gaveta (`onAbrir`). A
+   forma selecionada mostra o menu pequeno acima, o próximo item ao lado (`onProximo`) e a
+   bolinha de ligar embaixo. As intenções que mudam
+   o fluxo só são AVISADAS: soltar uma forma da paleta (`onSoltar`), arrastar uma forma
    para cima de uma seta (`onMoverItem`), puxar uma seta à mão (`onLigar`, depois de
    `podeLigar`), arrastar a ponta de uma seta (`onReligar`), apagar a seta selecionada
    (`onApagarSeta`) e as ações rápidas da forma selecionada. Quem muda o fluxo é a página.
@@ -18,7 +21,7 @@ import {
   type AriaLabelConfig, type Connection, type Edge, type NodeChange, type OnConnectEnd, type OnReconnect,
   type OnNodeDrag, type ReactFlowInstance,
 } from '@xyflow/react'
-import { Link2, Map as MapIcon, Trash2 } from 'lucide-react'
+import { Link2, Map as MapIcon, Settings, Trash2 } from 'lucide-react'
 import '@xyflow/react/dist/style.css'
 import type { DesenhoBpmn, DesenhoV2, FormaDesenho, LayoutDesenho, StepFormSchema, TipoForma } from '@nxt/types'
 import {
@@ -35,12 +38,16 @@ import { ZOOM_MAX, ZOOM_MIN } from '@/components/processes/flow-shared'
 import type { NovoItem } from '@/components/processes/workflow-blocos'
 import {
   ContextoFormas, ContextoRaias, EVENTO_RECUO, FAIXA_PISCINA, MARCADOR_SETA, rotuloDaForma, tiposDeNo, tiposDeSeta,
-  type AcoesDeForma, type AcoesDeRaia, type NoBpmn, type SetaBpmn, type TipoLosango,
+  type AcoesDeForma, type AcoesDeRaia, type AlvoDaGaveta, type NoBpmn, type SetaBpmn, type TipoLosango,
 } from './formas'
 import { TIPO_ARRASTO_FORMA } from './paleta'
-import { itemDoArrasto, type ItemCatalogo } from '@/lib/editor-bizagi/catalogo'
+import { ProximoItem } from './proximo-item'
+import { CATALOGO, itemDoArrasto, type ItemCatalogo } from '@/lib/editor-bizagi/catalogo'
+import type { Orientacao } from '@/lib/editor-bizagi/geometria'
 import { layoutDe } from '@/lib/editor-bizagi/layout'
 import { caixaDaForma, familiaDaForma, tipoDoEvento } from '@/lib/editor-bizagi/formas-do-canvas'
+
+export type { AlvoDaGaveta } from './formas'
 
 export interface CanvasBpmnProps {
   fluxo: FluxoBlocos; grafo: GrafoGerado; desenho: DesenhoBpmn
@@ -52,11 +59,18 @@ export interface CanvasBpmnProps {
   responsavelDe: (id: string) => string | undefined   // "Analista de Central de Contratos"
   prazoDe: (id: string) => string | null               // dueText
   problemasDe: (id: string) => string[]                // mensagens de validação do nó
+  /** Clique na forma (ou no vazio, `null`): só seleciona. */
   onSelecionar: (id: string | null) => void
+  /** Duplo clique, Enter ou "Parametrizar": abre a gaveta do elemento. */
+  onAbrir: (alvo: AlvoDaGaveta) => void
+  /** Próximo item escolhido ao lado da forma `baseId`: a página cria a forma e a seta
+   *  base → nova. `soltoEm` = canto superior esquerdo, na grade, quando foi arrastado. */
+  onProximo: (baseId: string, item: ItemCatalogo, soltoEm?: { x: number; y: number }) => void
+  /** Uma gaveta está aberta: o menu da seleção e o próximo item se recolhem. */
+  gavetaAberta?: boolean
+  /** Orientação do desenho (o próximo item vai à direita na horizontal, embaixo na vertical). */
+  orientacao?: Orientacao
   onDesenho: (d: DesenhoBpmn) => void
-  /** `perto` = canto superior esquerdo sugerido para a forma nova, já na grade
-   *  (a página o passa a `completarPosicoes`). */
-  onInserir: (ponto: PontoDeInsercao, tipo: NovoItem, perto: { x: number; y: number }) => void
   /** Forma da paleta solta no desenho: sobre uma seta (`sobreSeta`) entra no meio dela; em
    *  área vazia fica solta. Escolha e Ao mesmo tempo chegam como UM losango (sem o par). */
   onSoltar: (item: ItemCatalogo, perto: { x: number; y: number }, sobreSeta?: string) => void
@@ -70,7 +84,7 @@ export interface CanvasBpmnProps {
   /** Tarefa ou subprocesso redimensionado pela alça (a página grava em `layout.tamanhos`). */
   onTamanho: (id: string, tam: { largura: number; altura: number }) => void
   onApagarSeta: (setaId: string) => void
-  /** A seta selecionada mudou (null = nenhuma): a página abre a condição dela. */
+  /** A seta selecionada mudou (null = nenhuma). Só seleção: a condição abre por `onAbrir`. */
   onSelecionarSeta?: (setaId: string | null) => void
   /** Setas culpadas da pendência escolhida na pílula (ficam em vermelho tracejado). */
   setasComProblema?: readonly string[]
@@ -82,7 +96,7 @@ export interface CanvasBpmnProps {
    *  a cada render sem reprojetar; é esta revisão que manda refazer os cartões e as marcas. */
   revisaoDasConsultas?: unknown
   /** Atividades que podem ser repetidas com a MESMA configuração (vinculadas). Com
-   *  `onInserirVinculada`, as ações rápidas ganham "Próxima: mesma configuração de…". */
+   *  `onInserirVinculada`, o menu da seleção ganha "Próxima: mesma configuração de…". */
   vinculaveis?: Array<{ id: string; nome: string }>
   onInserirVinculada?: (ponto: PontoDeInsercao, origemId: string, perto: { x: number; y: number }) => void
   /** Centra a vista nesta forma. `vez` muda a cada pedido (o mesmo id pode ser pedido de novo). */
@@ -122,10 +136,10 @@ const TIPO_LOSANGO: Partial<Record<string, TipoLosango>> = {
 /* O React Flow usa a descrição "keyboardDisabled" justamente quando o teclado está LIGADO
    (é a que fala das setas). Só leitura: as setas não movem nada, então o texto não promete. */
 const rotulosAria = (somenteLeitura: boolean): Partial<AriaLabelConfig> => ({
-  'node.a11yDescription.default': 'Enter ou espaço seleciona a forma.',
+  'node.a11yDescription.default': 'Espaço seleciona a forma; Enter abre a parametrização.',
   'node.a11yDescription.keyboardDisabled': somenteLeitura
-    ? 'Enter ou espaço seleciona a forma.'
-    : 'Enter ou espaço seleciona a forma; depois, as setas do teclado a movem.',
+    ? 'Espaço seleciona a forma; Enter abre a parametrização.'
+    : 'Espaço seleciona a forma; depois, as setas do teclado a movem. Enter abre a parametrização.',
   'node.a11yDescription.ariaLiveMessage': ({ direction, x, y }) => `Forma movida para ${direction}. Nova posição: x ${x}, y ${y}.`,
   'edge.a11yDescription.default': 'Seta do fluxo.',
   'controls.ariaLabel': 'Controles do desenho',
@@ -364,6 +378,9 @@ const caixaNova = (tipo: NovoItem): Caixa =>
 /** Caixa da forma que o item da paleta cria. */
 const caixaDoItem = (item: ItemCatalogo): Caixa => nodeSize({ id: 'nova', type: item.tipo as FlowNodeType }, 0, 0)
 
+/** Tipo do `dataTransfer` com o id da forma de onde o próximo item foi arrastado. */
+const TIPO_ARRASTO_PROXIMO = 'application/nxt-proximo-de'
+
 /** Tempo que o aviso de seta recusada fica na tela. */
 const RECUSA_MS = 4000
 /** Distância (px na tela) até a qual o ponteiro "está sobre" a seta; limites em unidades do fluxo. */
@@ -378,7 +395,7 @@ type Recusa = { motivo: string; pontos: Pt[]; vez: number }
 export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   const {
     fluxo, grafo, desenho, doc, steps, selecionado, nomeDoProcesso, revisaoDasConsultas, somenteLeitura = false,
-    onSelecionar, onDesenho, onInserir, onSoltar, onMoverItem, onLigar, onReligar, onReligarSaida, onTamanho, onApagarSeta, onSelecionarSeta, setasComProblema, onRemover, vinculaveis, onInserirVinculada, focoEm, enquadrar,
+    onSelecionar, onAbrir, onProximo, gavetaAberta = false, orientacao = 'horizontal', onDesenho, onSoltar, onMoverItem, onLigar, onReligar, onReligarSaida, onTamanho, onApagarSeta, onSelecionarSeta, setasComProblema, onRemover, vinculaveis, onInserirVinculada, focoEm, enquadrar,
   } = props
   const { resolvedTheme } = useTheme()
   const escuro = resolvedTheme === 'dark'
@@ -545,6 +562,8 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     if (!aceitaArrasto(e)) return
     e.preventDefault()
     e.dataTransfer.dropEffect = 'copy'
+    // o próximo item arrastado cria a forma onde cair, ligada à base: não entra numa seta
+    if (e.dataTransfer.types.includes(TIPO_ARRASTO_PROXIMO)) { setDestaque(null); return }
     const p = noFluxo(e)
     setDestaque(p ? setaNoPonto(p) : null)
   }
@@ -558,9 +577,12 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     const item = itemDoArrasto(e.dataTransfer.getData(TIPO_ARRASTO_FORMA))
     const p = noFluxo(e)
     if (!item || !p) return
-    // em cima de uma seta entra no meio dela; em área vazia fica solta, para ligar à mão
     const c = caixaDoItem(item)
-    onSoltar(item, { x: naGrade(p.x - c.w / 2), y: naGrade(p.y - c.h / 2) }, setaNoPonto(p) ?? undefined)
+    const perto = { x: naGrade(p.x - c.w / 2), y: naGrade(p.y - c.h / 2) }
+    const base = e.dataTransfer.getData(TIPO_ARRASTO_PROXIMO)
+    if (base) { onProximo(base, item, perto); return }
+    // em cima de uma seta entra no meio dela; em área vazia fica solta, para ligar à mão
+    onSoltar(item, perto, setaNoPonto(p) ?? undefined)
   }
 
   /* ─── Setas à mão ──────────────────────────────────────────────────────── */
@@ -608,11 +630,19 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     onApagarSeta(setaSel)
     setSetaSel(null)
   }, [setaSel, somenteLeitura, onApagarSeta])
+  /* Com uma gaveta já aberta, a seleção a leva junto (como no mockup): clicar noutra seta ou
+     forma troca o que a gaveta mostra. Sem gaveta aberta, o clique só seleciona. */
   const onEdgeClick = useCallback((_e: unknown, s: SetaBpmn) => {
     if (somenteLeitura) return
     setSetaSel(s.id)
     onSelecionar(null)
-  }, [somenteLeitura, onSelecionar])
+    if (gavetaAberta) onAbrir({ k: 'seta', id: s.id })
+  }, [somenteLeitura, onSelecionar, gavetaAberta, onAbrir])
+  const onEdgeDoubleClick = useCallback((_e: unknown, s: SetaBpmn) => {
+    if (somenteLeitura) return
+    setSetaSel(s.id)
+    onAbrir({ k: 'seta', id: s.id })
+  }, [somenteLeitura, onAbrir])
   /** Soltou fora de uma alça válida: se caiu numa forma, julga a ligação (aceita ou explica). */
   const onConnectEnd = useCallback<OnConnectEnd>((e, estado) => {
     if (estado.isValid || !estado.fromNode) return
@@ -636,18 +666,23 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   // só leitura desliga o modo (ajuste durante o render, como a cópia dos nós)
   if (somenteLeitura && ligandoDe) setLigandoDe(null)
   const onPaneClick = useCallback(() => { setLigandoDe(null); setSetaSel(null) }, [])
-  /* Clicar (ou Enter/espaço) na forma que JÁ está selecionada: o React Flow não emite mudança
-     de seleção, mas a pessoa quer a gaveta de volta (fechada pelo X, por exemplo). */
+  /* Clique só seleciona (o React Flow avisa por `onNodesChange`); o duplo clique abre a gaveta.
+     Raia e piscina abrem pelo duplo clique na faixa do nome (ver FormaRaia/FormaPiscina). */
   const ehForma = (id: string | null | undefined) => !!id && !id.startsWith('raia:') && id !== 'piscina'
-  const onNodeClick = useCallback((_e: unknown, n: NoBpmn) => {
-    if (n.id === selecionado && ehForma(n.id) && !ligandoDe) onSelecionar(n.id)
-  }, [selecionado, ligandoDe, onSelecionar])
+  const onNodeDoubleClick = useCallback((_e: unknown, n: NoBpmn) => {
+    if (ehForma(n.id) && !ligandoDe) onAbrir({ k: 'forma', id: n.id })
+  }, [ligandoDe, onAbrir])
+  /** Enter na forma (ou na seta selecionada) abre a gaveta; espaço só seleciona (React Flow). */
   const teclaNaForma = (e: TeclaReact<HTMLDivElement>) => {
-    const campo = (e.target as HTMLElement).closest?.('input, textarea, select, [contenteditable="true"]')
+    const alvo = e.target as HTMLElement
+    const campo = alvo.closest?.('input, textarea, select, [contenteditable="true"]')
     if ((e.key === 'Delete' || e.key === 'Backspace') && setaSel && !campo) { e.preventDefault(); apagarSetaSel(); return }
-    if (e.key !== 'Enter' && e.key !== ' ') return
-    const id = (e.target as HTMLElement).closest?.('.react-flow__node')?.getAttribute('data-id')
-    if (id && id === selecionado && ehForma(id) && !ligandoDe) onSelecionar(id)
+    if (e.key !== 'Enter' || campo || ligandoDe) return
+    const id = alvo.closest?.('.react-flow__node')?.getAttribute('data-id')
+    if (id && ehForma(id)) { e.preventDefault(); onAbrir({ k: 'forma', id }); return }
+    // a seta com foco (o teclado não passa pelo clique): seleciona e abre
+    const seta = alvo.closest?.('.react-flow__edge')?.getAttribute('data-id')
+    if (seta && !somenteLeitura) { e.preventDefault(); setSetaSel(seta); onSelecionar(null); onAbrir({ k: 'seta', id: seta }) }
   }
 
   const onNodesChange = useCallback((mudancas: NodeChange<NoBpmn>[]) => {
@@ -656,24 +691,39 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     const escolhido = sel.find((m) => m.selected)
     // no modo "Ligar com seta", escolher uma forma (clique, ou Enter/espaço no teclado) é o destino
     if (ligandoDe && escolhido) { setLigandoDe(null); tentarLigar(ligandoDe, escolhido.id) }
-    if (escolhido) { setSetaSel(null); onSelecionar(escolhido.id) }
-    else if (sel.length) onSelecionar(null)
+    if (escolhido) {
+      setSetaSel(null)
+      if (gavetaAberta && !ligandoDe) onAbrir({ k: 'forma', id: escolhido.id })
+      else onSelecionar(escolhido.id)
+    } else if (sel.length) onSelecionar(null)
     // mover pelo teclado não passa por onNodeDragStop: grava aqui
     if (!arrastando) {
       for (const m of mudancas) if (m.type === 'position' && m.position && !m.dragging) gravar(m.id, m.position)
     }
     const resto = mudancas.filter((m) => m.type === 'position' || m.type === 'dimensions')
     if (resto.length) setNos((atual) => applyNodeChanges(resto, atual))
-  }, [arrastando, gravar, ligandoDe, onSelecionar, tentarLigar])
+  }, [arrastando, gravar, ligandoDe, onSelecionar, onAbrir, gavetaAberta, tentarLigar])
 
-  /* ─── Ações rápidas da forma selecionada ───────────────────────────────── */
+  /* ─── Menu da seleção, próximo item ────────────────────────────────────── */
   const itemSel = selecionado ? acharItem(fluxo, selecionado) : undefined
   const acoes = !somenteLeitura && !arrastando && itemSel ? itemSel : null
-  /* Ligar e excluir valem para QUALQUER forma do desenho (losango solto, o que junta, e
-     também com o desenho incompleto); "Próxima: …" precisa do lugar no fluxo (`acoes`). */
+  /* O menu pequeno (Parametrizar, Apagar…) e o próximo item valem para QUALQUER forma do
+     desenho (losango solto, o que junta, e também com o desenho incompleto); "mesma
+     configuração de…" precisa do lugar no fluxo (`acoes`). Com a gaveta aberta, recolhem. */
   const formaSel = selecionado ? doc.formas.find((f) => f.id === selecionado) : undefined
-  const editavelSel = !somenteLeitura && !arrastando && formaSel && formaSel.tipo !== 'start' && formaSel.tipo !== 'end' ? formaSel : null
+  const menuSel = !somenteLeitura && !arrastando && !gavetaAberta && formaSel ? formaSel : null
+  /** Ligar e apagar: não valem para Início e Fim. */
+  const editavelSel = menuSel && menuSel.tipo !== 'start' && menuSel.tipo !== 'end' ? menuSel : null
   const podeLigarDaqui = !!editavelSel
+  /** Do Fim não sai seta: ele não tem próximo item. */
+  const proximoDe = menuSel && menuSel.tipo !== 'end' ? menuSel : null
+  const ladoDoProximo = orientacao === 'vertical' ? Position.Bottom : Position.Right
+  const arrastarProximo = (item: ItemCatalogo, e: DragEvent) => {
+    if (!proximoDe) return
+    e.dataTransfer.setData(TIPO_ARRASTO_FORMA, JSON.stringify({ grupo: item.grupo, indice: CATALOGO[item.grupo].indexOf(item) }))
+    e.dataTransfer.setData(TIPO_ARRASTO_PROXIMO, proximoDe.id)
+    e.dataTransfer.effectAllowed = 'copy'
+  }
   /** Vaga logo depois do item selecionado e o lugar da forma nova: à direita do item (do
    *  reencontro, se for um bloco), centrada na altura dele. */
   const depoisDoSelecionado = (tipo: NovoItem): { ponto: PontoDeInsercao; perto: Pt } | null => {
@@ -684,11 +734,6 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     const p = geo.pos(ancora), c = geo.caixa(ancora), nova = caixaNova(tipo)
     return { ponto: { ref: local.ref, indice: local.indice + 1 }, perto: { x: naGrade(p.x + c.w + 3 * GRADE), y: naGrade(p.y + c.h / 2 - nova.h / 2) } }
   }
-  const proxima = (tipo: NovoItem) => {
-    const v = depoisDoSelecionado(tipo)
-    if (v) onInserir(v.ponto, tipo, v.perto)
-  }
-
   /* "Próxima: mesma configuração de…": menu com as atividades que podem ser repetidas. */
   /* aberto PARA uma forma: selecionar outra fecha o menu */
   const [menuVinculoDe, setMenuVinculoDe] = useState<string | null>(null)
@@ -764,8 +809,9 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
       mover: (id, direcao) => aplicar(moverRaia(desenho, id, direcao, alturaDe)),
       remover: (id) => aplicar(removerRaia(desenho, id, alturaDe)),
       adicionar: () => onDesenho(adicionarRaia(desenho)),
+      abrir: onAbrir,
     }
-  }, [desenho, onDesenho, somenteLeitura, alturaDe])
+  }, [desenho, onDesenho, onAbrir, somenteLeitura, alturaDe])
 
   /* ─── Tamanho da tarefa/subprocesso (alça no canto da forma selecionada) ── */
   const projetadosAtuais = useRef(projetados)
@@ -781,7 +827,9 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
       setNos(projetadosAtuais.current)
       onTamanho(id, tam)
     },
-  }), [somenteLeitura, onTamanho])
+    // a bolinha de ligar fica do lado oposto ao próximo item
+    ladoDaBolinha: orientacao === 'vertical' ? Position.Right : Position.Bottom,
+  }), [somenteLeitura, onTamanho, orientacao])
 
   const rotulosDeAcesso = useMemo(() => rotulosAria(somenteLeitura), [somenteLeitura])
 
@@ -792,7 +840,8 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     return n.data.tipo === 'paralelo' ? cor.miniParalelo : cor.miniEscolha
   }, [cor])
 
-  const ACAO = 'flex h-[22px] w-[26px] items-center justify-center rounded-md border-0 bg-transparent hover:bg-[rgba(20,36,32,0.06)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--e-11804F)] dark:hover:bg-white/5 dark:focus-visible:outline-spark'
+  const MENU = 'flex h-7 items-center gap-1.5 rounded-md border-0 bg-transparent px-2 font-bold hover:bg-[rgba(20,36,32,0.06)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--e-11804F)] dark:hover:bg-white/5 dark:focus-visible:outline-spark'
+  const ACAO = 'flex h-7 w-7 items-center justify-center rounded-md border-0 bg-transparent hover:bg-[rgba(20,36,32,0.06)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--e-11804F)] dark:hover:bg-white/5 dark:focus-visible:outline-spark'
 
   return (
     <div className="desenho-bpmn relative h-full w-full font-sans [--bpmn-seta:var(--e-5E6F66)] [--bpmn-seta-destaque:var(--e-11804F)] dark:[--bpmn-seta:var(--e-7B8F84)] dark:[--bpmn-seta-destaque:var(--e-C6F24E)]"
@@ -825,12 +874,14 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
           onNodeDrag={onNodeDrag}
           onNodeDragStop={onNodeDragStop}
           onPaneClick={onPaneClick}
-          onNodeClick={onNodeClick}
+          onNodeDoubleClick={onNodeDoubleClick}
           isValidConnection={isValidConnection}
           onConnect={onConnect}
           onConnectEnd={onConnectEnd}
           onReconnect={onReconnect}
           onEdgeClick={onEdgeClick}
+          onEdgeDoubleClick={onEdgeDoubleClick}
+          zoomOnDoubleClick={false}
           nodesDraggable={!somenteLeitura}
           nodesConnectable={!somenteLeitura}
           edgesReconnectable={!somenteLeitura}
@@ -865,6 +916,10 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
               <div role="toolbar" aria-label="Seta selecionada"
                 className="flex items-center gap-2 rounded-[10px] bg-white py-1 pl-3 pr-1 font-sans text-[11.5px] text-[var(--e-2E3E36)] shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[var(--e-0F1914)] dark:text-[var(--e-C9D6CE)] dark:shadow-[0_0_0_1px_var(--e-2A3B32)]">
                 Seta selecionada · arraste uma das pontas para religar
+                <button type="button" onClick={() => onAbrir({ k: 'seta', id: setaSel })}
+                  className="flex h-7 items-center gap-1.5 rounded-md px-2 font-bold hover:bg-[rgba(20,36,32,0.06)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--e-11804F)] dark:hover:bg-white/5">
+                  <Settings aria-hidden className="h-3.5 w-3.5" />Parametrizar
+                </button>
                 <button type="button" onClick={apagarSetaSel}
                   className="flex h-7 items-center gap-1.5 rounded-md px-2 font-bold text-[#B42318] hover:bg-[rgba(180,35,24,0.08)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--e-11804F)] dark:text-[#FDA29B] dark:hover:bg-white/5">
                   <Trash2 aria-hidden className="h-3.5 w-3.5" />Apagar seta
@@ -880,19 +935,13 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
               </svg>
             </ViewportPortal>
           )}
-          <NodeToolbar nodeId={editavelSel?.id} isVisible={!!editavelSel} position={Position.Right} offset={14}>
-            <div role="toolbar" aria-label="Ações rápidas" aria-orientation="vertical"
-              className="flex flex-col gap-1 rounded-[10px] bg-white p-1 shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[var(--e-0F1914)] dark:shadow-[0_0_0_1px_var(--e-2A3B32),0_12px_24px_-12px_rgba(0,0,0,0.7)]">
-              {acoes && (
-                <>
-                  <button type="button" title="Próxima: tarefa" aria-label="Próxima: tarefa" className={ACAO} onClick={() => proxima('userTask')}>
-                    <span aria-hidden className="box-border h-[11px] w-4 rounded-[3px] border-[1.5px] border-[#0369A1] bg-[#E0F2FE] dark:border-[#7DD3FC] dark:bg-[rgba(56,189,248,0.12)]" />
-                  </button>
-                  <button type="button" title="Próxima: escolha" aria-label="Próxima: escolha" className={ACAO} onClick={() => proxima('escolha')}>
-                    <span aria-hidden className="box-border h-2.5 w-2.5 rotate-45 border-[1.5px] border-[#6D28D9] bg-[#EDE9FE] dark:border-[#C4B5FD] dark:bg-[rgba(167,139,250,0.14)]" />
-                  </button>
-                </>
-              )}
+          {/* menu pequeno da seleção, acima da forma */}
+          <NodeToolbar nodeId={menuSel?.id} isVisible={!!menuSel} position={Position.Top} offset={10}>
+            <div role="toolbar" aria-label="Forma selecionada"
+              className="flex items-center gap-0.5 rounded-[10px] bg-white p-1 font-sans text-[11.5px] text-[var(--e-2E3E36)] shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[var(--e-0F1914)] dark:text-[var(--e-C9D6CE)] dark:shadow-[0_0_0_1px_var(--e-2A3B32),0_12px_24px_-12px_rgba(0,0,0,0.7)]">
+              <button type="button" className={MENU} onClick={() => menuSel && onAbrir({ k: 'forma', id: menuSel.id })}>
+                <Settings aria-hidden className="h-3.5 w-3.5" />Parametrizar
+              </button>
               {acoes && podeVincular && (
                 <button type="button" title="Próxima: mesma configuração de…" aria-label="Próxima: mesma configuração de…"
                   aria-haspopup="menu" aria-expanded={menuVinculo} data-vinculo-de={sufixoId}
@@ -902,20 +951,22 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
                 </button>
               )}
               {podeLigarDaqui && (
-                <button type="button" title="Ligar com seta" aria-label="Ligar com seta" aria-pressed={ligandoDe === editavelSel?.id}
+                <button type="button" title="Ligar com seta (ou arraste a bolinha embaixo da forma)" aria-label="Ligar com seta" aria-pressed={ligandoDe === editavelSel?.id}
                   className={`${ACAO} text-[13px] text-[var(--e-142420)] dark:text-white ${ligandoDe === editavelSel?.id ? 'bg-[rgba(198,242,78,0.35)] dark:bg-[rgba(198,242,78,0.14)]' : ''}`}
                   onClick={() => setLigandoDe((x) => (x === editavelSel?.id ? null : editavelSel?.id ?? null))}>
                   <span aria-hidden>→</span>
                 </button>
               )}
-              <button type="button" title="Excluir" aria-label="Excluir" className={`${ACAO} text-[#B42318] dark:text-[#FDA29B]`}
-                onClick={() => editavelSel && onRemover(editavelSel.id)}>
-                <Trash2 aria-hidden className="h-3.5 w-3.5" />
-              </button>
+              {editavelSel && (
+                <button type="button" className={`${MENU} text-[#B42318] hover:bg-[rgba(180,35,24,0.08)] dark:text-[#FDA29B]`}
+                  onClick={() => onRemover(editavelSel.id)}>
+                  <Trash2 aria-hidden className="h-3.5 w-3.5" />Apagar
+                </button>
+              )}
             </div>
             {menuVinculo && podeVincular && (
               <div ref={listaVinculo} role="menu" aria-label="Repetir com a mesma configuração de" onKeyDown={teclasDoVinculo}
-                className="absolute left-full top-0 ml-2 max-h-[260px] w-[240px] overflow-y-auto rounded-[10px] bg-white p-1 font-sans shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[var(--e-0F1914)] dark:shadow-[0_0_0_1px_var(--e-2A3B32),0_12px_24px_-12px_rgba(0,0,0,0.7)]">
+                className="absolute left-0 top-full mt-2 max-h-[260px] w-[240px] overflow-y-auto rounded-[10px] bg-white p-1 font-sans shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[var(--e-0F1914)] dark:shadow-[0_0_0_1px_var(--e-2A3B32),0_12px_24px_-12px_rgba(0,0,0,0.7)]">
                 <p className="px-2 pb-1 pt-1.5 text-[10.5px] font-bold uppercase tracking-wide text-[var(--e-5E6F66)] dark:text-[var(--e-9DB0A5)]">Mesma configuração de</p>
                 {vinculaveis!.map((v) => (
                   <button key={v.id} type="button" role="menuitem" tabIndex={-1} onClick={() => vincular(v.id)}
@@ -926,6 +977,10 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
                 ))}
               </div>
             )}
+          </NodeToolbar>
+          {/* próximo item: à direita da forma (embaixo, na vertical) */}
+          <NodeToolbar nodeId={proximoDe?.id} isVisible={!!proximoDe} position={ladoDoProximo} offset={12}>
+            <ProximoItem onEscolher={(item) => proximoDe && onProximo(proximoDe.id, item)} onArrastar={arrastarProximo} />
           </NodeToolbar>
         </ReactFlow>
       </ContextoFormas.Provider>

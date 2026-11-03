@@ -94,6 +94,23 @@ function Alcas({ conectavel, recuo = 0 }: { conectavel: boolean; recuo?: number 
   )
 }
 
+/** Distância da bolinha de ligar até a borda da forma. */
+const BOLINHA_DIST = 14
+
+/** Bolinha de ligar (estilo Bizagi): embaixo da forma selecionada (à direita, na vertical);
+ *  arrastá-la até outra forma cria a seta. Fica SEMPRE montada (invisível sem seleção): o
+ *  React Flow só conhece as alças medidas com a forma, e uma que aparece depois não liga. */
+function BolinhaDeLigar({ visivel }: { visivel: boolean }) {
+  const { ladoDaBolinha } = useContext(ContextoFormas)
+  const lado = ladoDaBolinha === Position.Right ? { right: -BOLINHA_DIST } : { bottom: -BOLINHA_DIST }
+  return (
+    <Handle id="ligar" type="source" position={ladoDaBolinha} isConnectable={visivel} title="Arraste até outra forma para ligar"
+      style={lado}
+      className={`!h-3 !w-3 !min-h-0 !min-w-0 !rounded-full !border-2 !border-[var(--e-11804F)] !bg-[rgba(198,242,78,0.9)] !cursor-crosshair dark:!border-spark dark:!bg-[var(--e-0A110D)]
+        ${visivel ? '' : '!pointer-events-none opacity-0'}`} />
+  )
+}
+
 /** Ponto âmbar de pendência; o texto completo vai no `title`. */
 function MarcaDeProblema({ problemas, className = '' }: { problemas: string[]; className?: string }) {
   if (!problemas.length) return null
@@ -151,8 +168,10 @@ export type AcoesDeForma = {
   comecarTamanho: () => void
   /** Fim do arrasto da alça de tamanho: a página grava (na grade, com o mínimo). */
   redimensionar: (id: string, tam: { largura: number; altura: number }) => void
+  /** Onde fica a bolinha de ligar: embaixo na horizontal, à direita na vertical. */
+  ladoDaBolinha: Position
 }
-export const ContextoFormas = createContext<AcoesDeForma>({ editavel: false, comecarTamanho: () => {}, redimensionar: () => {} })
+export const ContextoFormas = createContext<AcoesDeForma>({ editavel: false, comecarTamanho: () => {}, redimensionar: () => {}, ladoDaBolinha: Position.Bottom })
 
 /* ─── Tarefa e subprocesso ────────────────────────────────────────────────── */
 const ICONE_TAREFA = 'mt-[1px] h-3.5 w-3.5 shrink-0 text-[#075985] dark:text-[#7DD3FC]'
@@ -202,6 +221,7 @@ export function FormaTarefa({ id, data, selected, isConnectable }: NodeProps<NoT
       </div>
       <MarcaDeProblema problemas={data.problemas} className="-right-1 -top-1" />
       <Alcas conectavel={isConnectable} />
+      <BolinhaDeLigar visivel={selected && isConnectable} />
       {/* alça de tamanho no canto de baixo (como no mockup): só com a forma selecionada e o desenho editável */}
       {editavel && selected && (
         <NodeResizeControl position="bottom-right" minWidth={FORMA_MINIMA.largura} minHeight={FORMA_MINIMA.altura}
@@ -254,6 +274,7 @@ export function FormaLosango({ data, selected, isConnectable }: NodeProps<NoLosa
       <MarcaDeProblema problemas={data.problemas} className="right-1 top-1" />
       <RotuloExterno texto={data.reencontro ? undefined : data.nome} />
       <Alcas conectavel={isConnectable} />
+      <BolinhaDeLigar visivel={selected && isConnectable} />
     </div>
   )
 }
@@ -277,11 +298,18 @@ export function FormaEvento({ data, selected, isConnectable }: NodeProps<NoEvent
       <MarcaDeProblema problemas={data.problemas} className="right-2.5 top-2.5" />
       <RotuloExterno texto={data.nome || ROTULO_PADRAO_DO_EVENTO[data.tipo]} />
       <Alcas conectavel={isConnectable} recuo={EVENTO_RECUO} />
+      {/* do Fim não sai seta */}
+      {data.tipo !== 'fim' && <BolinhaDeLigar visivel={selected && isConnectable} />}
     </div>
   )
 }
 
 /* ─── Edição das raias ────────────────────────────────────────────────────── */
+/** O que o duplo clique (ou Enter) abre na gaveta de parametrização. */
+export type AlvoDaGaveta = { k: 'forma' | 'seta' | 'raia' | 'fase' | 'piscina' | 'mensagem'; id: string }
+/** Id da piscina principal (a do processo) no alvo da gaveta. */
+export const PISCINA_PRINCIPAL = 'principal'
+
 /** O que o canvas oferece às raias. Fica num contexto (e não nos dados do nó) para a
  *  projeção não refazer a cada render só porque uma função trocou de identidade. */
 export type AcoesDeRaia = {
@@ -294,10 +322,12 @@ export type AcoesDeRaia = {
   mover: (id: string, direcao: -1 | 1) => void
   remover: (id: string) => void
   adicionar: () => void
+  /** Duplo clique na faixa do nome (raia ou piscina): abre a parametrização. */
+  abrir: (alvo: AlvoDaGaveta) => void
 }
 const nada = () => {}
 export const ContextoRaias = createContext<AcoesDeRaia>({
-  editavel: false, renomear: nada, redimensionar: nada, previa: nada, mover: nada, remover: nada, adicionar: nada,
+  editavel: false, renomear: nada, redimensionar: nada, previa: nada, mover: nada, remover: nada, adicionar: nada, abrir: nada,
 })
 
 /** `nodrag nopan`: o ponteiro aqui edita a raia, não arrasta nem move a vista. */
@@ -465,8 +495,9 @@ function AlcaDaRaia({ id, nome, altura }: { id: string; nome: string; altura: nu
 
 /* ─── Raia (fundo) ────────────────────────────────────────────────────────── */
 export function FormaRaia({ data }: NodeProps<NoRaia>) {
-  const { editavel } = useContext(ContextoRaias)
+  const { editavel, abrir } = useContext(ContextoRaias)
   const [editando, setEditando] = useState(false)
+  const abrirRaia = () => abrir({ k: 'raia', id: data.id })
   const coluna = useRef<HTMLDivElement>(null)
   // o nome corta nas linhas que cabem na raia (sem invadir a de baixo)
   const linhas = Math.max(1, Math.floor((data.altura - LINHA_ROTULO) / LINHA_ROTULO))
@@ -489,15 +520,15 @@ export function FormaRaia({ data }: NodeProps<NoRaia>) {
     <div className={`pointer-events-none relative box-border ${faixa} ${contorno}`} style={{ width: data.largura, height: data.altura }}>
       <div ref={coluna} lang="pt-BR" className="absolute inset-y-0 left-0 box-border overflow-hidden border-r border-r-[var(--e-D2DCD5)] px-2.5 py-2 font-sans text-xs font-extrabold text-[var(--e-3E4E46)] dark:border-r-[var(--e-22332A)] dark:text-[var(--e-9DB0A5)]"
         style={{ width: RAIA_ROTULO_W }}>
-        {!editavel ? <span className={cortado} style={{ WebkitLineClamp: linhas }}>{nome}</span> : editando ? (
+        {!editavel ? <span className={`${INTERATIVO} ${cortado}`} style={{ WebkitLineClamp: linhas }} onDoubleClick={abrirRaia}>{nome}</span> : editando ? (
           <NomeDaRaia id={data.id} nome={data.nome} onFim={(devolverFoco) => {
             setEditando(false)
             if (devolverFoco) focarDepois(coluna.current, seletorDoMenu(data.id))
           }} />
         ) : (
           <div className="flex items-start gap-1">
-            <span className={`${INTERATIVO} ${cortado} cursor-text`} style={{ WebkitLineClamp: linhas }} title="Duplo clique para renomear"
-              onDoubleClick={() => setEditando(true)}>{nome}</span>
+            <span className={`${INTERATIVO} ${cortado}`} style={{ WebkitLineClamp: linhas }} title="Duplo clique para parametrizar a raia (renomear fica nas opções)"
+              onDoubleClick={abrirRaia}>{nome}</span>
             <MenuDaRaia id={data.id} nome={data.nome} primeira={data.primeira} ultima={data.ultima} onRenomear={() => setEditando(true)} />
           </div>
         )}
@@ -509,10 +540,11 @@ export function FormaRaia({ data }: NodeProps<NoRaia>) {
 
 /* ─── Piscina: faixa vertical com o nome do processo (fundo) ─────────────── */
 export function FormaPiscina({ data }: NodeProps<NoPiscina>) {
-  const { editavel, adicionar } = useContext(ContextoRaias)
+  const { editavel, adicionar, abrir } = useContext(ContextoRaias)
   return (
     <div className="pointer-events-none relative" style={{ width: FAIXA_PISCINA, height: data.altura }}>
-      <div className="box-border flex h-full w-full items-center justify-center overflow-hidden rounded-l-[10px] border border-[var(--e-B8C6BE)] bg-[var(--e-E6EDE8)] text-[var(--e-2E3E36)] dark:border-[var(--e-2A3B32)] dark:bg-[var(--e-13211A)] dark:text-[var(--e-C9D6CE)]">
+      <div title="Duplo clique para parametrizar a piscina" onDoubleClick={() => abrir({ k: 'piscina', id: PISCINA_PRINCIPAL })}
+        className={`${INTERATIVO} box-border flex h-full w-full items-center justify-center overflow-hidden rounded-l-[10px] border border-[var(--e-B8C6BE)] bg-[var(--e-E6EDE8)] text-[var(--e-2E3E36)] dark:border-[var(--e-2A3B32)] dark:bg-[var(--e-13211A)] dark:text-[var(--e-C9D6CE)]`}>
         <span className="-rotate-90 whitespace-nowrap font-sans text-[11.5px] font-extrabold uppercase tracking-[0.04em]">{data.nome}</span>
       </div>
       {/* "+ raia" ao pé da piscina */}

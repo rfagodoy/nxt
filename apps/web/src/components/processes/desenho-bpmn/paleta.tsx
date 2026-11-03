@@ -99,7 +99,7 @@ function MarcaDoLosango({ item }: { item: ItemCatalogo }): JSX.Element {
 }
 
 /** O desenho da forma que o item cria, em miniatura. */
-function IconeDoItem({ item, tamanho = 32 }: { item: ItemCatalogo; tamanho?: number }): JSX.Element {
+export function IconeDoItem({ item, tamanho = 32 }: { item: ItemCatalogo; tamanho?: number }): JSX.Element {
   let corpo: ReactNode
   switch (item.grupo) {
     case 'inicio': case 'intermediario': case 'fim':
