@@ -388,11 +388,32 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const tiposEntidade = useMemo(() => {
     const s = new Set<EntityKind>()
     for (const n of nodes) { const t = n.step?.executor?.entityType; if (t && t !== 'ORG') s.add(t as EntityKind) }
+    // o executor padrão das raias também mostra o nome da entidade
+    for (const ra of doc.raias) { const t = ra.executor?.entityType; if (t && t !== 'ORG') s.add(t as EntityKind) }
     return Array.from(s)
-  }, [nodes])
+  }, [nodes, doc.raias])
   const resolveEntidade = useEntityLabels(tiposEntidade)
 
   const nodeById = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n])), [nodes])
+  const grafo = useMemo<GrafoGerado | null>(
+    () => ({ nodes: nodes.map((n) => ({ id: n.id, type: n.type as GrafoGerado['nodes'][number]['type'], name: n.name })), edges: edges as GrafoGerado['edges'] }),
+    [nodes, edges])
+  const desenhoVisto = useMemo(() => (desenho && grafo && grafo.nodes.some((n) => !desenho.posicoes[n.id])
+    ? completarPosicoes(grafo, desenho)
+    : desenho), [desenho, grafo])
+
+  /* As etapas COMO VÃO SER GRAVADAS: a tarefa que herda da raia já leva o executor dela
+     (mesma conta do Salvar, mesmas alturas do canvas). Pendências, cartão e gaveta leem daqui. */
+  const nodesEfetivos = useMemo(() => {
+    if (!desenhoVisto) return nodes
+    const alturaDe = (id: string) => { const n = nodes.find((x) => x.id === id); return n ? nodeSize({ id, type: n.type as FlowNodeType, name: n.name }, 0, 0).h : 0 }
+    const entrada = nodes.filter((n) => n.type === 'userTask' && n.step).map((n) => ({ ...n.step!, stepId: n.id, stepType: 'userTask' as const }))
+    const saida = aplicarExecutorDasRaias(entrada, { ...doc, posicoes: desenhoVisto.posicoes, raias: desenhoVisto.raias }, alturaDe)
+    const mudou = new Map(saida.flatMap((r, i) => (r !== entrada[i] ? [[r.stepId, r] as const] : [])))
+    if (!mudou.size) return nodes
+    return nodes.map((n) => { const r = mudou.get(n.id); return r && n.step ? { ...n, step: { ...n.step, executor: r.executor, executorDaRaia: r.executorDaRaia } } : n })
+  }, [nodes, desenhoVisto, doc])
+  const nodeEfetivoById = useMemo(() => Object.fromEntries(nodesEfetivos.map((n) => [n.id, n])), [nodesEfetivos])
   const selectedBloco = useMemo(() => {
     const it = fluxo && selectedId ? acharItem(fluxo, selectedId) : undefined
     return it && it.kind !== 'atividade' ? it : null
@@ -450,7 +471,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
      o mesmo que o cartão mostra, e o que sugere e confere as raias. Ação automática é do
      "Sistema" (a mesma raia da vista por raia); sem papel, não há responsável. */
   const responsavelDe = useCallback((id: string): string | undefined => {
-    const n = nodeById[id]
+    const n = nodeEfetivoById[id]
     if (!n) return undefined
     if (n.type === 'serviceTask') return LANE_SISTEMA
     const ex = n.type === 'userTask' ? n.step?.executor : undefined
@@ -459,33 +480,33 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     // entidade FIXA entra no nome; "da variável"/"do contrato" muda a cada processo — fica só o papel
     const entidade = ex.mode !== 'VARIAVEL' && ex.entityId ? resolveEntidade(ex.entityType, ex.entityId) : undefined
     return entidade ? `${papel} de ${entidade}` : papel
-  }, [nodeById, resolvePapel, resolveEntidade])
+  }, [nodeEfetivoById, resolvePapel, resolveEntidade])
   /** A raia onde a etapa está desenhada (pelo centro) e o executor padrão dela, para o "Quem faz?". */
-  const raiaDaEtapa = (id: string) => {
-    if (!desenhoVisto) return undefined
-    const raia = raiaDaForma({ ...doc, posicoes: desenhoVisto.posicoes, raias: desenhoVisto.raias }, id,
+  const raiaDaEtapa = useMemo(() => {
+    if (!configId || !desenhoVisto) return undefined
+    const raia = raiaDaForma({ ...doc, posicoes: desenhoVisto.posicoes, raias: desenhoVisto.raias }, configId,
       (x) => { const n = nodeById[x]; return n ? nodeSize({ id: x, type: n.type as FlowNodeType, name: n.name }, 0, 0).h : 0 })
     if (!raia) return undefined
     const ex = raia.executor
     const papel = ex?.papelId ? resolvePapel(ex.papelId) ?? 'Responsável' : undefined
     const entidade = ex && ex.mode !== 'VARIAVEL' && ex.entityId ? resolveEntidade(ex.entityType, ex.entityId) : undefined
     return { nome: raia.nome, executor: ex, rotuloExecutor: papel && (entidade ? `${papel} de ${entidade}` : papel) }
-  }
+  }, [configId, desenhoVisto, doc, nodeById, resolvePapel, resolveEntidade])
   const prazoDe = useCallback((id: string) => dueText(nodeById[id]?.step), [nodeById])
   /** Os nomes que `responsavelDe` usa já chegaram? (papéis e entidades vêm da rede) */
-  const consultasProntas = useMemo(() => nodes.every((n) => {
+  const consultasProntas = useMemo(() => nodesEfetivos.every((n) => {
     const ex = n.type === 'userTask' ? n.step?.executor : undefined
     if (!ex?.papelId) return true
     if (!resolvePapel(ex.papelId)) return false
     return !(ex.mode !== 'VARIAVEL' && ex.entityId && ex.entityType && ex.entityType !== 'ORG' && !resolveEntidade(ex.entityType, ex.entityId))
-  }), [nodes, resolvePapel, resolveEntidade])
+  }), [nodesEfetivos, resolvePapel, resolveEntidade])
 
   /* Pendências de ativação AO VIVO — as MESMAS regras que a API aplica ao ativar
      (@nxt/workflow-core), recalculadas a cada mudança: consertou, o item some. */
   const pendencias = useMemo<Pendencia[]>(() => {
     const vnodes = nodes.map((n) => ({ id: n.id, type: n.type, name: isActivity(n.type) ? (n.step?.stepName || '') : n.name }))
     const vedges = edges.map((e) => ({ from: e.from, to: e.to, condition: e.condition, isDefault: e.isDefault }))
-    const tarefas = nodes.filter((n) => n.type === 'userTask')
+    const tarefas = nodesEfetivos.filter((n) => n.type === 'userTask')
     /* Aditivo e Encerramento nascem de um contrato: `contratoId` existe desde a partida. */
     const iniciais = nasceDeContrato(kind) ? ['contratoId'] : []
     const dasAtividades = [
@@ -555,7 +576,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       ...incompleto(validarDesenho(vnodes, vedges).filter((p) => !p.nodeId?.endsWith(SUFIXO_REENCONTRO))),
       ...dasAtividades,
     ]
-  }, [conversao, fluxo, nodes, edges, screens, kind, papeis.entries, quemInicia])
+  }, [conversao, fluxo, nodes, nodesEfetivos, edges, screens, kind, papeis.entries, quemInicia])
 
   /* Marca de problema em cada forma: as mesmas pendências da pílula de saúde. */
   const problemasPorNo = useMemo(() => {
@@ -578,12 +599,6 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
      do cartão depende das linhas do nome). Forma sem posição — a que acabou de nascer,
      o reencontro de uma escolha nova — ganha lugar por `completarPosicoes` já no render
      (nada nasce em 0,0) e o resultado é gravado no estado em seguida. */
-  const grafo = useMemo<GrafoGerado | null>(
-    () => ({ nodes: nodes.map((n) => ({ id: n.id, type: n.type as GrafoGerado['nodes'][number]['type'], name: n.name })), edges: edges as GrafoGerado['edges'] }),
-    [nodes, edges])
-  const desenhoVisto = useMemo(() => (desenho && grafo && grafo.nodes.some((n) => !desenho.posicoes[n.id])
-    ? completarPosicoes(grafo, desenho)
-    : desenho), [desenho, grafo])
 
   /* A gaveta é um PAINEL DE PROPRIEDADES (como no Bizagi), não um modal — decisão R11 do
      desenho BPMN: o que se edita nela já vale ao vivo. Clicar noutra forma/atividade, no
@@ -1240,7 +1255,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   /* A configuração aberta — a MESMA no painel do Desenho e dentro da lista do Roteiro. */
   const perguntasDaEtapa = (moldura: 'gaveta' | 'embutida') => (configNode && configNode.step && fluxo ? (
     <PerguntasDaEtapa key={configNode.id} moldura={moldura} retratoDaAbertura={retratoDaAbertura.current ?? undefined} node={configNode} nodes={nodes} edges={edges} screens={screens} papeis={papeis} resolveEntidade={resolveEntidade}
-      secaoInicial={configSecao} focarAoAbrir={focarGaveta} raiaDaEtapa={raiaDaEtapa(configNode.id)}
+      secaoInicial={configSecao} focarAoAbrir={focarGaveta} raiaDaEtapa={raiaDaEtapa}
       onPatchStep={(p) => patchStep(configNode.id, p)}
       onChangeType={(t) => changeNodeType(configNode.id, t)}
       vinculo={(() => {
@@ -1609,7 +1624,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         {/* Configuração da atividade: perguntas numa gaveta lateral de 440 px. */}
         {somenteLeitura && configNode && configNode.step && (
           <PerguntasDaEtapa key={configNode.id} node={configNode} nodes={nodes} edges={edges} screens={screens} papeis={papeis} resolveEntidade={resolveEntidade}
-            somenteLeitura onPatchStep={() => {}} onChangeType={() => {}} onRemove={() => {}}
+            somenteLeitura raiaDaEtapa={raiaDaEtapa} onPatchStep={() => {}} onChangeType={() => {}} onRemove={() => {}}
             onClose={() => setConfigId(null)} />
         )}
 

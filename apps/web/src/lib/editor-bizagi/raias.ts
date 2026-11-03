@@ -22,6 +22,6 @@ export function aplicarExecutorDasRaias(
   return steps.map((s) => {
     if ((s.stepType ?? 'userTask') !== 'userTask' || !herdaDaRaia(s)) return s
     const executor = raiaDaForma(d, s.stepId, alturaDe)?.executor
-    return executor ? { ...s, executor: { ...executor } } : s
+    return executor ? { ...s, executorDaRaia: true, executor: { ...executor } } : s
   })
 }

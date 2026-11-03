@@ -43,6 +43,13 @@ describe('aplicarExecutorDasRaias', () => {
   it('a tarefa que herda recebe o executor da raia', () => {
     const [r] = aplicarExecutorDasRaias([passo()], desenho(0), alturaDe)
     expect(r.executor).toEqual(EXEC_A)
+    expect(r.executorDaRaia).toBe(true)
+  })
+  it('ida e volta: gravar, reabrir, mover para outra raia e gravar de novo', () => {
+    const gravado = aplicarExecutorDasRaias([passo()], desenho(0), alturaDe)
+    expect(herdaDaRaia(gravado[0])).toBe(true)
+    const [r] = aplicarExecutorDasRaias(gravado, desenho(250), alturaDe)
+    expect(r.executor).toEqual(EXEC_B)
   })
   it('mover a forma para outra raia troca o executor', () => {
     const [r] = aplicarExecutorDasRaias([passo({ executor: { ...EXEC_A } , executorDaRaia: true })], desenho(250), alturaDe)
