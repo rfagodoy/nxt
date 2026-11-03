@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { caixaDaForma, familiaDaForma, iconeDaTarefa, iconeDoEvento, nomeDoEvento, tipoDaTarefa, tipoDoEvento } from './formas-do-canvas'
+import type { DesenhoV2 } from '@nxt/types'
+import { nodeSize } from '@/lib/flow-layout'
+import { raiaDaForma } from './raias'
+import { alturaPeloDesenho, caixaDaForma, familiaDaForma, iconeDaTarefa, iconeDoEvento, nomeDoEvento, tipoDaTarefa, tipoDoEvento } from './formas-do-canvas'
 
 describe('formas no canvas', () => {
   it('família de cada tipo', () => {
@@ -55,5 +58,23 @@ describe('formas no canvas', () => {
     expect(caixaDaForma('s', 'subProcess', padrao, tamanhos)).toEqual({ w: 160, h: 80 })
     expect(caixaDaForma('e', 'end', { w: 56, h: 56 }, tamanhos)).toEqual({ w: 56, h: 56 })
     expect(caixaDaForma('x', 'userTask', padrao, tamanhos)).toBe(padrao)
+  })
+
+  it('altura pelo desenho: a tarefa redimensionada cujo centro passou para a raia de baixo é dela', () => {
+    const nos = [{ id: 't', type: 'userTask', name: 'Analisar' }, { id: 'f', type: 'end' }]
+    const padrao = nodeSize({ id: 't', type: 'userTask', name: 'Analisar' }, 0, 0).h
+    const d = {
+      versao: 2, formas: [{ id: 't', tipo: 'userTask' }, { id: 'f', tipo: 'end' }], setas: [],
+      // a tarefa começa em y = 64: sem o tamanho gravado o centro fica na raia A (0–200)
+      posicoes: { t: { x: 0, y: 64 }, f: { x: 300, y: 64 } },
+      raias: [{ id: 'A', nome: 'A', altura: 200 }, { id: 'B', nome: 'B', altura: 400 }],
+    } as unknown as DesenhoV2
+    expect(64 + padrao / 2).toBeLessThan(200)
+    expect(raiaDaForma(d, 't', alturaPeloDesenho(nos, {}))?.id).toBe('A')
+    const tamanhos = { t: { largura: 192, altura: 320 } }
+    expect(alturaPeloDesenho(nos, tamanhos)('t')).toBe(320)
+    expect(alturaPeloDesenho(nos, tamanhos)('f')).toBe(56)
+    expect(alturaPeloDesenho(nos, tamanhos)('x')).toBe(0)
+    expect(raiaDaForma(d, 't', alturaPeloDesenho(nos, tamanhos))?.id).toBe('B')
   })
 })

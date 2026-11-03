@@ -2,6 +2,7 @@
    Puro: a família da forma (tarefa, losango, evento), o ícone de cada variante, o nome
    que o leitor de tela anuncia e a caixa (o tamanho gravado, quando a forma o aceita). */
 import type { LayoutDesenho, VarianteForma } from '@nxt/types'
+import { nodeSize, type FlowNodeType } from '@/lib/flow-layout'
 import { ehRedimensionavel } from './layout'
 
 export type FamiliaDaForma = 'tarefa' | 'losango' | 'evento'
@@ -74,4 +75,16 @@ export function tipoDaTarefa(automatica: boolean, variante: VarianteForma | unde
 export function caixaDaForma(id: string, tipo: string, padrao: { w: number; h: number }, tamanhos: LayoutDesenho['tamanhos']): { w: number; h: number } {
   const t = ehRedimensionavel(tipo) ? tamanhos[id] : undefined
   return t ? { w: t.largura, h: t.altura } : padrao
+}
+
+/** Altura de cada forma como o canvas a desenha (o tamanho gravado vence o de sempre). É
+ *  por ela que a raia da forma é achada (pelo centro): canvas, pendências e Salvar usam a mesma. */
+export function alturaPeloDesenho(
+  nos: ReadonlyArray<{ id: string; type: string; name?: string }>, tamanhos: LayoutDesenho['tamanhos'],
+): (id: string) => number {
+  const porId = new Map(nos.map((n) => [n.id, n]))
+  return (id) => {
+    const n = porId.get(id)
+    return n ? caixaDaForma(id, n.type, nodeSize({ id, type: n.type as FlowNodeType, name: n.name }, 0, 0), tamanhos).h : 0
+  }
 }

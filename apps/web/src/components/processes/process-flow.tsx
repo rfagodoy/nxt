@@ -43,6 +43,7 @@ import { STEP_TONE, dueText, entityKindLabel, type EEdge, type ENode } from './e
 import { ENTITY_MODE_LABEL, PerguntasDaEtapa } from './perguntas-da-etapa'
 import { aplicarExecutorDasRaias, raiaDaForma } from '@/lib/editor-bizagi/raias'
 import { formaNova, type GrupoPaleta, type ItemCatalogo } from '@/lib/editor-bizagi/catalogo'
+import { alturaPeloDesenho } from '@/lib/editor-bizagi/formas-do-canvas'
 import { adicionarFase, adicionarPiscinaExterna, layoutDe, redimensionarForma } from '@/lib/editor-bizagi/layout'
 import { Roteiro } from './roteiro/roteiro'
 import { itensDaLista, montarRoteiro, podeSoltar, removerCaminhoComVinculos, secaoDaPendencia, type ConsultasDoRoteiro } from '@/lib/roteiro'
@@ -420,17 +421,21 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     ? completarPosicoes(grafo, desenho)
     : desenho), [desenho, grafo])
 
+  /* Altura de cada forma como o canvas a desenha (tarefa redimensionada = tamanho gravado):
+     a raia de uma forma é achada pelo centro dela, e canvas, gaveta e Salvar têm de concordar. */
+  const tamanhos = layoutDe(doc).tamanhos
+  const alturaDe = useMemo(() => alturaPeloDesenho(nodes, tamanhos), [nodes, tamanhos])
+
   /* As etapas COMO VÃO SER GRAVADAS: a tarefa que herda da raia já leva o executor dela
-     (mesma conta do Salvar, mesmas alturas do canvas). Pendências, cartão e gaveta leem daqui. */
+     (mesma conta do Salvar, mesmas alturas do canvas, `alturaDe`). Pendências, cartão e gaveta leem daqui. */
   const nodesEfetivos = useMemo(() => {
     if (!desenhoVisto) return nodes
-    const alturaDe = (id: string) => { const n = nodes.find((x) => x.id === id); return n ? nodeSize({ id, type: n.type as FlowNodeType, name: n.name }, 0, 0).h : 0 }
     const entrada = nodes.filter((n) => n.type === 'userTask' && n.step).map((n) => ({ ...n.step!, stepId: n.id, stepType: 'userTask' as const }))
     const saida = aplicarExecutorDasRaias(entrada, { ...doc, posicoes: desenhoVisto.posicoes, raias: desenhoVisto.raias }, alturaDe)
     const mudou = new Map(saida.flatMap((r, i) => (r !== entrada[i] ? [[r.stepId, r] as const] : [])))
     if (!mudou.size) return nodes
     return nodes.map((n) => { const r = mudou.get(n.id); return r && n.step ? { ...n, step: { ...n.step, executor: r.executor, executorDaRaia: r.executorDaRaia } } : n })
-  }, [nodes, desenhoVisto, doc])
+  }, [nodes, desenhoVisto, doc, alturaDe])
   const nodeEfetivoById = useMemo(() => Object.fromEntries(nodesEfetivos.map((n) => [n.id, n])), [nodesEfetivos])
   const selectedBloco = useMemo(() => {
     const it = fluxo && selectedId ? acharItem(fluxo, selectedId) : undefined
@@ -502,14 +507,13 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   /** A raia onde a etapa está desenhada (pelo centro) e o executor padrão dela, para o "Quem faz?". */
   const raiaDaEtapa = useMemo(() => {
     if (!configId || !desenhoVisto) return undefined
-    const raia = raiaDaForma({ ...doc, posicoes: desenhoVisto.posicoes, raias: desenhoVisto.raias }, configId,
-      (x) => { const n = nodeById[x]; return n ? nodeSize({ id: x, type: n.type as FlowNodeType, name: n.name }, 0, 0).h : 0 })
+    const raia = raiaDaForma({ ...doc, posicoes: desenhoVisto.posicoes, raias: desenhoVisto.raias }, configId, alturaDe)
     if (!raia) return undefined
     const ex = raia.executor
     const papel = ex?.papelId ? resolvePapel(ex.papelId) ?? 'Responsável' : undefined
     const entidade = ex && ex.mode !== 'VARIAVEL' && ex.entityId ? resolveEntidade(ex.entityType, ex.entityId) : undefined
     return { nome: raia.nome, executor: ex, rotuloExecutor: papel && (entidade ? `${papel} de ${entidade}` : papel) }
-  }, [configId, desenhoVisto, doc, nodeById, resolvePapel, resolveEntidade])
+  }, [configId, desenhoVisto, doc, alturaDe, resolvePapel, resolveEntidade])
   const prazoDe = useCallback((id: string) => dueText(nodeById[id]?.step), [nodeById])
   /** Os nomes que `responsavelDe` usa já chegaram? (papéis e entidades vêm da rede) */
   const consultasProntas = useMemo(() => nodesEfetivos.every((n) => {
@@ -1047,7 +1051,6 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         setas: doc.setas.map((x) => (deEscolha.has(x.de) ? x : { id: x.id, de: x.de, para: x.para })),
       }
     })()
-    const alturaDe = (id: string) => { const n = nodeById[id]; return n ? nodeSize({ id, type: n.type as FlowNodeType, name: n.name }, 0, 0).h : 0 }
     // a tarefa que herda da raia leva o executor da raia onde está desenhada
     const stepsVivos = aplicarExecutorDasRaias(
       nodes.filter((n) => isActivity(n.type) && n.step).map((n) => ({ ...n.step!, stepId: n.id, stepName: n.step!.stepName, stepType: n.type as 'userTask' | 'serviceTask' })),
@@ -1087,7 +1090,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     limpoRef.current = assinaturaGravada
     limpoFluxoRef.current = fluxoGravado
     return (await res.json()).id as string
-  }, [editing, initial, name, description, kind, quemInicia, fluxo, stepsEfetivos, nodes, nodeById, edges, laneOrder, desenhoVisto, doc])
+  }, [editing, initial, name, description, kind, quemInicia, fluxo, stepsEfetivos, nodes, edges, laneOrder, desenhoVisto, doc, alturaDe])
 
   const persistRef = useRef(persist)
   persistRef.current = persist

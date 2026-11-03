@@ -147,10 +147,12 @@ function IconeEvento({ icone }: { icone: IconeDoEvento }) {
  *  contexto (como as raias) para a projeção não refazer só porque uma função trocou. */
 export type AcoesDeForma = {
   editavel: boolean
+  /** Começo do arrasto da alça: o canvas segura a projeção (como no arrasto de uma forma). */
+  comecarTamanho: () => void
   /** Fim do arrasto da alça de tamanho: a página grava (na grade, com o mínimo). */
   redimensionar: (id: string, tam: { largura: number; altura: number }) => void
 }
-export const ContextoFormas = createContext<AcoesDeForma>({ editavel: false, redimensionar: () => {} })
+export const ContextoFormas = createContext<AcoesDeForma>({ editavel: false, comecarTamanho: () => {}, redimensionar: () => {} })
 
 /* ─── Tarefa e subprocesso ────────────────────────────────────────────────── */
 const ICONE_TAREFA = 'mt-[1px] h-3.5 w-3.5 shrink-0 text-[#075985] dark:text-[#7DD3FC]'
@@ -176,7 +178,7 @@ const CONTORNO_TAREFA = {
 }
 
 export function FormaTarefa({ id, data, selected, isConnectable }: NodeProps<NoTarefa>) {
-  const { editavel, redimensionar } = useContext(ContextoFormas)
+  const { editavel, comecarTamanho, redimensionar } = useContext(ContextoFormas)
   const chamada = data.subprocesso === 'chamada'
   const contorno = chamada
     ? (selected ? CONTORNO_TAREFA.chamadaSelecionada : CONTORNO_TAREFA.chamada)
@@ -203,6 +205,7 @@ export function FormaTarefa({ id, data, selected, isConnectable }: NodeProps<NoT
       {/* alça de tamanho no canto de baixo (como no mockup): só com a forma selecionada e o desenho editável */}
       {editavel && selected && (
         <NodeResizeControl position="bottom-right" minWidth={FORMA_MINIMA.largura} minHeight={FORMA_MINIMA.altura}
+          onResizeStart={comecarTamanho}
           onResizeEnd={(_e, p) => redimensionar(id, { largura: p.width, altura: p.height })}
           className="!h-2.5 !w-2.5 !rounded-[2px] !border-[1.5px] !border-[var(--e-11804F)] !bg-white dark:!border-spark dark:!bg-[var(--e-0F1914)]" />
       )}

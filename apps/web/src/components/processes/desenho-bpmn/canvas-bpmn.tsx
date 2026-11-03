@@ -772,7 +772,10 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   projetadosAtuais.current = projetados
   const acoesDeForma = useMemo<AcoesDeForma>(() => ({
     editavel: !somenteLeitura,
+    // durante o arrasto da alça, uma projeção nova não pode devolver a caixa ao tamanho velho
+    comecarTamanho: () => setArrastando(true),
     redimensionar: (id, tam) => {
+      setArrastando(false)
       // a caixa volta à projeção: se o tamanho gravado não mudar (mesma grade), nenhuma
       // projeção nova chega para desfazer o arrasto; se mudar, a nova a substitui
       setNos(projetadosAtuais.current)
