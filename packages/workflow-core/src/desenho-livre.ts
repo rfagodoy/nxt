@@ -3,14 +3,55 @@
    setas) é a fonte da verdade do editor; os blocos são derivados dele (`desenhoParaBlocos`)
    e voltam para ele (`blocosParaDesenho`) quando o Roteiro muda a estrutura. */
 
-import type { DesenhoV2, FormaDesenho, RaiaDesenho, SetaDesenho, TipoForma } from '@nxt/types'
+import type { DesenhoV2, FaseDesenho, FluxoMensagem, FormaDesenho, LayoutDesenho, PiscinaExterna, RaiaDesenho, SetaDesenho, TipoForma, VarianteForma } from '@nxt/types'
 import { lerDesenho } from './desenho'
 import {
   ID_VALIDO, SUFIXO_REENCONTRO, blocosParaGrafo, lerFluxoBlocos, modoDaEscolha, temSenaoAntigo,
   type BlocoEscolha, type BlocoParalelo, type CaminhoCondicional, type CaminhoPadrao, type FimCaminho, type FluxoBlocos, type ItemAtividade, type ItemFluxo, type SetaGerada,
 } from './blocos'
 
-const TIPOS: readonly TipoForma[] = ['start', 'end', 'userTask', 'serviceTask', 'exclusiveGateway', 'parallelGateway']
+const TIPOS: readonly TipoForma[] = ['start', 'end', 'userTask', 'serviceTask', 'exclusiveGateway', 'parallelGateway', 'intermediateEvent', 'subProcess', 'eventGateway']
+const VARIANTES: readonly VarianteForma[] = ['simples', 'agendado', 'evento', 'usuario', 'envio', 'recebimento', 'chamada', 'embutido', 'temporizador', 'recebe', 'envia', 'erro', 'cancela', 'terminar']
+
+const ehObjeto = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x)
+const ehTexto = (x: unknown): x is string => typeof x === 'string'
+const ehNumero = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x)
+
+/** Lê o layout (orientação, fases, piscinas externas, fluxos de mensagem). `undefined` quando a
+ *  forma do objeto não confere — o desenho segue sem ele. Fluxo de mensagem cujo `de`/`para` não é
+ *  uma forma nem uma piscina externa é descartado. */
+function lerLayout(bruto: unknown, ids: Set<string>): LayoutDesenho | undefined {
+  if (!ehObjeto(bruto)) return undefined
+  if (bruto.orientacao !== 'horizontal' && bruto.orientacao !== 'vertical') return undefined
+  if (bruto.larguraPiscina !== undefined && !ehNumero(bruto.larguraPiscina)) return undefined
+  const { fases, piscinasExternas, fluxosMensagem, tamanhos } = bruto
+  if (!Array.isArray(fases) || !Array.isArray(piscinasExternas) || !Array.isArray(fluxosMensagem) || !ehObjeto(tamanhos)) return undefined
+  for (const f of fases) {
+    if (!ehObjeto(f) || !ehTexto(f.id) || !ehTexto(f.nome) || !ehNumero(f.largura)) return undefined
+    if (f.prazoDiasUteis !== undefined && !ehNumero(f.prazoDiasUteis)) return undefined
+  }
+  for (const p of piscinasExternas) {
+    if (!ehObjeto(p) || !ehTexto(p.id) || !ehTexto(p.nome) || !ehNumero(p.altura)) return undefined
+    if (!['contratada', 'fixo', 'orgao'].includes(p.quem as string) || !['portal', 'email'].includes(p.canal as string)) return undefined
+  }
+  for (const m of fluxosMensagem) {
+    if (!ehObjeto(m) || !ehTexto(m.id) || !ehTexto(m.de) || !ehTexto(m.para)) return undefined
+    if (m.rotulo !== undefined && !ehTexto(m.rotulo)) return undefined
+  }
+  for (const t of Object.values(tamanhos)) {
+    if (!ehObjeto(t) || !ehNumero(t.largura) || !ehNumero(t.altura)) return undefined
+  }
+  const alvos = new Set([...ids, ...(piscinasExternas as PiscinaExterna[]).map((p) => p.id)])
+  const layout: LayoutDesenho = {
+    orientacao: bruto.orientacao,
+    fases: fases as FaseDesenho[],
+    piscinasExternas: piscinasExternas as PiscinaExterna[],
+    fluxosMensagem: (fluxosMensagem as FluxoMensagem[]).filter((m) => alvos.has(m.de) && alvos.has(m.para)),
+    tamanhos: tamanhos as LayoutDesenho['tamanhos'],
+  }
+  if (bruto.larguraPiscina !== undefined) layout.larguraPiscina = bruto.larguraPiscina
+  return layout
+}
 
 /** Confere o JSON gravado. Seta para forma inexistente é descartada (sobra de exclusão);
  *  forma repetida ou estrutura errada invalidam o desenho. */
@@ -24,14 +65,21 @@ export function lerDesenhoV2(bruto: unknown): DesenhoV2 | null {
   for (const f of bruto.formas) {
     if (!obj(f) || typeof f.id !== 'string' || !TIPOS.includes(f.tipo as TipoForma) || ids.has(f.id)) return null
     ids.add(f.id)
-    formas.push(f as unknown as FormaDesenho)
+    // `variante` desconhecida some (a forma vale o padrão do tipo); `config` segue como gravada
+    if (f.variante !== undefined && !VARIANTES.includes(f.variante as VarianteForma)) {
+      const { variante: _descartada, ...resto } = f
+      formas.push(resto as unknown as FormaDesenho)
+    } else formas.push(f as unknown as FormaDesenho)
   }
   const setas: SetaDesenho[] = []
   for (const s of bruto.setas) {
     if (!obj(s) || typeof s.id !== 'string' || typeof s.de !== 'string' || typeof s.para !== 'string') return null
     if (ids.has(s.de) && ids.has(s.para)) setas.push(s as unknown as SetaDesenho)
   }
-  return { versao: 2, formas, setas, posicoes: bruto.posicoes as DesenhoV2['posicoes'], raias: bruto.raias as DesenhoV2['raias'] }
+  const desenho: DesenhoV2 = { versao: 2, formas, setas, posicoes: bruto.posicoes as DesenhoV2['posicoes'], raias: bruto.raias as DesenhoV2['raias'] }
+  const layout = lerLayout(bruto.layout, ids)
+  if (layout) desenho.layout = layout
+  return desenho
 }
 
 /** O losango que junta gerado pelo Roteiro tem o id da escolha + "__fim" — reservado aos
