@@ -57,7 +57,7 @@ import {
   FORMA_MINIMA, apagarMensagem, larguraDaPiscina, layoutDe, ligarMensagem, podeLigarMensagem, pontasDaMensagem, redimensionarFase, religarMensagem,
 } from '@/lib/editor-bizagi/layout'
 import {
-  pontaDaAlca, pontaDaTela, pontaMaisProxima, pontaParaTela, pontoDoContorno, rotaEntreContornos, type ContornoDaPonta,
+  pontaDaAlca, pontaDaTela, pontaMaisProxima, pontaParaTela, pontasLivresNaTela, pontoDoContorno, rotaEntreContornos, type ContornoDaPonta,
 } from '@/lib/editor-bizagi/contorno'
 import {
   alcaNaTela, faixasDoDesenho, faixasNaTela, pontoNaTela, rotaDaMensagem, type Faixas, type Retangulo,
@@ -670,7 +670,8 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     ...setas.map((s): SetaDeSequencia => {
       const arrastada = previaDasPontas && pontaArrastada?.setaId === s.id
       // pontas livres (gravadas ou no arrasto): o traço sai e chega nelas
-      const pontas = arrastada ? previaDasPontas : s.data?.saida || s.data?.entrada ? pontasDaSequencia(s) : undefined
+      // sem nenhuma ponta livre: undefined, e a seta segue no traço automático de sempre
+      const pontas = arrastada ? previaDasPontas : pontasLivresNaTela(s.data ?? {}, s.sourceHandle ?? 's-r', s.targetHandle ?? 'e-l', orientacao)
       return {
         ...s,
         // alças lógicas → lado na tela (na vertical, a saída da direita vira a de baixo)
@@ -693,7 +694,7 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
         ...(arrastada ? { data: { ...m.data!, pontas: previaDasPontas, ...(pontaArrastada?.recusa ? { problema: true } : {}) } } : {}),
       }
     }),
-  ], [setas, mensagens, destaque, setaSel, somenteLeitura, setasComProblema, orientacao, previaDasPontas, pontaArrastada, pontasDaSequencia])
+  ], [setas, mensagens, destaque, setaSel, somenteLeitura, setasComProblema, orientacao, previaDasPontas, pontaArrastada])
 
   /** O que há sob o ponto: `vaga` = a seta mais próxima, se ela for uma vaga do fluxo;
    *  `sobreSeta` = o ponto está em cima de alguma seta (vaga ou não — volta, encerra).

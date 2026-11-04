@@ -5,7 +5,8 @@
    perpendicular ao lado. As pontas gravadas são LÓGICAS (horizontal): na vertical o lado
    troca na tela (`pontaParaTela`/`pontaDaTela`) e o `t` fica — como as alças (`alcaNaTela`). */
 import type { PontaDaSeta } from '@nxt/types';
-import { polilinhaDaSeta, type LadoDaSeta } from '@/lib/desenho-bpmn';
+import type { LadoDaSeta } from '@/lib/desenho-bpmn';
+import { rotaOrtogonal } from './rota-ortogonal';
 import type { Orientacao } from './geometria';
 
 export type FormaDoContorno = 'retangulo' | 'losango' | 'circulo';
@@ -149,11 +150,26 @@ export function pontaDaAlca(alca: string): PontaDaSeta {
 export type PontaNaForma = { caixa: CaixaDoContorno; forma: FormaDoContorno; ponta: PontaDaSeta };
 
 /** Traço ortogonal entre duas pontas (na mesma coordenada das caixas): sai perpendicular ao
- *  lado de `de` e chega perpendicular ao lado de `para`. */
+ *  lado de `de`, para fora, chega perpendicular ao lado de `para` e não atravessa nenhuma das
+ *  duas formas (`rotaOrtogonal`). */
 export function rotaEntrePontas(de: PontaNaForma, para: PontaNaForma, desvio = 20): Pt[] {
-  const s = pontoDoContorno(de.caixa, de.forma, de.ponta);
-  const t = pontoDoContorno(para.caixa, para.forma, para.ponta);
-  return polilinhaDaSeta(s, ladoDaSetaDaPonta(de.ponta), t, ladoDaSetaDaPonta(para.ponta), desvio);
+  return rotaOrtogonal(
+    { ponto: pontoDoContorno(de.caixa, de.forma, de.ponta), lado: de.ponta.lado, caixa: de.caixa },
+    { ponto: pontoDoContorno(para.caixa, para.forma, para.ponta), lado: para.ponta.lado, caixa: para.caixa },
+    desvio,
+  );
+}
+
+/** As pontas de uma seta NA TELA quando ela tem alguma livre (a que falta é a da alça
+ *  automática); `undefined` sem nenhuma — aí a seta segue no traço automático de sempre. */
+export function pontasLivresNaTela(
+  gravadas: { saida?: PontaDaSeta; entrada?: PontaDaSeta }, alcaDeSaida: string, alcaDeChegada: string, o: Orientacao,
+): { saida: PontaDaSeta; entrada: PontaDaSeta } | undefined {
+  if (!gravadas.saida && !gravadas.entrada) return undefined;
+  return {
+    saida: pontaParaTela(gravadas.saida ?? pontaDaAlca(alcaDeSaida), o),
+    entrada: pontaParaTela(gravadas.entrada ?? pontaDaAlca(alcaDeChegada), o),
+  };
 }
 
 /** Ponta automática na piscina externa: o lado que encara o outro ponto, alinhada a ele
