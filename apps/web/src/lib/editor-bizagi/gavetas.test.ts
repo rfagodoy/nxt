@@ -4,7 +4,7 @@ import { LAYOUT_PADRAO } from '@nxt/workflow-core'
 import { mudarOrientacao } from './layout'
 import {
   camposDoTexto, comConfig, configFim, configLivre, configSubprocesso, configTemporizador, ENVIO_PADRAO, executorDaRaia,
-  formasNaFase, gavetaDaForma, gavetaDoAlvo, nomeDaRaia, nomeDoElemento, restaurarAlvo, restaurarPasso, rotuloDaSeta, setasParaGravar,
+  formasNaFase, gavetaDaForma, gavetaDoAlvo, nomeDaRaia, nomeDoElemento, restaurarAlvo, restaurarDesenhoDoBloco, restaurarPasso, rotuloDaSeta, setasParaGravar,
   tarefasNaRaia, workflowsAtivos,
 } from './gavetas'
 
@@ -281,5 +281,26 @@ describe('restaurarPasso', () => {
     const s = { r: passo, outro: passo }
     expect(restaurarPasso(s, 'r', undefined)).toEqual({ outro: passo })
     expect(restaurarPasso({ outro: passo }, 'r', undefined)).toEqual({ outro: passo })
+  })
+})
+
+describe('restaurarDesenhoDoBloco (Cancelar da escolha / ao mesmo tempo)', () => {
+  const antes = base()
+  it('formas e setas voltam; a posição de quem já existia fica', () => {
+    const atual: DesenhoV2 = {
+      ...antes,
+      formas: [...antes.formas.filter((f) => f.id !== 't2'), { id: 'nova', tipo: 'userTask' }],
+      setas: [...antes.setas, { id: 's2', de: 't1', para: 'nova', condition: 'x' }],
+      posicoes: { ...antes.posicoes, t1: { x: 120, y: 80 }, nova: { x: 900, y: 0 } },
+    }
+    const r = restaurarDesenhoDoBloco(atual, antes)
+    expect(r.formas).toBe(antes.formas)
+    expect(r.setas).toBe(antes.setas)
+    expect(r.posicoes.t1).toEqual({ x: 120, y: 80 })
+    expect(r.posicoes.t2).toEqual(antes.posicoes.t2)
+    expect(r.posicoes).not.toHaveProperty('nova')
+  })
+  it('nada mudou: o mesmo desenho', () => {
+    expect(restaurarDesenhoDoBloco(antes, antes)).toBe(antes)
   })
 })

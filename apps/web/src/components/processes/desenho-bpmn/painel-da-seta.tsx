@@ -3,8 +3,8 @@
 /* ─── Condição na seta (desenho livre, PO 30/10/2026) ──────────────────────────
    O caminho de uma escolha MORA na seta que sai do losango. Clicar numa dessas setas abre
    este editor: o mesmo construtor de condição da gaveta da escolha e o rótulo que aparece no
-   desenho. `PainelDasSetas` é a lista usada no losango quando o desenho ainda não fecha em
-   blocos (sem conversão não há ConfiguracaoDoBloco): cada seta que sai, com o mesmo editor. */
+   desenho. No losango que ainda não fecha em blocos, o "Editar" de cada caminho da gaveta
+   (gaveta-losango) abre este mesmo editor. */
 import type { JSX } from 'react'
 import type { EdgeConditionSpec, SetaDesenho } from '@nxt/types'
 import type { CampoDisponivel } from '@/lib/flow-conditions'
@@ -31,26 +31,6 @@ export function EditorDaSeta({ seta, campos, onPatch }: {
         <Input id={`rotulo-seta-${seta.id}`} className="h-9 text-sm" value={seta.rotulo ?? ''} placeholder="Ex.: Precisa do Patrimônio"
           onChange={(e) => onPatch({ rotulo: e.target.value })} />
       </div>
-    </div>
-  )
-}
-
-export function PainelDasSetas({ setas, paraOnde, camposDe, onPatch }: {
-  setas: SetaDesenho[]
-  /** nome da forma onde a seta chega ("Analisar contrato", "Fim") */
-  paraOnde: (seta: SetaDesenho) => string
-  camposDe: (seta: SetaDesenho) => CampoDisponivel[]
-  onPatch: (setaId: string, p: PatchDaSeta) => void
-}): JSX.Element {
-  if (!setas.length) return <p className="text-sm text-muted-foreground">Nenhuma seta sai deste losango ainda. Puxe uma seta dele até o próximo passo.</p>
-  return (
-    <div className="space-y-5">
-      {setas.map((s, i) => (
-        <section key={s.id} aria-label={`Caminho ${i + 1}`} className="space-y-2 rounded-lg border p-3">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300">{i + 1}º caminho · para {paraOnde(s)}</p>
-          <EditorDaSeta seta={s} campos={camposDe(s)} onPatch={(p) => onPatch(s.id, p)} />
-        </section>
-      ))}
     </div>
   )
 }

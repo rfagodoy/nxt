@@ -306,3 +306,14 @@ export function restaurarPasso(
   const { [id]: _, ...resto } = steps
   return resto
 }
+
+/** Cancelar da gaveta da escolha / "ao mesmo tempo" (no bloco ou o losango solto): lá se
+ *  acrescenta e tira caminho, então o desenho inteiro volta ao da abertura — formas, setas,
+ *  condições, pergunta e modo. A POSIÇÃO de quem já existia fica como está agora (mover uma
+ *  forma com a gaveta aberta não é o que a gaveta desfaz). Nada mudou = o mesmo desenho. */
+export function restaurarDesenhoDoBloco(atual: DesenhoV2, antes: DesenhoV2): DesenhoV2 {
+  if (atual === antes) return atual
+  const posicoes = { ...antes.posicoes }
+  for (const id of Object.keys(posicoes)) if (atual.posicoes[id]) posicoes[id] = atual.posicoes[id]
+  return { ...antes, posicoes }
+}

@@ -27,13 +27,13 @@ import { ProcessHistoryDrawer } from './process-history-drawer'
 import { GatewayGlyph, PendenciasPill, type Pendencia } from './flow-shared'
 import { EXECUTOR_CONTRATO_DO_PROCESSO, EXECUTOR_QUEM_INICIOU, nasceDeContrato, type QuemInicia } from '@nxt/types'
 import { QuemIniciaPill } from './quem-inicia'
-import { ConfiguracaoDoBloco, comNomes, novoItem, type NovoItem, type Simulacao } from './workflow-blocos'
+import { GavetaDoBloco, comNomes, novoItem, type NovoItem, type Simulacao } from './workflow-blocos'
 import { NoticeDialog } from '@/components/ui/confirm-dialog'
 import { aoSairDoEditor, destinoInterno } from '@/lib/sair-do-editor'
 import { SairSemSalvarDialog } from './sair-sem-salvar'
-import { ATRIBUTO_GAVETA, GavetaLateral, ehEscDaGaveta } from './desenho-bpmn/gaveta'
-import { EditorDaSeta, PainelDasSetas, type PatchDaSeta } from './desenho-bpmn/painel-da-seta'
-import { Input } from '@/components/ui/input'
+import { ATRIBUTO_GAVETA, GavetaLateral } from './desenho-bpmn/gaveta'
+import { EditorDaSeta, type PatchDaSeta } from './desenho-bpmn/painel-da-seta'
+import { GavetaDoLosango } from './desenho-bpmn/gaveta-losango'
 import { camposDasTelasDasAtividades } from '@/lib/flow-conditions'
 import { CanvasBpmn, modeloDeExportacao, type AlvoDaGaveta } from './desenho-bpmn/canvas-bpmn'
 import { PaletaBpmn, type Conector } from './desenho-bpmn/paleta'
@@ -46,7 +46,7 @@ import { formaNova, type GrupoPaleta, type ItemCatalogo } from '@/lib/editor-biz
 import { alturaPeloDesenho, caixaDaForma } from '@/lib/editor-bizagi/formas-do-canvas'
 import { adicionarFase, adicionarPiscinaExterna, atualizarPiscinaExterna, layoutDe, mudarOrientacao, prazoDaFase, redimensionarForma, removerFase, removerPiscinaExterna, renomearFase, rotularMensagem } from '@/lib/editor-bizagi/layout'
 import {
-  PISCINA_DO_PROCESSO, comConfig, executorDaRaia, formasNaFase, gavetaDaForma, gavetaDoAlvo, nomeDaRaia, nomeDoElemento, restaurarAlvo,
+  PISCINA_DO_PROCESSO, comConfig, executorDaRaia, formasNaFase, gavetaDaForma, gavetaDoAlvo, nomeDaRaia, nomeDoElemento, restaurarAlvo, restaurarDesenhoDoBloco,
   restaurarPasso, rotuloDaSeta, setasParaGravar, tarefasNaRaia, workflowsAtivos, type WorkflowDaLista,
 } from '@/lib/editor-bizagi/gavetas'
 import { GavetaFase, GavetaFormaNova, GavetaMensagem, GavetaPiscinaExterna, GavetaPiscinaPrincipal, GavetaRaia, GavetaSeta, type PatchDaForma } from './desenho-bpmn/gavetas'
@@ -494,6 +494,22 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const aoMudarSeta = useCallback((setaId: string, p: PatchDaSeta) => setDoc((d) => atualizarSeta(d, setaId, p)), [])
   const aoMudarLosango = useCallback((id: string, patch: { pergunta?: string; modo?: 'primeiro' | 'todos' }) =>
     setDoc((d) => ({ ...d, formas: d.formas.map((f) => (f.id === id ? { ...f, ...patch } : f)) })), [])
+  /** O que chega a uma forma (nomes das formas de onde saem as setas): o "Depois de …" do resumo. */
+  const anterioresDe = useCallback((id: string) => [...new Set(doc.setas.filter((x) => x.para === id).map((x) => nomeDaForma(x.de)))], [doc.setas, nomeDaForma])
+  /* Gaveta da ESCOLHA / "AO MESMO TEMPO" (no bloco ou o losango solto): mesma regra das outras
+     — ao vivo; Cancelar, X e Esc voltam ao retrato da abertura (desenho e etapas: remover um
+     caminho leva etapas e promove cópias vinculadas); Aplicar mantém. A gaveta "Caminho" de uma
+     seta aberta a partir do losango solto fica dentro do mesmo retrato. */
+  const chaveDoLosango = gavetaDe && (selectedBloco?.id === gavetaDe || losangoSolto?.id === gavetaDe) ? gavetaDe : null
+  const retratoDoLosango = useRef<{ chave: string; doc: DesenhoV2; steps: Record<string, StepFormSchema> } | null>(null)
+  if (!chaveDoLosango) retratoDoLosango.current = null
+  else if (retratoDoLosango.current?.chave !== chaveDoLosango) retratoDoLosango.current = { chave: chaveDoLosango, doc, steps }
+  const aplicarLosango = useCallback(() => { setGavetaDe(null); setSetaAberta(null) }, [])
+  const cancelarLosango = useCallback(() => {
+    const r = retratoDoLosango.current
+    if (r) { setDoc((d) => restaurarDesenhoDoBloco(d, r.doc)); setSteps(r.steps) }
+    setGavetaDe(null); setSetaAberta(null)
+  }, [])
   /* Retrato da etapa na ABERTURA (para o Cancelar): sobrevive a uma remontagem das
      perguntas. Tirado na primeira renderização com a etapa aberta. */
   const retratoDaAbertura = useRef<{ id: string; step: StepFormSchema; type: 'userTask' | 'serviceTask' } | null>(null)
@@ -1406,16 +1422,6 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     }
   }, [buildExportModel, name, kind])
 
-  /* Esc DENTRO da gaveta de um bloco a fecha (deseleciona). Não há o que desfazer: a
-     configuração do bloco vale ao vivo, como no resto do desenho. */
-  const gavetaDoBloco = !!selectedBloco && gavetaDe === selectedBloco.id && !(configNode && configNode.step)
-  useEffect(() => {
-    if (!gavetaDoBloco) return
-    const onKey = (e: KeyboardEvent) => { if (ehEscDaGaveta(e)) { e.stopPropagation(); setSelectedId(null); setGavetaDe(null) } }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [gavetaDoBloco])
-
   // Delete/Backspace remove o item selecionado (fora de campos e com os modais fechados).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1527,12 +1533,6 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       default: return null
     }
   })()
-  const configDoBloco = () => (selectedBloco && fluxo ? (
-    <ConfiguracaoDoBloco blocoId={selectedBloco.id} fluxo={fluxo} steps={stepsEfetivos} simulacao={simulacao}
-      onRemover={remover} onRemoverCaminho={removerCaminhoDaEscolha} onFluxo={mudarFluxo}
-      screens={screens} onSimulacao={setSimulacao} onConfigurarAtividade={configurarAtividadeDaEscolha} problemas={pendenciasPorNo} />
-  ) : null)
-
   /* Topo: compacta pela largura DISPONÍVEL (ver useNivelDoTopo). A chave lista o que pode
      ENCOLHER o conteúdo (aí vale tentar um nível menor); o que só cresce (o texto de "Quem
      inicia", os papéis que chegam) é pego pela medida a cada render, que só sobe. */
@@ -1695,19 +1695,14 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
           )}
         </div>
 
-        {/* Configuração da escolha / "ao mesmo tempo" selecionado: gaveta lateral por cima
-            do desenho (as etapas dos caminhos estão nele). As perguntas de uma atividade em
-            configuração têm a vez sobre ela. */}
+        {/* Escolha / "ao mesmo tempo" selecionado: gaveta lateral por cima do desenho (as
+            etapas dos caminhos estão nele). As perguntas de uma atividade em configuração têm
+            a vez sobre ela. */}
         {!somenteLeitura && selectedBloco && gavetaDe === selectedBloco.id && fluxo && !(configNode && configNode.step) && (
-          <GavetaLateral key={selectedBloco.id}
-            rotulo={selectedBloco.kind === 'escolha' ? 'Escolha' : 'Ao mesmo tempo'}
-            titulo={(selectedBloco.kind === 'escolha' ? selectedBloco.pergunta?.trim() : selectedBloco.nome?.trim())
-              || (selectedBloco.kind === 'escolha' ? 'Escolha sem pergunta' : 'Bloco sem nome')}
-            rotuloTom={selectedBloco.kind === 'escolha' ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'}
-            rotuloIcone={<GatewayGlyph kind={selectedBloco.kind === 'escolha' ? 'exclusive' : 'parallel'} className="h-3 w-3" />}
-            onFechar={() => { setSelectedId(null); setGavetaDe(null) }} focarAoAbrir={focarGaveta}>
-            {configDoBloco()}
-          </GavetaLateral>
+          <GavetaDoBloco key={selectedBloco.id} blocoId={selectedBloco.id} fluxo={fluxo} steps={stepsEfetivos} simulacao={simulacao}
+            onRemover={remover} onRemoverCaminho={removerCaminhoDaEscolha} onFluxo={mudarFluxo}
+            screens={screens} onSimulacao={setSimulacao} onConfigurarAtividade={configurarAtividadeDaEscolha} problemas={pendenciasPorNo}
+            anteriores={anterioresDe(selectedBloco.id)} focarAoAbrir={focarGaveta} onCancelar={cancelarLosango} onAplicar={aplicarLosango} />
         )}
 
         {/* Condição de uma seta que sai de uma Escolha. */}
@@ -1722,31 +1717,11 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
         {/* Escolha que ainda não fecha em blocos: a pergunta e as setas que saem dela. */}
         {!somenteLeitura && losangoSolto && gavetaDe === losangoSolto.id && !setaDoPainel && !(configNode && configNode.step) && (
-          <GavetaLateral key={losangoSolto.id} rotulo="Escolha" titulo={losangoSolto.pergunta?.trim() || 'Escolha sem pergunta'}
-            rotuloTom="bg-violet-500/10 text-violet-600 dark:text-violet-400"
-            rotuloIcone={<GatewayGlyph kind="exclusive" className="h-3 w-3" />}
-            onFechar={() => { setSelectedId(null); setGavetaDe(null) }} focarAoAbrir={focarGaveta}>
-            <div className="space-y-4">
-              <div className="space-y-1">
-                <label htmlFor={`pergunta-${losangoSolto.id}`} className="block text-xs font-medium">Pergunta</label>
-                <Input id={`pergunta-${losangoSolto.id}`} className="h-9 text-sm" value={losangoSolto.pergunta ?? ''} placeholder="Ex.: Quais pareceres são necessários?"
-                  onChange={(e) => aoMudarLosango(losangoSolto.id, { pergunta: e.target.value })} />
-              </div>
-              <fieldset className="space-y-1">
-                <legend className="text-xs font-medium">Quando mais de um caminho servir</legend>
-                <div className="flex gap-3 text-sm">
-                  {([['todos', 'Segue por todos'], ['primeiro', 'Só o primeiro']] as const).map(([v, r]) => (
-                    <label key={v} className="flex items-center gap-1.5">
-                      <input type="radio" name={`modo-${losangoSolto.id}`} checked={(losangoSolto.modo ?? 'primeiro') === v}
-                        onChange={() => aoMudarLosango(losangoSolto.id, { modo: v })} />{r}
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-              <PainelDasSetas setas={doc.setas.filter((x) => x.de === losangoSolto.id)} paraOnde={(x) => nomeDaForma(x.para)}
-                camposDe={camposDaSeta} onPatch={aoMudarSeta} />
-            </div>
-          </GavetaLateral>
+          <GavetaDoLosango key={losangoSolto.id} forma={losangoSolto} setas={doc.setas.filter((x) => x.de === losangoSolto.id)} nomeDe={nomeDaForma}
+            anteriores={anterioresDe(losangoSolto.id)} onMudar={(p) => aoMudarLosango(losangoSolto.id, p)}
+            onEditarSeta={(id) => { setFocarGaveta(true); setSetaAberta(id) }} onApagarSeta={aoApagarSeta}
+            onRemover={() => { removerNoDesenho(losangoSolto.id); setGavetaDe(null) }}
+            onCancelar={cancelarLosango} onAplicar={aplicarLosango} focarAoAbrir={focarGaveta} />
         )}
 
         {/* Configuração da atividade: perguntas numa gaveta lateral de 440 px. */}

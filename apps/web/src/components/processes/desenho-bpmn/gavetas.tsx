@@ -26,10 +26,10 @@ import {
 import type { Orientacao } from '@/lib/editor-bizagi/geometria'
 import { cn } from '@/lib/utils'
 import { ExecutorDaVariavel } from '../executor-da-variavel'
-import { CAMPO, Opcao, Pergunta } from '../perguntas-da-etapa'
 import { QuemIniciaPill } from '../quem-inicia'
 import { entityKindLabel, type Papeis } from '../editor-comum'
 import { GavetaLateral, ehEscDaGaveta } from './gaveta'
+import { CAMPO, Opcao, Pergunta } from './gaveta-padrao'
 import { CHIP } from './paleta'
 
 type Executor = NonNullable<StepFormSchema['executor']>
