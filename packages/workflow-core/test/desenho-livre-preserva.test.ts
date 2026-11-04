@@ -4,9 +4,7 @@ import { blocosParaDesenho, desenhoParaBlocos } from '../src/desenho-livre'
 import { inserirItem, type FluxoBlocos, type ItemFluxo } from '../src/blocos'
 
 /* Mudança de estrutura vinda dos blocos (excluir, incluir vinculada, caminho da escolha) refaz o
-   desenho por `blocosParaDesenho`: o que só o desenho guarda não pode sumir nessa volta.
-   (Variação e configuração não entram: forma da "Próxima rodada" impede a conversão em blocos,
-   e as que executam hoje são as do padrão.) */
+   desenho por `blocosParaDesenho`: o que só o desenho guarda não pode sumir nessa volta. */
 
 const F = (id: string, tipo: FormaDesenho['tipo'] = 'userTask', extra: Partial<FormaDesenho> = {}): FormaDesenho => ({ id, tipo, ...extra })
 const S = (de: string, para: string, extra: Partial<SetaDesenho> = {}): SetaDesenho => ({ id: `s_${de}_${para}`, de, para, ...extra })
@@ -50,5 +48,29 @@ describe('blocosParaDesenho guarda o que só o desenho tem', () => {
     const s = blocosParaDesenho(comT2(base))
     expect(s.layout).toBeUndefined()
     expect(s.setas.some((x) => x.rotulo)).toBe(false)
+  })
+})
+
+describe('blocosParaDesenho guarda nome, variação e configuração das formas que ficam', () => {
+  const comNomes: DesenhoV2 = {
+    ...base,
+    formas: [F('start', 'start', { nome: 'Pedido recebido' }), F('T0', 'userTask', { variante: 'usuario' }), F('T1'), F('end', 'end', { nome: 'Contrato assinado', config: { avisarQuemIniciou: true } })],
+  }
+  const r = blocosParaDesenho(comT2(comNomes), comNomes)
+  const forma = (id: string) => r.formas.find((f) => f.id === id)
+  it('o nome do Início e do Fim', () => {
+    expect(forma('start')?.nome).toBe('Pedido recebido')
+    expect(forma('end')?.nome).toBe('Contrato assinado')
+  })
+  it('a variação e a configuração', () => {
+    expect(forma('T0')?.variante).toBe('usuario')
+    expect(forma('end')?.config).toEqual({ avisarQuemIniciou: true })
+  })
+  it('o nome da etapa vem dos blocos (não do desenho anterior)', () => {
+    const d: DesenhoV2 = { ...comNomes, formas: comNomes.formas.map((f) => (f.id === 'T1' ? { ...f, nome: 'Antigo' } : f)) }
+    const c = desenhoParaBlocos(d)
+    if (!c.ok) throw new Error(c.problemas[0].mensagem)
+    const f2: FluxoBlocos = { ...c.fluxo, itens: c.fluxo.itens.map((i) => (i.id === 'T1' && i.kind === 'atividade' ? { ...i, nome: 'Novo' } : i)) }
+    expect(blocosParaDesenho(f2, d).formas.find((f) => f.id === 'T1')?.nome).toBe('Novo')
   })
 })

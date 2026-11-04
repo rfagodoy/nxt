@@ -1,7 +1,8 @@
 /* ─── Desenho livre (v2) ───────────────────────────────────────────────────────
    Spec: docs/superpowers/specs/2026-10-30-desenho-livre-design.md. O desenho (formas +
    setas) é a fonte da verdade do editor; os blocos são derivados dele (`desenhoParaBlocos`)
-   e voltam para ele (`blocosParaDesenho`) quando o Roteiro muda a estrutura. */
+   e voltam para ele (`blocosParaDesenho`) quando uma ação sobre os blocos (excluir, mover,
+   caminho da escolha, cópia vinculada) muda a estrutura. */
 
 import type { DesenhoV2, FaseDesenho, FluxoMensagem, FormaDesenho, LayoutDesenho, PiscinaExterna, RaiaDesenho, SetaDesenho, TipoForma, VarianteForma } from '@nxt/types'
 import { lerDesenho } from './desenho'
@@ -136,6 +137,7 @@ export function blocosParaDesenho(
 ): DesenhoV2 {
   const g = blocosParaGrafo(f, { juncaoSempre: true })
   const itens = itensPorId(f)
+  const formaAntes = new Map((anterior?.formas ?? []).map((x) => [x.id, x]))
   const formas: FormaDesenho[] = g.nodes.map((n) => {
     const tipo: TipoForma = n.type === 'inclusiveGateway' ? 'exclusiveGateway' : (n.type as TipoForma)
     const forma: FormaDesenho = { id: n.id, tipo }
@@ -153,6 +155,14 @@ export function blocosParaDesenho(
     }
     // losango que não é item: é o que junta (do bloco ou de um caminho)
     if (!it && (n.type === 'exclusiveGateway' || n.type === 'inclusiveGateway' || n.type === 'parallelGateway')) forma.junta = true
+    // o que os blocos não têm volta do desenho anterior (forma que ficou, do mesmo tipo): o nome
+    // do que não é item (Início, Fim, losango que junta), a variação e a configuração
+    const a = formaAntes.get(n.id)
+    if (a && a.tipo === tipo) {
+      if (!it && a.nome) forma.nome = a.nome
+      if (a.variante) forma.variante = a.variante
+      if (a.config) forma.config = a.config
+    }
     return forma
   })
   // as saídas de cada losango que divide, na ordem dos caminhos (blocosParaGrafo as ordena)
@@ -367,8 +377,18 @@ export function desenhoParaBlocos(d: DesenhoV2, opcoes: { nomeDe?: (id: string) 
 
   const inicios = d.formas.filter((f) => f.tipo === 'start')
   const fins = d.formas.filter((f) => f.tipo === 'end')
-  if (inicios.length !== 1 || fins.length !== 1) {
+  if (!inicios.length || !fins.length) {
     return { ok: false, problemas: [{ tipo: 'inicio-fim', mensagem: 'O desenho precisa de um Início e de um Fim.', formas: [], setas: [] }] }
+  }
+  if (inicios.length > 1 || fins.length > 1) {
+    const problemas: ProblemaDoDesenho[] = []
+    if (inicios.length > 1) {
+      problemas.push({ tipo: 'inicio-fim', mensagem: `O desenho tem ${inicios.length} Inícios. O workflow começa por um Início só: apague os outros.`, formas: inicios.map((x) => x.id), setas: [] })
+    }
+    if (fins.length > 1) {
+      problemas.push({ tipo: 'inicio-fim', mensagem: `O desenho tem ${fins.length} Fins. Por enquanto o workflow termina num Fim só: ligue os caminhos ao mesmo Fim. Vários Fins chegam na próxima entrega.`, formas: fins.map((x) => x.id), setas: [] })
+    }
+    return { ok: false, problemas }
   }
   const inicio = inicios[0].id, fim = fins[0].id
 
