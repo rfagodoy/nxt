@@ -963,9 +963,11 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
      configuração de…" precisa do lugar no fluxo (`acoes`). Com a gaveta aberta, recolhem. */
   const formaSel = selecionado ? doc.formas.find((f) => f.id === selecionado) : undefined
   const menuSel = !somenteLeitura && !arrastando && !gavetaAberta && formaSel ? formaSel : null
-  /** Ligar e apagar: não valem para Início e Fim. */
+  /** Ligar: não vale para Início e Fim. */
   const editavelSel = menuSel && menuSel.tipo !== 'start' && menuSel.tipo !== 'end' ? menuSel : null
   const podeLigarDaqui = !!editavelSel
+  /** Apagar: qualquer forma, menos o único Início e o último Fim (um a mais se apaga). */
+  const apagavelSel = menuSel && (editavelSel || doc.formas.filter((f) => f.tipo === menuSel.tipo).length > 1) ? menuSel : null
   /** Do Fim não sai seta: ele não tem próximo item. */
   const proximoDe = menuSel && menuSel.tipo !== 'end' ? menuSel : null
   const ladoDoProximo = orientacao === 'vertical' ? Position.Bottom : Position.Right
@@ -1254,9 +1256,9 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
                   <span aria-hidden>→</span>
                 </button>
               )}
-              {editavelSel && (
+              {apagavelSel && (
                 <button type="button" className={`${MENU} text-[#B42318] hover:bg-[rgba(180,35,24,0.08)] dark:text-[#FDA29B]`}
-                  onClick={() => onRemover(editavelSel.id)}>
+                  onClick={() => onRemover(apagavelSel.id)}>
                   <Trash2 aria-hidden className="h-3.5 w-3.5" />Apagar
                 </button>
               )}

@@ -2,7 +2,7 @@
    Puras: devolvem o MESMO desenho quando nada muda. Quem escreve grava um `layout` completo
    (cópia de LAYOUT_PADRAO + a mudança), então o desenho só ganha `layout` quando alguém mexe. */
 import type { DesenhoV2, FaseDesenho, LayoutDesenho, PiscinaExterna } from '@nxt/types'
-import { LAYOUT_PADRAO } from '@nxt/workflow-core'
+import { LAYOUT_PADRAO, canonico } from '@nxt/workflow-core'
 import { GRADE, RAIA_ROTULO_W } from '@/lib/desenho-bpmn'
 import type { Orientacao } from './geometria'
 
@@ -34,7 +34,14 @@ function idLivre(usados: Set<string>, gerarId: () => string): string {
 export function mudarOrientacao(d: DesenhoV2, o: Orientacao): DesenhoV2 {
   const l = layoutDe(d)
   if (l.orientacao === o) return d
-  return comLayout(d, { ...l, orientacao: o })
+  const novo = { ...l, orientacao: o }
+  // de volta ao padrão (H→V→H sem mexer em mais nada): o desenho fica sem layout, como era —
+  // senão a gravação de referência e a de agora diferem e aparece "Não salvo"
+  if (canonico(novo) === canonico(LAYOUT_PADRAO)) {
+    const { layout: _padrao, ...semLayout } = d
+    return semLayout
+  }
+  return comLayout(d, novo)
 }
 
 /* ── fases ── */

@@ -7,7 +7,7 @@ import {
   generateBpmn, compileBpmn, validarDesenho, validarAtividades, validarTelasDasAtividades,
   bloqueantes, grafoParaBlocos, novoFluxo, pendenciasDosBlocos, validarOrigemDoRegistro, validarExecutores, validarExecutoresFixos, validarQuemInicia, listarEscolhas,
   acharItem, inserirItem, removerItem, atualizarItem, moverItem, SUFIXO_REENCONTRO,
-  lerDesenho, podarDesenho, lerDesenhoV2, blocosParaDesenho, desenhoParaBlocos, atributosNoDesenho, semIdsReservados,
+  lerDesenho, podarDesenho, lerDesenhoV2, blocosParaDesenho, desenhoParaBlocos, atributosNoDesenho, semIdsReservados, assinaturaDoQueExecuta,
   type ProblemaAtivacao, type WfGraph, type WfNode, type WfEdge, type FluxoBlocos,
   type GrafoGerado, type PontoDeInsercao,
   gruposDeVinculo, religarVinculos, listarAtividades as listarAtivs, type ItemAtividade,
@@ -44,7 +44,7 @@ import { PerguntasDaEtapa } from './perguntas-da-etapa'
 import { aplicarExecutorDasRaias, raiaDaForma } from '@/lib/editor-bizagi/raias'
 import { formaNova, type GrupoPaleta, type ItemCatalogo } from '@/lib/editor-bizagi/catalogo'
 import { alturaPeloDesenho, caixaDaForma } from '@/lib/editor-bizagi/formas-do-canvas'
-import { adicionarFase, adicionarPiscinaExterna, atualizarPiscinaExterna, layoutDe, mudarOrientacao, prazoDaFase, redimensionarForma, renomearFase, rotularMensagem } from '@/lib/editor-bizagi/layout'
+import { adicionarFase, adicionarPiscinaExterna, atualizarPiscinaExterna, layoutDe, mudarOrientacao, prazoDaFase, redimensionarForma, removerFase, removerPiscinaExterna, renomearFase, rotularMensagem } from '@/lib/editor-bizagi/layout'
 import {
   PISCINA_DO_PROCESSO, comConfig, executorDaRaia, formasNaFase, gavetaDaForma, gavetaDoAlvo, nomeDaRaia, nomeDoElemento, restaurarAlvo,
   restaurarPasso, rotuloDaSeta, setasParaGravar, tarefasNaRaia, workflowsAtivos, type WorkflowDaLista,
@@ -52,7 +52,7 @@ import {
 import { GavetaFase, GavetaFormaNova, GavetaMensagem, GavetaPiscinaExterna, GavetaPiscinaPrincipal, GavetaRaia, GavetaSeta, type PatchDaForma } from './desenho-bpmn/gavetas'
 import { alinharNaTela, conteudoDasFormas, faixasDoDesenho } from '@/lib/editor-bizagi/faixas'
 import type { ModoAlinhar, Orientacao } from '@/lib/editor-bizagi/geometria'
-import { lugarDoProximo } from '@/lib/editor-bizagi/proximo'
+import { caixaReal, lugarDoProximo } from '@/lib/editor-bizagi/proximo'
 import { removerCaminhoComVinculos, secaoDaPendencia } from '@/lib/pendencias-do-editor'
 
 
@@ -925,15 +925,14 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     const ancora = sel?.id ?? doc.setas.find((x) => x.para === fimId)?.de ?? doc.formas.find((f) => f.tipo === 'start')?.id
     if (!ancora) return
     const saem = doc.setas.filter((x) => x.de === ancora)
-    const caixaDe = (id: string) => {
-      const n = grafo.nodes.find((x) => x.id === id)
-      return n ? nodeSize({ id, type: n.type as FlowNodeType, name: n.name }, 0, 0) : { w: 0, h: 0 }
-    }
     const nova = nodeSize({ id: 'nova', type: item.tipo as FlowNodeType }, 0, 0)
-    const p = desenhoVisto.posicoes[ancora] ?? { x: 0, y: 0 }, c = caixaDe(ancora)
-    const perto = { x: naGrade(p.x + c.w + 3 * GRADE), y: naGrade(p.y + c.h / 2 - nova.h / 2) }
+    const p = desenhoVisto.posicoes[ancora] ?? { x: 0, y: 0 }
+    // a caixa da âncora como o canvas a desenha (o tamanho gravado vence o de sempre)
+    const n = grafo.nodes.find((x) => x.id === ancora)
+    const c = n ? caixaReal(n, p, tamanhos) : { largura: 0, altura: 0 }
+    const perto = { x: naGrade(p.x + c.largura + 3 * GRADE), y: naGrade(p.y + c.altura / 2 - nova.h / 2) }
     aoSoltar(item, perto, saem.length === 1 ? saem[0].id : undefined)
-  }, [grafo, desenhoVisto, selectedId, doc.formas, doc.setas, aoSoltar])
+  }, [grafo, desenhoVisto, selectedId, doc.formas, doc.setas, aoSoltar, tamanhos])
 
   /** Grava o estado de agora como um passo do desfazer (se mudou desde o último). */
   const registrarPasso = useCallback(() => {
@@ -1025,6 +1024,13 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     setAlvoNovo(null); setGavetaDe(null)
   }, [alvoNovo])
   const aplicarGavetaNova = useCallback(() => { setAlvoNovo(null); setGavetaDe(null) }, [])
+  /* Remover pela gaveta (fase, piscina externa): o que a gaveta mudou fica como um passo e a
+     remoção é o seguinte — um Ctrl+Z traz de volta a fase/piscina (e os fluxos dela). */
+  const removerPelaGaveta = useCallback((remove: (d: DesenhoV2) => DesenhoV2) => {
+    registrarPasso()
+    setDoc(remove)
+    setAlvoNovo(null); setGavetaDe(null)
+  }, [registrarPasso])
   /** Nome e configuração da forma; na tarefa (envio/recebimento) o nome é também o da etapa. */
   const aoMudarForma = useCallback((id: string, p: PatchDaForma) => {
     setDoc((d) => {
@@ -1126,17 +1132,53 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   if (realinharLimpo.current && desenho) { limpoRef.current = assinatura; realinharLimpo.current = false }
   const sujo = !somenteLeitura && assinatura !== limpoRef.current
   const ativoNoServidor = initial?.status === 'ACTIVE'
-  /* Só mudar o FLUXO devolve um workflow ativo a rascunho; arrumar o desenho (posições,
-     raias, ordem das raias), o nome ou o tipo não (PO, 30/10/2026 — `mudaOFluxo` na API).
-     Esta assinatura deixa o desenho de fora para o aviso dizer a verdade. */
-  const assinaturaFluxo = useMemo(
-    () => JSON.stringify({ quemInicia, formas: doc.formas, setas: doc.setas, steps }),
-    [quemInicia, doc.formas, doc.setas, steps],
-  )
+  /* O formSchema COMO VAI SER GRAVADO (o `persist` manda este): as etapas já com o executor
+     da raia onde a tarefa está desenhada, o desenho podado. */
+  const formSchemaVivo = useMemo((): ProcessFormSchema => {
+    /* o desenho que vai ser gravado — também decide em que raia cada tarefa está */
+    const visto = desenhoVisto ? podarDesenho(desenhoVisto, nodes.map((n) => n.id)) : null
+    const desenhoFinal: DesenhoV2 = {
+      ...doc,
+      posicoes: visto?.posicoes ?? doc.posicoes, raias: visto?.raias ?? doc.raias,
+      // condição só vale em seta que sai de uma Escolha; o rótulo, em qualquer uma
+      setas: setasParaGravar(doc),
+    }
+    // a tarefa que herda da raia leva o executor da raia onde está desenhada
+    const stepsVivos = aplicarExecutorDasRaias(
+      nodes.filter((n) => isActivity(n.type) && n.step).map((n) => ({ ...n.step!, stepId: n.id, stepName: n.step!.stepName, stepType: n.type as 'userTask' | 'serviceTask' })),
+      desenhoFinal, alturaDe,
+    )
+    // grafo GERADO (a API valida e compila por ele; telas de leitura o desenham)
+    const graph: ProcessFormSchema['graph'] = {
+      nodes: nodes.map((n) => ({ id: n.id, type: n.type, name: isActivity(n.type) ? (n.step?.stepName || '') : n.name })),
+      edges: edges.map((e) => ({ id: e.id, from: e.from, to: e.to, condition: e.condition || undefined, isDefault: e.isDefault, label: e.label, conditionSpec: e.conditionSpec })),
+    }
+    return {
+      steps: stepsVivos, graph,
+      // cópia DERIVADA, só quando o desenho cabe em blocos (a leitura a usa ao abrir)
+      blocos: fluxo ? comNomes(fluxo, stepsEfetivos) : undefined,
+      laneOrder: laneOrder.length ? laneOrder : undefined,
+      quemInicia,
+      // só as posições de formas que existem (as de formas removidas ficam para trás)
+      desenho: desenhoFinal,
+    }
+  }, [nodes, edges, desenhoVisto, doc, alturaDe, fluxo, stepsEfetivos, laneOrder, quemInicia])
+  /* Só mudar o que o motor EXECUTA devolve um workflow ativo a rascunho; arrumar o desenho
+     (posições, raias, layout, rótulos, nome do Início/Fim), o nome ou o tipo não (PO,
+     30/10/2026). A conta é a da API (`mudaOFluxo` usa `assinaturaDoQueExecuta`), sobre o que
+     vai ser gravado, e a referência é o que está no servidor. `null` = desenho que não fecha:
+     a API conta como mudança. */
+  const assinaturaFluxo = useMemo(() => assinaturaDoQueExecuta(formSchemaVivo), [formSchemaVivo])
   const assinaturaFluxoRef = useRef(assinaturaFluxo)
   assinaturaFluxoRef.current = assinaturaFluxo
-  const limpoFluxoRef = useRef<string>(assinaturaFluxo)
-  const voltaARascunho = sujo && ativoNoServidor && assinaturaFluxo !== limpoFluxoRef.current
+  const limpoFluxoRef = useRef<string | null | undefined>(undefined)
+  if (limpoFluxoRef.current === undefined) {
+    // o formSchema gravado, com as chaves que a abertura recebeu (o resto é só visual)
+    limpoFluxoRef.current = initial
+      ? assinaturaDoQueExecuta({ steps: initial.steps, quemInicia: initial.quemInicia, blocos: initial.blocos, desenho: initial.desenho })
+      : assinaturaFluxo
+  }
+  const voltaARascunho = sujo && ativoNoServidor && (assinaturaFluxo === null || limpoFluxoRef.current === null || assinaturaFluxo !== limpoFluxoRef.current)
 
   /* ─── Abertura do desenho e posições que faltam ──────────────────────────────
      Sem desenho gravado (workflow anterior ao desenho BPMN, ou novo), ele nasce de
@@ -1184,35 +1226,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     const assinaturaGravada = assinaturaRef.current
     const fluxoGravado = assinaturaFluxoRef.current
     const bpmnXml = generateBpmn(buildWfGraph(nodes, edges))
-    /* o desenho que vai ser gravado — também decide em que raia cada tarefa está */
-    const desenhoFinal = ((): DesenhoV2 => {
-      const visto = desenhoVisto ? podarDesenho(desenhoVisto, nodes.map((n) => n.id)) : null
-      return {
-        ...doc,
-        posicoes: visto?.posicoes ?? doc.posicoes, raias: visto?.raias ?? doc.raias,
-        // condição só vale em seta que sai de uma Escolha; o rótulo, em qualquer uma
-        setas: setasParaGravar(doc),
-      }
-    })()
-    // a tarefa que herda da raia leva o executor da raia onde está desenhada
-    const stepsVivos = aplicarExecutorDasRaias(
-      nodes.filter((n) => isActivity(n.type) && n.step).map((n) => ({ ...n.step!, stepId: n.id, stepName: n.step!.stepName, stepType: n.type as 'userTask' | 'serviceTask' })),
-      desenhoFinal, alturaDe,
-    )
-    // grafo GERADO (a API valida e compila por ele; telas de leitura o desenham)
-    const graph: ProcessFormSchema['graph'] = {
-      nodes: nodes.map((n) => ({ id: n.id, type: n.type, name: isActivity(n.type) ? (n.step?.stepName || '') : n.name })),
-      edges: edges.map((e) => ({ id: e.id, from: e.from, to: e.to, condition: e.condition || undefined, isDefault: e.isDefault, label: e.label, conditionSpec: e.conditionSpec })),
-    }
-    const formSchema: ProcessFormSchema = {
-      steps: stepsVivos, graph,
-      // cópia DERIVADA, só quando o desenho cabe em blocos (a leitura a usa ao abrir)
-      blocos: fluxo ? comNomes(fluxo, stepsEfetivos) : undefined,
-      laneOrder: laneOrder.length ? laneOrder : undefined,
-      quemInicia,
-      // só as posições de formas que existem (as de formas removidas ficam para trás)
-      desenho: desenhoFinal,
-    }
+    const formSchema = formSchemaVivo
     /* gravação automática de um workflow novo sem nome: não perde o trabalho */
     const nome = name.trim() || (auto ? 'Rascunho sem nome' : '')
     const body = JSON.stringify({ name: nome, description: description.trim() || undefined, bpmnXml, formSchema, kind: kind || undefined, ...(confirmarReducao ? { confirmarReducao: true } : {}) })
@@ -1233,7 +1247,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     limpoRef.current = assinaturaGravada
     limpoFluxoRef.current = fluxoGravado
     return (await res.json()).id as string
-  }, [editing, initial, name, description, kind, quemInicia, fluxo, stepsEfetivos, nodes, edges, laneOrder, desenhoVisto, doc, alturaDe])
+  }, [editing, initial, name, description, kind, nodes, edges, formSchemaVivo])
 
   const persistRef = useRef(persist)
   persistRef.current = persist
@@ -1410,12 +1424,15 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
       // dentro da gaveta lateral (um botão, uma lista) a tecla é dela, não do desenho
       if (t?.closest?.(`[${ATRIBUTO_GAVETA}],[data-floating-menu],[role="menu"]`)) return
-      if (!selectedId || !fluxo || configId || somenteLeitura) return
-      if (acharItem(fluxo, selectedId)) { e.preventDefault(); remover(selectedId) }
+      if (!selectedId || configId || somenteLeitura) return
+      if (fluxo && acharItem(fluxo, selectedId)) { e.preventDefault(); remover(selectedId); return }
+      // forma que não é item dos blocos (Início/Fim a mais, losango solto…) ou desenho que não
+      // vira blocos: sai do desenho, como pelo Apagar do menu (o único Início e o último Fim ficam)
+      if (doc.formas.some((f) => f.id === selectedId)) { e.preventDefault(); removerNoDesenho(selectedId) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [selectedId, fluxo, configId, somenteLeitura, remover])
+  }, [selectedId, fluxo, configId, somenteLeitura, remover, removerNoDesenho, doc.formas])
 
   const resumo = (() => {
     const atv = nodes.filter((n) => isActivity(n.type)).length
@@ -1475,14 +1492,16 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
             let n = p.nome !== undefined ? renomearFase(d, id, p.nome) : d
             if ('prazoDiasUteis' in p) n = prazoDaFase(n, id, p.prazoDiasUteis)
             return n
-          })} />
+          })}
+          onRemover={() => removerPelaGaveta((d) => removerFase(d, id))} />
       }
       case 'piscinaPrincipal':
         return <GavetaPiscinaPrincipal key={chave} {...moldura} nome={name} descricao={description} quemInicia={quemInicia} papeis={papeis} kind={kind} orientacao={orientacao}
           onNome={setName} onDescricao={setDescription} onQuemInicia={setQuemInicia} onOrientacao={aoOrientacao} />
       case 'piscinaExterna':
         return <GavetaPiscinaExterna key={chave} {...moldura} piscina={l.piscinasExternas.find((p) => p.id === id)!}
-          onPatch={(p) => setDoc((d) => atualizarPiscinaExterna(d, id, p))} />
+          onPatch={(p) => setDoc((d) => atualizarPiscinaExterna(d, id, p))}
+          onRemover={() => removerPelaGaveta((d) => removerPiscinaExterna(d, id))} />
       case 'mensagem': {
         const fluxoMsg = l.fluxosMensagem.find((m) => m.id === id)!
         return <GavetaMensagem key={chave} {...moldura} fluxo={fluxoMsg} de={nomeDoPonto(fluxoMsg.de)} para={nomeDoPonto(fluxoMsg.para)}

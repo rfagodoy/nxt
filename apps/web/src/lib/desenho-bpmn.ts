@@ -377,7 +377,7 @@ export function formasDoItem(it: ItemFluxo): string[] {
   return [it.id, it.id + SUFIXO_REENCONTRO, ...caminhos.flatMap((c) => c.itens.flatMap(formasDoItem))]
 }
 
-/** Item movido pela lista do Roteiro: perde a posição antiga (e o reencontro dela) para
+/** Item movido de lugar no fluxo (arrastado para outra seta): perde a posição antiga (e o reencontro dela) para
  *  `completarPosicoes` colocá-lo perto do novo lugar. Os outros não se mexem. */
 export function posicoesAoMover(d: DesenhoBpmn, ids: Iterable<string>): DesenhoBpmn {
   const fora = new Set<string>()
@@ -412,7 +412,7 @@ function idDeSeta(d: DesenhoV2): string {
 export function ligar(d: DesenhoV2, de: string, para: string): DesenhoV2 {
   if (podeLigar(d, de, para)) return d
   const seta: SetaDesenho = { id: idDeSeta(d), de, para }
-  // uma 2ª saída no losango que junta gerado pelo Roteiro: ele passa a dividir (id livre)
+  // uma 2ª saída no losango que junta (gerado pelos blocos): ele passa a dividir (id livre)
   return semIdsReservados({ ...d, setas: [...d.setas, seta] })
 }
 
@@ -451,14 +451,14 @@ export function soltarForma(d: DesenhoV2, forma: FormaDesenho, posicao: { x: num
   return { ...comForma, setas: [...d.setas.map((x) => (x.id === s.id ? { ...x, para: forma.id } : x)), depois] }
 }
 
-/** Apaga a forma, as setas dela, a posição, os fluxos de mensagem e o tamanho. Início e o último Fim não se apagam. `costurar`: a
+/** Apaga a forma, as setas dela, a posição, os fluxos de mensagem e o tamanho. O único Início e o último Fim não se apagam. `costurar`: a
  *  ETAPA de uma chegada e uma saída sai da sequência sem abrir buraco — a seta que chegava
  *  nela passa a ir para onde ela ia (como o editor sempre fez ao excluir uma etapa). */
 export function apagarForma(d: DesenhoV2, id: string, costurar = false): DesenhoV2 {
   const f = d.formas.find((x) => x.id === id)
-  if (!f || f.tipo === 'start') return d
-  // vários Fins são permitidos; o último que sobra não se apaga
-  if (f.tipo === 'end' && d.formas.filter((x) => x.tipo === 'end').length < 2) return d
+  if (!f) return d
+  // um Início ou Fim a mais (o conversor recusa) se apaga; o último que sobra, não
+  if ((f.tipo === 'start' || f.tipo === 'end') && d.formas.filter((x) => x.tipo === f.tipo).length < 2) return d
   const posicoes = { ...d.posicoes }
   delete posicoes[id]
   const chegam = d.setas.filter((s) => s.para === id), saem = d.setas.filter((s) => s.de === id)

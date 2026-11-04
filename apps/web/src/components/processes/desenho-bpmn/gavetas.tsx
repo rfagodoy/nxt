@@ -9,7 +9,7 @@
    mantém. Os campos de cada variante são os do mockup aprovado e ficam em `forma.config`. */
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
-import { AlertTriangle, ArrowRightLeft, Info } from 'lucide-react'
+import { AlertTriangle, ArrowRightLeft, Info, Trash2 } from 'lucide-react'
 import type { FaseDesenho, FluxoMensagem, FormaDesenho, PiscinaExterna, QuemInicia, SetaDesenho, StepFormSchema } from '@nxt/types'
 import { executaHoje, varianteDe } from '@nxt/workflow-core'
 import { Button } from '@/components/ui/button'
@@ -49,8 +49,10 @@ const COR: Record<Etiqueta, string> = { ...CHIP, documenta: CHIP.proxima }
 
 export const AVISO_AINDA_NAO_EXECUTA = 'Ainda não executa: dá para desenhar e salvar; para ativar, troque por outro elemento.'
 
-function MolduraDaGaveta({ rotulo, titulo, etiqueta, onCancelar, onAplicar, focarAoAbrir, children }: Moldura & {
+function MolduraDaGaveta({ rotulo, titulo, etiqueta, onCancelar, onAplicar, focarAoAbrir, remover, children }: Moldura & {
   rotulo: string; titulo: string; etiqueta: Etiqueta; children: ReactNode
+  /** botão de remover no rodapé, à esquerda (como o "Remover" da etapa) */
+  remover?: { rotulo: string; aoRemover: () => void }
 }): JSX.Element {
   /* Esc DENTRO da gaveta (sem lista/balão aberto por cima) cancela, como na etapa */
   useEffect(() => {
@@ -64,6 +66,12 @@ function MolduraDaGaveta({ rotulo, titulo, etiqueta, onCancelar, onAplicar, foca
         As alterações já aparecem no desenho e entram no workflow ao <span className="font-medium">Salvar rascunho</span> ou <span className="font-medium">Ativar</span>.
       </p>
       <div className="flex items-center justify-end gap-2">
+        {remover && (
+          <Button variant="ghost" size="sm" onClick={remover.aoRemover} aria-label={remover.rotulo}
+            className="mr-auto text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+            <Trash2 className="h-3.5 w-3.5" />{remover.rotulo}
+          </Button>
+        )}
         <Button variant="ghost" size="sm" onClick={onCancelar}>Cancelar</Button>
         <Button size="sm" onClick={onAplicar}>Aplicar</Button>
       </div>
@@ -235,14 +243,16 @@ export function GavetaRaia({ raia, tarefasNaRaia, papeis, onPatch, ...moldura }:
 
 /* ─── Fase ──────────────────────────────────────────────────────────────────── */
 
-export function GavetaFase({ fase, formasNaFase, onPatch, ...moldura }: Moldura & {
+export function GavetaFase({ fase, formasNaFase, onPatch, onRemover, ...moldura }: Moldura & {
   fase: FaseDesenho
   formasNaFase: number
   /** `prazoDiasUteis: undefined` (com a chave) tira o prazo */
   onPatch: (p: { nome?: string; prazoDiasUteis?: number | undefined }) => void
+  /** tira a fase do desenho (as formas ficam onde estão) e fecha a gaveta */
+  onRemover: () => void
 }): JSX.Element {
   return (
-    <MolduraDaGaveta rotulo="Fase" titulo={fase.nome || 'Fase sem nome'} etiqueta="documenta" {...moldura}>
+    <MolduraDaGaveta rotulo="Fase" titulo={fase.nome || 'Fase sem nome'} etiqueta="documenta" remover={{ rotulo: 'Remover fase', aoRemover: onRemover }} {...moldura}>
       <Pergunta id="fase-nome" n={1} titulo="Nome da fase" ok={!!fase.nome.trim()}>
         <CampoTexto rotulo="Nome da fase" valor={fase.nome} onMudar={(v) => onPatch({ nome: v })} />
       </Pergunta>
@@ -286,12 +296,14 @@ export function GavetaPiscinaPrincipal({ nome, descricao, quemInicia, papeis, ki
 
 /* ─── Piscina externa ───────────────────────────────────────────────────────── */
 
-export function GavetaPiscinaExterna({ piscina, onPatch, ...moldura }: Moldura & {
+export function GavetaPiscinaExterna({ piscina, onPatch, onRemover, ...moldura }: Moldura & {
   piscina: PiscinaExterna
   onPatch: (p: Partial<Omit<PiscinaExterna, 'id'>>) => void
+  /** tira a piscina e os fluxos de mensagem dela e fecha a gaveta */
+  onRemover: () => void
 }): JSX.Element {
   return (
-    <MolduraDaGaveta rotulo="Piscina de participante externo" titulo={piscina.nome || 'Participante sem nome'} etiqueta="documenta" {...moldura}>
+    <MolduraDaGaveta rotulo="Piscina de participante externo" titulo={piscina.nome || 'Participante sem nome'} etiqueta="documenta" remover={{ rotulo: 'Remover piscina', aoRemover: onRemover }} {...moldura}>
       <Pergunta id="ext-nome" n={1} titulo="Nome" ok={!!piscina.nome.trim()}>
         <CampoTexto rotulo="Nome do participante externo" valor={piscina.nome} onMudar={(v) => onPatch({ nome: v })} />
       </Pergunta>

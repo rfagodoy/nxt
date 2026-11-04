@@ -31,6 +31,18 @@ describe('layoutDe e orientação', () => {
     expect(v.layout).toEqual({ ...LAYOUT_PADRAO, orientacao: 'vertical' })
     expect(mudarOrientacao(v, 'vertical')).toBe(v)
   })
+  it('mudarOrientacao de volta ao padrão tira o layout (H→V→H não deixa "Não salvo")', () => {
+    const d = doc()
+    const ida = mudarOrientacao(d, 'vertical')
+    const volta = mudarOrientacao(ida, 'horizontal')
+    expect(volta.layout).toBeUndefined()
+    expect('layout' in volta).toBe(false)
+    expect(volta).toEqual(d)
+  })
+  it('mudarOrientacao de volta ao horizontal mantém o layout que tem outra coisa (fase)', () => {
+    const comFase = adicionarFase(mudarOrientacao(doc(), 'vertical'), { gerarId: ids })
+    expect(mudarOrientacao(comFase, 'horizontal').layout?.orientacao).toBe('horizontal')
+  })
 })
 
 describe('fases', () => {
@@ -168,7 +180,14 @@ describe('apagarForma com o layout', () => {
     const d = { ...doc(), formas: [...doc().formas, forma('fim2', 'end')] }
     expect(apagarForma(d, 'fim2').formas.map((f) => f.id)).not.toContain('fim2')
   })
-  it('apagarForma não apaga o último Fim nem o Início', () => {
+  it('apagarForma apaga um Início quando há outro (a seta dele vai junto)', () => {
+    const d = { ...doc(), formas: [...doc().formas, forma('ini2', 'start')], setas: [...doc().setas, { id: 'sx', de: 'ini2', para: 'a1' }] }
+    const r = apagarForma(d, 'ini2')
+    expect(r.formas.map((f) => f.id)).not.toContain('ini2')
+    expect(r.setas.map((s) => s.id)).not.toContain('sx')
+    expect(apagarForma(d, 'ini').formas.map((f) => f.id)).toContain('ini2')
+  })
+  it('apagarForma não apaga o último Fim nem o único Início', () => {
     const d = doc()
     expect(apagarForma(d, 'fim')).toBe(d)
     expect(apagarForma(d, 'ini')).toBe(d)
