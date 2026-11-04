@@ -123,14 +123,16 @@ function itensPorId(f: FluxoBlocos): Map<string, ItemFluxo> {
   return m
 }
 
-/** Blocos → desenho. Volta da estrutura mudada pelo Roteiro (e abertura de workflows em
- *  blocos): ids, posições e raias do que já existia ficam; formas novas ficam sem posição
- *  (o editor completa). A seta que sai do losango para um caminho leva o id do caminho —
+/** Blocos → desenho. Volta da estrutura mudada pelos blocos (excluir, caminho da escolha… e
+ *  abertura de workflows em blocos): ids, posições e raias do que já existia ficam; formas
+ *  novas ficam sem posição (o editor completa). O layout (orientação, fases, piscinas
+ *  externas, fluxos de mensagem, tamanhos) e o rótulo das setas comuns — que os blocos não
+ *  têm — voltam do desenho anterior. A seta que sai do losango para um caminho leva o id do caminho —
  *  é o que liga a condição editada no bloco à seta do desenho (e vice-versa). Com as formas
  *  e setas do desenho anterior, os losangos de passagem dele ficam (`manterPassagens`). */
 export function blocosParaDesenho(
   f: FluxoBlocos,
-  anterior?: { posicoes: Record<string, { x: number; y: number }>; raias: RaiaDesenho[]; formas?: FormaDesenho[]; setas?: SetaDesenho[] } | null,
+  anterior?: { posicoes: Record<string, { x: number; y: number }>; raias: RaiaDesenho[]; formas?: FormaDesenho[]; setas?: SetaDesenho[]; layout?: LayoutDesenho } | null,
 ): DesenhoV2 {
   const g = blocosParaGrafo(f, { juncaoSempre: true })
   const itens = itensPorId(f)
@@ -173,7 +175,24 @@ export function blocosParaDesenho(
     : { formas, setas }
   const vivos = new Set(d.formas.map((x) => x.id))
   const posicoes = Object.fromEntries(Object.entries(anterior?.posicoes ?? {}).filter(([id]) => vivos.has(id)))
-  return { versao: 2, formas: d.formas, setas: d.setas, posicoes, raias: anterior?.raias ?? [] }
+  // rótulo da seta comum (a que não sai de um losango): volta se ela segue ligando as mesmas formas
+  const losangos = new Set(d.formas.filter((x) => x.tipo === 'exclusiveGateway' || x.tipo === 'parallelGateway').map((x) => x.id))
+  const rotuloAntes = new Map((anterior?.setas ?? []).filter((x) => x.rotulo && !losangos.has(x.de)).map((x) => [`${x.de}>${x.para}`, x.rotulo!]))
+  const setasFinais = rotuloAntes.size
+    ? d.setas.map((x) => (x.rotulo || losangos.has(x.de) || !rotuloAntes.has(`${x.de}>${x.para}`) ? x : { ...x, rotulo: rotuloAntes.get(`${x.de}>${x.para}`) }))
+    : d.setas
+  const out: DesenhoV2 = { versao: 2, formas: d.formas, setas: setasFinais, posicoes, raias: anterior?.raias ?? [] }
+  if (anterior?.layout) {
+    // o que apontava para uma forma que saiu sai junto (como ao apagar a forma no desenho)
+    const l = anterior.layout
+    const pontos = new Set([...vivos, ...l.piscinasExternas.map((x) => x.id)])
+    out.layout = {
+      ...l,
+      fluxosMensagem: l.fluxosMensagem.filter((m) => pontos.has(m.de) && pontos.has(m.para)),
+      tamanhos: Object.fromEntries(Object.entries(l.tamanhos).filter(([id]) => vivos.has(id))),
+    }
+  }
+  return out
 }
 
 /** Os blocos sem o que não muda a execução: o losango que junta com o id de sempre, o
