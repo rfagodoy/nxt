@@ -28,7 +28,7 @@ import { GavetaLateral } from './desenho-bpmn/gaveta'
 import {
   BotaoAcrescentar, CAMPO, CORPO_DA_GAVETA, EmResumo, FraseDoResumo, Opcao, Pergunta, RodapePadrao, TOM_DO_TIPO, useEscCancela,
 } from './desenho-bpmn/gaveta-padrao'
-import { resumoDaEscolha } from '@/lib/editor-bizagi/resumos'
+import { resumoDaEscolha, resumoDoParalelo } from '@/lib/editor-bizagi/resumos'
 import { GatewayGlyph } from './flow-shared'
 import { cn } from '@/lib/utils'
 
@@ -139,17 +139,6 @@ function useTrilho(): BlocoCtx {
   const c = useContext(Ctx)
   if (!c) throw new Error('useTrilho fora da ConfiguracaoDoBloco')
   return c
-}
-
-/** Marca de pendência no próprio item. A FORMA diz a gravidade (triângulo impede a
- *  ativação, "i" só informa) — a cor apenas reforça. */
-function MarcaProblema({ id }: { id: string }) {
-  const ps = useTrilho().problemas.get(id)
-  if (!ps?.length) return null
-  const texto = ps.map((p) => p.mensagem).join('\n')
-  return ps.some((p) => p.severidade !== 'aviso')
-    ? <span title={texto} aria-label={texto} className="shrink-0 text-amber-500"><AlertTriangle className="h-3.5 w-3.5" /></span>
-    : <span title={texto} aria-label={texto} className="shrink-0 text-sky-500"><Info className="h-3.5 w-3.5" /></span>
 }
 
 function BotaoIcone({ title, onClick, perigo, disabled, children }: { title: string; onClick: () => void; perigo?: boolean; disabled?: boolean; children: React.ReactNode }) {
@@ -480,46 +469,52 @@ function PerguntasDaEscolha({ bloco, anteriores }: { bloco: BlocoEscolha; anteri
   )
 }
 
-function BlocoParaleloView({ bloco }: { bloco: BlocoParalelo }) {
+/** O "ao mesmo tempo" na gaveta: o nome e as frentes, no padrão das perguntas da etapa. */
+function PerguntasDoParalelo({ bloco }: { bloco: BlocoParalelo }) {
   const t = useTrilho()
   return (
-    <section aria-label="Fazer ao mesmo tempo" className="flex w-full flex-col rounded-2xl border-[1.5px] border-rose-500/55 bg-card shadow-sm">
-      <header className="flex items-center gap-2 rounded-t-2xl border-b bg-rose-500/[0.07] px-2 py-1.5">
-        <GatewayGlyph kind="parallel" className="h-4 w-4 shrink-0 text-rose-600 dark:text-rose-400" />
-        <div className="min-w-0 flex-1">
-          <span className="block text-[9.5px] font-bold uppercase tracking-wider text-rose-700 dark:text-rose-300">Fazer ao mesmo tempo</span>
-          <input value={bloco.nome ?? ''} placeholder="Dê um nome (ex.: Pareceres)" aria-label="Nome do bloco"
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => { const nome = e.target.value; t.onFluxo((f) => atualizarItem(f, bloco.id, { nome })) }}
-            className={cn('block bg-transparent text-[12.5px] font-semibold leading-tight outline-none placeholder:font-normal placeholder:italic placeholder:text-muted-foreground focus:underline focus:decoration-dotted w-full')} />
-        </div>
-        <span className="ml-auto flex items-center gap-0.5 pl-3">
-          <MarcaProblema id={bloco.id} />
-          <BotaoIcone title="Remover o bloco e o que há dentro dele" perigo onClick={() => t.onRemover(bloco.id)}><Trash2 className="h-3.5 w-3.5" /></BotaoIcone>
-        </span>
-      </header>
+    <div className={CORPO_DA_GAVETA}>
+      <EmResumo><FraseDoResumo trechos={resumoDoParalelo(bloco.caminhos.length)} /></EmResumo>
+      <PendenciasDoBloco id={bloco.id} />
 
-      <div className="flex flex-col gap-1.5 p-2">
-        <span className="px-1 text-[11.5px] font-semibold">Ao mesmo tempo:</span>
-        {bloco.caminhos.map((c, i) => (
-          <div key={c.id} className="flex items-center gap-1.5 rounded-lg bg-muted/45 px-2 py-1">
-            <span className="w-[64px] shrink-0 text-[11px] font-semibold text-muted-foreground">{i === 0 ? 'Frente 1' : `e frente ${i + 1}`}</span>
-            <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground" title={resumoItens(c.itens, t.nomeDe)}>{resumoItens(c.itens, t.nomeDe)}</span>
-            {bloco.caminhos.length > 1 && (
-              <BotaoIcone title="Remover esta frente" perigo onClick={() => t.onRemoverCaminho(bloco.id, c.id)}><X className="h-3.5 w-3.5" /></BotaoIcone>
-            )}
-          </div>
-        ))}
-      </div>
+      <Pergunta id="paralelo-nome" n={1} titulo="Nome (opcional)" ok ajuda="Aparece no losango. Ex.: Pareceres.">
+        <Input className={cn(CAMPO, 'max-w-lg')} aria-label="Nome do bloco" value={bloco.nome ?? ''} placeholder="Ex.: Pareceres"
+          onChange={(e) => { const nome = e.target.value; t.onFluxo((f) => atualizarItem(f, bloco.id, { nome })) }} />
+      </Pergunta>
 
-      <footer className="flex items-center gap-3 border-t px-2.5 py-1.5">
-        <button type="button" onClick={() => { const id = novoId('Caminho'); t.onFluxo((f) => adicionarCaminho(f, bloco.id, id)) }}
-          className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-rose-700 hover:underline dark:text-rose-300">
-          <Plus className="h-3 w-3" />frente
-        </button>
-        <span className="text-[11px]"><span className="font-semibold">Segue quando</span> todas as frentes terminarem.</span>
-      </footer>
-    </section>
+      <Pergunta id="paralelo-frentes" n={2} titulo="Frentes" ok={bloco.caminhos.length >= 2}
+        ajuda="Cada frente anda sozinha. As etapas de cada uma ficam no desenho.">
+        <ul className="flex flex-col gap-2">
+          {bloco.caminhos.map((c, i) => {
+            const primeira = c.itens[0]
+            return (
+              <li key={c.id} className="flex min-w-0 items-start gap-2 rounded-lg border bg-card px-3 py-[var(--secao-pad)]">
+                <span className="mt-px flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-rose-500/10 px-1 font-mono text-[10.5px] font-bold text-rose-700 dark:bg-rose-400/10 dark:text-rose-300"
+                  aria-label={`Frente ${i + 1}`}>{i + 1}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="break-words text-[length:var(--campo-fonte)] font-semibold leading-snug">
+                    {primeira ? resumoItens([primeira], t.nomeDe) : <span className="text-muted-foreground">Frente sem etapas</span>}
+                  </p>
+                  {c.itens.length > 1 && (
+                    <p className="mt-0.5 break-words text-[11.5px] leading-snug text-muted-foreground">→ {resumoItens(c.itens.slice(1), t.nomeDe)}</p>
+                  )}
+                </div>
+                {bloco.caminhos.length > 1 && (
+                  <button type="button" onClick={(e) => { e.stopPropagation(); t.onRemoverCaminho(bloco.id, c.id) }}
+                    title="Remover esta frente e as etapas dela" aria-label={`Remover a frente ${i + 1}`}
+                    className={cn(ACAO_CARTAO, 'shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive')}>
+                    <Trash2 className="h-3 w-3" />Remover
+                  </button>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+        <BotaoAcrescentar onClick={() => { const id = novoId('Caminho'); t.onFluxo((f) => adicionarCaminho(f, bloco.id, id)) }}>
+          <Plus className="h-3 w-3" />Frente
+        </BotaoAcrescentar>
+      </Pergunta>
+    </div>
   )
 }
 
@@ -597,17 +592,10 @@ export function GavetaDoBloco({ blocoId, anteriores, focarAoAbrir, onCancelar, o
   }
   return (
     <GavetaLateral rotulo="Ao mesmo tempo" rotuloTom={TOM_DO_TIPO.paralelo} rotuloIcone={<GatewayGlyph kind="parallel" className="h-3 w-3" />}
-      titulo={b.nome?.trim() || 'Bloco sem nome'} onFechar={onAplicar} focarAoAbrir={focarAoAbrir}>
-      <Ctx.Provider value={ctx}>
-        <div className="flex flex-col gap-3 p-4">
-          <BlocoParaleloView bloco={b} />
-          <p className="text-[11px] leading-snug text-muted-foreground">
-            {b.caminhos.length === 1
-              ? <>Só há uma frente: o processo segue quando ela terminar. As etapas da frente ficam no desenho.</>
-              : <>As {b.caminhos.length} frentes começam juntas, e o processo só segue quando todas terminarem. As etapas de cada frente ficam no desenho.</>}
-          </p>
-        </div>
-      </Ctx.Provider>
+      titulo={b.nome?.trim() || 'Ao mesmo tempo sem nome'} rotuloFechar="Fechar sem aplicar" onFechar={onCancelar} focarAoAbrir={focarAoAbrir}
+      rodape={<RodapePadrao pendentes={b.caminhos.length >= 2 ? 0 : 1} onCancelar={onCancelar} onAplicar={onAplicar}
+        remover={{ rotulo: 'Remover', nomeAcessivel: 'Remover o bloco e o que há dentro dele', aoRemover: () => props.onRemover(b.id) }} />}>
+      <Ctx.Provider value={ctx}><PerguntasDoParalelo bloco={b} /></Ctx.Provider>
     </GavetaLateral>
   )
 }
