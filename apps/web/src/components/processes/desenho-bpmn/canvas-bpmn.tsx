@@ -18,7 +18,7 @@
    `retanguloParaTela`) e tudo o que o ponteiro dá volta ao lógico (`daTela`, `pontoNaTela`).
    Laço no vazio (Shift soma) seleciona várias (`onSelecaoMultipla`); o arrasto encaixa na
    grade (se ligada) e nas guias de centro das outras formas. */
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type DragEvent, type JSX, type KeyboardEvent as TeclaReact, type MouseEvent as ReactMouseEvent } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type DragEvent, type JSX, type KeyboardEvent as TeclaReact, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { useTheme } from 'next-themes'
 import { useTema } from '@/lib/temas-provider'
 import {
@@ -971,15 +971,6 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   /** Do Fim não sai seta: ele não tem próximo item. */
   const proximoDe = menuSel && menuSel.tipo !== 'end' ? menuSel : null
   const ladoDoProximo = orientacao === 'vertical' ? Position.Bottom : Position.Right
-  /* O menu fica ACIMA da forma. Na horizontal, a coluna do próximo item (à direita, centrada
-     na altura da forma) passa do topo de uma forma baixa — um evento, um losango — e, se a
-     forma for estreita, o menu centrado chegaria nela. Aí o menu sobe até passar da coluna.
-     Medidas na tela: a forma escala com o zoom; menu e coluna, não. */
-  const medidaSel = useStore((s) => {
-    const n = menuSel ? s.nodeLookup.get(menuSel.id) : undefined
-    const z = s.transform[2]
-    return n ? `${(n.measured?.width ?? n.width ?? 0) * z}|${(n.measured?.height ?? n.height ?? 0) * z}` : ''
-  })
   const arrastarProximo = (item: ItemCatalogo, e: DragEvent) => {
     if (!proximoDe) return
     e.dataTransfer.setData(TIPO_ARRASTO_FORMA, JSON.stringify({ grupo: item.grupo, indice: CATALOGO[item.grupo].indexOf(item) }))
@@ -1002,13 +993,6 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   const podeVincular = !!onInserirVinculada && !!vinculaveis?.length
   const menuVinculo = !!acoes && podeVincular && menuVinculoDe === acoes.id
   const botoesDoMenu = 1 + (acoes && podeVincular ? 1 : 0) + (podeLigarDaqui ? 1 : 0) + (apagavelSel ? 1 : 0)
-  const offsetDoMenu = (() => {
-    if (!proximoDe || vertical || !medidaSel) return 8
-    const [w, h] = medidaSel.split('|').map(Number)
-    const meioDoMenu = (botoesDoMenu * 28 + (botoesDoMenu - 1) * 2 + 8) / 2
-    if (w / 2 + 12 >= meioDoMenu + 4) return 8
-    return Math.max(8, (ALTURA_DA_COLUNA - h) / 2 + 8)
-  })()
   const setMenuVinculo = (v: boolean | ((x: boolean) => boolean)) => {
     const novo = typeof v === 'function' ? v(menuVinculo) : v
     setMenuVinculoDe(novo && acoes ? acoes.id : null)
@@ -1251,7 +1235,7 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
             </ViewportPortal>
           )}
           {/* menu pequeno da seleção, acima da forma */}
-          <NodeToolbar nodeId={menuSel?.id} isVisible={!!menuSel} position={Position.Top} offset={offsetDoMenu}>
+          <MenuAcimaDaForma nodeId={menuSel?.id} botoes={botoesDoMenu} desviarDaColuna={!!proximoDe && !vertical}>
             <div role="toolbar" aria-label="Forma selecionada"
               className="flex items-center gap-0.5 rounded-lg bg-white p-1 font-sans text-[var(--e-2E3E36)] shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[var(--e-0F1914)] dark:text-[var(--e-C9D6CE)] dark:shadow-[0_0_0_1px_var(--e-2A3B32),0_12px_24px_-12px_rgba(0,0,0,0.7)]">
               <button type="button" className={ACAO} title="Parametrizar (duplo clique ou Enter)" aria-label="Parametrizar"
@@ -1297,7 +1281,7 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
                 ))}
               </div>
             )}
-          </NodeToolbar>
+          </MenuAcimaDaForma>
           {/* próximo item: à direita da forma (embaixo, na vertical) */}
           <NodeToolbar nodeId={proximoDe?.id} isVisible={!!proximoDe} position={ladoDoProximo} offset={12}>
             <ProximoItem onEscolher={(item) => proximoDe && onProximo(proximoDe.id, item)} onArrastar={arrastarProximo} />
@@ -1326,6 +1310,28 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
 /** O React Flow mostra uma caixa por cima das formas laçadas (para arrastá-las juntas); aqui
  *  quem arrasta é a própria forma (as outras selecionadas vão junto), e a caixa só atrapalharia
  *  o clique e o duplo clique nelas. */
+/** O menu da seleção, ACIMA da forma. Na horizontal, a coluna do próximo item (à direita,
+ *  centrada na altura da forma) passa do topo de uma forma baixa — um evento, um losango — e,
+ *  se a forma for estreita, o menu centrado chegaria nela: aí ele sobe até passar da coluna.
+ *  Medidas na tela: a forma escala com o zoom; menu e coluna, não. Lê a loja do React Flow,
+ *  então mora DENTRO do <ReactFlow> (o CanvasBpmn, que o renderiza, não tem a loja). */
+function MenuAcimaDaForma({ nodeId, botoes, desviarDaColuna, children }: {
+  nodeId: string | undefined; botoes: number; desviarDaColuna: boolean; children: ReactNode
+}): JSX.Element {
+  const medida = useStore((s) => {
+    const n = nodeId ? s.nodeLookup.get(nodeId) : undefined
+    const z = s.transform[2]
+    return n ? `${(n.measured?.width ?? n.width ?? 0) * z}|${(n.measured?.height ?? n.height ?? 0) * z}` : ''
+  })
+  let offset = 8
+  if (desviarDaColuna && medida) {
+    const [w, h] = medida.split('|').map(Number)
+    const meioDoMenu = (botoes * 28 + (botoes - 1) * 2 + 8) / 2
+    if (w / 2 + 12 < meioDoMenu + 4) offset = Math.max(8, (ALTURA_DA_COLUNA - h) / 2 + 8)
+  }
+  return <NodeToolbar nodeId={nodeId} isVisible={!!nodeId} position={Position.Top} offset={offset}>{children}</NodeToolbar>
+}
+
 function SemCaixaDaSelecao(): null {
   const ativa = useStore((s) => s.nodesSelectionActive)
   const loja = useStoreApi()
