@@ -4,14 +4,40 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ## [Não lançado]
 
+## [2.0.0] — Boole — 2026-11-04
+
+A versão 2 homenageia **George Boole** (1815–1864), matemático inglês que transformou a lógica em álgebra: verdadeiro e falso, "e", "ou" e "não" viraram operações que se calculam. Toda decisão que um computador toma descende do trabalho dele, e por isso o nome combina com uma versão dedicada às regras e aos fluxos de aprovação.
+
+### Adicionado
+
+- **Editor de workflow no estilo Bizagi:**
+  - paleta em grade com Início, Tarefa, Escolha, Ao mesmo tempo e Fim, com as variações de cada um no ▾ e as etiquetas "Executa hoje" e "Próxima rodada";
+  - ao selecionar uma forma, a coluna ao lado oferece o próximo item (Tarefa, Escolha, Ao mesmo tempo ou Fim), que entra já ligado;
+  - um clique seleciona, e o duplo clique abre a parametrização de qualquer elemento: tarefa, losango, evento, seta, raia, fase, piscina e fluxo de mensagem;
+  - fases dividem o desenho em etapas do processo;
+  - piscinas de participantes externos, ligadas ao processo por fluxo de mensagem;
+  - o desenho pode ficar na horizontal ou na vertical;
+  - grade, guias de alinhamento e seleção por laço, com alinhar e distribuir. A tarefa pode ser redimensionada;
+  - a raia tem um executor padrão, que as tarefas desenhadas nela herdam até alguém escolher outro;
+  - setas com ponta livre: ao selecionar uma seta, cada ponta pode ser arrastada para qualquer ponto do contorno da forma, e "Caminho automático" volta ao traçado de sempre;
+  - as setas comuns ganham rótulo;
+  - elementos da próxima rodada (como temporizador e subprocesso) podem ser desenhados e salvos em rascunho. A ativação explica que eles ainda não executam.
+
 ### Alterado
 
+- **Gavetas do editor no mesmo padrão:** chip com o tipo, "Em resumo" em uma frase, perguntas numeradas e rodapé com Remover, Cancelar e Aplicar. A Escolha mostra cada caminho inteiro, com a condição, o destino, Editar e Remover.
+- A Escolha da paleta segue "o primeiro que servir". "Todos os que servirem" fica na gaveta da Escolha.
+- O aviso de que um workflow ativo volta a rascunho considera o executor que a tarefa herda da raia.
 - **Menu do usuário** reorganizado em seções:
   - a conta fica no topo;
   - em "Suas preferências", o tema vira uma linha com a cor e o nome atuais;
   - a lista completa de temas abre ao lado, separada em Claros e Escuros e com os nomes inteiros;
   - a densidade mostra o espaçamento de cada opção;
   - Sair e a versão dividem o rodapé.
+
+### Removido
+
+- O Roteiro e a vista "Ver por raia" saíram. O editor é só o desenho.
 
 ## [1.1.1] — Ada — 2026-10-31
 
@@ -78,7 +104,8 @@ Primeira versão numerada do Nxt. Ela reúne o que foi entregue até aqui (PRs #
 - Recuperação de senha, trilha de auditoria e mutações de configuração restritas a administradores.
 - Dependências sem nenhum alerta alto ou crítico, com portão de auditoria no CI (`follow-redirects` 1.16.2).
 
-[Não lançado]: https://github.com/rfagodoy/nxt/compare/v1.1.1-ada...HEAD
+[Não lançado]: https://github.com/rfagodoy/nxt/compare/v2.0.0-boole...HEAD
+[2.0.0]: https://github.com/rfagodoy/nxt/compare/v1.1.1-ada...v2.0.0-boole
 [1.1.1]: https://github.com/rfagodoy/nxt/compare/v1.1.0-ada...v1.1.1-ada
 [1.1.0]: https://github.com/rfagodoy/nxt/compare/v1.0.0-ada...v1.1.0-ada
 [1.0.0]: https://github.com/rfagodoy/nxt/releases/tag/v1.0.0-ada

@@ -91,6 +91,8 @@ export interface StepFormSchema {
      *  (papel de pessoa com origem Contrato). */
     stakeholder?: string
   }
+  /** A etapa usa o executor da raia em que está desenhada (editor Bizagi). */
+  executorDaRaia?: boolean
 
   /** Tela (Personalização de Telas) que serve de FORMULÁRIO desta atividade. Em vez de
    *  campos avulsos, o usuário preenche o cadastro completo DIRIGIDO por esta tela e a
@@ -281,7 +283,7 @@ export const EXECUTOR_QUEM_INICIOU = '@iniciador'
 export const VAR_INICIADO_POR = '__iniciadoPor'
 
 /** Raia do desenho BPMN: faixa horizontal nomeada, só visual. */
-export interface RaiaDesenho { id: string; nome: string; altura: number }
+export interface RaiaDesenho { id: string; nome: string; altura: number; executor?: StepFormSchema['executor'] }
 /** Desenho BPMN do workflow (posição dos nós e raias). Só visual: não afeta o motor. */
 export interface DesenhoBpmn {
   versao: 1
@@ -293,6 +295,16 @@ export interface DesenhoBpmn {
    O DESENHO é a fonte da verdade: formas e setas como a pessoa desenhou. Os blocos
    (`FluxoBlocos`) são derivados dele por `desenhoParaBlocos` (workflow-core). */
 export type TipoForma = 'start' | 'end' | 'userTask' | 'serviceTask' | 'exclusiveGateway' | 'parallelGateway'
+  | 'intermediateEvent' | 'subProcess' | 'eventGateway'
+export type VarianteForma = 'simples' | 'agendado' | 'evento' | 'usuario' | 'envio' | 'recebimento' | 'chamada' | 'embutido'
+  | 'temporizador' | 'recebe' | 'envia' | 'erro' | 'cancela' | 'terminar'
+export interface ConfigTemporizador {
+  espera: 'prazo' | 'data'; n: number; unidade: 'diasUteis' | 'diasCorridos' | 'horasUteis'
+  campoData?: 'vencimento' | 'assinatura' | 'inicioVigencia'; sentido?: 'antes' | 'depois'
+}
+export interface ConfigSubprocesso { processId?: string; versao: 'ativa' | 'fixa'; versaoFixa?: number; levarContrato: boolean; campos: string[]; esperar: boolean }
+export interface ConfigFim { motivo?: string; codigo?: string; avisarQuemIniciou?: boolean }
+export type ConfigForma = ConfigTemporizador | ConfigSubprocesso | ConfigFim | Record<string, string | number | boolean>
 export interface FormaDesenho {
   id: string; tipo: TipoForma; nome?: string
   /** losango de Escolha que divide: "o primeiro que servir" / "todos os que servirem" */
@@ -303,6 +315,9 @@ export interface FormaDesenho {
   /** losango que JUNTA caminhos (marcado por `blocosParaDesenho`). Sem a marca, um losango de
    *  uma saída e uma entrada DIVIDE: é uma Escolha/Ao mesmo tempo de um caminho só. */
   junta?: true
+  /** variação da forma (início agendado, envio de mensagem, fim com erro…) */
+  variante?: VarianteForma
+  config?: ConfigForma
 }
 export interface SetaDesenho {
   id: string; de: string; para: string
@@ -310,14 +325,38 @@ export interface SetaDesenho {
   condition?: string; conditionSpec?: EdgeConditionSpec; rotulo?: string
   /** o "Senão" antigo (caminho padrão) */
   padrao?: true
+  /** Ponta livre (só visual): onde a seta sai da forma de origem. Ausente = automática. */
+  saida?: PontaDaSeta
+  /** Ponta livre (só visual): onde a seta chega na forma de destino. Ausente = automática. */
+  entrada?: PontaDaSeta
 }
+/** Ponto do contorno de uma forma onde a seta encosta, na coordenada LÓGICA (horizontal; a
+ *  vertical transpõe na tela). `t` vai de 0 a 1 ao longo do lado, a partir do topo/esquerda.
+ *  No losango e no círculo, o ponto do lado da caixa é projetado no contorno a partir do centro. */
+export interface PontaDaSeta { lado: 'cima' | 'direita' | 'baixo' | 'esquerda'; t: number }
 export interface DesenhoV2 {
   versao: 2
   formas: FormaDesenho[]
   setas: SetaDesenho[]
   posicoes: Record<string, { x: number; y: number }>
   raias: RaiaDesenho[]
+  /** orientação, fases, piscinas externas e fluxos de mensagem. Ausente = horizontal, sem nada disso. */
+  layout?: LayoutDesenho
 }
+export interface LayoutDesenho {
+  orientacao: 'horizontal' | 'vertical'
+  larguraPiscina?: number
+  fases: FaseDesenho[]
+  piscinasExternas: PiscinaExterna[]
+  fluxosMensagem: FluxoMensagem[]
+  tamanhos: Record<string, { largura: number; altura: number }>
+}
+export interface FaseDesenho { id: string; nome: string; largura: number; prazoDiasUteis?: number }
+export interface PiscinaExterna { id: string; nome: string; altura: number; quem: 'contratada' | 'fixo' | 'orgao'; canal: 'portal' | 'email' }
+/** `de`/`para`: id de forma ou de piscina externa */
+export interface FluxoMensagem { id: string; de: string; para: string; rotulo?: string
+  /** pontas livres na forma (lógicas; ausente = automática). Na piscina externa não valem. */
+  saida?: PontaDaSeta; entrada?: PontaDaSeta }
 
 export interface ProcessFormSchema {
   steps: StepFormSchema[]

@@ -484,3 +484,17 @@ describe('raias (swimlanes)', () => {
     expect(L.lanes).toHaveLength(1)
   })
 })
+
+describe('nodeSize com os tipos novos do editor', () => {
+  it('tipo que o layout ainda não conhece ganha uma caixa (não quebra o canvas)', () => {
+    for (const type of ['intermediateEvent', 'eventGateway', 'subProcess']) {
+      const c = nodeSize({ id: 'n', type: type as FlowGraph['nodes'][number]['type'] }, 0, 0)
+      expect(c.w).toBeGreaterThan(0)
+      expect(c.h).toBeGreaterThan(0)
+    }
+  })
+  it('subprocesso é uma caixa do tamanho da tarefa', () => {
+    const sub = nodeSize({ id: 's', type: 'subProcess' as FlowGraph['nodes'][number]['type'], name: 'Aprovar' }, 0, 0)
+    expect(sub).toEqual(nodeSize({ id: 't', type: 'userTask', name: 'Aprovar' }, 0, 0))
+  })
+})

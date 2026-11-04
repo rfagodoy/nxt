@@ -2,7 +2,7 @@
    Posições iniciais, "organizar", raias e acerto de pontos. Sem React: a tela só
    desenha o que estas funções calculam. O desenho é VISUAL; a verdade continua
    sendo o fluxo em blocos. */
-import type { DesenhoBpmn, DesenhoV2, FormaDesenho, RaiaDesenho, SetaDesenho } from '@nxt/types'
+import type { DesenhoBpmn, DesenhoV2, FormaDesenho, PontaDaSeta, RaiaDesenho, SetaDesenho } from '@nxt/types'
 import { SUFIXO_REENCONTRO, semIdsReservados, type GrafoGerado, type ItemFluxo } from '@nxt/workflow-core'
 import { layoutGraph, nodeSize, LANE_SEM_RESPONSAVEL, type FlowGraph, type FlowNodeType } from '@/lib/flow-layout'
 
@@ -377,7 +377,7 @@ export function formasDoItem(it: ItemFluxo): string[] {
   return [it.id, it.id + SUFIXO_REENCONTRO, ...caminhos.flatMap((c) => c.itens.flatMap(formasDoItem))]
 }
 
-/** Item movido pela lista do Roteiro: perde a posição antiga (e o reencontro dela) para
+/** Item movido de lugar no fluxo (arrastado para outra seta): perde a posição antiga (e o reencontro dela) para
  *  `completarPosicoes` colocá-lo perto do novo lugar. Os outros não se mexem. */
 export function posicoesAoMover(d: DesenhoBpmn, ids: Iterable<string>): DesenhoBpmn {
   const fora = new Set<string>()
@@ -412,22 +412,57 @@ function idDeSeta(d: DesenhoV2): string {
 export function ligar(d: DesenhoV2, de: string, para: string): DesenhoV2 {
   if (podeLigar(d, de, para)) return d
   const seta: SetaDesenho = { id: idDeSeta(d), de, para }
-  // uma 2ª saída no losango que junta gerado pelo Roteiro: ele passa a dividir (id livre)
+  // uma 2ª saída no losango que junta (gerado pelos blocos): ele passa a dividir (id livre)
   return semIdsReservados({ ...d, setas: [...d.setas, seta] })
 }
 
-export function religar(d: DesenhoV2, setaId: string, para: string): DesenhoV2 {
+/** Põe (ou, sem `ponta`, tira) a ponta livre `k` de um objeto com pontas. */
+function comPonta<T extends { saida?: PontaDaSeta; entrada?: PontaDaSeta }>(x: T, k: 'saida' | 'entrada', ponta: PontaDaSeta | null | undefined): T {
+  const y = { ...x }
+  if (ponta) y[k] = ponta
+  else delete y[k]
+  return y
+}
+
+/** A ponta de CHEGADA arrastada para outra forma. `entrada` = onde ela foi solta no contorno
+ *  da forma nova (lógico); sem ela, a chegada volta ao automático. */
+export function religar(d: DesenhoV2, setaId: string, para: string, entrada?: PontaDaSeta): DesenhoV2 {
   const s = d.setas.find((x) => x.id === setaId)
   if (!s || s.para === para || podeLigar({ ...d, setas: d.setas.filter((x) => x.id !== setaId) }, s.de, para)) return d
-  return { ...d, setas: d.setas.map((x) => (x.id === setaId ? { ...x, para } : x)) }
+  return { ...d, setas: d.setas.map((x) => (x.id === setaId ? comPonta({ ...x, para }, 'entrada', entrada) : x)) }
 }
 
 /** A ponta de SAÍDA arrastada para outra forma (PO, 30/10/2026: religar pelas duas pontas).
- *  A seta é a mesma: condição e rótulo vão junto. */
-export function religarSaida(d: DesenhoV2, setaId: string, de: string): DesenhoV2 {
+ *  A seta é a mesma: condição e rótulo vão junto. `saida` como em `religar`. */
+export function religarSaida(d: DesenhoV2, setaId: string, de: string, saida?: PontaDaSeta): DesenhoV2 {
   const s = d.setas.find((x) => x.id === setaId)
   if (!s || s.de === de || podeLigar({ ...d, setas: d.setas.filter((x) => x.id !== setaId) }, de, s.para)) return d
-  return semIdsReservados({ ...d, setas: d.setas.map((x) => (x.id === setaId ? { ...x, de } : x)) })
+  return semIdsReservados({ ...d, setas: d.setas.map((x) => (x.id === setaId ? comPonta({ ...x, de }, 'saida', saida) : x)) })
+}
+
+/** Pedido de mudança das pontas livres: a ponta nova, `null` = volta ao automático, ausente = fica. */
+export type PatchDasPontas = { saida?: PontaDaSeta | null; entrada?: PontaDaSeta | null }
+
+const mesmaPonta = (a: PontaDaSeta | undefined, b: PontaDaSeta | null | undefined) =>
+  (!a && !b) || (!!a && !!b && a.lado === b.lado && a.t === b.t)
+
+/** Aplica o pedido às pontas de `x`; `null` quando nada muda. */
+export function aplicarPontas<T extends { saida?: PontaDaSeta; entrada?: PontaDaSeta }>(x: T, patch: PatchDasPontas): T | null {
+  let y = x
+  for (const k of ['saida', 'entrada'] as const) {
+    if (!(k in patch) || mesmaPonta(x[k], patch[k])) continue
+    y = comPonta(y, k, patch[k])
+  }
+  return y === x ? null : y
+}
+
+/** Pontas livres de uma seta (só visual): mover a ponta no contorno da forma, ou "Caminho
+ *  automático" (as duas `null`). Sem mudança, devolve o mesmo desenho. */
+export function pontasDaSeta(d: DesenhoV2, setaId: string, patch: PatchDasPontas): DesenhoV2 {
+  const i = d.setas.findIndex((x) => x.id === setaId)
+  if (i === -1) return d
+  const nova = aplicarPontas(d.setas[i], patch)
+  return nova ? { ...d, setas: d.setas.map((x, j) => (j === i ? nova : x)) } : d
 }
 
 /** Condição, especificação e rótulo de uma seta (o caminho de uma escolha mora nela). */
@@ -451,12 +486,14 @@ export function soltarForma(d: DesenhoV2, forma: FormaDesenho, posicao: { x: num
   return { ...comForma, setas: [...d.setas.map((x) => (x.id === s.id ? { ...x, para: forma.id } : x)), depois] }
 }
 
-/** Apaga a forma, as setas dela e a posição. Início e Fim não se apagam. `costurar`: a
+/** Apaga a forma, as setas dela, a posição, os fluxos de mensagem e o tamanho. O único Início e o último Fim não se apagam. `costurar`: a
  *  ETAPA de uma chegada e uma saída sai da sequência sem abrir buraco — a seta que chegava
  *  nela passa a ir para onde ela ia (como o editor sempre fez ao excluir uma etapa). */
 export function apagarForma(d: DesenhoV2, id: string, costurar = false): DesenhoV2 {
   const f = d.formas.find((x) => x.id === id)
-  if (!f || f.tipo === 'start' || f.tipo === 'end') return d
+  if (!f) return d
+  // um Início ou Fim a mais (o conversor recusa) se apaga; o último que sobra, não
+  if ((f.tipo === 'start' || f.tipo === 'end') && d.formas.filter((x) => x.tipo === f.tipo).length < 2) return d
   const posicoes = { ...d.posicoes }
   delete posicoes[id]
   const chegam = d.setas.filter((s) => s.para === id), saem = d.setas.filter((s) => s.de === id)
@@ -465,7 +502,12 @@ export function apagarForma(d: DesenhoV2, id: string, costurar = false): Desenho
     && !d.setas.some((s) => s.de === chegam[0].de && s.para === saem[0].para)
     ? { ...chegam[0], para: saem[0].para } : null
   const setas = d.setas.flatMap((s) => (costura && s.id === costura.id ? [costura] : s.de !== id && s.para !== id ? [s] : []))
-  return { ...d, formas: d.formas.filter((x) => x.id !== id), setas, posicoes }
+  const base = { ...d, formas: d.formas.filter((x) => x.id !== id), setas, posicoes }
+  const l = d.layout
+  if (!l || (!l.fluxosMensagem.some((m) => m.de === id || m.para === id) && !(id in l.tamanhos))) return base
+  const tamanhos = { ...l.tamanhos }
+  delete tamanhos[id]
+  return { ...base, layout: { ...l, fluxosMensagem: l.fluxosMensagem.filter((m) => m.de !== id && m.para !== id), tamanhos } }
 }
 
 /** Recusa da ativação por desenho que não converte (400): além das frases, a API devolve os

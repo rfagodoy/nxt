@@ -6,7 +6,8 @@ import { ProcessFormSchema, isCompensable, findConnector, nasceDeContrato, EXECU
 import {
   compileBpmn, CompileError, type WfGraph, validarDesenho, validarDecisoes, validarAtividades, validarTelasDasAtividades, validarExecutores, validarExecutoresFixos, validarQuemInicia, formatarProblemas, bloqueantes,
   type ProblemaAtivacao, resumoDeInicio, type EtapaPrevia,
-  lerFluxoBlocos, blocosParaGrafo, grafoParaBlocos, grafoParaMotor, generateBpmn, pendenciasDosBlocos, SUFIXO_REENCONTRO, type FluxoBlocos,
+  lerFluxoBlocos, blocosParaGrafo, grafoParaBlocos, grafoParaMotor, generateBpmn, pendenciasDosBlocos, SUFIXO_REENCONTRO,
+  CHAVES_SO_VISUAIS, canonico, fluxoQueExecuta, assinaturaDoQueExecuta,
 } from '@nxt/workflow-core'
 
 /** Desenho livre do editor antigo que não cabe em blocos: pode conter as formas que
@@ -49,44 +50,6 @@ export function checarReducao(antes: number, depois: number): { removidas: numbe
   return null
 }
 
-/** Chaves do formSchema que são SÓ desenho (o motor não lê nenhuma delas). */
-const CHAVES_SO_VISUAIS = ['positions', 'positionsRaia', 'laneOrder'] as const
-
-/** JSON com as chaves ordenadas e sem `undefined` — para comparar o que veio do editor
- *  com o que o banco devolveu, que não guarda a ordem das chaves. */
-function canonico(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map(canonico).join(',')}]`
-  if (v && typeof v === 'object') {
-    const pares = Object.entries(v as Record<string, unknown>).filter(([, x]) => x !== undefined).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    return `{${pares.map(([k, x]) => `${JSON.stringify(k)}:${canonico(x)}`).join(',')}}`
-  }
-  return JSON.stringify(v ?? null)
-}
-
-/** Os blocos que o motor executaria: do desenho v2 (convertido aqui, como na ativação) ou dos
- *  blocos gravados. `null` = workflow antigo, sem blocos; 'invalido' = desenho v2 que não fecha. */
-function fluxoExecutado(fs: unknown): FluxoBlocos | 'invalido' | null {
-  const r = blocosDaAtivacao((fs ?? {}) as Parameters<typeof blocosDaAtivacao>[0])
-  if (r) return 'fluxo' in r ? r.fluxo : 'invalido'
-  return lerFluxoBlocos((fs as { blocos?: unknown } | null)?.blocos)
-}
-
-/** O que não muda a execução: o losango que junta com o id de sempre (`juntaId` igual ao
- *  padrão), o id do "senão" vazio e o modo padrão da escolha. */
-function normalizarFluxo(f: FluxoBlocos): unknown {
-  return JSON.parse(JSON.stringify(f, (_k, v) => {
-    if (v && typeof v === 'object' && (v.kind === 'escolha' || v.kind === 'paralelo')) {
-      const { juntaId, ...resto } = v
-      const out = juntaId && juntaId !== v.id + SUFIXO_REENCONTRO ? { ...resto, juntaId } : resto
-      if (v.kind !== 'escolha') return out
-      const cc = v.casoContrario
-      const vazio = !cc?.itens?.length && (cc?.fim?.tipo ?? 'segue') === 'segue'
-      return { ...out, modo: v.modo ?? 'primeiro', casoContrario: vazio ? null : cc }
-    }
-    return v
-  }))
-}
-
 /** A gravação muda o que o motor EXECUTA? Decisão do PO (30/10/2026): arrumar o desenho
  *  de um workflow ativo — mover formas, raias, ordem das raias — não o devolve a rascunho.
  *  Com blocos, o BPMN é gerado deles na ativação (o enviado não é aceito pronto), então
@@ -102,16 +65,10 @@ export function mudaOFluxo(
      os dois, compara-se ISSO — e não o desenho/blocos/grafo gravados: o 1º salvamento de um
      workflow em blocos que o editor abriu como desenho v2 traz outro grafo (o losango que
      junta) e outro id no "senão" vazio, sem mudar nada da execução (revisão, 30/10/2026). */
-  const fa = fluxoExecutado(antes.formSchema), fb = fluxoExecutado(novo)
+  const fa = fluxoQueExecuta(antes.formSchema), fb = fluxoQueExecuta(novo)
   if (fa === 'invalido' || fb === 'invalido') return true
-  if (fa && fb) {
-    const resto = (fs: unknown) => {
-      const copia = { ...((fs ?? {}) as Record<string, unknown>) }
-      for (const k of [...CHAVES_SO_VISUAIS, 'desenho', 'blocos', 'graph']) delete copia[k]
-      return copia
-    }
-    return canonico(resto(antes.formSchema)) !== canonico(resto(novo)) || canonico(normalizarFluxo(fa)) !== canonico(normalizarFluxo(fb))
-  }
+  // a mesma conta do aviso "volta a rascunho" do editor (`assinaturaDoQueExecuta`)
+  if (fa && fb) return assinaturaDoQueExecuta(antes.formSchema) !== assinaturaDoQueExecuta(novo)
   const semVisual = (fs: unknown) => {
     const copia = { ...((fs ?? {}) as Record<string, unknown>) }
     for (const k of CHAVES_SO_VISUAIS) delete copia[k]

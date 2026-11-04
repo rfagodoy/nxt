@@ -63,6 +63,10 @@ describe('mudaOFluxo — desenho v2 (desenho livre)', () => {
   it('mudar uma seta do v2 MUDA o fluxo', () => {
     expect(mudaOFluxo(antesV2, { formSchema: { ...comV2, desenho: v2([setas[0]]) } })).toBe(true)
   })
+  it('só ajustar as pontas livres de uma seta NÃO muda o fluxo (são visuais)', () => {
+    const comPontas = [{ ...setas[0], saida: { lado: 'baixo', t: 0.25 } }, { ...setas[1], entrada: { lado: 'cima', t: 0.8 } }]
+    expect(mudaOFluxo(antesV2, { formSchema: { ...comV2, desenho: v2(comPontas) } })).toBe(false)
+  })
 })
 
 describe('mudaOFluxo — 1º salvamento de um ativo em blocos que abriu como desenho v2', () => {

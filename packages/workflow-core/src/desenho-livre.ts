@@ -1,16 +1,73 @@
 /* ─── Desenho livre (v2) ───────────────────────────────────────────────────────
    Spec: docs/superpowers/specs/2026-10-30-desenho-livre-design.md. O desenho (formas +
    setas) é a fonte da verdade do editor; os blocos são derivados dele (`desenhoParaBlocos`)
-   e voltam para ele (`blocosParaDesenho`) quando o Roteiro muda a estrutura. */
+   e voltam para ele (`blocosParaDesenho`) quando uma ação sobre os blocos (excluir, mover,
+   caminho da escolha, cópia vinculada) muda a estrutura. */
 
-import type { DesenhoV2, FormaDesenho, RaiaDesenho, SetaDesenho, TipoForma } from '@nxt/types'
+import type { DesenhoV2, FaseDesenho, FluxoMensagem, FormaDesenho, LayoutDesenho, PiscinaExterna, PontaDaSeta, RaiaDesenho, SetaDesenho, TipoForma, VarianteForma } from '@nxt/types'
 import { lerDesenho } from './desenho'
+import { executaHoje, rotuloDaVariante } from './variantes'
 import {
   ID_VALIDO, SUFIXO_REENCONTRO, blocosParaGrafo, lerFluxoBlocos, modoDaEscolha, temSenaoAntigo,
   type BlocoEscolha, type BlocoParalelo, type CaminhoCondicional, type CaminhoPadrao, type FimCaminho, type FluxoBlocos, type ItemAtividade, type ItemFluxo, type SetaGerada,
 } from './blocos'
 
-const TIPOS: readonly TipoForma[] = ['start', 'end', 'userTask', 'serviceTask', 'exclusiveGateway', 'parallelGateway']
+const TIPOS: readonly TipoForma[] = ['start', 'end', 'userTask', 'serviceTask', 'exclusiveGateway', 'parallelGateway', 'intermediateEvent', 'subProcess', 'eventGateway']
+const VARIANTES: readonly VarianteForma[] = ['simples', 'agendado', 'evento', 'usuario', 'envio', 'recebimento', 'chamada', 'embutido', 'temporizador', 'recebe', 'envia', 'erro', 'cancela', 'terminar']
+
+const ehObjeto = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x)
+const ehTexto = (x: unknown): x is string => typeof x === 'string'
+const ehNumero = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x)
+
+const LADOS: ReadonlyArray<PontaDaSeta['lado']> = ['cima', 'direita', 'baixo', 'esquerda']
+const pontaValida = (p: unknown): p is PontaDaSeta =>
+  ehObjeto(p) && LADOS.includes(p.lado as PontaDaSeta['lado']) && ehNumero(p.t) && p.t >= 0 && p.t <= 1
+
+/** Pontas livres (só visuais): a inválida some, sem recusar o desenho. Sem nada a tirar,
+ *  devolve o mesmo objeto. */
+function comPontasValidas<T extends { saida?: unknown; entrada?: unknown }>(x: T): T {
+  const tira = (['saida', 'entrada'] as const).filter((k) => x[k] !== undefined && !pontaValida(x[k]))
+  if (!tira.length) return x
+  const out = { ...x }
+  for (const k of tira) delete out[k]
+  return out
+}
+
+/** Lê o layout (orientação, fases, piscinas externas, fluxos de mensagem). `undefined` quando a
+ *  forma do objeto não confere — o desenho segue sem ele. Fluxo de mensagem cujo `de`/`para` não é
+ *  uma forma nem uma piscina externa é descartado. */
+function lerLayout(bruto: unknown, ids: Set<string>): LayoutDesenho | undefined {
+  if (!ehObjeto(bruto)) return undefined
+  if (bruto.orientacao !== 'horizontal' && bruto.orientacao !== 'vertical') return undefined
+  if (bruto.larguraPiscina !== undefined && !ehNumero(bruto.larguraPiscina)) return undefined
+  const { fases, piscinasExternas, fluxosMensagem, tamanhos } = bruto
+  if (!Array.isArray(fases) || !Array.isArray(piscinasExternas) || !Array.isArray(fluxosMensagem) || !ehObjeto(tamanhos)) return undefined
+  for (const f of fases) {
+    if (!ehObjeto(f) || !ehTexto(f.id) || !ehTexto(f.nome) || !ehNumero(f.largura)) return undefined
+    if (f.prazoDiasUteis !== undefined && !ehNumero(f.prazoDiasUteis)) return undefined
+  }
+  for (const p of piscinasExternas) {
+    if (!ehObjeto(p) || !ehTexto(p.id) || !ehTexto(p.nome) || !ehNumero(p.altura)) return undefined
+    if (!['contratada', 'fixo', 'orgao'].includes(p.quem as string) || !['portal', 'email'].includes(p.canal as string)) return undefined
+  }
+  for (const m of fluxosMensagem) {
+    if (!ehObjeto(m) || !ehTexto(m.id) || !ehTexto(m.de) || !ehTexto(m.para)) return undefined
+    if (m.rotulo !== undefined && !ehTexto(m.rotulo)) return undefined
+  }
+  for (const t of Object.values(tamanhos)) {
+    if (!ehObjeto(t) || !ehNumero(t.largura) || !ehNumero(t.altura)) return undefined
+  }
+  const alvos = new Set([...ids, ...(piscinasExternas as PiscinaExterna[]).map((p) => p.id)])
+  const layout: LayoutDesenho = {
+    orientacao: bruto.orientacao,
+    fases: fases as FaseDesenho[],
+    piscinasExternas: piscinasExternas as PiscinaExterna[],
+    fluxosMensagem: (fluxosMensagem as FluxoMensagem[]).filter((m) => alvos.has(m.de) && alvos.has(m.para)).map(comPontasValidas),
+    tamanhos: tamanhos as LayoutDesenho['tamanhos'],
+  }
+  if (bruto.larguraPiscina !== undefined) layout.larguraPiscina = bruto.larguraPiscina
+  return layout
+}
 
 /** Confere o JSON gravado. Seta para forma inexistente é descartada (sobra de exclusão);
  *  forma repetida ou estrutura errada invalidam o desenho. */
@@ -24,14 +81,21 @@ export function lerDesenhoV2(bruto: unknown): DesenhoV2 | null {
   for (const f of bruto.formas) {
     if (!obj(f) || typeof f.id !== 'string' || !TIPOS.includes(f.tipo as TipoForma) || ids.has(f.id)) return null
     ids.add(f.id)
-    formas.push(f as unknown as FormaDesenho)
+    // `variante` desconhecida some (a forma vale o padrão do tipo); `config` segue como gravada
+    if (f.variante !== undefined && !VARIANTES.includes(f.variante as VarianteForma)) {
+      const { variante: _descartada, ...resto } = f
+      formas.push(resto as unknown as FormaDesenho)
+    } else formas.push(f as unknown as FormaDesenho)
   }
   const setas: SetaDesenho[] = []
   for (const s of bruto.setas) {
     if (!obj(s) || typeof s.id !== 'string' || typeof s.de !== 'string' || typeof s.para !== 'string') return null
-    if (ids.has(s.de) && ids.has(s.para)) setas.push(s as unknown as SetaDesenho)
+    if (ids.has(s.de) && ids.has(s.para)) setas.push(comPontasValidas(s as unknown as SetaDesenho))
   }
-  return { versao: 2, formas, setas, posicoes: bruto.posicoes as DesenhoV2['posicoes'], raias: bruto.raias as DesenhoV2['raias'] }
+  const desenho: DesenhoV2 = { versao: 2, formas, setas, posicoes: bruto.posicoes as DesenhoV2['posicoes'], raias: bruto.raias as DesenhoV2['raias'] }
+  const layout = lerLayout(bruto.layout, ids)
+  if (layout) desenho.layout = layout
+  return desenho
 }
 
 /** O losango que junta gerado pelo Roteiro tem o id da escolha + "__fim" — reservado aos
@@ -74,17 +138,20 @@ function itensPorId(f: FluxoBlocos): Map<string, ItemFluxo> {
   return m
 }
 
-/** Blocos → desenho. Volta da estrutura mudada pelo Roteiro (e abertura de workflows em
- *  blocos): ids, posições e raias do que já existia ficam; formas novas ficam sem posição
- *  (o editor completa). A seta que sai do losango para um caminho leva o id do caminho —
+/** Blocos → desenho. Volta da estrutura mudada pelos blocos (excluir, caminho da escolha… e
+ *  abertura de workflows em blocos): ids, posições e raias do que já existia ficam; formas
+ *  novas ficam sem posição (o editor completa). O layout (orientação, fases, piscinas
+ *  externas, fluxos de mensagem, tamanhos) e o rótulo das setas comuns — que os blocos não
+ *  têm — voltam do desenho anterior. A seta que sai do losango para um caminho leva o id do caminho —
  *  é o que liga a condição editada no bloco à seta do desenho (e vice-versa). Com as formas
  *  e setas do desenho anterior, os losangos de passagem dele ficam (`manterPassagens`). */
 export function blocosParaDesenho(
   f: FluxoBlocos,
-  anterior?: { posicoes: Record<string, { x: number; y: number }>; raias: RaiaDesenho[]; formas?: FormaDesenho[]; setas?: SetaDesenho[] } | null,
+  anterior?: { posicoes: Record<string, { x: number; y: number }>; raias: RaiaDesenho[]; formas?: FormaDesenho[]; setas?: SetaDesenho[]; layout?: LayoutDesenho } | null,
 ): DesenhoV2 {
   const g = blocosParaGrafo(f, { juncaoSempre: true })
   const itens = itensPorId(f)
+  const formaAntes = new Map((anterior?.formas ?? []).map((x) => [x.id, x]))
   const formas: FormaDesenho[] = g.nodes.map((n) => {
     const tipo: TipoForma = n.type === 'inclusiveGateway' ? 'exclusiveGateway' : (n.type as TipoForma)
     const forma: FormaDesenho = { id: n.id, tipo }
@@ -102,6 +169,14 @@ export function blocosParaDesenho(
     }
     // losango que não é item: é o que junta (do bloco ou de um caminho)
     if (!it && (n.type === 'exclusiveGateway' || n.type === 'inclusiveGateway' || n.type === 'parallelGateway')) forma.junta = true
+    // o que os blocos não têm volta do desenho anterior (forma que ficou, do mesmo tipo): o nome
+    // do que não é item (Início, Fim, losango que junta), a variação e a configuração
+    const a = formaAntes.get(n.id)
+    if (a && a.tipo === tipo) {
+      if (!it && a.nome) forma.nome = a.nome
+      if (a.variante) forma.variante = a.variante
+      if (a.config) forma.config = a.config
+    }
     return forma
   })
   // as saídas de cada losango que divide, na ordem dos caminhos (blocosParaGrafo as ordena)
@@ -124,7 +199,36 @@ export function blocosParaDesenho(
     : { formas, setas }
   const vivos = new Set(d.formas.map((x) => x.id))
   const posicoes = Object.fromEntries(Object.entries(anterior?.posicoes ?? {}).filter(([id]) => vivos.has(id)))
-  return { versao: 2, formas: d.formas, setas: d.setas, posicoes, raias: anterior?.raias ?? [] }
+  // rótulo da seta comum (a que não sai de um losango): volta se ela segue ligando as mesmas formas
+  const losangos = new Set(d.formas.filter((x) => x.tipo === 'exclusiveGateway' || x.tipo === 'parallelGateway').map((x) => x.id))
+  const rotuloAntes = new Map((anterior?.setas ?? []).filter((x) => x.rotulo && !losangos.has(x.de)).map((x) => [`${x.de}>${x.para}`, x.rotulo!]))
+  const comRotulo = rotuloAntes.size
+    ? d.setas.map((x) => (x.rotulo || losangos.has(x.de) || !rotuloAntes.has(`${x.de}>${x.para}`) ? x : { ...x, rotulo: rotuloAntes.get(`${x.de}>${x.para}`) }))
+    : d.setas
+  // pontas livres (só visuais): voltam em QUALQUER seta que segue ligando as mesmas formas
+  const pontasAntes = new Map((anterior?.setas ?? []).filter((x) => x.saida || x.entrada).map((x) => [`${x.de}>${x.para}`, x]))
+  const setasFinais = pontasAntes.size
+    ? comRotulo.map((x) => {
+      const a = pontasAntes.get(`${x.de}>${x.para}`)
+      if (!a || x.saida || x.entrada) return x
+      const y = { ...x }
+      if (a.saida) y.saida = a.saida
+      if (a.entrada) y.entrada = a.entrada
+      return y
+    })
+    : comRotulo
+  const out: DesenhoV2 = { versao: 2, formas: d.formas, setas: setasFinais, posicoes, raias: anterior?.raias ?? [] }
+  if (anterior?.layout) {
+    // o que apontava para uma forma que saiu sai junto (como ao apagar a forma no desenho)
+    const l = anterior.layout
+    const pontos = new Set([...vivos, ...l.piscinasExternas.map((x) => x.id)])
+    out.layout = {
+      ...l,
+      fluxosMensagem: l.fluxosMensagem.filter((m) => pontos.has(m.de) && pontos.has(m.para)),
+      tamanhos: Object.fromEntries(Object.entries(l.tamanhos).filter(([id]) => vivos.has(id))),
+    }
+  }
+  return out
 }
 
 /** Os blocos sem o que não muda a execução: o losango que junta com o id de sempre, o
@@ -269,6 +373,13 @@ type Fim = FimCaminho
 interface Trecho { itens: ItemFluxo[]; fim: Fim; /** forma onde o trecho parou (reencontro), quando segue */ ate?: string }
 
 export function desenhoParaBlocos(d: DesenhoV2, opcoes: { nomeDe?: (id: string) => string } = {}): Conversao {
+  // O desenho aceita o que o motor ainda não executa (rascunho); ativar, não.
+  const naoExecutam: ProblemaDoDesenho[] = d.formas.filter((f) => !executaHoje(f)).map((f) => ({
+    tipo: 'ainda-nao-executa',
+    mensagem: `"${f.nome?.trim() || opcoes.nomeDe?.(f.id) || 'Sem nome'}" é ${rotuloDaVariante(f)}, que ainda não executa. Troque por outro elemento ou deixe o workflow em rascunho.`,
+    formas: [f.id], setas: [],
+  }))
+  if (naoExecutam.length) return { ok: false, problemas: naoExecutam }
   const formas = new Map(d.formas.map((f) => [f.id, f]))
   const saidas = (id: string) => d.setas.filter((s) => s.de === id)
   const entradas = (id: string) => d.setas.filter((s) => s.para === id)
@@ -292,8 +403,18 @@ export function desenhoParaBlocos(d: DesenhoV2, opcoes: { nomeDe?: (id: string) 
 
   const inicios = d.formas.filter((f) => f.tipo === 'start')
   const fins = d.formas.filter((f) => f.tipo === 'end')
-  if (inicios.length !== 1 || fins.length !== 1) {
+  if (!inicios.length || !fins.length) {
     return { ok: false, problemas: [{ tipo: 'inicio-fim', mensagem: 'O desenho precisa de um Início e de um Fim.', formas: [], setas: [] }] }
+  }
+  if (inicios.length > 1 || fins.length > 1) {
+    const problemas: ProblemaDoDesenho[] = []
+    if (inicios.length > 1) {
+      problemas.push({ tipo: 'inicio-fim', mensagem: `O desenho tem ${inicios.length} Inícios. O workflow começa por um Início só: apague os outros.`, formas: inicios.map((x) => x.id), setas: [] })
+    }
+    if (fins.length > 1) {
+      problemas.push({ tipo: 'inicio-fim', mensagem: `O desenho tem ${fins.length} Fins. Por enquanto o workflow termina num Fim só: ligue os caminhos ao mesmo Fim. Vários Fins chegam na próxima entrega.`, formas: fins.map((x) => x.id), setas: [] })
+    }
+    return { ok: false, problemas }
   }
   const inicio = inicios[0].id, fim = fins[0].id
 

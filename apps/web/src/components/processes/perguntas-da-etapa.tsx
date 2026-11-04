@@ -1,21 +1,22 @@
 'use client'
 
 import { Fragment, useState, useMemo, useRef, useEffect } from 'react'
-import { Zap, Trash2, User, CircleDot, Loader2, UserSquare, AlertTriangle, ChevronUp, Plus, ChevronDown, Check, Info, Lock, Link2 } from 'lucide-react'
+import { Zap, Trash2, User, CircleDot, Loader2, UserSquare, AlertTriangle, ChevronUp, Plus, ChevronDown, Check, Info, Lock, Link2, Users } from 'lucide-react'
 import type { StepFormSchema } from '@nxt/types'
 import { CONNECTORS, findConnector, isRetiredConnector, isCompensable } from '@nxt/types'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { EntitySelect, type EntityKind } from '@/components/ui/entity-select'
 import type { ScreenSubject } from '@/lib/screen-types'
 import { fieldValueKey } from '@/lib/screen-types'
+import { herdaDaRaia } from '@/lib/editor-bizagi/raias'
 import { REFERENCIA, ORIGEM, referenciaDoPapelEntry } from '@/lib/contract-roles'
 import { apiFetch } from '@/lib/http'
 import { ExecutorDaVariavel } from './executor-da-variavel'
 import { EXECUTOR_CONTRATO_DO_PROCESSO, EXECUTOR_QUEM_INICIOU } from '@nxt/types'
-import { ATRIBUTO_GAVETA, GavetaLateral, ehEscDaGaveta } from './desenho-bpmn/gaveta'
+import { GavetaLateral, ehEscDaGaveta } from './desenho-bpmn/gaveta'
+import { CAMPO, EmResumo, Opcao, Pergunta, ResumoFalta, ResumoForte, RodapePadrao } from './desenho-bpmn/gaveta-padrao'
 import { cn } from '@/lib/utils'
 import { STEP_TONE, dueText, entityKindLabel, type EEdge, type ENode, type Papeis, type Screens } from './editor-comum'
 
@@ -49,7 +50,9 @@ function predecessorasDe(edges: EEdge[], alvo: string): Set<string> {
  * aplica cada mudança ao vivo no grafo, então sem isso "Cancelar" seria só um "Fechar"
  * mentiroso. Fechar pelo X e o Esc também cancelam; só "Aplicar" mantém.
  */
-export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveEntidade, onPatchStep, onChangeType, onRemove, onClose, secaoInicial, vinculo, somenteLeitura, focarAoAbrir, moldura = 'gaveta', retratoDaAbertura }: {
+export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveEntidade, onPatchStep, onChangeType, onRemove, onClose, secaoInicial, vinculo, somenteLeitura, focarAoAbrir, retratoDaAbertura, raiaDaEtapa }: {
+  /** a raia onde a etapa está desenhada e o executor padrão dela ("Quem faz?") */
+  raiaDaEtapa?: { nome: string; executor?: StepFormSchema['executor']; rotuloExecutor?: string }
   node: ENode; nodes: ENode[]; edges: EEdge[]; screens: Screens; papeis: Papeis
   /** nome da entidade fixa do executor, para a frase do "Em resumo" */
   resolveEntidade: (kind: string | undefined, id: string | undefined) => string | undefined
@@ -63,10 +66,8 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
   somenteLeitura?: boolean
   /** false = a gaveta abre sem tirar o foco da forma (ver GavetaLateral) */
   focarAoAbrir?: boolean
-  /** 'gaveta' = painel lateral (Desenho); 'embutida' = dentro da lista do Roteiro, sem gaveta */
-  moldura?: 'gaveta' | 'embutida'
-  /** Estado de quando a etapa foi ABERTA, guardado pelo editor: trocar Roteiro ↔ Desenho
-   *  remonta este componente, e o Cancelar tem de desfazer desde a abertura, não desde a troca. */
+  /** Estado de quando a etapa foi ABERTA, guardado pelo editor: se este componente remontar,
+   *  o Cancelar continua desfazendo desde a abertura. */
   retratoDaAbertura?: { step: StepFormSchema; type: 'userTask' | 'serviceTask' }
 }) {
   const step = node.step!
@@ -116,10 +117,12 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
   const execOrigem = papelSel?.origem
   /** executor "Quem iniciou o processo" (PO, 04/10/2026) */
   const porIniciador = executor?.papelId === EXECUTOR_QUEM_INICIOU
+  /** a etapa segue o executor padrão da raia (e a raia tem um) */
+  const herdando = herdaDaRaia(step) && !!raiaDaEtapa?.executor?.papelId
   const pickPapel = (papelId: string) => {
     if (!papelId) return
     const p = papeis.entries.find((pp) => pp.id === papelId)
-    onPatchStep({ executor: { papelId, entityType: p?.origem ?? 'CONTRATO', mode: 'FIXA', entityId: undefined, entityVar: undefined } })
+    onPatchStep({ executorDaRaia: false, executor: { papelId, entityType: p?.origem ?? 'CONTRATO', mode: 'FIXA', entityId: undefined, entityVar: undefined } })
   }
   const setExec = (patch: Partial<NonNullable<StepFormSchema['executor']>>) => executor && onPatchStep({ executor: { ...executor, ...patch } })
   /* Tela escolhida na atividade — a origem dos campos que esta etapa pode travar. */
@@ -225,7 +228,7 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
      "Em resumo" escreve a etapa numa frase — quem configura confere o que entendeu
      sem precisar ler campo por campo. */
   const faltaNome = !step.stepName?.trim()
-  const faltaQuem = type === 'userTask' && !porIniciador && (
+  const faltaQuem = type === 'userTask' && !porIniciador && !herdando && (
     !executor?.papelId
     || (!!execOrigem && execOrigem !== ORIGEM.ORG && (executor.mode === 'FIXA' ? !executor.entityId : !(executor.stakeholder || executor.entityVar)))
   )
@@ -271,26 +274,19 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
     return () => { vivo = false; clearTimeout(t) }
   }, [type, exPapel, exTipo, exModo, exEntidade])
 
-  /* No Roteiro não há título de gaveta para receber o foco: vai para o primeiro campo. */
-  useEffect(() => {
-    if (moldura !== 'embutida' || focarAoAbrir === false) return
-    corpoRef.current?.querySelector<HTMLElement>('input, textarea, button')?.focus({ preventScroll: true })
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- só na abertura
-
   /* Abre já na pergunta pedida (ex.: 'formulario', vindo do aviso da escolha). Rola SÓ o
      corpo da gaveta: `scrollIntoView` rolaria também os contêineres `overflow-hidden` do
      editor e deslocaria o desenho. */
   useEffect(() => {
     if (!secaoInicial) return
     const alvo = document.getElementById(`pergunta-${secaoInicial}`)
-    // na gaveta rola o corpo dela; no Roteiro, a coluna da lista
-    const caixa = moldura === 'embutida' ? corpoRef.current?.closest<HTMLElement>('[data-rolagem-roteiro]') : corpoRef.current?.parentElement
+    const caixa = corpoRef.current?.parentElement
     if (!alvo || !caixa) return
     caixa.scrollTop += alvo.getBoundingClientRect().top - caixa.getBoundingClientRect().top - 12
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── A frase do "Em resumo" ── */
-  const quem = porIniciador ? 'Quem iniciou o processo' : papelSel ? (() => {
+  const quem = herdando ? (raiaDaEtapa?.rotuloExecutor ?? null) : porIniciador ? 'Quem iniciou o processo' : papelSel ? (() => {
     if (!executor || !execOrigem || execOrigem === ORIGEM.ORG) return papelSel.label
     if (executor.mode === 'FIXA') {
       const nome = resolveEntidade(executor.entityType, executor.entityId)
@@ -349,10 +345,7 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
       <GavetaLateral rotulo={`${meta.label} · só leitura`} rotuloTom={meta.tone} rotuloIcone={<meta.Icon className="h-3 w-3" />}
         titulo={step.stepName?.trim() || 'Etapa sem nome'} onFechar={onClose}>
         <div className="flex flex-col gap-4 px-4 py-4">
-          <div className="rounded-xl bg-forest p-4 text-white/80 shadow-[0_18px_40px_-24px_rgba(12,20,16,0.7)] ring-1 ring-white/5">
-            <span className="inline-block rounded bg-spark px-1.5 py-0.5 text-[10.5px] font-extrabold tracking-wide text-forest">EM RESUMO</span>
-            <p className="mt-2 text-[13px] leading-relaxed">{frase}</p>
-          </div>
+          <EmResumo vivo={false}>{frase}</EmResumo>
           <dl className="divide-y rounded-lg border bg-muted/20">
             {respostas.map((r) => (
               <div key={r.rotulo} className="flex items-baseline justify-between gap-3 px-3 py-2">
@@ -374,22 +367,8 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
   }
 
   const rodape = (
-    <div className="flex flex-col gap-2.5">
-      <p className="text-[11.5px] leading-snug text-muted-foreground">
-        {pendentes > 0
-          ? <span className="font-semibold text-amber-800 dark:text-amber-300">Falta responder {pendentes} pergunta{pendentes > 1 ? 's' : ''}</span>
-          : <span className="inline-flex items-center gap-1 font-semibold text-primary"><Check className="h-3.5 w-3.5" />Tudo respondido</span>}
-        {' · '}As alterações entram no workflow ao <span className="font-medium">Salvar rascunho</span> ou <span className="font-medium">Ativar</span>.
-      </p>
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" onClick={onRemove} aria-label="Remover atividade"
-          className="mr-auto text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
-          <Trash2 className="h-3.5 w-3.5" />Remover
-        </Button>
-        <Button variant="ghost" size="sm" onClick={cancelar}>Cancelar</Button>
-        <Button size="sm" onClick={onClose}>Aplicar</Button>
-      </div>
-    </div>
+    <RodapePadrao pendentes={pendentes} remover={{ rotulo: 'Remover', nomeAcessivel: 'Remover atividade', aoRemover: onRemove }}
+      onCancelar={cancelar} onAplicar={onClose} />
   )
 
   const corpo = (
@@ -408,10 +387,7 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
         )}
 
         <div className="flex flex-col gap-7 px-4 py-4">
-          <div className="rounded-xl bg-forest p-4 text-white/80 shadow-[0_18px_40px_-24px_rgba(12,20,16,0.7)] ring-1 ring-white/5">
-            <span className="inline-block rounded bg-spark px-1.5 py-0.5 text-[10.5px] font-extrabold tracking-wide text-forest">EM RESUMO</span>
-            <p className="mt-2 text-[13px] leading-relaxed" aria-live="polite">{frase}</p>
-          </div>
+          <EmResumo>{frase}</EmResumo>
 
           <Pergunta id="identificacao" n={nPergunta('identificacao')} titulo="O que precisa ser feito?" ok={!faltaNome}
             ajuda="É o nome que aparece no fluxo e na caixa de tarefas de quem executa.">
@@ -443,12 +419,21 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
             <Pergunta id="executor" n={nPergunta('executor')} titulo="Quem faz?" ok={!faltaQuem}
               ajuda="A tarefa vai para quem ocupar o papel na hora em que ela nascer.">
               <div role="radiogroup" aria-label="Quem recebe a tarefa" className="grid gap-2 sm:grid-cols-2">
-                <Opcao ativo={!porIniciador} onClick={() => { if (porIniciador) onPatchStep({ executor: undefined }) }}
+                <Opcao ativo={herdando} disabled={!raiaDaEtapa?.executor?.papelId}
+                  onClick={() => { if (!herdando) onPatchStep({ executorDaRaia: true, executor: raiaDaEtapa?.executor ? { ...raiaDaEtapa.executor } : undefined }) }}
+                  icone={<Users className="h-4 w-4" />}
+                  titulo={raiaDaEtapa?.executor?.papelId ? `O padrão da raia: ${raiaDaEtapa.rotuloExecutor ?? 'Responsável'}` : 'O padrão da raia'}
+                  descricao={raiaDaEtapa?.executor?.papelId ? `Herdado de “${raiaDaEtapa.nome}”. Mudou a raia, muda junto.` : 'Esta raia não tem executor padrão'} />
+                <Opcao ativo={!herdando && !porIniciador} onClick={() => { if (herdando) onPatchStep({ executorDaRaia: false }); else if (porIniciador) onPatchStep({ executorDaRaia: false, executor: undefined }) }}
                   icone={<User className="h-4 w-4" />} titulo="Quem ocupa um papel" descricao="Ex.: o Analista da Central de Contratos." />
-                <Opcao ativo={porIniciador} onClick={() => onPatchStep({ executor: { papelId: EXECUTOR_QUEM_INICIOU, entityType: 'ORG', mode: 'FIXA' } })}
+                <Opcao ativo={!herdando && porIniciador} onClick={() => onPatchStep({ executorDaRaia: false, executor: { papelId: EXECUTOR_QUEM_INICIOU, entityType: 'ORG', mode: 'FIXA' } })}
                   icone={<CircleDot className="h-4 w-4" />} titulo="Quem iniciou o processo" descricao="A pessoa que clicou em “+ Novo processo”." />
               </div>
-              {porIniciador ? (
+              {herdando ? (
+                <p className="max-w-xl text-xs leading-relaxed text-muted-foreground">
+                  A tarefa vai para quem ocupa esse papel na raia “{raiaDaEtapa?.nome}”. Para escolher outra pessoa só para esta tarefa, use uma das outras opções.
+                </p>
+              ) : porIniciador ? (
                 <p className="max-w-xl text-xs leading-relaxed text-muted-foreground">
                   Na primeira etapa, a tarefa abre na hora, como aba; mais adiante, cai na caixa de tarefas dessa pessoa.
                   Se ela estiver inativa quando a tarefa nascer, vai para os administradores, com aviso.
@@ -748,17 +733,6 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
       </div>
   )
 
-  /* Dentro da lista do Roteiro: sem gaveta (a linha já mostra o nome e o tipo). O atributo
-     da gaveta mantém o Esc (cancela) e faz o editor ignorar atalhos vindos daqui. */
-  if (moldura === 'embutida') {
-    return (
-      <div {...{ [ATRIBUTO_GAVETA]: '' }} tabIndex={-1} className="flex flex-col outline-none">
-        {corpo}
-        <div className="border-t bg-muted/20 px-4 py-3">{rodape}</div>
-      </div>
-    )
-  }
-
   return (
     <GavetaLateral rotulo={meta.label} rotuloTom={meta.tone} rotuloIcone={<meta.Icon className="h-3 w-3" />} rotuloFechar="Fechar sem aplicar"
       titulo={step.stepName?.trim() || 'Etapa sem nome'} onFechar={cancelar} rodape={rodape} focarAoAbrir={focarAoAbrir}>
@@ -768,9 +742,6 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
 }
 
 /* ─── Peças das perguntas da etapa ────────────────────────────────────────── */
-
-/** Altura e letra dos campos seguem a DENSIDADE escolhida pelo usuário (lib/densidade). */
-const CAMPO = 'h-[var(--campo-altura)] text-[length:var(--campo-fonte)]'
 
 const VERBO_DO_MODO: Record<string, string> = { CREATE: 'cadastra', EDIT: 'altera', VIEW: 'consulta' }
 const ENTITY_MODE_CURTO: Record<string, string> = {
@@ -790,66 +761,6 @@ const ATALHOS_PRAZO: Array<{ rotulo: string; unidade: 'DAYS' | 'HOURS'; valor: n
   { rotulo: '5 dias', unidade: 'DAYS', valor: 5 },
 ]
 const listaPt = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} e ${xs[xs.length - 1]}`)
-
-function ResumoForte({ children }: { children: React.ReactNode }) {
-  return <b className="font-semibold text-white">{children}</b>
-}
-/** O que ainda falta, dito DENTRO da frase: quem lê o resumo vê o buraco no lugar dele. */
-function ResumoFalta({ children }: { children: React.ReactNode }) {
-  return <span className="font-semibold text-[#F5B971] underline decoration-dotted underline-offset-2">{children}</span>
-}
-
-function NumeroPergunta({ n, ok, pequeno }: { n: number; ok: boolean; pequeno?: boolean }) {
-  return (
-    <span className={cn('flex shrink-0 items-center justify-center rounded-full font-mono font-bold',
-      pequeno ? 'h-5 w-5 text-[10.5px]' : 'h-6 w-6 text-[11px]',
-      ok ? 'bg-primary text-primary-foreground' : 'bg-amber-500/15 text-amber-800 ring-1 ring-amber-500/50 dark:text-amber-300')}
-      aria-label={ok ? `Pergunta ${n}, respondida` : `Pergunta ${n}, falta responder`}>
-      {ok ? <Check className={pequeno ? 'h-3 w-3' : 'h-3.5 w-3.5'} /> : n}
-    </span>
-  )
-}
-
-/** Uma pergunta do modal: número (vira ✓ quando respondida), a pergunta, uma linha de ajuda. */
-function Pergunta({ id, n, titulo, ajuda, ok, children }: {
-  id: string; n: number; titulo: string; ajuda?: string; ok: boolean; children: React.ReactNode
-}) {
-  return (
-    <section id={`pergunta-${id}`} aria-labelledby={`pergunta-${id}-titulo`} className="flex scroll-mt-4 flex-col gap-[var(--form-gap)]">
-      <div className="flex items-start gap-3">
-        <NumeroPergunta n={n} ok={ok} />
-        <div className="min-w-0">
-          <h3 id={`pergunta-${id}-titulo`} className="text-[15px] font-bold leading-snug">{titulo}</h3>
-          {ajuda && <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{ajuda}</p>}
-        </div>
-      </div>
-      <div className="flex flex-col gap-[var(--form-gap)] pl-9">{children}</div>
-    </section>
-  )
-}
-
-/** Resposta em CARTÃO (rádio): título + uma linha que explica a consequência. */
-function Opcao({ ativo, onClick, titulo, descricao, icone, disabled }: {
-  ativo: boolean; onClick: () => void; titulo: string; descricao?: string; icone?: React.ReactNode; disabled?: boolean
-}) {
-  return (
-    <button type="button" role="radio" aria-checked={ativo} disabled={disabled} onClick={onClick}
-      className={cn('flex min-w-0 items-start gap-2.5 rounded-lg border bg-card px-3 py-[var(--secao-pad)] text-left transition-colors',
-        ativo ? 'border-primary bg-primary/[0.06] ring-1 ring-primary' : 'hover:border-foreground/25 hover:bg-muted/50',
-        disabled && 'cursor-not-allowed opacity-50')}>
-      <span className={cn('mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border',
-        ativo ? 'border-primary bg-primary' : 'border-muted-foreground/50')} aria-hidden>
-        {ativo && <span className="h-1.5 w-1.5 rounded-full bg-primary-foreground" />}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5 text-[length:var(--campo-fonte)] font-semibold">
-          {icone && <span className={cn('shrink-0', ativo ? 'text-primary' : 'text-muted-foreground')}>{icone}</span>}{titulo}
-        </span>
-        {descricao && <span className="mt-0.5 block text-[11.5px] leading-snug text-muted-foreground">{descricao}</span>}
-      </span>
-    </button>
-  )
-}
 
 /** "Quem recebe hoje": a consequência do papel escolhido, em nomes de gente. */
 function PessoasHoje({ pessoas }: { pessoas: string[] | null | undefined }) {

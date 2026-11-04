@@ -32,3 +32,18 @@ describe('blocosDaAtivacao', () => {
     expect(blocosDaAtivacao({ steps: [] })).toBeNull()
   })
 })
+
+describe('blocosDaAtivacao: o que ainda não executa', () => {
+  it('devolve a frase', () => {
+    const r = blocosDaAtivacao({
+      steps: [],
+      desenho: {
+        versao: 2,
+        formas: [{ id: 'start', tipo: 'start' }, { id: 't', tipo: 'intermediateEvent', variante: 'temporizador', nome: 'Esperar 5 dias' }, { id: 'end', tipo: 'end' }],
+        setas: [{ id: 's1', de: 'start', para: 't' }, { id: 's2', de: 't', para: 'end' }], posicoes: {}, raias: [],
+      },
+    })
+    expect(r && 'erro' in r && r.erro).toContain('"Esperar 5 dias" é um temporizador, que ainda não executa. Troque por outro elemento ou deixe o workflow em rascunho.')
+    expect(r && 'erro' in r && r.problemas[0].tipo).toBe('ainda-nao-executa')
+  })
+})

@@ -70,3 +70,23 @@ describe('desenhoParaBlocos — recusas (frase e culpados)', () => {
     expect(p.formas).toEqual(['solta'])
   })
 })
+
+describe('desenhoParaBlocos — vários Inícios ou Fins', () => {
+  it('dois Fins: a frase diz quantos e aponta os Fins', () => {
+    const p = recusa(desenho([F('a1'), F('end2', 'end')], [S('start', 'a1'), S('a1', 'end')]))
+    expect(p.tipo).toBe('inicio-fim')
+    expect(p.mensagem).toBe('O desenho tem 2 Fins. Por enquanto o workflow termina num Fim só: ligue os caminhos ao mesmo Fim. Vários Fins chegam na próxima entrega.')
+    expect(p.formas).toEqual(['end2', 'end'])
+  })
+  it('dois Inícios: a frase pede para apagar os outros', () => {
+    const p = recusa(desenho([F('start2', 'start'), F('a1')], [S('start', 'a1'), S('a1', 'end')]))
+    expect(p.tipo).toBe('inicio-fim')
+    expect(p.mensagem).toBe('O desenho tem 2 Inícios. O workflow começa por um Início só: apague os outros.')
+    expect(p.formas).toEqual(['start', 'start2'])
+  })
+  it('sem Fim: a frase de sempre', () => {
+    const c = desenhoParaBlocos({ versao: 2, formas: [F('start', 'start'), F('a1')], setas: [S('start', 'a1')], posicoes: {}, raias: [] })
+    expect(c.ok).toBe(false)
+    if (!c.ok) expect(c.problemas[0].mensagem).toBe('O desenho precisa de um Início e de um Fim.')
+  })
+})

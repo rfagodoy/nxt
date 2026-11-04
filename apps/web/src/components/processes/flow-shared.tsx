@@ -1,8 +1,8 @@
 'use client'
 
-/* Peças do editor de workflow: zoom da vista por raia, glifo de gateway e a pílula de saúde (topo). */
+/* Peças do editor de workflow: limites do zoom do desenho, glifo de gateway e a pílula de saúde (topo). */
 
-import { AlertTriangle, Check, Info, Maximize2, Minus, Plus } from 'lucide-react'
+import { AlertTriangle, Check, Info } from 'lucide-react'
 import { bloqueantes, avisos as avisosDe, type ProblemaAtivacao } from '@nxt/workflow-core'
 import { cn } from '@/lib/utils'
 
@@ -10,32 +10,6 @@ import { cn } from '@/lib/utils'
    conferir prazo e executor sem abrir a atividade. Abaixo do piso o texto vira borrão. */
 export const ZOOM_MIN = 0.25
 export const ZOOM_MAX = 2
-const ZOOM_PASSOS = [0.25, 0.4, 0.5, 0.65, 0.8, 1, 1.25, 1.5, 2]
-
-/** Controle de zoom, flutuante sobre o desenho. "Ajustar" enquadra tudo na área visível. */
-export function ZoomBar({ scale, autoFit, onZoom, onFit }: {
-  scale: number; autoFit: boolean; onZoom: (s: number) => void; onFit: () => void
-}) {
-  // vai para o degrau seguinte/anterior da escala — o zoom da roda cai entre eles
-  const passo = (dir: 1 | -1) => {
-    const alvo = dir > 0
-      ? ZOOM_PASSOS.find((s) => s > scale + 0.001)
-      : [...ZOOM_PASSOS].reverse().find((s) => s < scale - 0.001)
-    onZoom(alvo ?? (dir > 0 ? ZOOM_MAX : ZOOM_MIN))
-  }
-  const btn = 'h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-40 disabled:hover:bg-transparent'
-  return (
-    <div className="glass absolute bottom-3 right-3 z-30 flex items-center gap-0.5 rounded-xl p-1 shadow-sm">
-      <button type="button" onClick={() => passo(-1)} disabled={scale <= ZOOM_MIN + 0.001} className={btn} title="Afastar (Ctrl + roda do mouse)"><Minus className="h-3.5 w-3.5" /></button>
-      <button type="button" onClick={() => onZoom(1)} className="h-7 min-w-[3.25rem] px-1 rounded-md text-[11px] font-semibold tabular-nums text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="Voltar para 100%">
-        {Math.round(scale * 100)}%
-      </button>
-      <button type="button" onClick={() => passo(1)} disabled={scale >= ZOOM_MAX - 0.001} className={btn} title="Aproximar (Ctrl + roda do mouse)"><Plus className="h-3.5 w-3.5" /></button>
-      <span className="w-px h-4 bg-border mx-0.5" />
-      <button type="button" onClick={onFit} className={cn(btn, autoFit && 'text-primary')} title="Ajustar à tela"><Maximize2 className="h-3.5 w-3.5" /></button>
-    </div>
-  )
-}
 
 /** Losango do gateway em miniatura, para selos e cabeçalhos. */
 export function GatewayGlyph({ kind, className }: { kind: 'exclusive' | 'parallel'; className?: string }) {

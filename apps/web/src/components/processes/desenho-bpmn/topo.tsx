@@ -2,17 +2,22 @@
 
 /* ─── Peças do topo do editor (desenho BPMN) ───────────────────────────────────
    O topo é UMA linha (spec "Topo"): voltar · nome · Sobre · Quem inicia · saúde ·
-   desfazer/refazer · Organizar · ⋯ · Salvar rascunho · Ativar. O nome, o tipo e a
+   desfazer/refazer · controles do desenho · Organizar · ⋯ · Salvar rascunho · Ativar. O nome, o tipo e a
    descrição que moravam no cabeçalho do documento (WorkflowIdentity) vieram para cá —
    o desenho ganhou a altura inteira.
    ⚠️ O nome continua sendo o que mais pede atenção: sem ele a API recusa salvar e ativar.
    Vazio, o campo mostra a ordem ("Dê um nome…") e fundo âmbar tracejado. */
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type ReactNode, type RefObject } from 'react'
-import { ChevronDown, Download, FileImage, FileText, History, ListOrdered, Loader2, MoreHorizontal, Rows3, Workflow } from 'lucide-react'
+import {
+  AlignCenterHorizontal, AlignCenterVertical, AlignHorizontalDistributeCenter, AlignStartHorizontal, AlignStartVertical,
+  AlignVerticalDistributeCenter, ChevronDown, Columns3, Download, FileImage, FileText, Grid3x3, History, Loader2,
+  MoreHorizontal, Rows3,
+} from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { FloatingMenu } from '@/components/ui/floating-menu'
 import type { FlowExportFormat } from '@/lib/flow-export'
 import { cn } from '@/lib/utils'
+import type { ModoAlinhar, Orientacao } from '@/lib/editor-bizagi/geometria'
 import { WorkflowKindIcon } from '../workflow-kind-icon'
 
 export interface TipoDeWorkflow { value: string; label: string }
@@ -163,15 +168,13 @@ export function SobreDoWorkflow({ descricao, onDescricao, tipo, onTipo, tipos, r
   )
 }
 
-/** ⋯ do topo: Histórico, Exportar (JPG/PDF — desenha a VISTA POR RAIA, não o desenho BPMN) e "Ver por raia". */
-export function MenuMais({ onHistorico, onExportar, exportando, exportarDesabilitado, onVerPorRaia, verPorRaiaDesabilitado, extras, botaoRef, aberto: abertoProp, onAberto, antesDeAlternar }: {
+/** ⋯ do topo: Histórico e Exportar (JPG/PDF do desenho). */
+export function MenuMais({ onHistorico, onExportar, exportando, exportarDesabilitado, extras, botaoRef, aberto: abertoProp, onAberto, antesDeAlternar }: {
   /** ausente em workflow novo (ainda sem histórico) */
   onHistorico?: () => void
   onExportar: (f: FlowExportFormat) => void
   exportando: FlowExportFormat | null
   exportarDesabilitado?: boolean
-  onVerPorRaia: () => void
-  verPorRaiaDesabilitado?: boolean
   /** Ações que saíram do topo por falta de espaço (Organizar, Quem inicia): no alto do menu. */
   extras?: Array<{ rotulo: string; icone: ReactNode; onClick: () => void; disabled?: boolean }>
   /** O botão ⋯ — quem abre um balão a partir de um item do menu ancora nele. */
@@ -197,7 +200,7 @@ export function MenuMais({ onHistorico, onExportar, exportando, exportarDesabili
   return (
     <>
       <button ref={botao} type="button" onClick={() => { if (antesDeAlternar?.()) return; setAberto((v) => !v) }} aria-haspopup="menu" aria-expanded={aberto}
-        aria-label="Mais ações" title={`Mais ações: histórico, exportar${verPorRaiaDesabilitado ? ' (vista por raia)' : ''}, ver por raia`}
+        aria-label="Mais ações" title="Mais ações: histórico, exportar"
         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-card text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground">
         {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
       </button>
@@ -217,8 +220,7 @@ export function MenuMais({ onHistorico, onExportar, exportando, exportarDesabili
             </button>
           )}
           <p className="flex items-center gap-1.5 px-2 pb-0.5 pt-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">
-            {/* exporta o que está na tela: o desenho BPMN ou, em "Ver por raia", a vista por raia */}
-            <Download className="h-3 w-3" />{verPorRaiaDesabilitado ? 'Exportar (vista por raia)' : 'Exportar'}
+            <Download className="h-3 w-3" />Exportar
           </p>
           <button type="button" role="menuitem" className={item} disabled={exportarDesabilitado} onClick={escolher(() => onExportar('jpg'))}
             {...(onHistorico || extras?.length ? {} : { 'data-autofocus': true })}>
@@ -227,43 +229,66 @@ export function MenuMais({ onHistorico, onExportar, exportando, exportarDesabili
           <button type="button" role="menuitem" className={item} disabled={exportarDesabilitado} onClick={escolher(() => onExportar('pdf'))}>
             <FileText className="h-4 w-4 text-rose-600 dark:text-rose-400" />Documento (PDF)
           </button>
-          <span aria-hidden className="mx-1 my-1 block h-px bg-border" />
-          <button type="button" role="menuitem" className={item} disabled={verPorRaiaDesabilitado} onClick={escolher(onVerPorRaia)}>
-            <Rows3 className="h-4 w-4 text-muted-foreground" />Ver por raia
-          </button>
         </FloatingMenu>
       )}
     </>
   )
 }
 
-export type VistaDoEditor = 'roteiro' | 'desenho' | 'raia'
+const BOTAO_DO_DESENHO = 'inline-flex h-7 items-center justify-center gap-1.5 rounded px-2 text-[12.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40'
 
-/** Roteiro | Desenho: as duas portas para o mesmo workflow (spec do Roteiro, §1). Trocar
- *  não grava nem perde nada. `roteiroDesabilitado` = motivo (workflow só leitura). */
-export function SeletorDeVista({ vista, onVista, roteiroDesabilitado, soIcone }: {
-  vista: VistaDoEditor
-  onVista: (v: 'roteiro' | 'desenho') => void
-  roteiroDesabilitado?: string
+const ALINHAR: ReadonlyArray<{ modo: ModoAlinhar; rotulo: string; Icone: typeof AlignStartVertical }> = [
+  { modo: 'esquerda', rotulo: 'Alinhar pela esquerda', Icone: AlignStartVertical },
+  { modo: 'centroX', rotulo: 'Centralizar na vertical', Icone: AlignCenterVertical },
+  { modo: 'topo', rotulo: 'Alinhar pelo topo', Icone: AlignStartHorizontal },
+  { modo: 'centroY', rotulo: 'Centralizar na horizontal', Icone: AlignCenterHorizontal },
+  { modo: 'distribuirX', rotulo: 'Distribuir na horizontal', Icone: AlignHorizontalDistributeCenter },
+  { modo: 'distribuirY', rotulo: 'Distribuir na vertical', Icone: AlignVerticalDistributeCenter },
+]
+
+/** Controles do desenho no topo: orientação (Horizontal | Vertical), grade e — com 2+ formas
+ *  no laço — os 6 botões de alinhar (como se vê na tela, nas duas orientações). */
+export function ControlesDoDesenho({ orientacao, onOrientacao, grade, onGrade, selecionadas, onAlinhar, soIcone }: {
+  orientacao: Orientacao; onOrientacao: (o: Orientacao) => void
+  grade: boolean; onGrade: (v: boolean) => void
+  /** Quantas formas estão selecionadas (o laço). */
+  selecionadas: number
+  onAlinhar: (m: ModoAlinhar) => void
+  /** Topo apertado: só os ícones. */
   soIcone?: boolean
 }): JSX.Element {
   const opcoes = [
-    { v: 'roteiro' as const, rotulo: 'Roteiro', Icone: ListOrdered, desabilitado: roteiroDesabilitado },
-    { v: 'desenho' as const, rotulo: 'Desenho', Icone: Workflow, desabilitado: undefined },
+    { o: 'horizontal' as const, rotulo: 'Horizontal', titulo: 'Raias na horizontal', Icone: Rows3 },
+    { o: 'vertical' as const, rotulo: 'Vertical', titulo: 'Raias na vertical', Icone: Columns3 },
   ]
   return (
-    <div role="radiogroup" aria-label="Vista do editor" className="flex shrink-0 items-center rounded-md border bg-muted/40 p-0.5">
-      {opcoes.map(({ v, rotulo, Icone, desabilitado }) => {
-        const ativo = vista === v
-        return (
-          <button key={v} type="button" role="radio" aria-checked={ativo} disabled={!!desabilitado}
-            onClick={() => onVista(v)} title={desabilitado ?? rotulo} aria-label={rotulo}
-            className={cn('inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-[12.5px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40',
-              ativo ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-            <Icone className="h-3.5 w-3.5" />{!soIcone && rotulo}
-          </button>
-        )
-      })}
-    </div>
+    <>
+      <div role="radiogroup" aria-label="Orientação do desenho" className="flex shrink-0 items-center rounded-md border bg-muted/40 p-0.5">
+        {opcoes.map(({ o, rotulo, titulo, Icone }) => {
+          const ativo = orientacao === o
+          return (
+            <button key={o} type="button" role="radio" aria-checked={ativo} onClick={() => { if (!ativo) onOrientacao(o) }}
+              title={titulo} aria-label={rotulo}
+              className={cn(BOTAO_DO_DESENHO, ativo ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+              <Icone className="h-3.5 w-3.5" />{!soIcone && rotulo}
+            </button>
+          )
+        })}
+      </div>
+      <button type="button" aria-pressed={grade} onClick={() => onGrade(!grade)} title="Mostrar a grade e encaixar nela" aria-label="Grade"
+        className={cn(BOTAO_DO_DESENHO, 'h-8 shrink-0 rounded-md border shadow-sm', grade ? 'bg-primary/10 text-primary border-primary/30' : 'bg-card text-muted-foreground hover:text-foreground')}>
+        <Grid3x3 className="h-4 w-4" />{!soIcone && 'Grade'}
+      </button>
+      {selecionadas >= 2 && (
+        <div role="group" aria-label={`Alinhar ${selecionadas} formas`} className="flex shrink-0 items-center rounded-md border bg-card p-0.5 shadow-sm">
+          {ALINHAR.map(({ modo, rotulo, Icone }) => (
+            <button key={modo} type="button" onClick={() => onAlinhar(modo)} title={rotulo} aria-label={rotulo}
+              className={cn(BOTAO_DO_DESENHO, 'w-7 px-0 text-muted-foreground hover:bg-muted hover:text-foreground')}>
+              <Icone className="h-4 w-4" />
+            </button>
+          ))}
+        </div>
+      )}
+    </>
   )
 }

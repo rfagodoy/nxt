@@ -79,7 +79,7 @@ export const LABEL_H = 34  // 2 linhas + folga
 /** Dimensões de cada tipo de nó. A caixa é a FORMA — o rótulo externo não entra nela
  *  (senão as setas deixariam de encostar na ponta do losango / na borda do círculo). */
 export function nodeSize(node: FlowNode, _outDeg: number, _inDeg: number): { w: number; h: number } {
-  switch (node.type) {
+  switch (node.type as string) {
     case 'start':
     case 'end':
     case 'exclusiveGateway':
@@ -88,17 +88,21 @@ export function nodeSize(node: FlowNode, _outDeg: number, _inDeg: number): { w: 
       return { w: SYMBOL, h: SYMBOL }
     case 'userTask':
     case 'serviceTask':
+    case 'subProcess': // o subprocesso é uma caixa como a tarefa
       return {
         w: TASK_W,
         h: CARD_SHELL_H + titleLineCount(node.name) * CARD_LINE_H + (node.metaLines ?? CARD_META_PADRAO) * CARD_META_H,
       }
+    default:
+      /* evento intermediário e losango baseado em evento: símbolos */
+      return { w: SYMBOL, h: SYMBOL }
   }
 }
 
 /** Quanto o RÓTULO EXTERNO transborda a caixa (só eventos/gateways com nome). Entra apenas
  *  na extensão do desenho — a caixa (e as âncoras das setas) continua sendo a forma. */
 function labelOverflow(node: FlowNode): { x: number; y: number } {
-  if (node.type === 'userTask' || node.type === 'serviceTask' || !node.name) return { x: 0, y: 0 }
+  if (node.type === 'userTask' || node.type === 'serviceTask' || (node.type as string) === 'subProcess' || !node.name) return { x: 0, y: 0 }
   return { x: Math.max(0, (LABEL_W - SYMBOL) / 2), y: LABEL_H }
 }
 

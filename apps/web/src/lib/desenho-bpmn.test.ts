@@ -5,7 +5,7 @@ import { nodeSize } from './flow-layout'
 import {
   GRADE, RAIA_ALTURA_PADRAO, RAIA_ALTURA_MINIMA, RAIA_ALTURA_MAXIMA, desenhoInicial, organizar, completarPosicoes, raiaNaAltura, avisoDeRaia, setaSobPonto, polilinhaDaSeta,
   adicionarRaia, renomearRaia, redimensionarRaia, moverRaia, removerRaia, abrirEspaco, larguraDaInsercao, reordenarNoDesenho, pontoDoRotuloNaPolilinha,
-  formasDoItem, posicoesAoMover, podeLigar, ligar, religar, apagarSeta, apagarForma, soltarForma, atualizarSeta, religarSaida,
+  formasDoItem, posicoesAoMover, podeLigar, ligar, religar, apagarSeta, apagarForma, soltarForma, atualizarSeta, religarSaida, pontasDaSeta,
   pendenciaDaRecusa,
 } from './desenho-bpmn'
 
@@ -528,5 +528,37 @@ describe('ligar/religarSaida: o losango que junta gerado pelo Roteiro passa a di
   })
   it('religar a saída de outra seta para ele também', () => {
     expect(religarSaida(d, 's4', 'E__fim').formas.map((f) => f.id)).toContain('E_divide')
+  })
+})
+
+describe('pontas livres da seta', () => {
+  const d: DesenhoV2 = {
+    versao: 2, posicoes: {}, raias: [],
+    formas: [{ id: 'start', tipo: 'start' }, { id: 'a1', tipo: 'userTask' }, { id: 'a2', tipo: 'userTask' }, { id: 'end', tipo: 'end' }],
+    setas: [{ id: 's1', de: 'start', para: 'a1' }, { id: 's2', de: 'a1', para: 'end', rotulo: 'ok', saida: { lado: 'baixo', t: 0.3 }, entrada: { lado: 'cima', t: 0.5 } }],
+  }
+  it('pontasDaSeta grava a ponta pedida e mantém o resto', () => {
+    const r = pontasDaSeta(d, 's1', { saida: { lado: 'cima', t: 0.2 } })
+    expect(r.setas[0]).toEqual({ id: 's1', de: 'start', para: 'a1', saida: { lado: 'cima', t: 0.2 } })
+    expect(r.setas[1]).toBe(d.setas[1])
+  })
+  it('null tira a ponta (caminho automático); sem mudança devolve o mesmo desenho', () => {
+    const r = pontasDaSeta(d, 's2', { saida: null, entrada: null })
+    expect(r.setas[1]).toEqual({ id: 's2', de: 'a1', para: 'end', rotulo: 'ok' })
+    expect(pontasDaSeta(r, 's2', { saida: null, entrada: null })).toBe(r)
+    expect(pontasDaSeta(d, 's2', { saida: { lado: 'baixo', t: 0.3 } })).toBe(d)
+    expect(pontasDaSeta(d, 'nada', { saida: null })).toBe(d)
+  })
+  it('religar leva a ponta onde a seta foi solta; sem ela, a chegada volta ao automático', () => {
+    expect(religar(d, 's2', 'a2', { lado: 'esquerda', t: 0.4 }).setas[1].entrada).toEqual({ lado: 'esquerda', t: 0.4 })
+    const r = religar(d, 's2', 'a2')
+    expect('entrada' in r.setas[1]).toBe(false)
+    expect(r.setas[1].saida).toEqual({ lado: 'baixo', t: 0.3 })
+  })
+  it('religarSaida idem, na saída', () => {
+    expect(religarSaida(d, 's2', 'a2', { lado: 'direita', t: 1 }).setas[1].saida).toEqual({ lado: 'direita', t: 1 })
+    const r = religarSaida(d, 's2', 'a2')
+    expect('saida' in r.setas[1]).toBe(false)
+    expect(r.setas[1].entrada).toEqual({ lado: 'cima', t: 0.5 })
   })
 })
