@@ -14,6 +14,14 @@ export interface ProximoItemProps {
   onArrastar: (item: ItemCatalogo, e: DragEvent) => void
 }
 
+/** Altura da coluna na tela (px): borda interna de 4 px, botões de 32, 2 px entre os filhos
+ *  e um separador de 5 px entre os grupos. O menu da seleção usa para não cobri-la. */
+export const ALTURA_DA_COLUNA = (() => {
+  const botoes = PROXIMOS.reduce((t, g) => t + g.length, 0)
+  const filhos = botoes + PROXIMOS.length - 1
+  return 8 + botoes * 32 + (PROXIMOS.length - 1) * 5 + (filhos - 1) * 2
+})()
+
 const BOTAO = `grid h-8 w-8 cursor-grab place-items-center rounded-[7px] border-0 bg-transparent p-0
   hover:bg-[rgba(17,128,79,0.08)] dark:hover:bg-[rgba(198,242,78,0.12)]
   focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--e-11804F)] dark:focus-visible:outline-spark`

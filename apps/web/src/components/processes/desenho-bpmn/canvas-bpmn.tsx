@@ -27,7 +27,7 @@ import {
   type AriaLabelConfig, type Connection, type Edge, type NodeChange, type NodePositionChange, type NodeSelectionChange, type OnConnectEnd, type OnReconnect,
   type OnNodeDrag, type ReactFlowInstance,
 } from '@xyflow/react'
-import { Link2, Map as MapIcon, Settings, Trash2 } from 'lucide-react'
+import { ArrowRight, Link2, Map as MapIcon, Settings, Trash2 } from 'lucide-react'
 import '@xyflow/react/dist/style.css'
 import type { DesenhoBpmn, DesenhoV2, FormaDesenho, LayoutDesenho, StepFormSchema, TipoForma } from '@nxt/types'
 import {
@@ -48,7 +48,7 @@ import {
   type SetaDeSequencia, type TipoLosango,
 } from './formas'
 import { TIPO_ARRASTO_FORMA } from './paleta'
-import { ProximoItem } from './proximo-item'
+import { ALTURA_DA_COLUNA, ProximoItem } from './proximo-item'
 import { CATALOGO, itemDoArrasto, type ItemCatalogo } from '@/lib/editor-bizagi/catalogo'
 import { daTela, encaixarComGuias, paraTela, type Caixa as CaixaLogica, type Orientacao } from '@/lib/editor-bizagi/geometria'
 import {
@@ -971,6 +971,15 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   /** Do Fim não sai seta: ele não tem próximo item. */
   const proximoDe = menuSel && menuSel.tipo !== 'end' ? menuSel : null
   const ladoDoProximo = orientacao === 'vertical' ? Position.Bottom : Position.Right
+  /* O menu fica ACIMA da forma. Na horizontal, a coluna do próximo item (à direita, centrada
+     na altura da forma) passa do topo de uma forma baixa — um evento, um losango — e, se a
+     forma for estreita, o menu centrado chegaria nela. Aí o menu sobe até passar da coluna.
+     Medidas na tela: a forma escala com o zoom; menu e coluna, não. */
+  const medidaSel = useStore((s) => {
+    const n = menuSel ? s.nodeLookup.get(menuSel.id) : undefined
+    const z = s.transform[2]
+    return n ? `${(n.measured?.width ?? n.width ?? 0) * z}|${(n.measured?.height ?? n.height ?? 0) * z}` : ''
+  })
   const arrastarProximo = (item: ItemCatalogo, e: DragEvent) => {
     if (!proximoDe) return
     e.dataTransfer.setData(TIPO_ARRASTO_FORMA, JSON.stringify({ grupo: item.grupo, indice: CATALOGO[item.grupo].indexOf(item) }))
@@ -992,6 +1001,14 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   const [menuVinculoDe, setMenuVinculoDe] = useState<string | null>(null)
   const podeVincular = !!onInserirVinculada && !!vinculaveis?.length
   const menuVinculo = !!acoes && podeVincular && menuVinculoDe === acoes.id
+  const botoesDoMenu = 1 + (acoes && podeVincular ? 1 : 0) + (podeLigarDaqui ? 1 : 0) + (apagavelSel ? 1 : 0)
+  const offsetDoMenu = (() => {
+    if (!proximoDe || vertical || !medidaSel) return 8
+    const [w, h] = medidaSel.split('|').map(Number)
+    const meioDoMenu = (botoesDoMenu * 28 + (botoesDoMenu - 1) * 2 + 8) / 2
+    if (w / 2 + 12 >= meioDoMenu + 4) return 8
+    return Math.max(8, (ALTURA_DA_COLUNA - h) / 2 + 8)
+  })()
   const setMenuVinculo = (v: boolean | ((x: boolean) => boolean)) => {
     const novo = typeof v === 'function' ? v(menuVinculo) : v
     setMenuVinculoDe(novo && acoes ? acoes.id : null)
@@ -1112,7 +1129,6 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     return n.data.tipo === 'paralelo' ? cor.miniParalelo : cor.miniEscolha
   }, [cor])
 
-  const MENU = 'flex h-7 items-center gap-1.5 rounded-md border-0 bg-transparent px-2 font-bold hover:bg-[rgba(20,36,32,0.06)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--e-11804F)] dark:hover:bg-white/5 dark:focus-visible:outline-spark'
   const ACAO = 'flex h-7 w-7 items-center justify-center rounded-md border-0 bg-transparent hover:bg-[rgba(20,36,32,0.06)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--e-11804F)] dark:hover:bg-white/5 dark:focus-visible:outline-spark'
 
   return (
@@ -1235,11 +1251,12 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
             </ViewportPortal>
           )}
           {/* menu pequeno da seleção, acima da forma */}
-          <NodeToolbar nodeId={menuSel?.id} isVisible={!!menuSel} position={Position.Top} offset={10}>
+          <NodeToolbar nodeId={menuSel?.id} isVisible={!!menuSel} position={Position.Top} offset={offsetDoMenu}>
             <div role="toolbar" aria-label="Forma selecionada"
-              className="flex items-center gap-0.5 rounded-[10px] bg-white p-1 font-sans text-[11.5px] text-[var(--e-2E3E36)] shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[var(--e-0F1914)] dark:text-[var(--e-C9D6CE)] dark:shadow-[0_0_0_1px_var(--e-2A3B32),0_12px_24px_-12px_rgba(0,0,0,0.7)]">
-              <button type="button" className={MENU} onClick={() => menuSel && onAbrir({ k: 'forma', id: menuSel.id })}>
-                <Settings aria-hidden className="h-3.5 w-3.5" />Parametrizar
+              className="flex items-center gap-0.5 rounded-lg bg-white p-1 font-sans text-[var(--e-2E3E36)] shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[var(--e-0F1914)] dark:text-[var(--e-C9D6CE)] dark:shadow-[0_0_0_1px_var(--e-2A3B32),0_12px_24px_-12px_rgba(0,0,0,0.7)]">
+              <button type="button" className={ACAO} title="Parametrizar (duplo clique ou Enter)" aria-label="Parametrizar"
+                onClick={() => menuSel && onAbrir({ k: 'forma', id: menuSel.id })}>
+                <Settings aria-hidden className="h-3.5 w-3.5" />
               </button>
               {acoes && podeVincular && (
                 <button type="button" title="Próxima: mesma configuração de…" aria-label="Próxima: mesma configuração de…"
@@ -1250,22 +1267,26 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
                 </button>
               )}
               {podeLigarDaqui && (
-                <button type="button" title="Ligar com seta (ou arraste a bolinha embaixo da forma)" aria-label="Ligar com seta" aria-pressed={ligandoDe === editavelSel?.id}
-                  className={`${ACAO} text-[13px] text-[var(--e-142420)] dark:text-white ${ligandoDe === editavelSel?.id ? 'bg-[rgba(198,242,78,0.35)] dark:bg-[rgba(198,242,78,0.14)]' : ''}`}
+                <button type="button" title="Ligar com seta (ou arraste a bolinha da forma)" aria-label="Ligar com seta" aria-pressed={ligandoDe === editavelSel?.id}
+                  className={`${ACAO} text-[var(--e-142420)] dark:text-white ${ligandoDe === editavelSel?.id ? 'bg-[rgba(198,242,78,0.35)] dark:bg-[rgba(198,242,78,0.14)]' : ''}`}
                   onClick={() => setLigandoDe((x) => (x === editavelSel?.id ? null : editavelSel?.id ?? null))}>
-                  <span aria-hidden>→</span>
+                  <ArrowRight aria-hidden className="h-3.5 w-3.5" />
                 </button>
               )}
               {apagavelSel && (
-                <button type="button" className={`${MENU} text-[#B42318] hover:bg-[rgba(180,35,24,0.08)] dark:text-[#FDA29B]`}
-                  onClick={() => onRemover(apagavelSel.id)}>
-                  <Trash2 aria-hidden className="h-3.5 w-3.5" />Apagar
-                </button>
+                <>
+                  <span aria-hidden className="mx-0.5 h-4 w-px bg-[var(--e-D2DCD5)] dark:bg-[var(--e-2A3B32)]" />
+                  <button type="button" title="Apagar (Delete)" aria-label="Apagar"
+                    className={`${ACAO} text-[#B42318] hover:bg-[rgba(180,35,24,0.08)] dark:text-[#FDA29B] dark:hover:bg-[rgba(253,162,155,0.12)]`}
+                    onClick={() => onRemover(apagavelSel.id)}>
+                    <Trash2 aria-hidden className="h-3.5 w-3.5" />
+                  </button>
+                </>
               )}
             </div>
             {menuVinculo && podeVincular && (
               <div ref={listaVinculo} role="menu" aria-label="Repetir com a mesma configuração de" onKeyDown={teclasDoVinculo}
-                className="absolute left-0 top-full mt-2 max-h-[260px] w-[240px] overflow-y-auto rounded-[10px] bg-white p-1 font-sans shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[var(--e-0F1914)] dark:shadow-[0_0_0_1px_var(--e-2A3B32),0_12px_24px_-12px_rgba(0,0,0,0.7)]">
+                className="absolute bottom-full left-0 mb-2 max-h-[260px] w-[240px] overflow-y-auto rounded-lg bg-white p-1 font-sans shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[var(--e-0F1914)] dark:shadow-[0_0_0_1px_var(--e-2A3B32),0_12px_24px_-12px_rgba(0,0,0,0.7)]">
                 <p className="px-2 pb-1 pt-1.5 text-[10.5px] font-bold uppercase tracking-wide text-[var(--e-5E6F66)] dark:text-[var(--e-9DB0A5)]">Mesma configuração de</p>
                 {vinculaveis!.map((v) => (
                   <button key={v.id} type="button" role="menuitem" tabIndex={-1} onClick={() => vincular(v.id)}

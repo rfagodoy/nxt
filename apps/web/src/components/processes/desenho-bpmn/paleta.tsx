@@ -169,9 +169,15 @@ const FOCO = 'focus-visible:outline focus-visible:outline-2 focus-visible:outlin
 const BOTAO = `grid h-10 w-10 shrink-0 place-items-center rounded-[7px] border border-transparent bg-transparent p-0 hover:bg-[rgba(17,128,79,0.08)] dark:hover:bg-[rgba(198,242,78,0.12)]
   aria-pressed:border-[var(--e-11804F)] aria-pressed:bg-[rgba(17,128,79,0.08)] dark:aria-pressed:border-spark dark:aria-pressed:bg-[rgba(198,242,78,0.12)]
   disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent ${FOCO}`
-const SETA = `h-6 w-3 shrink-0 rounded-[3px] border-0 bg-transparent p-0 text-[9px] leading-none text-[var(--e-5B6B63)] hover:bg-[rgba(17,128,79,0.08)] hover:text-[var(--e-142420)]
+/* O ▾ tem 8 px de largura (dois pares botão + ▾ cabem nos 100 px da paleta sem invadir o
+   vizinho), mas a área de clique é a altura inteira da linha: o `after` invisível estica
+   para cima e para baixo, sem cobrir botão nenhum. */
+const SETA = `relative h-6 w-2 shrink-0 rounded-[3px] border-0 bg-transparent p-0 text-[9px] leading-none text-[var(--e-5B6B63)] hover:bg-[rgba(17,128,79,0.08)] hover:text-[var(--e-142420)]
+  after:absolute after:inset-x-0 after:-inset-y-2 after:content-['']
   dark:text-[var(--e-9DB0A5)] dark:hover:bg-[rgba(198,242,78,0.12)] dark:hover:text-white disabled:cursor-not-allowed disabled:opacity-40 ${FOCO}`
 const GRADE_CLS = 'grid grid-cols-2 gap-0.5 border-b border-b-[var(--e-DCE4DE)] px-1.5 py-2 dark:border-b-[var(--e-22332A)]'
+/** As formas: cada célula é botão + ▾ (48 px); as colunas se ajustam ao conteúdo e se afastam. */
+const GRADE_FORMAS = 'grid grid-cols-[repeat(2,auto)] justify-between gap-y-0.5 border-b border-b-[var(--e-DCE4DE)] px-1.5 py-2 dark:border-b-[var(--e-22332A)]'
 /** Cores da etiqueta (também no cabeçalho das gavetas). */
 export const CHIP: Record<ItemCatalogo['etiqueta'], string> = {
   hoje: 'bg-[#E3F3EA] text-[var(--e-11804F)] dark:bg-[rgba(198,242,78,0.12)] dark:text-spark',
@@ -246,7 +252,7 @@ export function PaletaBpmn({
       </div>
       {aberta && (
         <>
-          <div role="group" aria-label="Formas" className={GRADE_CLS}>
+          <div role="group" aria-label="Formas" className={GRADE_FORMAS}>
             {GRUPOS.map((g) => {
               const indice = Math.min(escolhidas[g] ?? 0, CATALOGO[g].length - 1)
               const item = CATALOGO[g][indice]
