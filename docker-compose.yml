@@ -9,6 +9,11 @@
 # Após subir: rode o seed (packages/database: `npm run db:push && npm run db:seed`)
 # para criar a org demo e o usuário admin.
 
+# Nome fixo do projeto: sem ele, o Compose usa o nome da pasta (hoje "nxt-contratos")
+# e cria volume e rede novos e vazios, em vez de usar os do banco que já existe
+# (`nxt_sqlserver-data`).
+name: nxt
+
 services:
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
