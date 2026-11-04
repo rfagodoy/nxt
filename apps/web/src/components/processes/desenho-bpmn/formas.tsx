@@ -11,14 +11,15 @@
    claro é o padrão e o escuro vem pelas variantes `dark:`. */
 import { createContext, useContext, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { BaseEdge, EdgeLabelRenderer, Handle, NodeResizeControl, Position, getSmoothStepPath, useReactFlow, type Edge, type EdgeProps, type Node, type NodeProps, type ResizeParams } from '@xyflow/react'
+import { BaseEdge, EdgeLabelRenderer, Handle, NodeResizeControl, Position, getSmoothStepPath, useInternalNode, useReactFlow, type Edge, type EdgeProps, type InternalNode, type Node, type NodeProps, type ResizeParams } from '@xyflow/react'
 import { MoreHorizontal, Plus, Settings, UserSquare } from 'lucide-react'
-import type { VarianteForma } from '@nxt/types'
+import type { PontaDaSeta, VarianteForma } from '@nxt/types'
 import { GRADE, RAIA_ALTURA_MAXIMA, RAIA_ALTURA_MINIMA, RAIA_ROTULO_W, pontoDoRotuloNaPolilinha } from '@/lib/desenho-bpmn'
 import { FASE_LARGURA_MINIMA, FORMA_MINIMA, PISCINA_LARGURA_MINIMA } from '@/lib/editor-bizagi/layout'
 import { FASE_ALTURA, FAIXA_DO_NOME } from '@/lib/editor-bizagi/faixas'
 import { PISCINA_DO_PROCESSO, type AlvoDeGaveta } from '@/lib/editor-bizagi/gavetas'
 import { iconeDaTarefa, iconeDoEvento, nomeDoEvento, tipoDaTarefa, type IconeDoEvento, type TipoDoEvento } from '@/lib/editor-bizagi/formas-do-canvas'
+import { rotaEntreContornos, type ContornoDaPonta } from '@/lib/editor-bizagi/contorno'
 
 /* ─── Medidas ─────────────────────────────────────────────────────────────── */
 /* A caixa de cada forma é a que o layout (`nodeSize` de flow-layout) reserva: a tarefa
@@ -50,8 +51,14 @@ export type DadosPiscina = { nome: string; largura: number; cabecalho: boolean }
 /** Fase: a coluna inteira (cabeçalho + raias); `largura` lógica, que a alça muda. */
 export type DadosFase = { id: string; nome: string; largura: number; primeira: boolean; ultima: boolean }
 export type DadosPiscinaExterna = { id: string; nome: string }
+/** Pontas livres de uma seta, NA TELA (o canvas já transpôs as lógicas). Presentes, a seta é
+ *  traçada entre elas (`rotaEntreContornos`) em vez do traço automático. `null` = a ponta é uma
+ *  piscina externa (automática). `trocar` = prévia do arrasto: a ponta está sobre OUTRA forma. */
+export type PontasNaTela = { saida: PontaDaSeta | null; entrada: PontaDaSeta | null; trocar?: { qual: 'saida' | 'entrada'; no: string } }
 export type DadosSeta = { rotulo?: string; senao: boolean; /** Seta sob o ponteiro durante um arrasto: a forma entra aqui. */ destacada?: boolean
-  /** Culpada da pendência escolhida na pílula: vermelho tracejado, como a seta recusada. */ problema?: boolean }
+  /** Culpada da pendência escolhida na pílula: vermelho tracejado, como a seta recusada. */ problema?: boolean
+  /** As pontas livres gravadas (LÓGICAS; ausentes = automáticas). */ saida?: PontaDaSeta; entrada?: PontaDaSeta
+  /** As pontas livres na tela, quando há alguma (ou durante o arrasto de uma ponta). */ pontas?: PontasNaTela }
 
 export type NoTarefa = Node<DadosTarefa, 'tarefa'>
 export type NoLosango = Node<DadosLosango, 'losango'>
@@ -62,7 +69,9 @@ export type NoFase = Node<DadosFase, 'fase'>
 export type NoPiscinaExterna = Node<DadosPiscinaExterna, 'externa'>
 export type NoBpmn = NoTarefa | NoLosango | NoEvento | NoRaia | NoPiscina | NoFase | NoPiscinaExterna
 /** Fluxo de mensagem: `pontos` = o traço já na TELA (o canvas roteia; as alças só ancoram). */
-export type DadosMensagem = { pontos: Array<{ x: number; y: number }>; rotulo?: string }
+export type DadosMensagem = { pontos: Array<{ x: number; y: number }>; rotulo?: string
+  /** As pontas livres na tela, quando há alguma: aí o traço sai delas (e segue a forma ao vivo). */ pontas?: PontasNaTela
+  /** Prévia de uma ponta solta onde não pode. */ problema?: boolean }
 export type SetaDeSequencia = Edge<DadosSeta, 'seta'>
 export type SetaDeMensagem = Edge<DadosMensagem, 'mensagem'>
 export type SetaBpmn = SetaDeSequencia | SetaDeMensagem
@@ -702,6 +711,40 @@ export function FormaPiscinaExterna({ data }: NodeProps<NoPiscinaExterna>) {
 }
 
 /* ─── Seta ────────────────────────────────────────────────────────────────── */
+
+/** O contorno de um nó do desenho na TELA: tarefa e subprocesso são retângulos, o losango é
+ *  ele mesmo e o evento é o círculo (dentro da caixa, recuado). A piscina externa só recebe a
+ *  ponta automática. Faixas de fundo não têm contorno de seta. */
+export function contornoDoNo(tipo: string | undefined, x: number, y: number, w: number, h: number): ContornoDaPonta | null {
+  switch (tipo) {
+    case 'tarefa': return { caixa: { x, y, largura: w, altura: h }, forma: 'retangulo' }
+    case 'losango': return { caixa: { x, y, largura: w, altura: h }, forma: 'losango' }
+    case 'evento': {
+      const r = Math.min(EVENTO_RECUO, w / 2, h / 2)
+      return { caixa: { x: x + r, y: y + r, largura: w - 2 * r, altura: h - 2 * r }, forma: 'circulo' }
+    }
+    case 'externa': return { caixa: { x, y, largura: w, altura: h }, forma: 'retangulo', piscina: true }
+    default: return null
+  }
+}
+
+const contornoInterno = (n: InternalNode | undefined): ContornoDaPonta | null => {
+  if (!n) return null
+  const p = n.internals.positionAbsolute
+  return contornoDoNo(n.type, p.x, p.y, n.measured?.width ?? n.width ?? 0, n.measured?.height ?? n.height ?? 0)
+}
+
+/** Traço da seta com pontas livres, NA TELA, seguindo as formas ao vivo (arrasto e tamanho).
+ *  `null` sem pontas: a seta usa o traço automático. Mora dentro do <ReactFlow> (lê a loja). */
+export function useRotaLivre(source: string, target: string, pontas: PontasNaTela | undefined): Array<{ x: number; y: number }> | null {
+  const ns = useInternalNode(pontas?.trocar?.qual === 'saida' ? pontas.trocar.no : source)
+  const nt = useInternalNode(pontas?.trocar?.qual === 'entrada' ? pontas.trocar.no : target)
+  if (!pontas) return null
+  const a = contornoInterno(ns), b = contornoInterno(nt)
+  return a && b ? rotaEntreContornos(a, pontas.saida, b, pontas.entrada) : null
+}
+
+const caminhoDaPolilinha = (pontos: ReadonlyArray<{ x: number; y: number }>) => 'M' + pontos.map((p) => `${p.x} ${p.y}`).join(' L')
 /** Acima das formas (o React Flow eleva a selecionada a 1000). */
 const Z_ROTULO = 1100
 /** Id do marcador da ponta, desenhado uma vez pelo canvas. */
@@ -716,9 +759,12 @@ export function pontoDoRotulo(caminho: string): { x: number; y: number } | null 
   return pontoDoRotuloNaPolilinha(pts)
 }
 
-export function SetaComRotulo({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, markerEnd, selected }: EdgeProps<SetaDeSequencia>) {
-  const [caminho, mx, my] = getSmoothStepPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, borderRadius: 0, offset: 20 })
-  const perto = pontoDoRotulo(caminho)
+export function SetaComRotulo({ source, target, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, markerEnd, selected }: EdgeProps<SetaDeSequencia>) {
+  const [automatico, mx, my] = getSmoothStepPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, borderRadius: 0, offset: 20 })
+  // com pontas livres, o traço sai e chega nelas (perpendicular ao lado)
+  const livre = useRotaLivre(source, target, data?.pontas)
+  const caminho = livre ? caminhoDaPolilinha(livre) : automatico
+  const perto = livre ? pontoDoRotuloNaPolilinha(livre) : pontoDoRotulo(caminho)
   const lx = perto?.x ?? mx, ly = perto?.y ?? my
   // a pílula mostra o rótulo do caminho; o "Senão" é sempre "senão" (nunca a expressão do motor)
   const rotulo = data?.senao ? 'senão' : data?.rotulo
@@ -748,14 +794,17 @@ export function SetaComRotulo({ sourceX, sourceY, targetX, targetY, sourcePositi
 
 /** Fluxo de mensagem: tracejado, círculo vazado na saída e ponta vazada na chegada (os
  *  marcadores vêm do canvas). O traço é o roteado pelo canvas, já na tela. */
-export function SetaMensagem({ data, markerStart, markerEnd, selected, sourceX, sourceY, targetX, targetY }: EdgeProps<SetaDeMensagem>) {
-  const pontos = data?.pontos?.length ? data.pontos : [{ x: sourceX, y: sourceY }, { x: targetX, y: targetY }]
-  const caminho = 'M' + pontos.map((p) => `${p.x} ${p.y}`).join(' L')
+export function SetaMensagem({ source, target, data, markerStart, markerEnd, selected, sourceX, sourceY, targetX, targetY }: EdgeProps<SetaDeMensagem>) {
+  const livre = useRotaLivre(source, target, data?.pontas)
+  const pontos = livre ?? (data?.pontos?.length ? data.pontos : [{ x: sourceX, y: sourceY }, { x: targetX, y: targetY }])
+  const caminho = caminhoDaPolilinha(pontos)
   const perto = pontoDoRotuloNaPolilinha(pontos)
   return (
     <>
       <BaseEdge path={caminho} markerStart={markerStart} markerEnd={markerEnd} interactionWidth={14}
-        style={selected
+        style={data?.problema
+          ? { stroke: '#D64535', strokeWidth: 2.4, strokeDasharray: '6 5' }
+          : selected
           ? { stroke: 'var(--bpmn-seta-destaque)', strokeWidth: 2.4, strokeDasharray: '6 4' }
           : { stroke: 'var(--bpmn-seta)', strokeWidth: 1.5, strokeDasharray: '6 4' }} />
       {data?.rotulo && perto && (

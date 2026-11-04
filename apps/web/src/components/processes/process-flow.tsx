@@ -12,7 +12,7 @@ import {
   type GrafoGerado, type PontoDeInsercao,
   gruposDeVinculo, religarVinculos, listarAtividades as listarAtivs, type ItemAtividade,
 } from '@nxt/workflow-core'
-import type { StepFormSchema, ProcessFormSchema, DesenhoBpmn, DesenhoV2, FormaDesenho } from '@nxt/types'
+import type { StepFormSchema, ProcessFormSchema, DesenhoBpmn, DesenhoV2, FormaDesenho, PontaDaSeta } from '@nxt/types'
 import { findConnector } from '@nxt/types'
 import { Button } from '@/components/ui/button'
 import { useEntityLabels, type EntityKind } from '@/components/ui/entity-select'
@@ -20,7 +20,7 @@ import { useScreens } from '@/hooks/use-screens'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { PAPEIS_KEY, INIT_PAPEIS, referenciaDoPapelEntry } from '@/lib/contract-roles'
 import { layoutGraph, nodeSize, LANE_SEM_RESPONSAVEL, type FlowNode as LNode, type FlowNodeType } from '@/lib/flow-layout'
-import { GRADE, abrirEspaco, adicionarRaia, apagarSeta, completarPosicoes, desenhoInicial, larguraDaInsercao, ligar, organizar, religar, religarSaida, soltarForma, atualizarSeta, apagarForma, pendenciaDaRecusa } from '@/lib/desenho-bpmn'
+import { GRADE, abrirEspaco, adicionarRaia, apagarSeta, completarPosicoes, desenhoInicial, larguraDaInsercao, ligar, organizar, pontasDaSeta, religar, religarSaida, soltarForma, atualizarSeta, apagarForma, pendenciaDaRecusa, type PatchDasPontas } from '@/lib/desenho-bpmn'
 import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, type ExportEdge } from '@/lib/flow-export'
 import { apiFetch, apiJson } from '@/lib/http'
 import { ProcessHistoryDrawer } from './process-history-drawer'
@@ -44,7 +44,7 @@ import { PerguntasDaEtapa } from './perguntas-da-etapa'
 import { aplicarExecutorDasRaias, raiaDaForma } from '@/lib/editor-bizagi/raias'
 import { formaNova, type GrupoItem, type GrupoPaleta, type ItemCatalogo } from '@/lib/editor-bizagi/catalogo'
 import { alturaPeloDesenho, caixaDaForma } from '@/lib/editor-bizagi/formas-do-canvas'
-import { adicionarFase, adicionarPiscinaExterna, atualizarPiscinaExterna, layoutDe, mudarOrientacao, prazoDaFase, redimensionarForma, removerFase, removerPiscinaExterna, renomearFase, rotularMensagem, apagarMensagem } from '@/lib/editor-bizagi/layout'
+import { adicionarFase, adicionarPiscinaExterna, atualizarPiscinaExterna, layoutDe, mudarOrientacao, prazoDaFase, redimensionarForma, removerFase, removerPiscinaExterna, renomearFase, rotularMensagem, apagarMensagem, pontasDaMensagem } from '@/lib/editor-bizagi/layout'
 import {
   PISCINA_DO_PROCESSO, comConfig, executorDaRaia, formasNaFase, gavetaDaForma, gavetaDoAlvo, nomeDaRaia, nomeDoElemento, restaurarAlvo, restaurarDesenhoDoBloco,
   restaurarPasso, rotuloDaSeta, setasParaGravar, tarefasNaRaia, workflowsAtivos, type WorkflowDaLista,
@@ -860,8 +860,6 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   }, [mudarFluxo])
   /* Setas livres: mudam o DESENHO; os blocos são refeitos a partir dele. */
   const aoLigar = useCallback((de: string, para: string) => setDoc((d) => ligar(d, de, para)), [])
-  const aoReligar = useCallback((setaId: string, para: string) => setDoc((d) => religar(d, setaId, para)), [])
-  const aoReligarSaida = useCallback((setaId: string, de: string) => setDoc((d) => religarSaida(d, setaId, de)), [])
   const aoApagarSeta = useCallback((setaId: string) => setDoc((d) => apagarSeta(d, setaId)), [])
   const aoAdicionarRaia = useCallback(() => setDesenho((d) => (d ? adicionarRaia(d) : d)), [setDesenho])
   /* Tarefa/subprocesso redimensionado pela alça: também é do DOC (um passo do desfazer); a
@@ -959,6 +957,17 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     setHistoria(excedente ? proximo.slice(excedente) : proximo)
     setHIndice(proximo.length - 1 - excedente)
   }, [doc, steps, laneOrder, historia, hIndice])
+  /* Pontas das setas (religar arrastando uma ponta, ajustar a ponta no contorno, "Caminho
+     automático"): cada ajuste é UM passo do desfazer — o pendente fecha antes. */
+  const aoReligar = useCallback((setaId: string, para: string, entrada?: PontaDaSeta) => {
+    registrarPasso(); setDoc((d) => religar(d, setaId, para, entrada))
+  }, [registrarPasso])
+  const aoReligarSaida = useCallback((setaId: string, de: string, saida?: PontaDaSeta) => {
+    registrarPasso(); setDoc((d) => religarSaida(d, setaId, de, saida))
+  }, [registrarPasso])
+  const aoPontas = useCallback((setaId: string, patch: PatchDasPontas) => {
+    registrarPasso(); setDoc((d) => pontasDaSeta(d, setaId, patch))
+  }, [registrarPasso])
   /* Registra um retrato quando a autoria para de mudar. A espera COALESCE o que é uma
      ação só aos olhos de quem edita (digitar um nome, por exemplo). Ações discretas que
      podem vir em sequência rápida (o próximo item) fecham o passo pendente antes com
@@ -1379,7 +1388,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         }
         if (g.type === 'exclusiveGateway' || g.type === 'parallelGateway' || g.type === 'inclusiveGateway') return { name: g.name ?? '', isFork: !!g.name }
         return { name: g.name || (g.type === 'start' ? 'Início' : g.type === 'end' ? 'Fim' : '') }
-      }, layoutDe(doc).tamanhos)
+      }, layoutDe(doc).tamanhos, new Map(doc.setas.map((x) => [x.id, { saida: x.saida, entrada: x.entrada }])))
     }
     const enodes: ExportNode[] = nodes.map((n) => {
       const p = layout.nodes[n.id]
@@ -1512,12 +1521,13 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         const fluxoMsg = l.fluxosMensagem.find((m) => m.id === id)!
         return <GavetaMensagem key={chave} {...moldura} fluxo={fluxoMsg} de={nomeDoPonto(fluxoMsg.de)} para={nomeDoPonto(fluxoMsg.para)}
           onPatch={(p) => setDoc((d) => rotularMensagem(d, id, p.rotulo))}
+          onCaminhoAutomatico={() => { registrarPasso(); setDoc((d) => pontasDaMensagem(d, id, { saida: null, entrada: null })) }}
           onRemover={() => removerPelaGaveta((d) => apagarMensagem(d, id))} />
       }
       case 'seta': {
         const seta = doc.setas.find((x) => x.id === id)!
         return <GavetaSeta key={chave} {...moldura} seta={seta} de={nomeDoPonto(seta.de)} para={nomeDoPonto(seta.para)}
-          onPatch={(p) => setDoc((d) => rotuloDaSeta(d, id, p.rotulo))} />
+          onPatch={(p) => setDoc((d) => rotuloDaSeta(d, id, p.rotulo))} onCaminhoAutomatico={() => aoPontas(id, { saida: null, entrada: null })} />
       }
       case 'forma': {
         const forma = formaDoDoc(id)!
@@ -1690,7 +1700,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
               onSelecionar={somenteLeitura ? aoSelecionarNaLeitura : aoSelecionarNoDesenho} onAbrir={aoAbrir} onProximo={aoProximo} gavetaAberta={gavetaAberta}
               orientacao={orientacao} grade={grade} conector={conector} onSelecaoMultipla={setSelecaoMultipla} onLayout={aoLayout}
               onDesenho={aoMudarDesenho} onSoltar={aoSoltar} onMoverItem={aoMoverItem}
-              doc={doc} onLigar={aoLigar} onReligar={aoReligar} onReligarSaida={aoReligarSaida} onTamanho={aoTamanho} onApagarSeta={aoApagarSeta} onSelecionarSeta={aoSelecionarSeta} setasComProblema={setasComProblema ?? undefined} onRemover={removerNoDesenho}
+              doc={doc} onLigar={aoLigar} onReligar={aoReligar} onReligarSaida={aoReligarSaida} onPontas={aoPontas} onTamanho={aoTamanho} onApagarSeta={aoApagarSeta} onSelecionarSeta={aoSelecionarSeta} setasComProblema={setasComProblema ?? undefined} onRemover={removerNoDesenho}
               vinculaveis={vinculaveis} onInserirVinculada={aoInserirVinculada} focoEm={focoEm} enquadrar={enquadrar} />
           ) : (
             <div role="status" className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
@@ -1715,7 +1725,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
             rotuloTom="bg-violet-500/10 text-violet-600 dark:text-violet-400"
             rotuloIcone={<GatewayGlyph kind="exclusive" className="h-3 w-3" />}
             onFechar={() => setSetaAberta(null)} focarAoAbrir={false}>
-            <EditorDaSeta seta={setaDoPainel} campos={camposDaSeta(setaDoPainel)} onPatch={(p) => aoMudarSeta(setaDoPainel.id, p)} />
+            <EditorDaSeta seta={setaDoPainel} campos={camposDaSeta(setaDoPainel)} onPatch={(p) => aoMudarSeta(setaDoPainel.id, p)}
+              onCaminhoAutomatico={() => aoPontas(setaDoPainel.id, { saida: null, entrada: null })} />
           </GavetaLateral>
         )}
 

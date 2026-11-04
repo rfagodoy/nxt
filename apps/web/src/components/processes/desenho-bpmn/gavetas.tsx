@@ -35,6 +35,7 @@ import { ExecutorDaVariavel } from '../executor-da-variavel'
 import { QuemIniciaPill } from '../quem-inicia'
 import { entityKindLabel, type Papeis } from '../editor-comum'
 import { GavetaLateral } from './gaveta'
+import { CaminhoAutomatico } from './painel-da-seta'
 import {
   CAMPO, CORPO_DA_GAVETA, EmResumo, FraseDoResumo, Opcao, Pergunta, RodapePadrao, SeloProximaRodada, TOM_DO_TIPO, contadorDePendencias, useEscCancela,
   type TomDoTipo,
@@ -326,11 +327,13 @@ export function GavetaPiscinaExterna({ piscina, onPatch, onRemover, ...moldura }
 
 /* ─── Fluxo de mensagem ─────────────────────────────────────────────────────── */
 
-export function GavetaMensagem({ fluxo, de, para, onPatch, onRemover, ...moldura }: Moldura & {
+export function GavetaMensagem({ fluxo, de, para, onPatch, onRemover, onCaminhoAutomatico, ...moldura }: Moldura & {
   fluxo: FluxoMensagem
   /** nomes das pontas (forma ou piscina) */
   de: string; para: string
   onPatch: (p: { rotulo: string }) => void
+  /** tira as pontas livres (volta ao traçado automático) */
+  onCaminhoAutomatico?: () => void
   /** apaga o fluxo de mensagem e fecha a gaveta */
   onRemover: () => void
 }): JSX.Element {
@@ -342,17 +345,20 @@ export function GavetaMensagem({ fluxo, de, para, onPatch, onRemover, ...moldura
         <CampoTexto rotulo="O que é enviado" valor={fluxo.rotulo ?? ''} placeholder="Ex.: Minuta para assinatura" onMudar={(v) => onPatch({ rotulo: v })} />
       </Pergunta>
       <Nota>O canal e os anexos ficam na forma que envia ou recebe.</Nota>
+      {onCaminhoAutomatico && <CaminhoAutomatico ajustado={!!(fluxo.saida || fluxo.entrada)} onRestaurar={onCaminhoAutomatico} />}
     </MolduraDaGaveta>
   )
 }
 
 /* ─── Seta de sequência (fora de Escolha) ───────────────────────────────────── */
 
-export function GavetaSeta({ seta, de, para, onPatch, ...moldura }: Moldura & {
+export function GavetaSeta({ seta, de, para, onPatch, onCaminhoAutomatico, ...moldura }: Moldura & {
   seta: SetaDesenho
   /** nomes das formas nas pontas */
   de: string; para: string
   onPatch: (p: { rotulo: string }) => void
+  /** tira as pontas livres (volta ao traçado automático) */
+  onCaminhoAutomatico?: () => void
 }): JSX.Element {
   return (
     <MolduraDaGaveta rotulo="Seta de sequência" titulo={seta.rotulo || `${de} → ${para}`} tom="ligacao" icone={<ArrowRight className={ICONE} />}
@@ -360,6 +366,7 @@ export function GavetaSeta({ seta, de, para, onPatch, ...moldura }: Moldura & {
       <Pergunta id="seta-rotulo" n={1} titulo="Rótulo na seta (opcional)" ok ajuda="Aparece ao lado da seta, no desenho.">
         <CampoTexto rotulo="Rótulo na seta" valor={seta.rotulo ?? ''} onMudar={(v) => onPatch({ rotulo: v })} />
       </Pergunta>
+      {onCaminhoAutomatico && <CaminhoAutomatico ajustado={!!(seta.saida || seta.entrada)} onRestaurar={onCaminhoAutomatico} />}
     </MolduraDaGaveta>
   )
 }

@@ -9,7 +9,8 @@
    bolinha de ligar embaixo. As intenções que mudam
    o fluxo só são AVISADAS: soltar uma forma da paleta (`onSoltar`), arrastar uma forma
    para cima de uma seta (`onMoverItem`), puxar uma seta à mão (`onLigar`, depois de
-   `podeLigar`), arrastar a ponta de uma seta (`onReligar`), apagar a seta selecionada
+   `podeLigar`), arrastar a ponta de uma seta até outra forma (`onReligar`) ou pelo contorno
+   da própria (`onPontas`, pontas livres), apagar a seta selecionada
    (`onApagarSeta`) e as ações rápidas da forma selecionada. Quem muda o fluxo é a página.
    As raias são só visuais: renomear, mudar a altura, subir/descer, remover e "+ raia"
    também saem por `onDesenho` (as formas ficam onde estão). Fases, largura da piscina e
@@ -24,27 +25,28 @@ import { useTema } from '@/lib/temas-provider'
 import {
   ReactFlow, Background, BackgroundVariant, Controls, MiniMap, NodeToolbar, Panel, Position, ViewportPortal, applyNodeChanges,
   useStore, useStoreApi, useUpdateNodeInternals,
-  type AriaLabelConfig, type Connection, type Edge, type NodeChange, type NodePositionChange, type NodeSelectionChange, type OnConnectEnd, type OnReconnect,
+  useReactFlow,
+  type AriaLabelConfig, type Connection, type Edge, type NodeChange, type NodePositionChange, type NodeSelectionChange, type OnConnectEnd,
   type OnNodeDrag, type ReactFlowInstance,
 } from '@xyflow/react'
-import { ArrowRight, Link2, Map as MapIcon, Settings, Trash2 } from 'lucide-react'
+import { ArrowRight, Link2, Map as MapIcon, Route, Settings, Trash2 } from 'lucide-react'
 import '@xyflow/react/dist/style.css'
-import type { DesenhoBpmn, DesenhoV2, FormaDesenho, LayoutDesenho, StepFormSchema, TipoForma } from '@nxt/types'
+import type { DesenhoBpmn, DesenhoV2, FormaDesenho, LayoutDesenho, PontaDaSeta, SetaDesenho, StepFormSchema, TipoForma } from '@nxt/types'
 import {
   SUFIXO_REENCONTRO, acharItem, localDoItem, pontoDaSeta, varianteDe,
   type FluxoBlocos, type GrafoGerado, type ItemFluxo, type PontoDeInsercao,
 } from '@nxt/workflow-core'
 import {
   GRADE, RAIA_ROTULO_W, adicionarRaia, avisoDeRaia, moverRaia, podeLigar, polilinhaDaSeta, raiaNaAltura, redimensionarRaia, removerRaia,
-  renomearRaia, reordenarNoDesenho, setaSobPonto, type LadoDaSeta,
+  renomearRaia, reordenarNoDesenho, setaSobPonto, type LadoDaSeta, type PatchDasPontas,
 } from '@/lib/desenho-bpmn'
 import { nodeSize, type FlowNodeType } from '@/lib/flow-layout'
 import type { ExportModel, ExportNode, ExportNodeType } from '@/lib/flow-export'
 import { ZOOM_MAX, ZOOM_MIN } from '@/components/processes/flow-shared'
 import type { NovoItem } from '@/components/processes/workflow-blocos'
 import {
-  ContextoFormas, ContextoRaias, EVENTO_RECUO, MARCADOR_SETA, rotuloDaForma, tiposDeNo, tiposDeSeta,
-  type AcoesDeForma, type AcoesDeRaia, type AlvoDaGaveta, type AlvoDeLargura, type NoBpmn, type SetaBpmn, type SetaDeMensagem,
+  ContextoFormas, ContextoRaias, EVENTO_RECUO, MARCADOR_SETA, contornoDoNo, rotuloDaForma, tiposDeNo, tiposDeSeta, useRotaLivre,
+  type AcoesDeForma, type AcoesDeRaia, type AlvoDaGaveta, type AlvoDeLargura, type NoBpmn, type PontasNaTela, type SetaBpmn, type SetaDeMensagem,
   type SetaDeSequencia, type TipoLosango,
 } from './formas'
 import { TIPO_ARRASTO_FORMA } from './paleta'
@@ -52,8 +54,11 @@ import { ALTURA_DA_COLUNA, ProximoItem } from './proximo-item'
 import { indiceNaPaleta, itemDoArrasto, type ItemCatalogo } from '@/lib/editor-bizagi/catalogo'
 import { daTela, encaixarComGuias, paraTela, type Caixa as CaixaLogica, type Orientacao } from '@/lib/editor-bizagi/geometria'
 import {
-  FORMA_MINIMA, apagarMensagem, larguraDaPiscina, layoutDe, ligarMensagem, podeLigarMensagem, redimensionarFase,
+  FORMA_MINIMA, apagarMensagem, larguraDaPiscina, layoutDe, ligarMensagem, podeLigarMensagem, pontasDaMensagem, redimensionarFase, religarMensagem,
 } from '@/lib/editor-bizagi/layout'
+import {
+  pontaDaAlca, pontaDaTela, pontaMaisProxima, pontaParaTela, pontoDoContorno, rotaEntreContornos, type ContornoDaPonta,
+} from '@/lib/editor-bizagi/contorno'
 import {
   alcaNaTela, faixasDoDesenho, faixasNaTela, pontoNaTela, rotaDaMensagem, type Faixas, type Retangulo,
 } from '@/lib/editor-bizagi/faixas'
@@ -101,10 +106,15 @@ export interface CanvasBpmnProps {
   onMoverItem: (id: string, ponto: PontoDeInsercao) => void
   /** Seta desenhada à mão entre duas formas quaisquer (aceita por `podeLigar`). */
   onLigar: (de: string, para: string) => void
-  /** A ponta de chegada da seta foi arrastada para outra forma. */
-  onReligar: (setaId: string, para: string) => void
+  /** A ponta de chegada da seta foi arrastada para outra forma; `entrada` = onde foi solta no
+   *  contorno dela (lógico). */
+  onReligar: (setaId: string, para: string, entrada?: PontaDaSeta) => void
   /** A ponta de saída da seta foi arrastada para outra forma (a condição vai junto). */
-  onReligarSaida: (setaId: string, de: string) => void
+  onReligarSaida: (setaId: string, de: string, saida?: PontaDaSeta) => void
+  /** Pontas livres de uma seta de sequência: a ponta arrastada pelo contorno da própria forma
+   *  (lógica) ou `null` ("Caminho automático"). Cada chamada é um passo do desfazer. Os fluxos
+   *  de mensagem mudam por `onLayout`. */
+  onPontas: (setaId: string, patch: PatchDasPontas) => void
   /** Tarefa ou subprocesso redimensionado pela alça (a página grava em `layout.tamanhos`). */
   onTamanho: (id: string, tam: { largura: number; altura: number }) => void
   onApagarSeta: (setaId: string) => void
@@ -278,7 +288,10 @@ function projetarNos({ grafo, desenho, steps, selecionado, responsavelDe, prazoD
 }
 
 /** Setas de sequência com as alças LÓGICAS (a tela troca o lado na vertical: `alcaNaTela`). */
-function projetarSetas(grafo: GrafoGerado, desenho: DesenhoBpmn, marcador: string, tamanhos: Tamanhos = SEM_TAMANHOS): SetaDeSequencia[] {
+type PontasGravadas = ReadonlyMap<string, Pick<SetaDesenho, 'saida' | 'entrada'>>
+const SEM_PONTAS: PontasGravadas = new Map()
+
+function projetarSetas(grafo: GrafoGerado, desenho: DesenhoBpmn, marcador: string, tamanhos: Tamanhos = SEM_TAMANHOS, pontas: PontasGravadas = SEM_PONTAS): SetaDeSequencia[] {
   const tipo = new Map(grafo.nodes.map((n) => [n.id, n.type]))
   const caixa = new Map(grafo.nodes.map((n) => [n.id, tamanho(n, tamanhos)]))
   const nomes = new Map(grafo.nodes.map((n) => [n.id, n.name?.trim() || (n.type === 'start' ? 'Início' : n.type === 'end' ? 'Fim' : n.id)]))
@@ -300,9 +313,10 @@ function projetarSetas(grafo: GrafoGerado, desenho: DesenhoBpmn, marcador: strin
     }
     // só o rótulo do caminho; a expressão do motor (`condition`) nunca vai para a tela
     const rotulo = e.isDefault ? 'senão' : e.label?.trim() || undefined
+    const livres = pontas.get(e.id)
     return {
       id: e.id, source: e.from, target: e.to, sourceHandle, targetHandle, type: 'seta',
-      data: { rotulo, senao: !!e.isDefault }, markerEnd: marcador,
+      data: { rotulo, senao: !!e.isDefault, ...(livres?.saida ? { saida: livres.saida } : {}), ...(livres?.entrada ? { entrada: livres.entrada } : {}) }, markerEnd: marcador,
       selectable: false, focusable: false, deletable: false,
       ariaLabel: `Seta de ${nomes.get(e.from)} para ${nomes.get(e.to)}${rotulo ? `: ${rotulo}` : ''}`,
     }
@@ -344,13 +358,30 @@ function geometria(grafo: GrafoGerado, desenho: DesenhoBpmn, tamanhos: Tamanhos 
     return pontoDaAlca(pos(id), caixa(id), lado, recuo)
   }
   const posicionado = (id: string) => !!desenho.posicoes[id]
-  return { pos, caixa, alca, posicionado }
+  /** Contorno LÓGICO da forma (o das pontas livres). */
+  const contorno = (id: string): ContornoDaPonta | null => {
+    const t = nos.get(id)?.type
+    if (!t) return null
+    const p = pos(id), c = caixa(id)
+    return contornoDoNo(tipoDoNo(t), p.x, p.y, c.w, c.h)
+  }
+  return { pos, caixa, alca, posicionado, contorno }
 }
+
+/** O tipo de nó do canvas (o que decide o contorno) a partir do tipo do grafo. */
+const tipoDoNo = (t: No['type']): 'tarefa' | 'losango' | 'evento' =>
+  (t as string) === 'subProcess' || ehAtividade(t) ? 'tarefa' : ehLosango(t) ? 'losango' : 'evento'
 
 /** Só as setas com as duas pontas já posicionadas: as outras ainda estariam em (0, 0). */
 function tracarSetas(setas: SetaDeSequencia[], g: ReturnType<typeof geometria>): Tracado[] {
   return setas.filter((s) => g.posicionado(s.source) && g.posicionado(s.target)).map((s) => {
     const ladoS = LADO_DA_ALCA[s.sourceHandle ?? 's-r'], ladoT = LADO_DA_ALCA[s.targetHandle ?? 'e-l']
+    // pontas livres: o traço sai e chega nelas (lógico; a ponta que falta é a da alça)
+    const a = s.data?.saida || s.data?.entrada ? g.contorno(s.source) : null, b = a ? g.contorno(s.target) : null
+    if (a && b) {
+      const pontos = rotaEntreContornos(a, s.data?.saida ?? pontaDaAlca(s.sourceHandle ?? 's-r'), b, s.data?.entrada ?? pontaDaAlca(s.targetHandle ?? 'e-l'))
+      return { id: s.id, de: s.source, para: s.target, pontos }
+    }
     return { id: s.id, de: s.source, para: s.target, pontos: polilinhaDaSeta(g.alca(s.source, ladoS), ladoS, g.alca(s.target, ladoT), ladoT) }
   })
 }
@@ -363,7 +394,7 @@ export type InfoDaExportacao = (n: No) => Pick<ExportNode, 'name' | 'typeLabel' 
 /** O arquivo exportado é o desenho da TELA: as mesmas posições, raias e setas (o mesmo
  *  traçado em cantos retos). Antes ele saía do layout antigo, de raias por papel, e não
  *  batia com o que a pessoa desenhou. Tudo é deslocado para começar em (0, 0). */
-export function modeloDeExportacao(grafo: GrafoGerado, desenho: DesenhoBpmn, info: InfoDaExportacao, tamanhos: Tamanhos = SEM_TAMANHOS): ExportModel {
+export function modeloDeExportacao(grafo: GrafoGerado, desenho: DesenhoBpmn, info: InfoDaExportacao, tamanhos: Tamanhos = SEM_TAMANHOS, pontas: PontasGravadas = SEM_PONTAS): ExportModel {
   const posicionados = grafo.nodes.filter((n) => desenho.posicoes[n.id])
   const xs = posicionados.map((n) => desenho.posicoes[n.id].x), ys = posicionados.map((n) => desenho.posicoes[n.id].y)
   const dx = -Math.min(0, ...xs), dy = -Math.min(0, ...ys)
@@ -371,7 +402,7 @@ export function modeloDeExportacao(grafo: GrafoGerado, desenho: DesenhoBpmn, inf
     const p = desenho.posicoes[n.id], { w, h } = tamanho(n, tamanhos)
     return { id: n.id, type: n.type as ExportNodeType, x: p.x + dx, y: p.y + dy, w, h, ...info(n) }
   })
-  const setas = projetarSetas(grafo, desenho, '', tamanhos)
+  const setas = projetarSetas(grafo, desenho, '', tamanhos, pontas)
   const rotulo = new Map(setas.map((s) => [s.id, s.data?.rotulo]))
   const edges = tracarSetas(setas, geometria(grafo, desenho, tamanhos)).filter((t) => t.pontos.length > 1).map((t) => {
     const pontos = t.pontos.map((p) => ({ x: p.x + dx, y: p.y + dy }))
@@ -445,7 +476,7 @@ type Recusa = { motivo: string; pontos: Pt[]; vez: number }
 export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   const {
     fluxo, grafo, desenho, doc, steps, selecionado, nomeDoProcesso, revisaoDasConsultas, somenteLeitura = false,
-    onSelecionar, onAbrir, onProximo, gavetaAberta = false, orientacao, grade, conector, onSelecaoMultipla, onLayout, onDesenho, onSoltar, onMoverItem, onLigar, onReligar, onReligarSaida, onTamanho, onApagarSeta, onSelecionarSeta, setasComProblema, onRemover, vinculaveis, onInserirVinculada, focoEm, enquadrar,
+    onSelecionar, onAbrir, onProximo, gavetaAberta = false, orientacao, grade, conector, onSelecaoMultipla, onLayout, onDesenho, onSoltar, onMoverItem, onLigar, onReligar, onReligarSaida, onPontas, onTamanho, onApagarSeta, onSelecionarSeta, setasComProblema, onRemover, vinculaveis, onInserirVinculada, focoEm, enquadrar,
   } = props
   const vertical = orientacao === 'vertical'
   const { resolvedTheme } = useTheme()
@@ -521,7 +552,10 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- revisão intencional (ver CanvasBpmnProps)
     [grafo, desenhoVisto, steps, selecionado, nomeDoProcesso, doc.formas, tamanhos, faixas, orientacao, selecionadas, revisaoDasConsultas],
   )
-  const setas = useMemo(() => projetarSetas(grafo, desenho, marcador, tamanhos), [grafo, desenho, marcador, tamanhos])
+  /** Pontas livres gravadas, por seta (só as que têm alguma). */
+  const pontasGravadas = useMemo<PontasGravadas>(
+    () => new Map(doc.setas.filter((x) => x.saida || x.entrada).map((x) => [x.id, { saida: x.saida, entrada: x.entrada }])), [doc.setas])
+  const setas = useMemo(() => projetarSetas(grafo, desenho, marcador, tamanhos, pontasGravadas), [grafo, desenho, marcador, tamanhos, pontasGravadas])
   const geo = useMemo(() => geometria(grafo, desenho, tamanhos), [grafo, desenho, tamanhos])
   const tracados = useMemo(() => tracarSetas(setas, geo), [setas, geo])
 
@@ -550,10 +584,13 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   }, [faixas, geo])
 
   /* ─── Fluxos de mensagem (forma ↔ piscina externa) ─────────────────────── */
-  const mensagens = useMemo<SetaDeMensagem[]>(() => {
+  /** Os fluxos de mensagem e, de cada um, as pontas na tela COMPLETAS (a automática de cada
+   *  forma é o meio do lado de cima/baixo, como hoje; `null` na piscina externa). */
+  const { mensagens, pontasDasMensagens } = useMemo(() => {
     const externas = new Set(layout.piscinasExternas.map((p) => p.id))
     const noDe = (id: string) => (externas.has(id) ? NO_EXTERNA + id : id)
     const saida: SetaDeMensagem[] = []
+    const pontas = new Map<string, { completas: PontasNaTela; ajustada: boolean }>()
     for (const m of layout.fluxosMensagem) {
       const de = noDe(m.de), para = noDe(m.para)
       const a = retanguloDoNo(de), b = retanguloDoNo(para)
@@ -562,14 +599,20 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
       const desce = rota[rota.length - 1].y >= rota[0].y
       const sourceHandle = a.piscina ? 'msg-s' : alcaNaTela(desce ? 's-b' : 's-t', orientacao)
       const targetHandle = b.piscina ? 'msg-e' : alcaNaTela(desce ? 'e-t' : 'e-b', orientacao)
+      const completas: PontasNaTela = {
+        saida: a.piscina ? null : pontaParaTela(m.saida ?? pontaDaAlca(desce ? 's-b' : 's-t'), orientacao),
+        entrada: b.piscina ? null : pontaParaTela(m.entrada ?? pontaDaAlca(desce ? 'e-t' : 'e-b'), orientacao),
+      }
+      const ajustada = !!((!a.piscina && m.saida) || (!b.piscina && m.entrada))
+      pontas.set(SETA_MENSAGEM + m.id, { completas, ajustada })
       saida.push({
         id: SETA_MENSAGEM + m.id, source: de, target: para, sourceHandle, targetHandle, type: 'mensagem',
-        data: { pontos: rota.map((p) => pontoNaTela(p, orientacao)), rotulo: m.rotulo },
+        data: { pontos: rota.map((p) => pontoNaTela(p, orientacao)), rotulo: m.rotulo, ...(ajustada ? { pontas: completas } : {}) },
         markerStart: marcadorCirculo, markerEnd: marcadorVazado, reconnectable: false, deletable: false,
         ariaLabel: `Fluxo de mensagem${m.rotulo ? `: ${m.rotulo}` : ''}`,
       })
     }
-    return saida
+    return { mensagens: saida, pontasDasMensagens: pontas }
   }, [layout, retanguloDoNo, orientacao, marcadorCirculo, marcadorVazado])
 
   /* Cópia local dos nós só para o arrasto ficar fluido; a cada nova projeção ela é
@@ -585,23 +628,72 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   const [setaSel, setSetaSel] = useState<string | null>(null)
   // a seta sumiu ou o desenho virou só leitura: descarta (ajuste durante o render)
   if (setaSel && (somenteLeitura || !(setas.some((s) => s.id === setaSel) || mensagens.some((m) => m.id === setaSel)))) setSetaSel(null)
+  /** Ponta da seta selecionada sendo arrastada: sobre a própria forma (`no` = ela) ou sobre
+   *  outra (religar). `ponta` na TELA; `null` = piscina externa. `recusa` = não pode soltar ali. */
+  const [pontaArrastada, setPontaArrastada] = useState<{ setaId: string; qual: 'saida' | 'entrada'; no: string; ponta: PontaDaSeta | null; recusa: string | null } | null>(null)
+  if (pontaArrastada && pontaArrastada.setaId !== setaSel) setPontaArrastada(null)
+  /** As pontas da seta de sequência na tela, completas (a que não é livre é a da alça). */
+  const pontasDaSequencia = useCallback((s: SetaDeSequencia): PontasNaTela => ({
+    saida: pontaParaTela(s.data?.saida ?? pontaDaAlca(s.sourceHandle ?? 's-r'), orientacao),
+    entrada: pontaParaTela(s.data?.entrada ?? pontaDaAlca(s.targetHandle ?? 'e-l'), orientacao),
+  }), [orientacao])
+  /** A seta selecionada como as alças das pontas a veem: as pontas completas, quais pontas são
+   *  formas (a piscina externa não tem alça) e se alguma foi ajustada à mão. */
+  const selDasPontas = useMemo(() => {
+    if (!setaSel) return null
+    if (ehMensagem(setaSel)) {
+      const m = mensagens.find((x) => x.id === setaSel), p = pontasDasMensagens.get(setaSel)
+      if (!m || !p) return null
+      // sem ajuste, o traço é o de sempre (a rota do lógico): as alças ficam nas pontas dele
+      const pts = m.data?.pontos ?? []
+      const extremos = !p.ajustada && pts.length > 1 ? { saida: pts[0], entrada: pts[pts.length - 1] } : undefined
+      return { id: m.id, source: m.source, target: m.target, pontas: p.completas, ajustada: p.ajustada, alcas: { saida: !!p.completas.saida, entrada: !!p.completas.entrada }, extremos }
+    }
+    const s = setas.find((x) => x.id === setaSel)
+    if (!s) return null
+    return { id: s.id, source: s.source, target: s.target, pontas: pontasDaSequencia(s), ajustada: !!(s.data?.saida || s.data?.entrada), alcas: { saida: true, entrada: true }, extremos: undefined }
+  }, [setaSel, mensagens, pontasDasMensagens, setas, pontasDaSequencia])
+  /** As pontas da seta durante o arrasto: a arrastada segue o ponteiro. */
+  const previaDasPontas = useMemo((): PontasNaTela | null => {
+    if (!pontaArrastada || !selDasPontas) return null
+    const proprio = pontaArrastada.qual === 'saida' ? selDasPontas.source : selDasPontas.target
+    return {
+      ...selDasPontas.pontas, [pontaArrastada.qual]: pontaArrastada.ponta,
+      ...(pontaArrastada.no !== proprio ? { trocar: { qual: pontaArrastada.qual, no: pontaArrastada.no } } : {}),
+    }
+  }, [pontaArrastada, selDasPontas])
   const avisarSeta = useRef(onSelecionarSeta)
   avisarSeta.current = onSelecionarSeta
   // a página só conhece as setas de sequência (a condição); a mensagem não é dela
   useEffect(() => { avisarSeta.current?.(setaSel && !ehMensagem(setaSel) ? setaSel : null) }, [setaSel])
   const setasVistas = useMemo<SetaBpmn[]>(() => [
-    ...setas.map((s): SetaDeSequencia => ({
-      ...s,
-      // alças lógicas → lado na tela (na vertical, a saída da direita vira a de baixo)
-      sourceHandle: alcaNaTela(s.sourceHandle ?? 's-r', orientacao), targetHandle: alcaNaTela(s.targetHandle ?? 'e-l', orientacao),
-      // a seta é escolhida pelo clique e qualquer das pontas pode ser arrastada para outra forma
-      selectable: !somenteLeitura, focusable: !somenteLeitura, selected: s.id === setaSel,
-      reconnectable: !somenteLeitura,
-      ...(s.id === destaque ? { data: { ...s.data!, destacada: true } } : {}),
-      ...(setasComProblema?.includes(s.id) ? { data: { ...s.data!, problema: true } } : {}),
-    })),
-    ...mensagens.map((m): SetaDeMensagem => ({ ...m, selectable: !somenteLeitura, focusable: !somenteLeitura, selected: m.id === setaSel })),
-  ], [setas, mensagens, destaque, setaSel, somenteLeitura, setasComProblema, orientacao])
+    ...setas.map((s): SetaDeSequencia => {
+      const arrastada = previaDasPontas && pontaArrastada?.setaId === s.id
+      // pontas livres (gravadas ou no arrasto): o traço sai e chega nelas
+      const pontas = arrastada ? previaDasPontas : s.data?.saida || s.data?.entrada ? pontasDaSequencia(s) : undefined
+      return {
+        ...s,
+        // alças lógicas → lado na tela (na vertical, a saída da direita vira a de baixo)
+        sourceHandle: alcaNaTela(s.sourceHandle ?? 's-r', orientacao), targetHandle: alcaNaTela(s.targetHandle ?? 'e-l', orientacao),
+        // a seta é escolhida pelo clique; as pontas andam pelas alças da seleção (PontasDaSeta)
+        selectable: !somenteLeitura, focusable: !somenteLeitura, selected: s.id === setaSel,
+        reconnectable: false,
+        data: {
+          ...s.data!,
+          ...(pontas ? { pontas } : {}),
+          ...(s.id === destaque ? { destacada: true } : {}),
+          ...(setasComProblema?.includes(s.id) || (arrastada && pontaArrastada?.recusa) ? { problema: true } : {}),
+        },
+      }
+    }),
+    ...mensagens.map((m): SetaDeMensagem => {
+      const arrastada = previaDasPontas && pontaArrastada?.setaId === m.id
+      return {
+        ...m, selectable: !somenteLeitura, focusable: !somenteLeitura, selected: m.id === setaSel,
+        ...(arrastada ? { data: { ...m.data!, pontas: previaDasPontas, ...(pontaArrastada?.recusa ? { problema: true } : {}) } } : {}),
+      }
+    }),
+  ], [setas, mensagens, destaque, setaSel, somenteLeitura, setasComProblema, orientacao, previaDasPontas, pontaArrastada, pontasDaSequencia])
 
   /** O que há sob o ponto: `vaga` = a seta mais próxima, se ela for uma vaga do fluxo;
    *  `sobreSeta` = o ponto está em cima de alguma seta (vaga ou não — volta, encerra).
@@ -815,19 +907,91 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
 
   const isValidConnection = useCallback((c: Edge | Connection) => !motivoDoTraco(c.source, c.target), [motivoDoTraco])
   const onConnect = useCallback((c: Connection) => tentarLigar(c.source, c.target), [tentarLigar])
-  /** Arrastou uma das pontas de uma seta para outra forma (só uma muda por vez). */
-  const onReconnect = useCallback<OnReconnect<SetaBpmn>>((velha, nova) => {
-    if (somenteLeitura || velha.type !== 'seta') return
-    const mudouSaida = nova.source !== velha.source, mudouChegada = nova.target !== velha.target
-    if (mudouSaida === mudouChegada) return
-    const motivo = ehFaixa(nova.source) || ehFaixa(nova.target)
-      ? MENSAGEM_PELA_PALETA
-      : podeLigar({ ...doc, setas: doc.setas.filter((s) => s.id !== velha.id) }, nova.source, nova.target)
-    if (motivo) { recusar(motivo, nova.source, nova.target); return }
+  /* ─── Pontas livres da seta selecionada (PO, 03/11/2026) ─────────────────────
+     Arrastar a alça de uma ponta pelo contorno da PRÓPRIA forma muda onde a seta encosta
+     (qualquer lado, qualquer posição); soltar sobre OUTRA forma religa a seta ali, no ponto
+     do contorno onde caiu. Tudo na tela durante o arrasto; ao soltar, a ponta volta ao lógico
+     (`pontaDaTela`) e vai para a página — um passo do desfazer. */
+  /** Forma (ou, para a mensagem, piscina externa) sob o ponto da tela; a menor que o contém. */
+  const noSobOPonto = useCallback((p: Pt, comPiscina: boolean, menos: string): NoBpmn | null => {
+    let melhor: NoBpmn | null = null, area = Infinity
+    for (const n of nos) {
+      if (n.id === menos) continue
+      if (!(n.type === 'tarefa' || n.type === 'losango' || n.type === 'evento' || (comPiscina && n.type === 'externa'))) continue
+      const w = n.width ?? 0, h = n.height ?? 0, folga = 4
+      if (p.x < n.position.x - folga || p.x > n.position.x + w + folga || p.y < n.position.y - folga || p.y > n.position.y + h + folga) continue
+      if (w * h < area) { area = w * h; melhor = n }
+    }
+    return melhor
+  }, [nos])
+  /** Por que a ponta `qual` da seta não pode ir para o nó `alvo`; null = pode. */
+  const motivoDaTroca = useCallback((setaId: string, qual: 'saida' | 'entrada', alvo: string): string | null => {
+    if (ehMensagem(setaId)) {
+      const l = layoutDe(doc), id = setaId.slice(SETA_MENSAGEM.length)
+      const m = l.fluxosMensagem.find((x) => x.id === id)
+      if (!m) return null
+      const semEla = { ...doc, layout: { ...l, fluxosMensagem: l.fluxosMensagem.filter((x) => x.id !== id) } }
+      return podeLigarMensagem(semEla, qual === 'saida' ? idDoDesenho(alvo) : m.de, qual === 'entrada' ? idDoDesenho(alvo) : m.para)
+    }
+    const s = doc.setas.find((x) => x.id === setaId)
+    if (!s) return null
+    return podeLigar({ ...doc, setas: doc.setas.filter((x) => x.id !== setaId) }, qual === 'saida' ? alvo : s.de, qual === 'entrada' ? alvo : s.para)
+  }, [doc])
+  const moverPonta = useCallback((qual: 'saida' | 'entrada', p: Pt) => {
+    if (!selDasPontas || somenteLeitura) return
+    const proprio = qual === 'saida' ? selDasPontas.source : selDasPontas.target
+    const outro = noSobOPonto(p, ehMensagem(selDasPontas.id), proprio)
+    const no = outro ?? nos.find((n) => n.id === proprio)
+    const c = contornoNaTela(no)
+    if (!no || !c) return
+    setPontaArrastada({
+      setaId: selDasPontas.id, qual, no: no.id,
+      ponta: c.piscina ? null : pontaMaisProxima(c.caixa, c.forma, p),
+      recusa: outro ? motivoDaTroca(selDasPontas.id, qual, outro.id) : null,
+    })
+  }, [selDasPontas, somenteLeitura, noSobOPonto, nos, motivoDaTroca])
+  /** Grava a ponta `qual` na PRÓPRIA forma (na tela → lógico). */
+  const gravarPonta = useCallback((setaId: string, qual: 'saida' | 'entrada', ponta: PontaDaSeta) => {
+    const logica = pontaDaTela(ponta, orientacao)
+    if (ehMensagem(setaId)) {
+      const novo = pontasDaMensagem(doc, setaId.slice(SETA_MENSAGEM.length), { [qual]: logica })
+      if (novo !== doc) onLayout(novo)
+    } else onPontas(setaId, { [qual]: logica })
+  }, [orientacao, doc, onLayout, onPontas])
+  const soltarPonta = useCallback(() => {
+    const a = pontaArrastada
+    setPontaArrastada(null)
+    if (!a || !selDasPontas || somenteLeitura) return
+    const proprio = a.qual === 'saida' ? selDasPontas.source : selDasPontas.target
+    if (a.no === proprio) { if (a.ponta) gravarPonta(a.setaId, a.qual, a.ponta); return }
+    const de = a.qual === 'saida' ? a.no : selDasPontas.source, para = a.qual === 'entrada' ? a.no : selDasPontas.target
+    if (a.recusa) { recusar(a.recusa, de, para); return }
     setRecusa(null)
-    if (mudouSaida) onReligarSaida(velha.id, nova.source)
-    else onReligar(velha.id, nova.target)
-  }, [doc, onReligar, onReligarSaida, somenteLeitura, recusar])
+    const logica = a.ponta ? pontaDaTela(a.ponta, orientacao) : undefined
+    if (ehMensagem(a.setaId)) {
+      const novo = religarMensagem(doc, a.setaId.slice(SETA_MENSAGEM.length), a.qual === 'saida' ? 'de' : 'para', idDoDesenho(a.no), logica)
+      if (novo !== doc) onLayout(novo)
+    } else if (a.qual === 'saida') onReligarSaida(a.setaId, a.no, logica)
+    else onReligar(a.setaId, a.no, logica)
+  }, [pontaArrastada, selDasPontas, somenteLeitura, gravarPonta, recusar, orientacao, doc, onLayout, onReligar, onReligarSaida])
+  /** Setas do teclado na alça: a ponta anda meia grade e cai no contorno da própria forma. */
+  const pontaPeloTeclado = useCallback((qual: 'saida' | 'entrada', dx: number, dy: number) => {
+    if (!selDasPontas || somenteLeitura) return
+    const ponta = selDasPontas.pontas[qual]
+    const c = contornoNaTela(nos.find((n) => n.id === (qual === 'saida' ? selDasPontas.source : selDasPontas.target)))
+    if (!ponta || !c || c.piscina) return
+    const p = pontoDoContorno(c.caixa, c.forma, ponta)
+    const nova = pontaMaisProxima(c.caixa, c.forma, { x: p.x + dx * (GRADE / 2), y: p.y + dy * (GRADE / 2) })
+    if (nova.lado !== ponta.lado || Math.abs(nova.t - ponta.t) > 1e-6) gravarPonta(selDasPontas.id, qual, nova)
+  }, [selDasPontas, somenteLeitura, nos, gravarPonta])
+  /** "Caminho automático": as pontas da seta selecionada voltam ao traçado automático. */
+  const caminhoAutomatico = useCallback((setaId: string) => {
+    if (somenteLeitura) return
+    if (ehMensagem(setaId)) {
+      const novo = pontasDaMensagem(doc, setaId.slice(SETA_MENSAGEM.length), { saida: null, entrada: null })
+      if (novo !== doc) onLayout(novo)
+    } else onPontas(setaId, { saida: null, entrada: null })
+  }, [somenteLeitura, doc, onLayout, onPontas])
   const apagarSetaSel = useCallback(() => {
     if (!setaSel || somenteLeitura) return
     if (ehMensagem(setaSel)) onLayout(apagarMensagem(doc, setaSel.slice(SETA_MENSAGEM.length)))
@@ -1157,13 +1321,12 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
           isValidConnection={isValidConnection}
           onConnect={onConnect}
           onConnectEnd={onConnectEnd}
-          onReconnect={onReconnect}
           onEdgeClick={onEdgeClick}
           onEdgeDoubleClick={onEdgeDoubleClick}
           zoomOnDoubleClick={false}
           nodesDraggable={!somenteLeitura}
           nodesConnectable={!somenteLeitura}
-          edgesReconnectable={!somenteLeitura}
+          edgesReconnectable={false}
           deleteKeyCode={null}
           selectionKeyCode={null}
           // laço: arrastar no vazio seleciona (Shift soma à seleção); a vista anda com o botão do
@@ -1203,7 +1366,12 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
             <Panel position="top-left">
               <div role="toolbar" aria-label="Seta selecionada"
                 className="flex items-center gap-2 rounded-[10px] bg-white py-1 pl-3 pr-1 font-sans text-[11.5px] text-[var(--e-2E3E36)] shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_12px_24px_-12px_rgba(12,20,16,0.45)] dark:bg-[var(--e-0F1914)] dark:text-[var(--e-C9D6CE)] dark:shadow-[0_0_0_1px_var(--e-2A3B32)]">
-                {ehMensagem(setaSel) ? 'Fluxo de mensagem selecionado' : 'Seta selecionada · arraste uma das pontas para religar'}
+                {ehMensagem(setaSel) ? 'Fluxo de mensagem selecionado' : 'Seta selecionada'} · arraste uma ponta pelo contorno ou até outra forma
+                <button type="button" onClick={() => caminhoAutomatico(setaSel)} disabled={!selDasPontas?.ajustada}
+                  title={selDasPontas?.ajustada ? 'Caminho automático: as pontas voltam ao traçado automático' : 'O traçado já é automático'} aria-label="Caminho automático"
+                  className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-[rgba(20,36,32,0.06)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--e-11804F)] disabled:pointer-events-none disabled:opacity-35 dark:hover:bg-white/5 dark:focus-visible:outline-spark">
+                  <Route aria-hidden className="h-3.5 w-3.5" />
+                </button>
                 <button type="button" onClick={() => onAbrir(alvoDaSeta(setaSel))}
                   className="flex h-7 items-center gap-1.5 rounded-md px-2 font-bold hover:bg-[rgba(20,36,32,0.06)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--e-11804F)] dark:hover:bg-white/5">
                   <Settings aria-hidden className="h-3.5 w-3.5" />Parametrizar
@@ -1214,6 +1382,11 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
                 </button>
               </div>
             </Panel>
+          )}
+          {selDasPontas && !somenteLeitura && (
+            <PontasDaSeta source={selDasPontas.source} target={selDasPontas.target} pontas={previaDasPontas ?? selDasPontas.pontas}
+              alcas={selDasPontas.alcas} extremos={pontaArrastada ? undefined : selDasPontas.extremos} arrastando={!!pontaArrastada} onMover={moverPonta} onSoltar={soltarPonta}
+              onCancelar={() => setPontaArrastada(null)} onTeclado={pontaPeloTeclado} />
           )}
           {recusa && (
             <ViewportPortal>
@@ -1330,6 +1503,71 @@ function MenuAcimaDaForma({ nodeId, botoes, desviarDaColuna, children }: {
     if (w / 2 + 12 < meioDoMenu + 4) offset = Math.max(8, (ALTURA_DA_COLUNA - h) / 2 + 8)
   }
   return <NodeToolbar nodeId={nodeId} isVisible={!!nodeId} position={Position.Top} offset={offset}>{children}</NodeToolbar>
+}
+
+/** Contorno NA TELA de um nó do React Flow (forma ou piscina externa). */
+const contornoNaTela = (n: NoBpmn | undefined): ContornoDaPonta | null =>
+  (n ? contornoDoNo(n.type, n.position.x, n.position.y, n.width ?? 0, n.height ?? 0) : null)
+
+const DIRECAO_DA_TECLA: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
+
+/** As alças das duas pontas da seta selecionada (na tela, sobre o traço). Arrastar uma pelo
+ *  contorno da forma move a ponta; soltar sobre outra forma religa (o canvas decide). As setas
+ *  do teclado andam a ponta pelo contorno; Esc cancela o arrasto. Lê a loja do React Flow
+ *  (a forma ao vivo, o zoom), então mora DENTRO do <ReactFlow>. */
+function PontasDaSeta({ source, target, pontas, alcas, extremos, arrastando, onMover, onSoltar, onCancelar, onTeclado }: {
+  source: string; target: string; pontas: PontasNaTela; alcas: { saida: boolean; entrada: boolean }; arrastando: boolean
+  /** onde as alças ficam quando o traço não sai das pontas (o fluxo de mensagem sem ajuste) */
+  extremos?: { saida: Pt; entrada: Pt }
+  onMover: (qual: 'saida' | 'entrada', p: Pt) => void; onSoltar: () => void; onCancelar: () => void
+  onTeclado: (qual: 'saida' | 'entrada', dx: number, dy: number) => void
+}): JSX.Element | null {
+  const rota = useRotaLivre(source, target, pontas)
+  const { screenToFlowPosition } = useReactFlow()
+  const zoom = useStore((s) => s.transform[2])
+  const arrasto = useRef<{ qual: 'saida' | 'entrada'; moveu: boolean } | null>(null)
+  if (!rota || rota.length < 2) return null
+  const pontos = extremos ?? { saida: rota[0], entrada: rota[rota.length - 1] }
+  return (
+    <ViewportPortal>
+      {(['saida', 'entrada'] as const).filter((q) => alcas[q]).map((qual) => (
+        <button key={qual} type="button"
+          aria-label={qual === 'saida' ? 'Ponta de saída da seta' : 'Ponta de chegada da seta'}
+          title="Arraste pelo contorno da forma para mudar onde a seta encosta, ou até outra forma para religar. Com o foco, as setas do teclado andam a ponta."
+          className={`nodrag nopan nowheel pointer-events-auto absolute left-0 top-0 h-3.5 w-3.5 rounded-full border-2 border-[var(--e-11804F)] bg-white shadow-[0_0_0_1px_rgba(255,255,255,0.9)] transition-shadow hover:bg-[rgba(198,242,78,0.9)] hover:shadow-[0_0_0_5px_rgba(17,128,79,0.22)] focus-visible:shadow-[0_0_0_5px_rgba(17,128,79,0.35)] focus-visible:outline-none dark:border-spark dark:bg-[var(--e-0A110D)] dark:shadow-[0_0_0_1px_rgba(0,0,0,0.6)] dark:hover:bg-spark dark:hover:shadow-[0_0_0_5px_rgba(198,242,78,0.25)] dark:focus-visible:shadow-[0_0_0_5px_rgba(198,242,78,0.35)] ${arrastando ? 'cursor-grabbing' : 'cursor-grab'}`}
+          style={{ transform: `translate(${pontos[qual].x}px, ${pontos[qual].y}px) translate(-50%, -50%) scale(${1 / Math.max(zoom, 0.01)})`, zIndex: 1200, touchAction: 'none' }}
+          onPointerDown={(e) => {
+            if (e.button !== 0) return
+            e.stopPropagation(); e.preventDefault()
+            e.currentTarget.setPointerCapture(e.pointerId)
+            e.currentTarget.focus()
+            arrasto.current = { qual, moveu: false }
+          }}
+          onPointerMove={(e) => {
+            if (arrasto.current?.qual !== qual) return
+            e.stopPropagation()
+            arrasto.current.moveu = true
+            onMover(qual, screenToFlowPosition({ x: e.clientX, y: e.clientY }))
+          }}
+          onPointerUp={(e) => {
+            const a = arrasto.current
+            arrasto.current = null
+            e.stopPropagation()
+            if (a?.moveu) onSoltar(); else onCancelar()
+          }}
+          onPointerCancel={() => { arrasto.current = null; onCancelar() }}
+          onClick={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && arrasto.current) { e.preventDefault(); e.stopPropagation(); arrasto.current = null; onCancelar(); return }
+            const d = DIRECAO_DA_TECLA[e.key]
+            if (!d) return
+            e.preventDefault(); e.stopPropagation()
+            onTeclado(qual, d[0], d[1])
+          }} />
+      ))}
+    </ViewportPortal>
+  )
 }
 
 function SemCaixaDaSelecao(): null {
