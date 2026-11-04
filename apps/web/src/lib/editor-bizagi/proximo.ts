@@ -14,11 +14,11 @@ const doCatalogo = (grupo: GrupoPaleta, tipo: TipoForma, variante?: VarianteForm
   return item
 }
 
-/** Os grupos da coluna (um separador entre eles): Tarefa de usuário, Escolha, Temporizador │
- *  Subprocesso, Fim. */
+/** Os grupos da coluna (um separador entre eles): Tarefa de usuário, Escolha, Ao mesmo
+ *  tempo │ Fim. */
 export const PROXIMOS: ReadonlyArray<ReadonlyArray<ItemCatalogo>> = [
-  [doCatalogo('tarefa', 'userTask', 'usuario'), doCatalogo('losango', 'exclusiveGateway'), doCatalogo('intermediario', 'intermediateEvent', 'temporizador')],
-  [doCatalogo('subprocesso', 'subProcess', 'chamada'), doCatalogo('fim', 'end', 'simples')],
+  [doCatalogo('tarefa', 'userTask', 'usuario'), doCatalogo('losango', 'exclusiveGateway'), doCatalogo('losango', 'parallelGateway')],
+  [doCatalogo('fim', 'end', 'simples')],
 ]
 
 type NoDoDesenho = { id: string; type: string; name?: string }

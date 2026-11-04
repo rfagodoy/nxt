@@ -6,13 +6,15 @@ import { PROXIMOS, caixaReal, lugarDoProximo } from './proximo'
 const naGrade = (v: number) => Math.round(v / GRADE) * GRADE
 
 describe('PROXIMOS', () => {
-  it('são os 5 itens do mockup, em dois grupos', () => {
+  it('são os 4 itens, em dois grupos: tarefa, escolha, ao mesmo tempo │ fim', () => {
     expect(PROXIMOS.map((g) => g.map((i) => i.nome))).toEqual([
-      ['Tarefa de usuário', 'Escolha', 'Temporizador'],
-      ['Subprocesso', 'Fim'],
+      ['Tarefa de usuário', 'Escolha', 'Ao mesmo tempo'],
+      ['Fim'],
     ])
     expect(PROXIMOS[0][0]).toMatchObject({ tipo: 'userTask', variante: 'usuario' })
-    expect(PROXIMOS[1][1]).toMatchObject({ tipo: 'end', variante: 'simples' })
+    expect(PROXIMOS[0][1]).toMatchObject({ tipo: 'exclusiveGateway', modo: 'primeiro' })
+    expect(PROXIMOS[0][2]).toMatchObject({ tipo: 'parallelGateway' })
+    expect(PROXIMOS[1][0]).toMatchObject({ tipo: 'end', variante: 'simples' })
   })
 })
 

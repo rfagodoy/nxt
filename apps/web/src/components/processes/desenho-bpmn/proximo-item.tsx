@@ -1,8 +1,7 @@
 'use client'
 
 /* ─── Próximo item (estilo Bizagi) ─────────────────────────────────────────────
-   Coluna ao lado da forma selecionada: Tarefa de usuário, Escolha, Temporizador │
-   Subprocesso, Fim. Clique põe a forma ao lado, já ligada; arrastar põe onde soltar, também
+   Coluna ao lado da forma selecionada: Tarefa de usuário, Escolha, Ao mesmo tempo │ Fim. Clique põe a forma ao lado, já ligada; arrastar põe onde soltar, também
    ligada. Quem cria e liga é a página (o canvas só repassa). `nodrag nopan`: o ponteiro aqui
    não move a vista (o arrasto de pan cancelaria o arrasto do botão). */
 import type { DragEvent, JSX } from 'react'
