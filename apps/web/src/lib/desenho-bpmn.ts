@@ -2,7 +2,7 @@
    Posições iniciais, "organizar", raias e acerto de pontos. Sem React: a tela só
    desenha o que estas funções calculam. O desenho é VISUAL; a verdade continua
    sendo o fluxo em blocos. */
-import type { DesenhoBpmn, DesenhoV2, FormaDesenho, RaiaDesenho, SetaDesenho } from '@nxt/types'
+import type { DesenhoBpmn, DesenhoV2, FormaDesenho, PontaDaSeta, RaiaDesenho, SetaDesenho } from '@nxt/types'
 import { SUFIXO_REENCONTRO, semIdsReservados, type GrafoGerado, type ItemFluxo } from '@nxt/workflow-core'
 import { layoutGraph, nodeSize, LANE_SEM_RESPONSAVEL, type FlowGraph, type FlowNodeType } from '@/lib/flow-layout'
 
@@ -416,18 +416,53 @@ export function ligar(d: DesenhoV2, de: string, para: string): DesenhoV2 {
   return semIdsReservados({ ...d, setas: [...d.setas, seta] })
 }
 
-export function religar(d: DesenhoV2, setaId: string, para: string): DesenhoV2 {
+/** Põe (ou, sem `ponta`, tira) a ponta livre `k` de um objeto com pontas. */
+function comPonta<T extends { saida?: PontaDaSeta; entrada?: PontaDaSeta }>(x: T, k: 'saida' | 'entrada', ponta: PontaDaSeta | null | undefined): T {
+  const y = { ...x }
+  if (ponta) y[k] = ponta
+  else delete y[k]
+  return y
+}
+
+/** A ponta de CHEGADA arrastada para outra forma. `entrada` = onde ela foi solta no contorno
+ *  da forma nova (lógico); sem ela, a chegada volta ao automático. */
+export function religar(d: DesenhoV2, setaId: string, para: string, entrada?: PontaDaSeta): DesenhoV2 {
   const s = d.setas.find((x) => x.id === setaId)
   if (!s || s.para === para || podeLigar({ ...d, setas: d.setas.filter((x) => x.id !== setaId) }, s.de, para)) return d
-  return { ...d, setas: d.setas.map((x) => (x.id === setaId ? { ...x, para } : x)) }
+  return { ...d, setas: d.setas.map((x) => (x.id === setaId ? comPonta({ ...x, para }, 'entrada', entrada) : x)) }
 }
 
 /** A ponta de SAÍDA arrastada para outra forma (PO, 30/10/2026: religar pelas duas pontas).
- *  A seta é a mesma: condição e rótulo vão junto. */
-export function religarSaida(d: DesenhoV2, setaId: string, de: string): DesenhoV2 {
+ *  A seta é a mesma: condição e rótulo vão junto. `saida` como em `religar`. */
+export function religarSaida(d: DesenhoV2, setaId: string, de: string, saida?: PontaDaSeta): DesenhoV2 {
   const s = d.setas.find((x) => x.id === setaId)
   if (!s || s.de === de || podeLigar({ ...d, setas: d.setas.filter((x) => x.id !== setaId) }, de, s.para)) return d
-  return semIdsReservados({ ...d, setas: d.setas.map((x) => (x.id === setaId ? { ...x, de } : x)) })
+  return semIdsReservados({ ...d, setas: d.setas.map((x) => (x.id === setaId ? comPonta({ ...x, de }, 'saida', saida) : x)) })
+}
+
+/** Pedido de mudança das pontas livres: a ponta nova, `null` = volta ao automático, ausente = fica. */
+export type PatchDasPontas = { saida?: PontaDaSeta | null; entrada?: PontaDaSeta | null }
+
+const mesmaPonta = (a: PontaDaSeta | undefined, b: PontaDaSeta | null | undefined) =>
+  (!a && !b) || (!!a && !!b && a.lado === b.lado && a.t === b.t)
+
+/** Aplica o pedido às pontas de `x`; `null` quando nada muda. */
+export function aplicarPontas<T extends { saida?: PontaDaSeta; entrada?: PontaDaSeta }>(x: T, patch: PatchDasPontas): T | null {
+  let y = x
+  for (const k of ['saida', 'entrada'] as const) {
+    if (!(k in patch) || mesmaPonta(x[k], patch[k])) continue
+    y = comPonta(y, k, patch[k])
+  }
+  return y === x ? null : y
+}
+
+/** Pontas livres de uma seta (só visual): mover a ponta no contorno da forma, ou "Caminho
+ *  automático" (as duas `null`). Sem mudança, devolve o mesmo desenho. */
+export function pontasDaSeta(d: DesenhoV2, setaId: string, patch: PatchDasPontas): DesenhoV2 {
+  const i = d.setas.findIndex((x) => x.id === setaId)
+  if (i === -1) return d
+  const nova = aplicarPontas(d.setas[i], patch)
+  return nova ? { ...d, setas: d.setas.map((x, j) => (j === i ? nova : x)) } : d
 }
 
 /** Condição, especificação e rótulo de uma seta (o caminho de uma escolha mora nela). */

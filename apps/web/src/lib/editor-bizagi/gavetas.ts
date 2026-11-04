@@ -289,13 +289,16 @@ export function rotuloDaSeta(d: DesenhoV2, id: string, rotulo: string): DesenhoV
 }
 
 /** As setas como vão ser gravadas: condição e "senão" só valem na seta que sai de uma Escolha
- *  (a de uma seta religada some); o rótulo vale em qualquer seta. */
+ *  (a de uma seta religada some); o rótulo e as pontas livres valem em qualquer seta. */
 export function setasParaGravar(d: Pick<DesenhoV2, 'formas' | 'setas'>): SetaDesenho[] {
   const deEscolha = new Set(d.formas.filter((f) => f.tipo === 'exclusiveGateway').map((f) => f.id))
   return d.setas.map((x) => {
     if (deEscolha.has(x.de)) return x
     const s: SetaDesenho = { id: x.id, de: x.de, para: x.para }
     if (x.rotulo?.trim()) s.rotulo = x.rotulo
+    // as pontas livres (só visuais) valem em qualquer seta
+    if (x.saida) s.saida = x.saida
+    if (x.entrada) s.entrada = x.entrada
     return s
   })
 }

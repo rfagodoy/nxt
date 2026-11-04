@@ -243,12 +243,15 @@ describe('seta de sequência: rótulo', () => {
         { id: 'x1', de: 'e', para: 'a', condition: 'c', rotulo: 'Sim' },
         { id: 'x2', de: 'a', para: 'b', condition: 'velha', rotulo: 'Feito', padrao: true },
         { id: 'x3', de: 'b', para: 'a', rotulo: '  ' },
+        { id: 'x4', de: 'a', para: 'e', saida: { lado: 'baixo', t: 0.2 }, entrada: { lado: 'cima', t: 1 } },
       ],
     }
     expect(setasParaGravar(d)).toEqual([
       { id: 'x1', de: 'e', para: 'a', condition: 'c', rotulo: 'Sim' },
       { id: 'x2', de: 'a', para: 'b', rotulo: 'Feito' },
       { id: 'x3', de: 'b', para: 'a' },
+      // as pontas livres ficam em qualquer seta
+      { id: 'x4', de: 'a', para: 'e', saida: { lado: 'baixo', t: 0.2 }, entrada: { lado: 'cima', t: 1 } },
     ])
   })
 })

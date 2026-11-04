@@ -5,7 +5,7 @@ import { apagarForma } from '@/lib/desenho-bpmn'
 import {
   adicionarFase, adicionarPiscinaExterna, apagarMensagem, atualizarPiscinaExterna, larguraDaPiscina, layoutDe, ligarMensagem,
   mudarOrientacao, podeLigarMensagem, prazoDaFase, redimensionarFase, redimensionarForma, removerFase, removerPiscinaExterna,
-  renomearFase, rotularMensagem,
+  renomearFase, rotularMensagem, pontasDaMensagem, religarMensagem,
 } from './layout'
 
 const forma = (id: string, tipo: string): FormaDesenho => ({ id, tipo } as FormaDesenho)
@@ -191,5 +191,23 @@ describe('apagarForma com o layout', () => {
     const d = doc()
     expect(apagarForma(d, 'fim')).toBe(d)
     expect(apagarForma(d, 'ini')).toBe(d)
+  })
+})
+
+describe('pontas livres do fluxo de mensagem', () => {
+  const d = ligarMensagem(comExterna(), 'a1', 'ext1', () => 'm1')
+  it('grava e tira a ponta; sem mudança devolve o mesmo d', () => {
+    const r = pontasDaMensagem(d, 'm1', { saida: { lado: 'direita', t: 0.25 } })
+    expect(layoutDe(r).fluxosMensagem[0]).toEqual({ id: 'm1', de: 'a1', para: 'ext1', saida: { lado: 'direita', t: 0.25 } })
+    expect(pontasDaMensagem(r, 'm1', { saida: { lado: 'direita', t: 0.25 } })).toBe(r)
+    const s = pontasDaMensagem(r, 'm1', { saida: null, entrada: null })
+    expect(layoutDe(s).fluxosMensagem[0]).toEqual({ id: 'm1', de: 'a1', para: 'ext1' })
+    expect(pontasDaMensagem(d, 'nada', { saida: null })).toBe(d)
+  })
+  it('religar uma ponta para outra forma, com a ponta solta; recusa o que não pode', () => {
+    const r = religarMensagem(d, 'm1', 'de', 'a2', { lado: 'baixo', t: 0.5 })
+    expect(layoutDe(r).fluxosMensagem[0]).toEqual({ id: 'm1', de: 'a2', para: 'ext1', saida: { lado: 'baixo', t: 0.5 } })
+    expect(religarMensagem(d, 'm1', 'para', 'a2')).toBe(d) // forma com forma: só sequência
+    expect(religarMensagem(d, 'm1', 'de', 'a1')).toBe(d) // a mesma
   })
 })

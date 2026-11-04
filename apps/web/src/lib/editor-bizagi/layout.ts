@@ -1,9 +1,9 @@
 /* ─── Operações do desenho novo: orientação, fases, piscinas externas, mensagens, tamanhos ───
    Puras: devolvem o MESMO desenho quando nada muda. Quem escreve grava um `layout` completo
    (cópia de LAYOUT_PADRAO + a mudança), então o desenho só ganha `layout` quando alguém mexe. */
-import type { DesenhoV2, FaseDesenho, LayoutDesenho, PiscinaExterna } from '@nxt/types'
+import type { DesenhoV2, FaseDesenho, LayoutDesenho, PiscinaExterna, PontaDaSeta } from '@nxt/types'
 import { LAYOUT_PADRAO, canonico } from '@nxt/workflow-core'
-import { GRADE, RAIA_ROTULO_W } from '@/lib/desenho-bpmn'
+import { GRADE, RAIA_ROTULO_W, aplicarPontas, type PatchDasPontas } from '@/lib/desenho-bpmn'
 import type { Orientacao } from './geometria'
 
 export const FASE_LARGURA_PADRAO = 320
@@ -171,6 +171,31 @@ export function apagarMensagem(d: DesenhoV2, id: string): DesenhoV2 {
   const l = layoutDe(d)
   if (!l.fluxosMensagem.some((m) => m.id === id)) return d
   return comLayout(d, { ...l, fluxosMensagem: l.fluxosMensagem.filter((m) => m.id !== id) })
+}
+
+/** Pontas livres de um fluxo de mensagem (só visual; `null` = automática). */
+export function pontasDaMensagem(d: DesenhoV2, id: string, patch: PatchDasPontas): DesenhoV2 {
+  const l = layoutDe(d)
+  const m = l.fluxosMensagem.find((x) => x.id === id)
+  const nova = m && aplicarPontas(m, patch)
+  if (!nova) return d
+  return comLayout(d, { ...l, fluxosMensagem: l.fluxosMensagem.map((x) => (x.id === id ? nova : x)) })
+}
+
+/** Uma ponta (`de` ou `para`) do fluxo de mensagem arrastada para outra forma ou piscina. A
+ *  ponta livre daquele lado é a de onde foi solta (sem ela, volta ao automático). Recusado
+ *  (`podeLigarMensagem`, sem contar ele mesmo) devolve o mesmo d. */
+export function religarMensagem(d: DesenhoV2, id: string, qual: 'de' | 'para', alvo: string, ponta?: PontaDaSeta): DesenhoV2 {
+  const l = layoutDe(d)
+  const m = l.fluxosMensagem.find((x) => x.id === id)
+  if (!m || m[qual] === alvo) return d
+  const de = qual === 'de' ? alvo : m.de, para = qual === 'para' ? alvo : m.para
+  if (podeLigarMensagem(comLayout(d, { ...l, fluxosMensagem: l.fluxosMensagem.filter((x) => x.id !== id) }), de, para)) return d
+  const k = qual === 'de' ? 'saida' : 'entrada'
+  const nova = { ...m, de, para }
+  if (ponta) nova[k] = ponta
+  else delete nova[k]
+  return comLayout(d, { ...l, fluxosMensagem: l.fluxosMensagem.map((x) => (x.id === id ? nova : x)) })
 }
 
 /* ── tamanhos ── */
