@@ -2,7 +2,7 @@
 
 /* ─── Condição na seta (desenho livre, PO 30/10/2026) ──────────────────────────
    O caminho de uma escolha MORA na seta que sai do losango. Clicar numa dessas setas abre
-   este editor: o mesmo construtor de condição do Roteiro e o rótulo que aparece no
+   este editor: o mesmo construtor de condição da gaveta da escolha e o rótulo que aparece no
    desenho. `PainelDasSetas` é a lista usada no losango quando o desenho ainda não fecha em
    blocos (sem conversão não há ConfiguracaoDoBloco): cada seta que sai, com o mesmo editor. */
 import type { JSX } from 'react'
