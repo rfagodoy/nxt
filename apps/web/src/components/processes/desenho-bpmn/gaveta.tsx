@@ -31,7 +31,7 @@ export function ehEscDaGaveta(e: KeyboardEvent): boolean {
 
 export function GavetaLateral({ titulo, rotulo, onFechar, rodape, children, rotuloTom, rotuloIcone, rotuloFechar = 'Fechar', focarAoAbrir = true, selo }: {
   titulo: string; rotulo: string; onFechar: () => void; rodape?: ReactNode; children: ReactNode
-  /** ao lado do rótulo (a etiqueta "Executa hoje" / "Próxima rodada" das gavetas novas) */
+  /** ao lado do rótulo (o selo "Próxima rodada" do elemento que o motor ainda não executa) */
   selo?: ReactNode
   /** classes de cor do chip do rótulo (ex.: 'bg-sky-500/10 text-sky-600'); sem elas, rótulo simples */
   rotuloTom?: string

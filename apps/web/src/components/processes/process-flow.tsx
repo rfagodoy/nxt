@@ -44,7 +44,7 @@ import { PerguntasDaEtapa } from './perguntas-da-etapa'
 import { aplicarExecutorDasRaias, raiaDaForma } from '@/lib/editor-bizagi/raias'
 import { formaNova, type GrupoPaleta, type ItemCatalogo } from '@/lib/editor-bizagi/catalogo'
 import { alturaPeloDesenho, caixaDaForma } from '@/lib/editor-bizagi/formas-do-canvas'
-import { adicionarFase, adicionarPiscinaExterna, atualizarPiscinaExterna, layoutDe, mudarOrientacao, prazoDaFase, redimensionarForma, removerFase, removerPiscinaExterna, renomearFase, rotularMensagem } from '@/lib/editor-bizagi/layout'
+import { adicionarFase, adicionarPiscinaExterna, atualizarPiscinaExterna, layoutDe, mudarOrientacao, prazoDaFase, redimensionarForma, removerFase, removerPiscinaExterna, renomearFase, rotularMensagem, apagarMensagem } from '@/lib/editor-bizagi/layout'
 import {
   PISCINA_DO_PROCESSO, comConfig, executorDaRaia, formasNaFase, gavetaDaForma, gavetaDoAlvo, nomeDaRaia, nomeDoElemento, restaurarAlvo, restaurarDesenhoDoBloco,
   restaurarPasso, rotuloDaSeta, setasParaGravar, tarefasNaRaia, workflowsAtivos, type WorkflowDaLista,
@@ -1511,7 +1511,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       case 'mensagem': {
         const fluxoMsg = l.fluxosMensagem.find((m) => m.id === id)!
         return <GavetaMensagem key={chave} {...moldura} fluxo={fluxoMsg} de={nomeDoPonto(fluxoMsg.de)} para={nomeDoPonto(fluxoMsg.para)}
-          onPatch={(p) => setDoc((d) => rotularMensagem(d, id, p.rotulo))} />
+          onPatch={(p) => setDoc((d) => rotularMensagem(d, id, p.rotulo))}
+          onRemover={() => removerPelaGaveta((d) => apagarMensagem(d, id))} />
       }
       case 'seta': {
         const seta = doc.setas.find((x) => x.id === id)!
@@ -1521,6 +1522,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       case 'forma': {
         const forma = formaDoDoc(id)!
         const ehEtapa = forma.tipo === 'userTask' || forma.tipo === 'serviceTask'
+        /* como o Apagar do menu: qualquer forma, menos o único Início e o último Fim */
+        const podeSair = (forma.tipo !== 'start' && forma.tipo !== 'end') || doc.formas.filter((f) => f.tipo === forma.tipo).length > 1
         const nome = (ehEtapa ? stepsEfetivos[id]?.stepName : undefined) ?? forma.nome ?? ''
         const saidas = doc.setas.filter((x) => x.de === id).map((x) => {
           const destino = formaDoDoc(x.para)
@@ -1528,6 +1531,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         })
         return <GavetaFormaNova key={chave} {...moldura} forma={forma} nome={nome} workflowsAtivos={workflowsChamaveis} piscinasExternas={l.piscinasExternas}
           saidas={saidas} nomeDaPiscina={name} papeis={papeis} onPatch={(p) => aoMudarForma(id, p)}
+          onRemover={podeSair ? () => { registrarPasso(); removerNoDesenho(id); setAlvoNovo(null); setGavetaDe(null) } : undefined}
           onAbrirForma={(destino) => { setFocarGaveta(true); abrir(destino) }} />
       }
       default: return null

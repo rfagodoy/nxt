@@ -132,11 +132,6 @@ export function Opcao({ ativo, onClick, titulo, descricao, icone, disabled }: {
   )
 }
 
-/** Um item de lista dentro de uma pergunta (caminho, frente): cartão com borda, sem rádio. */
-export function CartaoDeItem({ children, className }: { children: ReactNode; className?: string }): JSX.Element {
-  return <div className={cn('flex min-w-0 flex-col gap-1.5 rounded-lg border bg-card px-3 py-[var(--secao-pad)]', className)}>{children}</div>
-}
-
 /** Ação de texto pequena num cartão (Editar, Remover). */
 export function AcaoDoCartao({ onClick, perigo, children, rotulo, disabled }: {
   onClick: () => void; perigo?: boolean; children: ReactNode; rotulo?: string; disabled?: boolean

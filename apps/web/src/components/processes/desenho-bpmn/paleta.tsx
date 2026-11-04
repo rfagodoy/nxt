@@ -178,7 +178,7 @@ const SETA = `relative h-6 w-2 shrink-0 rounded-[3px] border-0 bg-transparent p-
 const GRADE_CLS = 'grid grid-cols-2 gap-0.5 border-b border-b-[var(--e-DCE4DE)] px-1.5 py-2 dark:border-b-[var(--e-22332A)]'
 /** As formas: cada célula é botão + ▾ (48 px); as colunas se ajustam ao conteúdo e se afastam. */
 const GRADE_FORMAS = 'grid grid-cols-[repeat(2,auto)] justify-between gap-y-0.5 border-b border-b-[var(--e-DCE4DE)] px-1.5 py-2 dark:border-b-[var(--e-22332A)]'
-/** Cores da etiqueta (também no cabeçalho das gavetas). */
+/** Cores da etiqueta nas variações da paleta. */
 export const CHIP: Record<ItemCatalogo['etiqueta'], string> = {
   hoje: 'bg-[#E3F3EA] text-[var(--e-11804F)] dark:bg-[rgba(198,242,78,0.12)] dark:text-spark',
   proxima: 'bg-[#EEF0EE] text-[var(--e-5B6B63)] dark:bg-white/[0.06] dark:text-[var(--e-9DB0A5)]',

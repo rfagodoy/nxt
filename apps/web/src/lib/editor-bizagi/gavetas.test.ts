@@ -4,7 +4,7 @@ import { LAYOUT_PADRAO } from '@nxt/workflow-core'
 import { mudarOrientacao } from './layout'
 import {
   camposDoTexto, comConfig, configFim, configLivre, configSubprocesso, configTemporizador, ENVIO_PADRAO, executorDaRaia,
-  formasNaFase, gavetaDaForma, gavetaDoAlvo, nomeDaRaia, nomeDoElemento, restaurarAlvo, restaurarDesenhoDoBloco, restaurarPasso, rotuloDaSeta, setasParaGravar,
+  formasNaFase, gavetaDaForma, gavetaDoAlvo, itemDaForma, nomeDaRaia, nomeDoElemento, restaurarAlvo, restaurarDesenhoDoBloco, restaurarPasso, rotuloDaSeta, setasParaGravar,
   tarefasNaRaia, workflowsAtivos,
 } from './gavetas'
 
@@ -302,5 +302,13 @@ describe('restaurarDesenhoDoBloco (Cancelar da escolha / ao mesmo tempo)', () =>
   })
   it('nada mudou: o mesmo desenho', () => {
     expect(restaurarDesenhoDoBloco(antes, antes)).toBe(antes)
+  })
+})
+
+describe('itemDaForma', () => {
+  it('acha o item da paleta pela forma (tipo, variante e modo)', () => {
+    expect(itemDaForma({ tipo: 'end', variante: 'erro' })?.nome).toBe('Fim com erro')
+    expect(itemDaForma({ tipo: 'exclusiveGateway', modo: 'todos' })?.nome).toBe('Inclusivo')
+    expect(itemDaForma({ tipo: 'intermediateEvent', variante: 'temporizador' })?.grupo).toBe('intermediario')
   })
 })

@@ -6,10 +6,13 @@
    recebimento, baseado em evento, ao mesmo tempo solto). Mesma regra da gaveta da etapa:
    o que se muda aqui vale AO VIVO no desenho; Cancelar, o X e o Esc voltam ao estado da
    abertura (a página guarda o retrato); Aplicar — ou clicar noutra coisa, Salvar, Ativar —
-   mantém. Os campos de cada variante são os do mockup aprovado e ficam em `forma.config`. */
+   mantém. Os campos de cada variante são os do mockup aprovado e ficam em `forma.config`.
+   Todas no padrão das perguntas da etapa (gaveta-padrao): chip colorido do tipo, "Em resumo"
+   quando há o que resumir, perguntas numeradas e o rodapé com o status. O selo "Próxima
+   rodada" só aparece no elemento que o motor ainda não executa. */
 import type { JSX, ReactNode } from 'react'
-import { useEffect, useState } from 'react'
-import { AlertTriangle, ArrowRightLeft, Info, Trash2 } from 'lucide-react'
+import { useState } from 'react'
+import { AlertTriangle, ArrowRight, Columns3, Info, Mail, PanelLeft, Rows3, SquareDashed } from 'lucide-react'
 import type { FaseDesenho, FluxoMensagem, FormaDesenho, PiscinaExterna, QuemInicia, SetaDesenho, StepFormSchema } from '@nxt/types'
 import { executaHoje, varianteDe } from '@nxt/workflow-core'
 import { Button } from '@/components/ui/button'
@@ -18,19 +21,25 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { EntitySelect, type EntityKind } from '@/components/ui/entity-select'
 import { ORIGEM, REFERENCIA, referenciaDoPapelEntry } from '@/lib/contract-roles'
-import { ROTULO_ETIQUETA } from '@/lib/editor-bizagi/catalogo'
 import {
   ENVIO_PADRAO, INICIO_AGENDADO_PADRAO, INICIO_EVENTO_PADRAO, RECEBIMENTO_PADRAO, camposDoTexto, configFim, configLivre,
-  configSubprocesso, configTemporizador, nomeDoElemento, type WorkflowDaLista,
+  configSubprocesso, configTemporizador, itemDaForma, nomeDoElemento, type WorkflowDaLista,
 } from '@/lib/editor-bizagi/gavetas'
+import {
+  resumoDaFase, resumoDaMensagem, resumoDaPiscinaExterna, resumoDaRaia, resumoDaSeta, resumoDoBaseadoEmEvento, resumoDoEnvio, resumoDoFim,
+  resumoDoInicio, resumoDoParaleloSolto, resumoDoRecebimento, resumoDoSubprocesso, resumoDoTemporizador, type Trecho,
+} from '@/lib/editor-bizagi/resumos'
 import type { Orientacao } from '@/lib/editor-bizagi/geometria'
 import { cn } from '@/lib/utils'
 import { ExecutorDaVariavel } from '../executor-da-variavel'
 import { QuemIniciaPill } from '../quem-inicia'
 import { entityKindLabel, type Papeis } from '../editor-comum'
-import { GavetaLateral, ehEscDaGaveta } from './gaveta'
-import { CAMPO, Opcao, Pergunta } from './gaveta-padrao'
-import { CHIP } from './paleta'
+import { GavetaLateral } from './gaveta'
+import {
+  CAMPO, CORPO_DA_GAVETA, EmResumo, FraseDoResumo, Opcao, Pergunta, RodapePadrao, SeloProximaRodada, TOM_DO_TIPO, contadorDePendencias, useEscCancela,
+  type TomDoTipo,
+} from './gaveta-padrao'
+import { IconeDoItem } from './paleta'
 
 type Executor = NonNullable<StepFormSchema['executor']>
 
@@ -42,48 +51,36 @@ interface Moldura {
   focarAoAbrir?: boolean
 }
 
-/** "Só documenta": fase, piscina externa e fluxo de mensagem não mudam a execução. */
-type Etiqueta = 'hoje' | 'proxima' | 'documenta'
-const ROTULO: Record<Etiqueta, string> = { ...ROTULO_ETIQUETA, documenta: 'Só documenta' }
-const COR: Record<Etiqueta, string> = { ...CHIP, documenta: CHIP.proxima }
-
 export const AVISO_AINDA_NAO_EXECUTA = 'Ainda não executa: dá para desenhar e salvar; para ativar, troque por outro elemento.'
 
-function MolduraDaGaveta({ rotulo, titulo, etiqueta, onCancelar, onAplicar, focarAoAbrir, remover, children }: Moldura & {
-  rotulo: string; titulo: string; etiqueta: Etiqueta; children: ReactNode
+function MolduraDaGaveta({ rotulo, titulo, tom, icone, proximaRodada, resumo, pendentes, onCancelar, onAplicar, focarAoAbrir, remover, children }: Moldura & {
+  rotulo: string; titulo: string; children: ReactNode
+  /** cor e ícone do chip do tipo, no cabeçalho */
+  tom: TomDoTipo; icone: ReactNode
+  /** o motor ainda não executa: selo "Próxima rodada" ao lado do chip */
+  proximaRodada?: boolean
+  /** a frase do "Em resumo" (sem ela, o cartão não aparece) */
+  resumo?: Trecho[]
+  /** perguntas sem resposta (a linha de status do rodapé) */
+  pendentes: number
   /** botão de remover no rodapé, à esquerda (como o "Remover" da etapa) */
-  remover?: { rotulo: string; aoRemover: () => void }
+  remover?: { nomeAcessivel: string; aoRemover: () => void }
 }): JSX.Element {
-  /* Esc DENTRO da gaveta (sem lista/balão aberto por cima) cancela, como na etapa */
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (ehEscDaGaveta(e)) { e.stopPropagation(); onCancelar() } }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [onCancelar])
-  const rodape = (
-    <div className="flex flex-col gap-2.5">
-      <p className="text-[11.5px] leading-snug text-muted-foreground">
-        As alterações já aparecem no desenho e entram no workflow ao <span className="font-medium">Salvar rascunho</span> ou <span className="font-medium">Ativar</span>.
-      </p>
-      <div className="flex items-center justify-end gap-2">
-        {remover && (
-          <Button variant="ghost" size="sm" onClick={remover.aoRemover} aria-label={remover.rotulo}
-            className="mr-auto text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
-            <Trash2 className="h-3.5 w-3.5" />{remover.rotulo}
-          </Button>
-        )}
-        <Button variant="ghost" size="sm" onClick={onCancelar}>Cancelar</Button>
-        <Button size="sm" onClick={onAplicar}>Aplicar</Button>
-      </div>
-    </div>
-  )
+  useEscCancela(onCancelar)
   return (
-    <GavetaLateral rotulo={rotulo} titulo={titulo} rotuloFechar="Fechar sem aplicar" onFechar={onCancelar} rodape={rodape} focarAoAbrir={focarAoAbrir}
-      selo={<span className={cn('whitespace-nowrap rounded px-1.5 py-0.5 text-[10.5px] font-semibold tracking-[0.01em]', COR[etiqueta])}>{ROTULO[etiqueta]}</span>}>
-      <div className="flex flex-col gap-7 px-4 py-4">{children}</div>
+    <GavetaLateral rotulo={rotulo} rotuloTom={TOM_DO_TIPO[tom]} rotuloIcone={icone} titulo={titulo} rotuloFechar="Fechar sem aplicar" onFechar={onCancelar}
+      focarAoAbrir={focarAoAbrir} selo={proximaRodada ? <SeloProximaRodada /> : undefined}
+      rodape={<RodapePadrao pendentes={pendentes} onCancelar={onCancelar} onAplicar={onAplicar}
+        remover={remover && { rotulo: 'Remover', nomeAcessivel: remover.nomeAcessivel, aoRemover: remover.aoRemover }} />}>
+      <div className={CORPO_DA_GAVETA}>
+        {resumo && <EmResumo><FraseDoResumo trechos={resumo} /></EmResumo>}
+        {children}
+      </div>
     </GavetaLateral>
   )
 }
+
+const ICONE = 'h-3 w-3'
 
 /* ─── peças ─────────────────────────────────────────────────────────────────── */
 
@@ -224,8 +221,10 @@ export function GavetaRaia({ raia, tarefasNaRaia, papeis, onPatch, ...moldura }:
   onPatch: (p: { nome?: string; executor?: Executor | undefined }) => void
 }): JSX.Element {
   const { total, usamOPadrao } = tarefasNaRaia
+  const papel = raia.executor?.papelId ? papeis.entries.find((p) => p.id === raia.executor?.papelId)?.label : undefined
   return (
-    <MolduraDaGaveta rotulo="Raia" titulo={raia.nome || 'Raia sem nome'} etiqueta="hoje" {...moldura}>
+    <MolduraDaGaveta rotulo="Raia" titulo={raia.nome || 'Raia sem nome'} tom="estrutura" icone={<Rows3 className={ICONE} />}
+      resumo={resumoDaRaia({ papel, total, usamOPadrao })} pendentes={raia.nome.trim() ? 0 : 1} {...moldura}>
       <Pergunta id="raia-nome" n={1} titulo="Nome da raia" ok={!!raia.nome.trim()}>
         <CampoTexto rotulo="Nome da raia" valor={raia.nome} onMudar={(v) => onPatch({ nome: v })} />
       </Pergunta>
@@ -233,10 +232,6 @@ export function GavetaRaia({ raia, tarefasNaRaia, papeis, onPatch, ...moldura }:
         ajuda="É o padrão. Cada tarefa pode escolher outro executor no “Quem faz?” dela.">
         <ExecutorDaRaia executor={raia.executor} papeis={papeis} onMudar={(e) => onPatch({ executor: e })} />
       </Pergunta>
-      <Nota>
-        <b className="font-semibold text-foreground">{total}</b> {total === 1 ? 'tarefa de usuário' : 'tarefas de usuário'} nesta raia
-        {total > 0 && <>; {usamOPadrao === total ? (total === 1 ? 'ela usa' : 'todas usam') : `${usamOPadrao} ${usamOPadrao === 1 ? 'usa' : 'usam'}`} o padrão da raia</>}.
-      </Nota>
     </MolduraDaGaveta>
   )
 }
@@ -252,7 +247,9 @@ export function GavetaFase({ fase, formasNaFase, onPatch, onRemover, ...moldura 
   onRemover: () => void
 }): JSX.Element {
   return (
-    <MolduraDaGaveta rotulo="Fase" titulo={fase.nome || 'Fase sem nome'} etiqueta="documenta" remover={{ rotulo: 'Remover fase', aoRemover: onRemover }} {...moldura}>
+    <MolduraDaGaveta rotulo="Fase" titulo={fase.nome || 'Fase sem nome'} tom="estrutura" icone={<Columns3 className={ICONE} />}
+      resumo={resumoDaFase({ formas: formasNaFase, prazoDiasUteis: fase.prazoDiasUteis })} pendentes={fase.nome.trim() ? 0 : 1}
+      remover={{ nomeAcessivel: 'Remover fase', aoRemover: onRemover }} {...moldura}>
       <Pergunta id="fase-nome" n={1} titulo="Nome da fase" ok={!!fase.nome.trim()}>
         <CampoTexto rotulo="Nome da fase" valor={fase.nome} onMudar={(v) => onPatch({ nome: v })} />
       </Pergunta>
@@ -262,7 +259,6 @@ export function GavetaFase({ fase, formasNaFase, onPatch, onRemover, ...moldura 
           <span className="text-sm text-muted-foreground">dias úteis</span>
         </div>
       </Pergunta>
-      <Nota><b className="font-semibold text-foreground">{formasNaFase}</b> {formasNaFase === 1 ? 'forma' : 'formas'} nesta fase.</Nota>
     </MolduraDaGaveta>
   )
 }
@@ -274,7 +270,8 @@ export function GavetaPiscinaPrincipal({ nome, descricao, quemInicia, papeis, ki
   onNome: (v: string) => void; onDescricao: (v: string) => void; onQuemInicia: (v: QuemInicia | undefined) => void; onOrientacao: (o: Orientacao) => void
 }): JSX.Element {
   return (
-    <MolduraDaGaveta rotulo="Piscina principal · o workflow" titulo={nome.trim() || 'Workflow sem nome'} etiqueta="hoje" {...moldura}>
+    <MolduraDaGaveta rotulo="Piscina principal · o workflow" titulo={nome.trim() || 'Workflow sem nome'} tom="estrutura" icone={<PanelLeft className={ICONE} />}
+      pendentes={nome.trim() ? 0 : 1} {...moldura}>
       <Pergunta id="wf-nome" n={1} titulo="Nome do workflow" ok={!!nome.trim()}>
         <CampoTexto rotulo="Nome do workflow" valor={nome} placeholder="Dê um nome a este workflow" onMudar={onNome} />
       </Pergunta>
@@ -303,7 +300,9 @@ export function GavetaPiscinaExterna({ piscina, onPatch, onRemover, ...moldura }
   onRemover: () => void
 }): JSX.Element {
   return (
-    <MolduraDaGaveta rotulo="Piscina de participante externo" titulo={piscina.nome || 'Participante sem nome'} etiqueta="documenta" remover={{ rotulo: 'Remover piscina', aoRemover: onRemover }} {...moldura}>
+    <MolduraDaGaveta rotulo="Piscina de participante externo" titulo={piscina.nome || 'Participante sem nome'} tom="estrutura" icone={<SquareDashed className={ICONE} />}
+      resumo={resumoDaPiscinaExterna(piscina)} pendentes={piscina.nome.trim() ? 0 : 1}
+      remover={{ nomeAcessivel: 'Remover piscina', aoRemover: onRemover }} {...moldura}>
       <Pergunta id="ext-nome" n={1} titulo="Nome" ok={!!piscina.nome.trim()}>
         <CampoTexto rotulo="Nome do participante externo" valor={piscina.nome} onMudar={(v) => onPatch({ nome: v })} />
       </Pergunta>
@@ -327,21 +326,22 @@ export function GavetaPiscinaExterna({ piscina, onPatch, onRemover, ...moldura }
 
 /* ─── Fluxo de mensagem ─────────────────────────────────────────────────────── */
 
-export function GavetaMensagem({ fluxo, de, para, onPatch, ...moldura }: Moldura & {
+export function GavetaMensagem({ fluxo, de, para, onPatch, onRemover, ...moldura }: Moldura & {
   fluxo: FluxoMensagem
   /** nomes das pontas (forma ou piscina) */
   de: string; para: string
   onPatch: (p: { rotulo: string }) => void
+  /** apaga o fluxo de mensagem e fecha a gaveta */
+  onRemover: () => void
 }): JSX.Element {
   return (
-    <MolduraDaGaveta rotulo="Fluxo de mensagem" titulo={fluxo.rotulo || `${de} → ${para}`} etiqueta="documenta" {...moldura}>
+    <MolduraDaGaveta rotulo="Fluxo de mensagem" titulo={fluxo.rotulo || `${de} → ${para}`} tom="ligacao" icone={<Mail className={ICONE} />}
+      resumo={resumoDaMensagem({ rotulo: fluxo.rotulo, de, para })} pendentes={fluxo.rotulo ? 0 : 1}
+      remover={{ nomeAcessivel: 'Remover fluxo de mensagem', aoRemover: onRemover }} {...moldura}>
       <Pergunta id="msg-rotulo" n={1} titulo="O que é enviado?" ok={!!fluxo.rotulo}>
         <CampoTexto rotulo="O que é enviado" valor={fluxo.rotulo ?? ''} placeholder="Ex.: Minuta para assinatura" onMudar={(v) => onPatch({ rotulo: v })} />
       </Pergunta>
-      <p className="flex items-start gap-2 rounded-lg border bg-muted/30 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
-        <ArrowRightLeft className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        <span>De <b className="font-semibold text-foreground">{de}</b> para <b className="font-semibold text-foreground">{para}</b>. O canal e os anexos ficam na forma que envia ou recebe.</span>
-      </p>
+      <Nota>O canal e os anexos ficam na forma que envia ou recebe.</Nota>
     </MolduraDaGaveta>
   )
 }
@@ -355,11 +355,11 @@ export function GavetaSeta({ seta, de, para, onPatch, ...moldura }: Moldura & {
   onPatch: (p: { rotulo: string }) => void
 }): JSX.Element {
   return (
-    <MolduraDaGaveta rotulo="Seta de sequência" titulo={seta.rotulo || `${de} → ${para}`} etiqueta="hoje" {...moldura}>
-      <Pergunta id="seta-rotulo" n={1} titulo="Rótulo na seta (opcional)" ok>
+    <MolduraDaGaveta rotulo="Seta de sequência" titulo={seta.rotulo || `${de} → ${para}`} tom="ligacao" icone={<ArrowRight className={ICONE} />}
+      resumo={resumoDaSeta({ de, para })} pendentes={0} {...moldura}>
+      <Pergunta id="seta-rotulo" n={1} titulo="Rótulo na seta (opcional)" ok ajuda="Aparece ao lado da seta, no desenho.">
         <CampoTexto rotulo="Rótulo na seta" valor={seta.rotulo ?? ''} onMudar={(v) => onPatch({ rotulo: v })} />
       </Pergunta>
-      <Nota>Seta de sequência: leva de <b className="font-semibold text-foreground">{de}</b> para <b className="font-semibold text-foreground">{para}</b>. Não tem mais nada para configurar.</Nota>
     </MolduraDaGaveta>
   )
 }
@@ -368,7 +368,20 @@ export function GavetaSeta({ seta, de, para, onPatch, ...moldura }: Moldura & {
 
 export interface PatchDaForma { nome?: string; config?: Record<string, unknown> }
 
-export function GavetaFormaNova({ forma, nome, workflowsAtivos, piscinasExternas, saidas, nomeDaPiscina, papeis, onPatch, onAbrirForma, ...moldura }: Moldura & {
+/** Cor do chip da forma: eventos verdes, fins "fortes" rosa, subprocesso e envio/recebimento
+ *  azuis, losangos como na paleta. */
+function tomDaForma(f: FormaDesenho): TomDoTipo {
+  switch (f.tipo) {
+    case 'start': case 'intermediateEvent': return 'evento'
+    case 'end': return (varianteDe(f) ?? 'simples') === 'simples' ? 'evento' : 'fimForte'
+    case 'subProcess': case 'userTask': case 'serviceTask': return 'subprocesso'
+    case 'eventGateway': case 'exclusiveGateway': return 'escolha'
+    case 'parallelGateway': return 'paralelo'
+    default: return 'ligacao'
+  }
+}
+
+export function GavetaFormaNova({ forma, nome, workflowsAtivos, piscinasExternas, saidas, nomeDaPiscina, papeis, onPatch, onAbrirForma, onRemover, ...moldura }: Moldura & {
   forma: FormaDesenho
   /** o nome mostrado (na tarefa de envio/recebimento é o da etapa) */
   nome: string
@@ -382,8 +395,13 @@ export function GavetaFormaNova({ forma, nome, workflowsAtivos, piscinasExternas
   papeis: Papeis
   onPatch: (p: PatchDaForma) => void
   onAbrirForma: (id: string) => void
+  /** tira a forma do desenho; ausente quando ela não pode sair (o único Início, o último Fim) */
+  onRemover?: () => void
 }): JSX.Element {
   const elemento = nomeDoElemento(forma)
+  const item = itemDaForma(forma)
+  const pend = contadorDePendencias()
+  let resumo: Trecho[] | undefined
   const chave = `${forma.tipo}:${varianteDe(forma) ?? ''}`
   const hoje = executaHoje(forma)
   const cfg = (patch: Record<string, unknown>) => onPatch({ config: patch })
@@ -391,20 +409,26 @@ export function GavetaFormaNova({ forma, nome, workflowsAtivos, piscinasExternas
   const q = () => n++
 
   const campoNome = (titulo = 'Nome') => (
-    <Pergunta id="forma-nome" n={q()} titulo={titulo} ok={!!nome.trim() || titulo === 'Nome (opcional)'}>
+    <Pergunta id="forma-nome" n={q()} titulo={titulo} ok={pend.ok(!!nome.trim() || titulo === 'Nome (opcional)')}>
       <CampoTexto rotulo={`Nome: ${elemento}`} valor={nome} onMudar={(v) => onPatch({ nome: v })} />
     </Pergunta>
   )
+  const nomeDaPiscinaExterna = (id: string) => {
+    const e = piscinasExternas.find((x) => x.id === id)
+    return e ? e.nome.trim() || 'Participante sem nome' : undefined
+  }
   const opcoesPiscinas = piscinasExternas.map((p) => [p.id, `${p.nome || 'Participante sem nome'} (piscina)`] as const)
   const semPiscinas = <Nota>Ainda não há piscina de participante externo. Acrescente uma pela paleta (Piscina) para escolher aqui.</Nota>
 
   let corpo: ReactNode
   switch (chave) {
     case 'start:simples':
+      resumo = resumoDoInicio('simples', {})
       corpo = <>{campoNome()}<Nota>Quem pode iniciar fica na <b className="font-semibold text-foreground">piscina</b>: dê duplo clique na faixa “{nomeDaPiscina || 'do workflow'}”.</Nota></>
       break
     case 'start:agendado': {
       const c = configLivre(forma.config, INICIO_AGENDADO_PADRAO)
+      resumo = resumoDoInicio('agendado', c)
       const papeisPessoa = papeis.active.filter((p) => referenciaDoPapelEntry(p) === REFERENCIA.PESSOA)
       corpo = <>
         {campoNome()}
@@ -424,6 +448,7 @@ export function GavetaFormaNova({ forma, nome, workflowsAtivos, piscinasExternas
     }
     case 'start:evento': {
       const c = configLivre(forma.config, INICIO_EVENTO_PADRAO)
+      resumo = resumoDoInicio('evento', c)
       corpo = <>
         {campoNome()}
         <Pergunta id="ini-evento" n={q()} titulo="Inicia quando…" ok>
@@ -438,6 +463,7 @@ export function GavetaFormaNova({ forma, nome, workflowsAtivos, piscinasExternas
     }
     case 'userTask:envio': case 'intermediateEvent:envia': {
       const c = configLivre(forma.config, ENVIO_PADRAO)
+      resumo = resumoDoEnvio({ para: nomeDaPiscinaExterna(c.para), canal: c.canal })
       corpo = <>
         {campoNome('O que precisa ser feito?')}
         <Pergunta id="envio-para" n={q()} titulo="Para quem vai?" ok ajuda="O fluxo de mensagem tracejado aponta para essa piscina.">
@@ -463,6 +489,7 @@ export function GavetaFormaNova({ forma, nome, workflowsAtivos, piscinasExternas
     }
     case 'userTask:recebimento': case 'intermediateEvent:recebe': {
       const c = configLivre(forma.config, RECEBIMENTO_PADRAO)
+      resumo = resumoDoRecebimento({ de: nomeDaPiscinaExterna(c.de), recebido: c.recebido })
       corpo = <>
         {campoNome('O que precisa ser feito?')}
         <Pergunta id="receb-de" n={q()} titulo="De quem vem?" ok>
@@ -485,9 +512,10 @@ export function GavetaFormaNova({ forma, nome, workflowsAtivos, piscinasExternas
       const c = configSubprocesso(forma.config)
       const escolhido = workflowsAtivos?.find((w) => w.id === c.processId)
       const opcoes = (workflowsAtivos ?? []).map((w) => [w.id, w.name] as const)
+      resumo = resumoDoSubprocesso({ workflow: escolhido?.name, levarContrato: c.levarContrato, esperar: c.esperar })
       corpo = <>
         {campoNome()}
-        <Pergunta id="sub-wf" n={q()} titulo="Qual workflow chamar?" ok={!!c.processId} ajuda="Só aparecem workflows ativos.">
+        <Pergunta id="sub-wf" n={q()} titulo="Qual workflow chamar?" ok={pend.ok(!!c.processId)} ajuda="Só aparecem workflows ativos.">
           {workflowsAtivos === null
             ? <p className="text-xs text-muted-foreground">Carregando os workflows ativos…</p>
             : opcoes.length
@@ -530,6 +558,7 @@ export function GavetaFormaNova({ forma, nome, workflowsAtivos, piscinasExternas
       break
     case 'intermediateEvent:temporizador': {
       const c = configTemporizador(forma.config)
+      resumo = resumoDoTemporizador(c)
       corpo = <>
         {campoNome()}
         <Pergunta id="tempo-espera" n={q()} titulo="Esperar até quando?" ok>
@@ -561,6 +590,7 @@ export function GavetaFormaNova({ forma, nome, workflowsAtivos, piscinasExternas
       break
     }
     case 'eventGateway:':
+      resumo = resumoDoBaseadoEmEvento(saidas.length)
       corpo = <>
         {campoNome()}
         <Pergunta id="evento-saidas" n={q()} titulo="O primeiro que acontecer vence" ok ajuda="Cada saída precisa levar a um evento: temporizador ou recebimento.">
@@ -578,19 +608,22 @@ export function GavetaFormaNova({ forma, nome, workflowsAtivos, piscinasExternas
       </>
       break
     case 'parallelGateway:':
-      corpo = <>{campoNome('Nome (opcional)')}<Nota>Abre <b className="font-semibold text-foreground">todos</b> os caminhos ao mesmo tempo. Para juntar, use outro losango <b className="font-semibold text-foreground">+</b>: ele espera todos chegarem.</Nota></>
+      resumo = resumoDoParaleloSolto()
+      corpo = <>{campoNome('Nome (opcional)')}<Nota>O losango <b className="font-semibold text-foreground">+</b> que junta espera todos os caminhos chegarem.</Nota></>
       break
     case 'end:simples':
-      corpo = <>{campoNome()}<Nota>Encerra este caminho. Quando todos os caminhos terminam, o processo fica <b className="font-semibold text-foreground">Concluído</b>.</Nota></>
+      resumo = resumoDoFim('simples', {})
+      corpo = campoNome()
       break
     case 'end:erro': {
       const c = configFim(forma.config)
+      resumo = resumoDoFim('erro', c)
       corpo = <>
         {campoNome()}
-        <Pergunta id="fim-motivo" n={q()} titulo="Motivo que aparece para as pessoas" ok={!!c.motivo?.trim()}>
+        <Pergunta id="fim-motivo" n={q()} titulo="Motivo que aparece para as pessoas" ok={pend.ok(!!c.motivo?.trim())}>
           <CampoTexto rotulo="Motivo do erro" valor={c.motivo ?? ''} placeholder="Ex.: Documentação recusada pelo Jurídico" onMudar={(motivo) => cfg({ motivo })} />
         </Pergunta>
-        <Pergunta id="fim-codigo" n={q()} titulo="Código (para relatórios e para o processo pai)" ok={!!c.codigo?.trim()}>
+        <Pergunta id="fim-codigo" n={q()} titulo="Código (para relatórios e para o processo pai)" ok={pend.ok(!!c.codigo?.trim())}>
           <CampoTexto rotulo="Código do erro" valor={c.codigo ?? ''} placeholder="Ex.: DOC_RECUSADA" onMudar={(codigo) => cfg({ codigo })} />
         </Pergunta>
         <Nota>O processo fica <b className="font-semibold text-foreground">Encerrado com erro</b>. Se ele for subprocesso de outro, o pai também encerra com erro.</Nota>
@@ -599,9 +632,10 @@ export function GavetaFormaNova({ forma, nome, workflowsAtivos, piscinasExternas
     }
     case 'end:cancela': {
       const c = configFim(forma.config)
+      resumo = resumoDoFim('cancela', c)
       corpo = <>
         {campoNome()}
-        <Pergunta id="fim-motivo" n={q()} titulo="Motivo do cancelamento" ok={!!c.motivo?.trim()}>
+        <Pergunta id="fim-motivo" n={q()} titulo="Motivo do cancelamento" ok={pend.ok(!!c.motivo?.trim())}>
           <CampoTexto rotulo="Motivo do cancelamento" valor={c.motivo ?? ''} placeholder="Ex.: Fornecedor não respondeu no prazo" onMudar={(motivo) => cfg({ motivo })} />
           <Marcar marcado={c.avisarQuemIniciou ?? true} onMudar={(avisarQuemIniciou) => cfg({ avisarQuemIniciou })}>Avisar quem iniciou o processo</Marcar>
         </Pergunta>
@@ -610,14 +644,17 @@ export function GavetaFormaNova({ forma, nome, workflowsAtivos, piscinasExternas
       break
     }
     case 'end:terminar':
-      corpo = <>{campoNome()}<Nota>Encerra o processo <b className="font-semibold text-foreground">inteiro</b> na hora, mesmo com outros caminhos ainda abertos.</Nota></>
+      resumo = resumoDoFim('terminar', {})
+      corpo = campoNome()
       break
     default:
       corpo = campoNome()
   }
 
   return (
-    <MolduraDaGaveta rotulo={elemento} titulo={nome.trim() || elemento} etiqueta={hoje ? 'hoje' : 'proxima'} {...moldura}>
+    <MolduraDaGaveta rotulo={elemento} titulo={nome.trim() || elemento} tom={tomDaForma(forma)}
+      icone={item ? <IconeDoItem item={item} tamanho={14} /> : undefined} proximaRodada={!hoje} resumo={resumo} pendentes={pend.total()}
+      remover={onRemover && { nomeAcessivel: `Remover ${elemento.toLowerCase()}`, aoRemover: onRemover }} {...moldura}>
       {!hoje && <AvisoAindaNaoExecuta />}
       {corpo}
     </MolduraDaGaveta>

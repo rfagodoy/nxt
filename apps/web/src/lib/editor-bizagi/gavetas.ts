@@ -9,7 +9,7 @@ import type {
 import { varianteDe } from '@nxt/workflow-core'
 import { herdaDaRaia, raiaDaForma } from './raias'
 import { layoutDe, mudarOrientacao } from './layout'
-import { CATALOGO } from './catalogo'
+import { CATALOGO, type ItemCatalogo } from './catalogo'
 
 /** O que o desenho manda abrir (o `AlvoDaGaveta` do canvas). */
 export type AlvoDeGaveta = { k: 'forma' | 'seta' | 'raia' | 'fase' | 'piscina' | 'mensagem'; id: string }
@@ -58,12 +58,16 @@ export function gavetaDoAlvo(alvo: AlvoDeGaveta, d: DesenhoV2, ehBloco: (id: str
   }
 }
 
+/** O item da paleta que cria a forma (o ícone e o nome do chip da gaveta); undefined se nenhum. */
+export function itemDaForma(f: Pick<FormaDesenho, 'tipo' | 'variante' | 'modo'>): ItemCatalogo | undefined {
+  const v = varianteDe(f)
+  return Object.values(CATALOGO).flat().find((i) => i.tipo === f.tipo && varianteDe(i) === v
+    && (f.tipo !== 'exclusiveGateway' || (i.modo ?? 'primeiro') === (f.modo ?? 'primeiro')))
+}
+
 /** O nome do elemento como a paleta o chama ("Fim com erro", "Temporizador") — o rótulo da gaveta. */
 export function nomeDoElemento(f: Pick<FormaDesenho, 'tipo' | 'variante' | 'modo'>): string {
-  const v = varianteDe(f)
-  const item = Object.values(CATALOGO).flat().find((i) => i.tipo === f.tipo && varianteDe(i) === v
-    && (f.tipo !== 'exclusiveGateway' || (i.modo ?? 'primeiro') === (f.modo ?? 'primeiro')))
-  return item?.nome ?? 'Elemento'
+  return itemDaForma(f)?.nome ?? 'Elemento'
 }
 
 /* ── configuração das formas novas ── */
