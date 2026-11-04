@@ -4,6 +4,28 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Editor de workflow no estilo Bizagi:**
+  - a paleta é uma grade com as variações de cada elemento e as etiquetas "Executa hoje" e "Próxima rodada";
+  - o próximo item aparece ao lado da forma selecionada;
+  - um clique seleciona, e o duplo clique abre a parametrização de qualquer elemento: tarefa, losango, evento, seta, raia, fase e piscina;
+  - fases dividem o desenho em etapas do processo;
+  - piscinas de participantes externos, ligadas ao processo por fluxo de mensagem;
+  - o desenho pode ficar na horizontal ou na vertical;
+  - grade, guias de alinhamento e seleção por laço, com alinhar e distribuir. A tarefa pode ser redimensionada;
+  - a raia tem um executor padrão, herdado pelas tarefas desenhadas nela;
+  - as setas comuns ganham rótulo;
+  - os elementos da próxima rodada podem ser desenhados e salvos em rascunho. A ativação explica que eles ainda não executam.
+
+### Alterado
+
+- A Escolha da paleta cria "o primeiro que servir". O Inclusivo cria "todos os que servirem".
+
+### Removido
+
+- O Roteiro e a vista "Ver por raia" saíram. O editor é só o desenho.
+
 ## [1.1.1] — Ada — 2026-10-31
 
 ### Corrigido
