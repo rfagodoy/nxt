@@ -113,7 +113,7 @@ interface BlocoProps {
   simulacao: Simulacao | null
   onRemover: (id: string) => void
   /** remove um caminho / frente (e as etapas dele), promovendo cópias vinculadas — a mesma
-   *  função do Roteiro (`removerCaminhoComVinculos`) */
+   *  função do editor (`removerCaminhoComVinculos`) */
   onRemoverCaminho: (blocoId: string, caminhoId: string) => void
   onFluxo: (fn: (f: FluxoBlocos) => FluxoBlocos) => void
   /** telas — de onde saem os campos que o filtro de cada caminho pode usar */

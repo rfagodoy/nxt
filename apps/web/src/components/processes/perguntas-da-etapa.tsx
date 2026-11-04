@@ -16,7 +16,7 @@ import { REFERENCIA, ORIGEM, referenciaDoPapelEntry } from '@/lib/contract-roles
 import { apiFetch } from '@/lib/http'
 import { ExecutorDaVariavel } from './executor-da-variavel'
 import { EXECUTOR_CONTRATO_DO_PROCESSO, EXECUTOR_QUEM_INICIOU } from '@nxt/types'
-import { ATRIBUTO_GAVETA, GavetaLateral, ehEscDaGaveta } from './desenho-bpmn/gaveta'
+import { GavetaLateral, ehEscDaGaveta } from './desenho-bpmn/gaveta'
 import { cn } from '@/lib/utils'
 import { STEP_TONE, dueText, entityKindLabel, type EEdge, type ENode, type Papeis, type Screens } from './editor-comum'
 
@@ -50,7 +50,7 @@ function predecessorasDe(edges: EEdge[], alvo: string): Set<string> {
  * aplica cada mudança ao vivo no grafo, então sem isso "Cancelar" seria só um "Fechar"
  * mentiroso. Fechar pelo X e o Esc também cancelam; só "Aplicar" mantém.
  */
-export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveEntidade, onPatchStep, onChangeType, onRemove, onClose, secaoInicial, vinculo, somenteLeitura, focarAoAbrir, moldura = 'gaveta', retratoDaAbertura, raiaDaEtapa }: {
+export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveEntidade, onPatchStep, onChangeType, onRemove, onClose, secaoInicial, vinculo, somenteLeitura, focarAoAbrir, retratoDaAbertura, raiaDaEtapa }: {
   /** a raia onde a etapa está desenhada e o executor padrão dela ("Quem faz?") */
   raiaDaEtapa?: { nome: string; executor?: StepFormSchema['executor']; rotuloExecutor?: string }
   node: ENode; nodes: ENode[]; edges: EEdge[]; screens: Screens; papeis: Papeis
@@ -66,10 +66,8 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
   somenteLeitura?: boolean
   /** false = a gaveta abre sem tirar o foco da forma (ver GavetaLateral) */
   focarAoAbrir?: boolean
-  /** 'gaveta' = painel lateral (Desenho); 'embutida' = dentro da lista do Roteiro, sem gaveta */
-  moldura?: 'gaveta' | 'embutida'
-  /** Estado de quando a etapa foi ABERTA, guardado pelo editor: trocar Roteiro ↔ Desenho
-   *  remonta este componente, e o Cancelar tem de desfazer desde a abertura, não desde a troca. */
+  /** Estado de quando a etapa foi ABERTA, guardado pelo editor: se este componente remontar,
+   *  o Cancelar continua desfazendo desde a abertura. */
   retratoDaAbertura?: { step: StepFormSchema; type: 'userTask' | 'serviceTask' }
 }) {
   const step = node.step!
@@ -276,20 +274,13 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
     return () => { vivo = false; clearTimeout(t) }
   }, [type, exPapel, exTipo, exModo, exEntidade])
 
-  /* No Roteiro não há título de gaveta para receber o foco: vai para o primeiro campo. */
-  useEffect(() => {
-    if (moldura !== 'embutida' || focarAoAbrir === false) return
-    corpoRef.current?.querySelector<HTMLElement>('input, textarea, button')?.focus({ preventScroll: true })
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- só na abertura
-
   /* Abre já na pergunta pedida (ex.: 'formulario', vindo do aviso da escolha). Rola SÓ o
      corpo da gaveta: `scrollIntoView` rolaria também os contêineres `overflow-hidden` do
      editor e deslocaria o desenho. */
   useEffect(() => {
     if (!secaoInicial) return
     const alvo = document.getElementById(`pergunta-${secaoInicial}`)
-    // na gaveta rola o corpo dela; no Roteiro, a coluna da lista
-    const caixa = moldura === 'embutida' ? corpoRef.current?.closest<HTMLElement>('[data-rolagem-roteiro]') : corpoRef.current?.parentElement
+    const caixa = corpoRef.current?.parentElement
     if (!alvo || !caixa) return
     caixa.scrollTop += alvo.getBoundingClientRect().top - caixa.getBoundingClientRect().top - 12
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -761,17 +752,6 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
         </div>
       </div>
   )
-
-  /* Dentro da lista do Roteiro: sem gaveta (a linha já mostra o nome e o tipo). O atributo
-     da gaveta mantém o Esc (cancela) e faz o editor ignorar atalhos vindos daqui. */
-  if (moldura === 'embutida') {
-    return (
-      <div {...{ [ATRIBUTO_GAVETA]: '' }} tabIndex={-1} className="flex flex-col outline-none">
-        {corpo}
-        <div className="border-t bg-muted/20 px-4 py-3">{rodape}</div>
-      </div>
-    )
-  }
 
   return (
     <GavetaLateral rotulo={meta.label} rotuloTom={meta.tone} rotuloIcone={<meta.Icon className="h-3 w-3" />} rotuloFechar="Fechar sem aplicar"
