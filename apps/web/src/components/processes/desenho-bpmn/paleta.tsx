@@ -172,7 +172,8 @@ const BOTAO = `grid h-10 w-10 shrink-0 place-items-center rounded-[7px] border b
 const SETA = `h-6 w-3 shrink-0 rounded-[3px] border-0 bg-transparent p-0 text-[9px] leading-none text-[var(--e-5B6B63)] hover:bg-[rgba(17,128,79,0.08)] hover:text-[var(--e-142420)]
   dark:text-[var(--e-9DB0A5)] dark:hover:bg-[rgba(198,242,78,0.12)] dark:hover:text-white disabled:cursor-not-allowed disabled:opacity-40 ${FOCO}`
 const GRADE_CLS = 'grid grid-cols-2 gap-0.5 border-b border-b-[var(--e-DCE4DE)] px-1.5 py-2 dark:border-b-[var(--e-22332A)]'
-const CHIP: Record<ItemCatalogo['etiqueta'], string> = {
+/** Cores da etiqueta (também no cabeçalho das gavetas). */
+export const CHIP: Record<ItemCatalogo['etiqueta'], string> = {
   hoje: 'bg-[#E3F3EA] text-[var(--e-11804F)] dark:bg-[rgba(198,242,78,0.12)] dark:text-spark',
   proxima: 'bg-[#EEF0EE] text-[var(--e-5B6B63)] dark:bg-white/[0.06] dark:text-[var(--e-9DB0A5)]',
 }

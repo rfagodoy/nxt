@@ -29,8 +29,10 @@ export function ehEscDaGaveta(e: KeyboardEvent): boolean {
   return !document.querySelector('[role="dialog"][data-state="open"], [data-radix-popper-content-wrapper], [data-floating-menu]')
 }
 
-export function GavetaLateral({ titulo, rotulo, onFechar, rodape, children, rotuloTom, rotuloIcone, rotuloFechar = 'Fechar', focarAoAbrir = true }: {
+export function GavetaLateral({ titulo, rotulo, onFechar, rodape, children, rotuloTom, rotuloIcone, rotuloFechar = 'Fechar', focarAoAbrir = true, selo }: {
   titulo: string; rotulo: string; onFechar: () => void; rodape?: ReactNode; children: ReactNode
+  /** ao lado do rótulo (a etiqueta "Executa hoje" / "Próxima rodada" das gavetas novas) */
+  selo?: ReactNode
   /** classes de cor do chip do rótulo (ex.: 'bg-sky-500/10 text-sky-600'); sem elas, rótulo simples */
   rotuloTom?: string
   rotuloIcone?: ReactNode
@@ -58,9 +60,12 @@ export function GavetaLateral({ titulo, rotulo, onFechar, rodape, children, rotu
       className="absolute inset-y-0 right-0 z-30 flex outline-none w-[440px] max-w-full flex-col border-l border-border bg-card text-card-foreground shadow-[-12px_0_32px_-18px_rgba(12,20,16,0.45)] dark:shadow-[-12px_0_32px_-18px_rgba(0,0,0,0.8)]">
       <header className="flex shrink-0 items-start gap-3 border-b bg-muted/20 px-4 py-3">
         <div className="min-w-0 flex-1">
-          {rotuloTom
-            ? <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold', rotuloTom)}>{rotuloIcone}{rotulo}</span>
-            : <p className="flex items-center gap-1 text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">{rotuloIcone}{rotulo}</p>}
+          <div className="flex flex-wrap items-center gap-2">
+            {rotuloTom
+              ? <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold', rotuloTom)}>{rotuloIcone}{rotulo}</span>
+              : <p className="flex items-center gap-1 text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">{rotuloIcone}{rotulo}</p>}
+            {selo}
+          </div>
           <h2 id={idTitulo} ref={tituloRef} tabIndex={-1} title={titulo}
             className="mt-1 truncate text-[15px] font-bold leading-snug outline-none focus-visible:underline focus-visible:decoration-dotted">{titulo}</h2>
         </div>

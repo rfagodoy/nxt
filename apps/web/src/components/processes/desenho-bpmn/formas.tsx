@@ -17,6 +17,7 @@ import type { VarianteForma } from '@nxt/types'
 import { GRADE, RAIA_ALTURA_MAXIMA, RAIA_ALTURA_MINIMA, RAIA_ROTULO_W, pontoDoRotuloNaPolilinha } from '@/lib/desenho-bpmn'
 import { FASE_LARGURA_MINIMA, FORMA_MINIMA, PISCINA_LARGURA_MINIMA } from '@/lib/editor-bizagi/layout'
 import { FASE_ALTURA, FAIXA_DO_NOME } from '@/lib/editor-bizagi/faixas'
+import { PISCINA_DO_PROCESSO, type AlvoDeGaveta } from '@/lib/editor-bizagi/gavetas'
 import { iconeDaTarefa, iconeDoEvento, nomeDoEvento, tipoDaTarefa, type IconeDoEvento, type TipoDoEvento } from '@/lib/editor-bizagi/formas-do-canvas'
 
 /* ─── Medidas ─────────────────────────────────────────────────────────────── */
@@ -328,9 +329,9 @@ export function FormaEvento({ data, selected, isConnectable }: NodeProps<NoEvent
 
 /* ─── Edição das raias ────────────────────────────────────────────────────── */
 /** O que o duplo clique (ou Enter) abre na gaveta de parametrização. */
-export type AlvoDaGaveta = { k: 'forma' | 'seta' | 'raia' | 'fase' | 'piscina' | 'mensagem'; id: string }
+export type AlvoDaGaveta = AlvoDeGaveta
 /** Id da piscina principal (a do processo) no alvo da gaveta. */
-export const PISCINA_PRINCIPAL = 'principal'
+export const PISCINA_PRINCIPAL = PISCINA_DO_PROCESSO
 
 /** O que o canvas oferece às raias. Fica num contexto (e não nos dados do nó) para a
  *  projeção não refazer a cada render só porque uma função trocou de identidade. */

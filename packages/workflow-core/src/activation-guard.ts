@@ -19,6 +19,8 @@ export interface ProblemaAtivacao {
     | 'executor-sem-stakeholder' | 'executor-incompativel' | 'executor-sem-contrato'
     | 'executor-sem-entidade' | 'executor-vago'
     | 'quem-inicia-vazio' | 'quem-inicia-invalido' | 'iniciador-sem-regra'
+    /** forma que o motor ainda não executa (desenho livre: só rascunho) */
+    | 'ainda-nao-executa'
     | ProblemaBloco['tipo']
   /** `erro` impede a ativação; `aviso` é informação — o desenho é legítimo, mas o
    *  desenhista precisa saber o que ele significa em execução. Ausente = erro
@@ -522,6 +524,8 @@ const AGREGADO: Record<ProblemaAtivacao['tipo'], { plural: string; instrucao: st
   // aviso: nunca entra na mensagem de recusa
   'registro-sem-origem': null,
   'iniciador-sem-regra': null,
+  // cada frase nomeia a forma e o que ela é
+  'ainda-nao-executa': null,
 }
 
 /** `"A", "B" (3) e "C"` — repetições ganham contagem em vez de repetir a linha. */

@@ -784,7 +784,7 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
 /* ─── Peças das perguntas da etapa ────────────────────────────────────────── */
 
 /** Altura e letra dos campos seguem a DENSIDADE escolhida pelo usuário (lib/densidade). */
-const CAMPO = 'h-[var(--campo-altura)] text-[length:var(--campo-fonte)]'
+export const CAMPO = 'h-[var(--campo-altura)] text-[length:var(--campo-fonte)]'
 
 const VERBO_DO_MODO: Record<string, string> = { CREATE: 'cadastra', EDIT: 'altera', VIEW: 'consulta' }
 const ENTITY_MODE_CURTO: Record<string, string> = {
@@ -825,7 +825,7 @@ function NumeroPergunta({ n, ok, pequeno }: { n: number; ok: boolean; pequeno?: 
 }
 
 /** Uma pergunta do modal: número (vira ✓ quando respondida), a pergunta, uma linha de ajuda. */
-function Pergunta({ id, n, titulo, ajuda, ok, children }: {
+export function Pergunta({ id, n, titulo, ajuda, ok, children }: {
   id: string; n: number; titulo: string; ajuda?: string; ok: boolean; children: React.ReactNode
 }) {
   return (
@@ -843,7 +843,7 @@ function Pergunta({ id, n, titulo, ajuda, ok, children }: {
 }
 
 /** Resposta em CARTÃO (rádio): título + uma linha que explica a consequência. */
-function Opcao({ ativo, onClick, titulo, descricao, icone, disabled }: {
+export function Opcao({ ativo, onClick, titulo, descricao, icone, disabled }: {
   ativo: boolean; onClick: () => void; titulo: string; descricao?: string; icone?: React.ReactNode; disabled?: boolean
 }) {
   return (
