@@ -135,3 +135,19 @@ describe('desenhoParaBlocos: o que ainda não executa', () => {
     expect(a.ok && b.ok && b.fluxo).toEqual(a.ok && a.fluxo)
   })
 })
+
+describe('rótulo em seta de sequência (fora de Escolha)', () => {
+  const comRotulo = (): DesenhoV2 => {
+    const d = base()
+    d.setas = d.setas.map((s) => (s.id === 's2' ? { ...s, rotulo: 'Concluído' } : s))
+    return d
+  }
+  it('a leitura guarda o rótulo', () => {
+    expect(lerDesenhoV2(comRotulo())?.setas.find((s) => s.id === 's2')?.rotulo).toBe('Concluído')
+  })
+  it('a conversão em blocos é a mesma com ou sem o rótulo', () => {
+    const a = desenhoParaBlocos(base()), b = desenhoParaBlocos(comRotulo())
+    expect(b.ok).toBe(true)
+    expect(b).toEqual(a)
+  })
+})

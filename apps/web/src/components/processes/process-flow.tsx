@@ -47,9 +47,9 @@ import { alturaPeloDesenho, caixaDaForma } from '@/lib/editor-bizagi/formas-do-c
 import { adicionarFase, adicionarPiscinaExterna, atualizarPiscinaExterna, layoutDe, mudarOrientacao, prazoDaFase, redimensionarForma, renomearFase, rotularMensagem } from '@/lib/editor-bizagi/layout'
 import {
   PISCINA_DO_PROCESSO, comConfig, executorDaRaia, formasNaFase, gavetaDaForma, gavetaDoAlvo, nomeDaRaia, nomeDoElemento, restaurarAlvo,
-  tarefasNaRaia, workflowsAtivos, type WorkflowDaLista,
+  restaurarPasso, rotuloDaSeta, setasParaGravar, tarefasNaRaia, workflowsAtivos, type WorkflowDaLista,
 } from '@/lib/editor-bizagi/gavetas'
-import { GavetaFase, GavetaFormaNova, GavetaMensagem, GavetaPiscinaExterna, GavetaPiscinaPrincipal, GavetaRaia, type PatchDaForma } from './desenho-bpmn/gavetas'
+import { GavetaFase, GavetaFormaNova, GavetaMensagem, GavetaPiscinaExterna, GavetaPiscinaPrincipal, GavetaRaia, GavetaSeta, type PatchDaForma } from './desenho-bpmn/gavetas'
 import { alinharNaTela, conteudoDasFormas, faixasDoDesenho } from '@/lib/editor-bizagi/faixas'
 import type { ModoAlinhar, Orientacao } from '@/lib/editor-bizagi/geometria'
 import { lugarDoProximo } from '@/lib/editor-bizagi/proximo'
@@ -936,9 +936,10 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
      (a gaveta que estava aberta aplica, como num clique noutra forma). */
   const aoAbrir = useCallback((alvo: AlvoDaGaveta) => {
     if (alvo.k === 'forma') { setFocarGaveta(false); abrir(alvo.id); setSetaAberta(null) }
-    else if (alvo.k === 'seta') { selecionar(null); setSetaAberta(alvo.id) }
+    // a seta que sai de uma Escolha abre a condição (a de hoje); as outras, o rótulo
+    else if (alvo.k === 'seta' && formaDoDoc(doc.setas.find((x) => x.id === alvo.id)?.de ?? '')?.tipo === 'exclusiveGateway') { selecionar(null); setSetaAberta(alvo.id) }
     else { setFocarGaveta(false); selecionar(null); setSetaAberta(null); setAlvoNovo(alvo) }
-  }, [abrir, selecionar])
+  }, [abrir, selecionar, formaDoDoc, doc.setas])
 
   /* Clique (ou teclado) na paleta: a forma entra logo DEPOIS da selecionada — no meio da seta
      que sai dela, se for uma só — ou, sem seleção, antes do Fim. */
@@ -1027,16 +1028,23 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   /* ─── Gavetas novas (raia, fase, piscinas, mensagem, formas novas) ────────────
      Retrato da ABERTURA para o Cancelar, tirado na primeira renderização com a gaveta aberta
      (como o da etapa). Cancelar devolve só o que a gaveta edita (`restaurarAlvo`). */
-  const retratoDaGaveta = useRef<{ chave: string; doc: DesenhoV2; steps: Record<string, StepFormSchema>; name: string; description: string; quemInicia?: QuemInicia } | null>(null)
+  /* `passo`: a etapa da forma (pelo id da RAIZ, onde `patchStep` grava), ou ausente se ainda
+     não existia — digitar o nome a cria, e o Cancelar a tira. */
+  const retratoDaGaveta = useRef<{
+    chave: string; doc: DesenhoV2; passo?: { id: string; step: StepFormSchema | undefined }
+    name: string; description: string; quemInicia?: QuemInicia
+  } | null>(null)
   const chaveDaGaveta = alvoNovo ? `${alvoNovo.k}:${alvoNovo.id}` : null
   if (!chaveDaGaveta) retratoDaGaveta.current = null
-  else if (retratoDaGaveta.current?.chave !== chaveDaGaveta) retratoDaGaveta.current = { chave: chaveDaGaveta, doc, steps, name, description, quemInicia }
+  else if (retratoDaGaveta.current?.chave !== chaveDaGaveta) {
+    const raiz = alvoNovo?.k === 'forma' ? raizRef.current.get(alvoNovo.id) ?? alvoNovo.id : undefined
+    retratoDaGaveta.current = { chave: chaveDaGaveta, doc, passo: raiz ? { id: raiz, step: steps[raiz] } : undefined, name, description, quemInicia }
+  }
   const cancelarGavetaNova = useCallback(() => {
     const r = retratoDaGaveta.current
     if (r && alvoNovo) {
       setDoc((d) => restaurarAlvo(d, r.doc, alvoNovo))
-      const passo = alvoNovo.k === 'forma' ? r.steps[alvoNovo.id] : undefined
-      if (passo) setSteps((s) => (s[alvoNovo.id] === passo ? s : { ...s, [alvoNovo.id]: passo }))
+      if (r.passo) setSteps((s) => restaurarPasso(s, r.passo!.id, r.passo!.step))
       if (alvoNovo.k === 'piscina' && alvoNovo.id === PISCINA_DO_PROCESSO) { setName(r.name); setDescription(r.description); setQuemInicia(r.quemInicia) }
     }
     setAlvoNovo(null); setGavetaDe(null)
@@ -1204,12 +1212,11 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     /* o desenho que vai ser gravado — também decide em que raia cada tarefa está */
     const desenhoFinal = ((): DesenhoV2 => {
       const visto = desenhoVisto ? podarDesenho(desenhoVisto, nodes.map((n) => n.id)) : null
-      const deEscolha = new Set(doc.formas.filter((f) => f.tipo === 'exclusiveGateway').map((f) => f.id))
       return {
         ...doc,
         posicoes: visto?.posicoes ?? doc.posicoes, raias: visto?.raias ?? doc.raias,
-        // condição só vale em seta que sai de uma Escolha (a de uma seta religada some)
-        setas: doc.setas.map((x) => (deEscolha.has(x.de) ? x : { id: x.id, de: x.de, para: x.para })),
+        // condição só vale em seta que sai de uma Escolha; o rótulo, em qualquer uma
+        setas: setasParaGravar(doc),
       }
     })()
     // a tarefa que herda da raia leva o executor da raia onde está desenhada
@@ -1517,6 +1524,11 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         const fluxoMsg = l.fluxosMensagem.find((m) => m.id === id)!
         return <GavetaMensagem key={chave} {...moldura} fluxo={fluxoMsg} de={nomeDoPonto(fluxoMsg.de)} para={nomeDoPonto(fluxoMsg.para)}
           onPatch={(p) => setDoc((d) => rotularMensagem(d, id, p.rotulo))} />
+      }
+      case 'seta': {
+        const seta = doc.setas.find((x) => x.id === id)!
+        return <GavetaSeta key={chave} {...moldura} seta={seta} de={nomeDoPonto(seta.de)} para={nomeDoPonto(seta.para)}
+          onPatch={(p) => setDoc((d) => rotuloDaSeta(d, id, p.rotulo))} />
       }
       case 'forma': {
         const forma = formaDoDoc(id)!

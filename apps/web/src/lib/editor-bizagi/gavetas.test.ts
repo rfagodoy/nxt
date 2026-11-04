@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { DesenhoV2, FormaDesenho, StepFormSchema } from '@nxt/types'
 import { LAYOUT_PADRAO } from '@nxt/workflow-core'
+import { mudarOrientacao } from './layout'
 import {
   camposDoTexto, comConfig, configFim, configLivre, configSubprocesso, configTemporizador, ENVIO_PADRAO, executorDaRaia,
-  formasNaFase, gavetaDaForma, gavetaDoAlvo, nomeDaRaia, nomeDoElemento, restaurarAlvo, tarefasNaRaia, workflowsAtivos,
+  formasNaFase, gavetaDaForma, gavetaDoAlvo, nomeDaRaia, nomeDoElemento, restaurarAlvo, restaurarPasso, rotuloDaSeta, setasParaGravar,
+  tarefasNaRaia, workflowsAtivos,
 } from './gavetas'
 
 const EXEC = { papelId: 'p1', entityType: 'ORG', mode: 'FIXA' } as const
@@ -213,5 +215,71 @@ describe('restaurarAlvo (Cancelar)', () => {
   it('o que sumiu desde a abertura não volta', () => {
     const atual = { ...antes, formas: antes.formas.filter((f) => f.id !== 'tm') }
     expect(restaurarAlvo(atual, antes, { k: 'forma', id: 'tm' })).toBe(atual)
+  })
+})
+
+describe('seta de sequência: rótulo', () => {
+  it('rotuloDaSeta grava aparado e tira em branco', () => {
+    const d = base()
+    const com = rotuloDaSeta(d, 's1', ' Pronto ')
+    expect(com.setas[0].rotulo).toBe('Pronto')
+    expect(rotuloDaSeta(com, 's1', 'Pronto')).toBe(com)
+    expect(rotuloDaSeta(com, 's1', '  ').setas[0]).toEqual({ id: 's1', de: 'i', para: 't1' })
+    expect(rotuloDaSeta(d, 'x', 'a')).toBe(d)
+  })
+  it('Cancelar volta o rótulo da abertura (e tira a chave se não havia)', () => {
+    const antes = base()
+    const atual = rotuloDaSeta(antes, 's1', 'Novo')
+    expect(restaurarAlvo(atual, antes, { k: 'seta', id: 's1' }).setas[0]).toEqual({ id: 's1', de: 'i', para: 't1' })
+    const comAntes = rotuloDaSeta(antes, 's1', 'Velho')
+    expect(restaurarAlvo(atual, comAntes, { k: 'seta', id: 's1' }).setas[0].rotulo).toBe('Velho')
+    expect(restaurarAlvo(antes, antes, { k: 'seta', id: 's1' })).toBe(antes)
+  })
+  it('setasParaGravar: rótulo fica em qualquer seta; condição só na que sai de Escolha', () => {
+    const d: DesenhoV2 = {
+      ...base(),
+      formas: [{ id: 'e', tipo: 'exclusiveGateway' }, { id: 'a', tipo: 'userTask' }, { id: 'b', tipo: 'userTask' }],
+      setas: [
+        { id: 'x1', de: 'e', para: 'a', condition: 'c', rotulo: 'Sim' },
+        { id: 'x2', de: 'a', para: 'b', condition: 'velha', rotulo: 'Feito', padrao: true },
+        { id: 'x3', de: 'b', para: 'a', rotulo: '  ' },
+      ],
+    }
+    expect(setasParaGravar(d)).toEqual([
+      { id: 'x1', de: 'e', para: 'a', condition: 'c', rotulo: 'Sim' },
+      { id: 'x2', de: 'a', para: 'b', rotulo: 'Feito' },
+      { id: 'x3', de: 'b', para: 'a' },
+    ])
+  })
+})
+
+describe('piscina principal sem layout gravado', () => {
+  it('mudar a orientação e cancelar devolve o desenho sem layout', () => {
+    const antes = base({ layout: undefined })
+    const atual = mudarOrientacao(antes, 'vertical')
+    expect(atual.layout).toBeDefined()
+    expect(restaurarAlvo(atual, antes, { k: 'piscina', id: 'principal' })).not.toHaveProperty('layout')
+  })
+  it('se o layout ganhou outra coisa, ele fica (só a orientação volta)', () => {
+    const antes = base({ layout: undefined })
+    const atual = mudarOrientacao({ ...antes, layout: { ...LAYOUT_PADRAO, fases: [{ id: 'f', nome: 'F', largura: 320 }] } }, 'vertical')
+    const r = restaurarAlvo(atual, antes, { k: 'piscina', id: 'principal' })
+    expect(r.layout?.orientacao).toBe('horizontal')
+    expect(r.layout?.fases).toHaveLength(1)
+  })
+})
+
+describe('restaurarPasso', () => {
+  const passo: StepFormSchema = { stepId: 'r', stepName: 'Antes', fields: [] }
+  it('volta o passo da abertura', () => {
+    const s = { r: { ...passo, stepName: 'Depois' } }
+    expect(restaurarPasso(s, 'r', passo).r).toBe(passo)
+    const igual = { r: passo }
+    expect(restaurarPasso(igual, 'r', passo)).toBe(igual)
+  })
+  it('tira o passo criado durante a gaveta', () => {
+    const s = { r: passo, outro: passo }
+    expect(restaurarPasso(s, 'r', undefined)).toEqual({ outro: passo })
+    expect(restaurarPasso({ outro: passo }, 'r', undefined)).toEqual({ outro: passo })
   })
 })

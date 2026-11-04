@@ -4,7 +4,7 @@
    `restaurarAlvo` é o Cancelar das gavetas novas: devolve SÓ o que a gaveta edita ao estado da
    abertura (o resto do desenho — uma forma movida ao lado — fica como está). */
 import type {
-  ConfigFim, ConfigForma, ConfigSubprocesso, ConfigTemporizador, DesenhoV2, FaseDesenho, FormaDesenho, StepFormSchema,
+  ConfigFim, ConfigForma, ConfigSubprocesso, ConfigTemporizador, DesenhoV2, FaseDesenho, FormaDesenho, LayoutDesenho, SetaDesenho, StepFormSchema,
 } from '@nxt/types'
 import { varianteDe } from '@nxt/workflow-core'
 import { herdaDaRaia, raiaDaForma } from './raias'
@@ -215,7 +215,12 @@ export function restaurarAlvo(atual: DesenhoV2, antes: DesenhoV2, alvo: AlvoDeGa
       return { ...atual, layout: { ...l, fases: l.fases.map((x, j) => (j === i ? nova : x)) } }
     }
     case 'piscina': {
-      if (alvo.id === PISCINA_DO_PROCESSO) return mudarOrientacao(atual, layoutDe(antes).orientacao)
+      if (alvo.id === PISCINA_DO_PROCESSO) {
+        const r = mudarOrientacao(atual, layoutDe(antes).orientacao)
+        // workflow sem `layout` que só mudou a orientação e voltou: some o layout (senão "Não salvo" fica)
+        if (!antes.layout && r.layout && layoutPadrao(r.layout)) { const { layout: _, ...sem } = r; return sem }
+        return r
+      }
       const l = layoutDe(atual)
       const velha = layoutDe(antes).piscinasExternas.find((p) => p.id === alvo.id)
       const i = l.piscinasExternas.findIndex((p) => p.id === alvo.id)
@@ -234,7 +239,14 @@ export function restaurarAlvo(atual: DesenhoV2, antes: DesenhoV2, alvo: AlvoDeGa
       const nova = velha.rotulo === undefined ? sem : { ...sem, rotulo: velha.rotulo }
       return { ...atual, layout: { ...l, fluxosMensagem: l.fluxosMensagem.map((x, j) => (j === i ? nova : x)) } }
     }
-    case 'seta': return atual
+    case 'seta': {
+      const velha = antes.setas.find((x) => x.id === alvo.id)
+      const i = atual.setas.findIndex((x) => x.id === alvo.id)
+      if (!velha || i === -1 || atual.setas[i].rotulo === velha.rotulo) return atual
+      const { rotulo: _, ...sem } = atual.setas[i]
+      const nova = velha.rotulo === undefined ? sem : { ...sem, rotulo: velha.rotulo }
+      return { ...atual, setas: atual.setas.map((x, j) => (j === i ? nova : x)) }
+    }
   }
 }
 
@@ -253,4 +265,44 @@ export function nomeDaRaia(d: DesenhoV2, id: string, nome: string): DesenhoV2 {
   const i = d.raias.findIndex((r) => r.id === id)
   if (!limpo || i === -1 || d.raias[i].nome === limpo) return d
   return { ...d, raias: d.raias.map((r, j) => (j === i ? { ...r, nome: limpo } : r)) }
+}
+
+/** O layout é o padrão (nada além do que um desenho sem `layout` já mostra)? */
+function layoutPadrao(l: LayoutDesenho): boolean {
+  return l.orientacao === 'horizontal' && l.larguraPiscina === undefined && !l.fases.length && !l.piscinasExternas.length
+    && !l.fluxosMensagem.length && !Object.keys(l.tamanhos).length
+}
+
+/** Rótulo de uma seta de sequência (fora de Escolha): em branco tira a chave. */
+export function rotuloDaSeta(d: DesenhoV2, id: string, rotulo: string): DesenhoV2 {
+  const i = d.setas.findIndex((x) => x.id === id)
+  if (i === -1) return d
+  const limpo = rotulo.trim()
+  if ((d.setas[i].rotulo ?? '') === limpo) return d
+  const { rotulo: _, ...sem } = d.setas[i]
+  const nova: SetaDesenho = limpo ? { ...sem, rotulo: limpo } : sem
+  return { ...d, setas: d.setas.map((x, j) => (j === i ? nova : x)) }
+}
+
+/** As setas como vão ser gravadas: condição e "senão" só valem na seta que sai de uma Escolha
+ *  (a de uma seta religada some); o rótulo vale em qualquer seta. */
+export function setasParaGravar(d: Pick<DesenhoV2, 'formas' | 'setas'>): SetaDesenho[] {
+  const deEscolha = new Set(d.formas.filter((f) => f.tipo === 'exclusiveGateway').map((f) => f.id))
+  return d.setas.map((x) => {
+    if (deEscolha.has(x.de)) return x
+    const s: SetaDesenho = { id: x.id, de: x.de, para: x.para }
+    if (x.rotulo?.trim()) s.rotulo = x.rotulo
+    return s
+  })
+}
+
+/** Cancelar na etapa de uma forma: volta o passo da abertura, ou o tira se ele não existia
+ *  (digitar o nome o criou). O mesmo mapa quando nada muda. */
+export function restaurarPasso(
+  steps: Record<string, StepFormSchema>, id: string, antes: StepFormSchema | undefined,
+): Record<string, StepFormSchema> {
+  if (antes) return steps[id] === antes ? steps : { ...steps, [id]: antes }
+  if (!(id in steps)) return steps
+  const { [id]: _, ...resto } = steps
+  return resto
 }

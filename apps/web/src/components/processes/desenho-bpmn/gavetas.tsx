@@ -10,7 +10,7 @@
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { AlertTriangle, ArrowRightLeft, Info } from 'lucide-react'
-import type { FaseDesenho, FluxoMensagem, FormaDesenho, PiscinaExterna, QuemInicia, StepFormSchema } from '@nxt/types'
+import type { FaseDesenho, FluxoMensagem, FormaDesenho, PiscinaExterna, QuemInicia, SetaDesenho, StepFormSchema } from '@nxt/types'
 import { executaHoje, varianteDe } from '@nxt/workflow-core'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -330,6 +330,24 @@ export function GavetaMensagem({ fluxo, de, para, onPatch, ...moldura }: Moldura
         <ArrowRightLeft className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <span>De <b className="font-semibold text-foreground">{de}</b> para <b className="font-semibold text-foreground">{para}</b>. O canal e os anexos ficam na forma que envia ou recebe.</span>
       </p>
+    </MolduraDaGaveta>
+  )
+}
+
+/* ─── Seta de sequência (fora de Escolha) ───────────────────────────────────── */
+
+export function GavetaSeta({ seta, de, para, onPatch, ...moldura }: Moldura & {
+  seta: SetaDesenho
+  /** nomes das formas nas pontas */
+  de: string; para: string
+  onPatch: (p: { rotulo: string }) => void
+}): JSX.Element {
+  return (
+    <MolduraDaGaveta rotulo="Seta de sequência" titulo={seta.rotulo || `${de} → ${para}`} etiqueta="hoje" {...moldura}>
+      <Pergunta id="seta-rotulo" n={1} titulo="Rótulo na seta (opcional)" ok>
+        <CampoTexto rotulo="Rótulo na seta" valor={seta.rotulo ?? ''} onMudar={(v) => onPatch({ rotulo: v })} />
+      </Pergunta>
+      <Nota>Seta de sequência: leva de <b className="font-semibold text-foreground">{de}</b> para <b className="font-semibold text-foreground">{para}</b>. Não tem mais nada para configurar.</Nota>
     </MolduraDaGaveta>
   )
 }
