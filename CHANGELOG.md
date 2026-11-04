@@ -4,6 +4,15 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ## [Não lançado]
 
+### Alterado
+
+- **Menu do usuário** reorganizado em seções:
+  - a conta fica no topo;
+  - em "Suas preferências", o tema vira uma linha com a cor e o nome atuais;
+  - a lista completa de temas abre ao lado, separada em Claros e Escuros e com os nomes inteiros;
+  - a densidade mostra o espaçamento de cada opção;
+  - Sair e a versão dividem o rodapé.
+
 ## [1.1.1] — Ada — 2026-10-31
 
 ### Corrigido
