@@ -49,7 +49,7 @@ import {
 } from './formas'
 import { TIPO_ARRASTO_FORMA } from './paleta'
 import { ALTURA_DA_COLUNA, ProximoItem } from './proximo-item'
-import { CATALOGO, itemDoArrasto, type ItemCatalogo } from '@/lib/editor-bizagi/catalogo'
+import { indiceNaPaleta, itemDoArrasto, type ItemCatalogo } from '@/lib/editor-bizagi/catalogo'
 import { daTela, encaixarComGuias, paraTela, type Caixa as CaixaLogica, type Orientacao } from '@/lib/editor-bizagi/geometria'
 import {
   FORMA_MINIMA, apagarMensagem, larguraDaPiscina, layoutDe, ligarMensagem, podeLigarMensagem, redimensionarFase,
@@ -973,7 +973,7 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   const ladoDoProximo = orientacao === 'vertical' ? Position.Bottom : Position.Right
   const arrastarProximo = (item: ItemCatalogo, e: DragEvent) => {
     if (!proximoDe) return
-    e.dataTransfer.setData(TIPO_ARRASTO_FORMA, JSON.stringify({ grupo: item.grupo, indice: CATALOGO[item.grupo].indexOf(item) }))
+    e.dataTransfer.setData(TIPO_ARRASTO_FORMA, JSON.stringify({ grupo: item.grupo, indice: indiceNaPaleta(item) }))
     e.dataTransfer.setData(TIPO_ARRASTO_PROXIMO, proximoDe.id)
     e.dataTransfer.effectAllowed = 'copy'
   }

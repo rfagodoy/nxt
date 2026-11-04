@@ -17,7 +17,7 @@ const doCatalogo = (grupo: GrupoPaleta, tipo: TipoForma, variante?: VarianteForm
 /** Os grupos da coluna (um separador entre eles): Tarefa de usuário, Escolha, Ao mesmo
  *  tempo │ Fim. */
 export const PROXIMOS: ReadonlyArray<ReadonlyArray<ItemCatalogo>> = [
-  [doCatalogo('tarefa', 'userTask', 'usuario'), doCatalogo('losango', 'exclusiveGateway'), doCatalogo('losango', 'parallelGateway')],
+  [doCatalogo('tarefa', 'userTask', 'usuario'), doCatalogo('escolha', 'exclusiveGateway'), doCatalogo('paralelo', 'parallelGateway')],
   [doCatalogo('fim', 'end', 'simples')],
 ]
 

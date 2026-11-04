@@ -42,7 +42,7 @@ import { cn } from '@/lib/utils'
 import { dueText, entityKindLabel, type EEdge, type ENode } from './editor-comum'
 import { PerguntasDaEtapa } from './perguntas-da-etapa'
 import { aplicarExecutorDasRaias, raiaDaForma } from '@/lib/editor-bizagi/raias'
-import { formaNova, type GrupoPaleta, type ItemCatalogo } from '@/lib/editor-bizagi/catalogo'
+import { formaNova, type GrupoItem, type GrupoPaleta, type ItemCatalogo } from '@/lib/editor-bizagi/catalogo'
 import { alturaPeloDesenho, caixaDaForma } from '@/lib/editor-bizagi/formas-do-canvas'
 import { adicionarFase, adicionarPiscinaExterna, atualizarPiscinaExterna, layoutDe, mudarOrientacao, prazoDaFase, redimensionarForma, removerFase, removerPiscinaExterna, renomearFase, rotularMensagem, apagarMensagem } from '@/lib/editor-bizagi/layout'
 import {
@@ -175,8 +175,8 @@ function novoItemDaPaleta(item: ItemCatalogo): NovoItem | null {
   if (item.tipo === 'parallelGateway') return 'paralelo'
   return null
 }
-const PREFIXO_DO_GRUPO: Record<GrupoPaleta, string> = {
-  inicio: 'Inicio', tarefa: 'Node', subprocesso: 'Subprocesso', losango: 'Losango', intermediario: 'Evento', fim: 'Fim',
+const PREFIXO_DO_GRUPO: Record<GrupoItem, string> = {
+  inicio: 'Inicio', tarefa: 'Node', subprocesso: 'Subprocesso', escolha: 'Losango', paralelo: 'Losango', losango: 'Losango', intermediario: 'Evento', fim: 'Fim',
 }
 const idDaFormaNova = (item: ItemCatalogo) => `${PREFIXO_DO_GRUPO[item.grupo]}_${Math.random().toString(36).slice(2, 9)}`
 /** A forma que o item da paleta (ou do próximo item) cria: os de sempre nascem por `novoItem`
@@ -189,7 +189,7 @@ function formaDaPaleta(item: ItemCatalogo): FormaDesenho {
     ? { id: novo.id, tipo: novo.tipo }
     : novo.kind === 'escolha' ? { id: novo.id, tipo: 'exclusiveGateway', modo: item.modo ?? novo.modo } : { id: novo.id, tipo: 'parallelGateway' }
 }
-const ESCOLHIDAS_INICIAIS: Record<GrupoPaleta, number> = { inicio: 0, tarefa: 0, subprocesso: 0, losango: 0, intermediario: 0, fim: 0 }
+const ESCOLHIDAS_INICIAIS: Record<GrupoPaleta, number> = { inicio: 0, tarefa: 0, escolha: 0, paralelo: 0, fim: 0 }
 
 /** Grafo gravado de um workflow ANTERIOR aos blocos. Prefere `formSchema.graph` (preserva
  *  rótulos e aceita rascunho incompleto); cai no compileBpmn só para os mais antigos. */

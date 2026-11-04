@@ -2,9 +2,9 @@
 
 /* ─── Paleta de formas do desenho BPMN (estilo Bizagi) ─────────────────────────
    Coluna à esquerda do canvas, recolhível (112 px ↔ 30 px; a preferência fica no
-   navegador). Em cima, a grade de 2 colunas com os seis grupos do catálogo (Início, Tarefa,
-   Subprocesso, Losango, Intermediário, Fim): cada botão mostra só o desenho da variação
-   escolhida, e o ▾ ao lado abre a lista de variações com a etiqueta de cada uma ("Executa
+   navegador). Em cima, a grade de 2 colunas com os grupos do catálogo (Início, Tarefa, Escolha,
+   Ao mesmo tempo, Fim): cada botão mostra só o desenho da variação
+   escolhida, e o ▾ ao lado (só nos grupos com variações) abre a lista de variações com a etiqueta de cada uma ("Executa
    hoje" / "Próxima rodada"). O botão é arrastado para o desenho (`{ grupo, indice }` no
    `dataTransfer`, em `TIPO_ARRASTO_FORMA`) ou escolhido por clique/Enter (`onEscolher`;
    a página põe a forma depois da selecionada). Embaixo, os conectores (Sequência / Fluxo
@@ -18,10 +18,10 @@ export const TIPO_ARRASTO_FORMA = 'application/nxt-forma'
 
 export type Conector = 'sequencia' | 'mensagem'
 
-const GRUPOS: GrupoPaleta[] = ['inicio', 'tarefa', 'subprocesso', 'losango', 'intermediario', 'fim']
+const GRUPOS: GrupoPaleta[] = ['inicio', 'tarefa', 'escolha', 'paralelo', 'fim']
 const CHAVE_PREFERENCIA = 'nxt:desenho-bpmn:paleta'
 const NOME_DO_GRUPO: Record<GrupoPaleta, string> = {
-  inicio: 'Início', tarefa: 'Tarefa', subprocesso: 'Subprocesso', losango: 'Losango', intermediario: 'Intermediário', fim: 'Fim',
+  inicio: 'Início', tarefa: 'Tarefa', escolha: 'Escolha', paralelo: 'Ao mesmo tempo', fim: 'Fim',
 }
 
 /* ─── desenhos (viewBox 32 × 32, centrados em 16,16) ───────────────────────── */
@@ -111,7 +111,7 @@ export function IconeDoItem({ item, tamanho = 32 }: { item: ItemCatalogo; tamanh
         </>
       )
       break
-    case 'losango':
+    case 'escolha': case 'paralelo': case 'losango':
       corpo = (
         <>
           <polygon className={item.tipo === 'parallelGateway' ? ROSA : VIOLETA} points="16,2 30,16 16,30 2,16" strokeWidth={1.8} />
@@ -262,11 +262,13 @@ export function PaletaBpmn({
                     aria-label={rotulo(item)} title={`${rotulo(item)}. Arraste para o desenho ou pressione Enter.`} className={`${BOTAO} cursor-grab`}>
                     <IconeDoItem item={item} />
                   </button>
+                  {CATALOGO[g].length > 1 && (
                   <button type="button" disabled={desabilitada} aria-label={`Variações de ${item.nome}`} aria-haspopup="menu" aria-expanded={menu === g}
                     title={`Variações de ${item.nome}`} className={SETA}
                     onClick={(e) => { ancora.current = e.currentTarget; setMenu((m) => (m === g ? null : g)) }}>
                     ▾
                   </button>
+                  )}
                 </div>
               )
             })}

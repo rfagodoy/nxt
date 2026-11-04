@@ -1,14 +1,18 @@
 /* ─── Catálogo da paleta do editor (estilo Bizagi) ─────────────────────────────
-   Os seis grupos da paleta, na ordem do mockup, com as variações de cada um. Cada item diz
+   Os grupos da paleta, na ordem do mockup, com as variações de cada um. Cada item diz
    que forma cria (tipo + variante/modo) e se o motor já a executa (etiqueta "Executa hoje"
    ou "Próxima rodada"). `formaNova` monta a forma com o nome e a configuração padrão. */
 import type { ConfigSubprocesso, ConfigTemporizador, FormaDesenho, TipoForma, VarianteForma } from '@nxt/types'
 import { executaHoje } from '@nxt/workflow-core'
 
-export type GrupoPaleta = 'inicio' | 'tarefa' | 'subprocesso' | 'losango' | 'intermediario' | 'fim'
+/** Os grupos da paleta: Início, Tarefa, Escolha, Ao mesmo tempo (estes dois com um item só) e Fim. */
+export type GrupoPaleta = 'inicio' | 'tarefa' | 'escolha' | 'paralelo' | 'fim'
+/** Grupos dos itens que já não estão na paleta, mas continuam existindo nos desenhos. */
+export type GrupoForaDaPaleta = 'subprocesso' | 'losango' | 'intermediario'
+export type GrupoItem = GrupoPaleta | GrupoForaDaPaleta
 
 export type ItemCatalogo = {
-  grupo: GrupoPaleta
+  grupo: GrupoItem
   tipo: TipoForma
   variante?: VarianteForma
   modo?: 'primeiro' | 'todos'
@@ -19,7 +23,7 @@ export type ItemCatalogo = {
 export const ROTULO_ETIQUETA = { hoje: 'Executa hoje', proxima: 'Próxima rodada' } as const
 
 type Base = Omit<ItemCatalogo, 'grupo' | 'etiqueta'>
-const grupo = (g: GrupoPaleta, itens: Base[]): ItemCatalogo[] =>
+const grupo = (g: GrupoItem, itens: Base[]): ItemCatalogo[] =>
   itens.map((i) => ({ ...i, grupo: g, etiqueta: executaHoje(i) ? 'hoje' : 'proxima' }))
 
 export const CATALOGO: Record<GrupoPaleta, ItemCatalogo[]> = {
@@ -34,21 +38,8 @@ export const CATALOGO: Record<GrupoPaleta, ItemCatalogo[]> = {
     { tipo: 'userTask', variante: 'envio', nome: 'Envio de mensagem' },
     { tipo: 'userTask', variante: 'recebimento', nome: 'Recebimento de mensagem' },
   ]),
-  subprocesso: grupo('subprocesso', [
-    { tipo: 'subProcess', variante: 'chamada', nome: 'Subprocesso' },
-    { tipo: 'subProcess', variante: 'embutido', nome: 'Subprocesso embutido' },
-  ]),
-  losango: grupo('losango', [
-    { tipo: 'exclusiveGateway', modo: 'primeiro', nome: 'Escolha' },
-    { tipo: 'parallelGateway', nome: 'Ao mesmo tempo' },
-    { tipo: 'exclusiveGateway', modo: 'todos', nome: 'Inclusivo' },
-    { tipo: 'eventGateway', nome: 'Baseado em evento' },
-  ]),
-  intermediario: grupo('intermediario', [
-    { tipo: 'intermediateEvent', variante: 'temporizador', nome: 'Temporizador' },
-    { tipo: 'intermediateEvent', variante: 'recebe', nome: 'Recebe mensagem' },
-    { tipo: 'intermediateEvent', variante: 'envia', nome: 'Envia mensagem' },
-  ]),
+  escolha: grupo('escolha', [{ tipo: 'exclusiveGateway', modo: 'primeiro', nome: 'Escolha' }]),
+  paralelo: grupo('paralelo', [{ tipo: 'parallelGateway', nome: 'Ao mesmo tempo' }]),
   fim: grupo('fim', [
     { tipo: 'end', variante: 'simples', nome: 'Fim' },
     { tipo: 'end', variante: 'erro', nome: 'Fim com erro' },
@@ -57,6 +48,31 @@ export const CATALOGO: Record<GrupoPaleta, ItemCatalogo[]> = {
   ]),
 }
 
+/** Formas que já não estão na paleta, mas existem em desenhos antigos (e nas gavetas): só para
+ *  achar o nome e o ícone da forma, nunca para criar. */
+export const CATALOGO_FORA_DA_PALETA: ItemCatalogo[] = [
+  ...grupo('subprocesso', [
+    { tipo: 'subProcess', variante: 'chamada', nome: 'Subprocesso' },
+    { tipo: 'subProcess', variante: 'embutido', nome: 'Subprocesso embutido' },
+  ]),
+  ...grupo('losango', [
+    { tipo: 'exclusiveGateway', modo: 'todos', nome: 'Inclusivo' },
+    { tipo: 'eventGateway', nome: 'Baseado em evento' },
+  ]),
+  ...grupo('intermediario', [
+    { tipo: 'intermediateEvent', variante: 'temporizador', nome: 'Temporizador' },
+    { tipo: 'intermediateEvent', variante: 'recebe', nome: 'Recebe mensagem' },
+    { tipo: 'intermediateEvent', variante: 'envia', nome: 'Envia mensagem' },
+  ]),
+]
+
+/** Todo item que uma forma do desenho pode ter: o da paleta e o que saiu dela. */
+export const TODOS_OS_ITENS: ItemCatalogo[] = [...Object.values(CATALOGO).flat(), ...CATALOGO_FORA_DA_PALETA]
+
+/** Posição do item da paleta no seu grupo (o `indice` do arrasto); -1 se não for da paleta. */
+export const indiceNaPaleta = (item: ItemCatalogo): number =>
+  Object.prototype.hasOwnProperty.call(CATALOGO, item.grupo) ? CATALOGO[item.grupo as GrupoPaleta].indexOf(item) : -1
+
 const TEMPORIZADOR_PADRAO: ConfigTemporizador = { espera: 'prazo', n: 1, unidade: 'diasUteis' }
 const SUBPROCESSO_PADRAO: ConfigSubprocesso = { versao: 'ativa', levarContrato: true, campos: [], esperar: true }
 
@@ -64,7 +80,8 @@ function nomePadrao(item: ItemCatalogo): string | undefined {
   switch (item.grupo) {
     case 'tarefa': return 'Nova tarefa'
     case 'subprocesso': return 'Novo subprocesso'
-    case 'losango': return item.tipo === 'exclusiveGateway' ? 'Nova pergunta?' : undefined
+    case 'escolha': case 'losango': return item.tipo === 'exclusiveGateway' ? 'Nova pergunta?' : undefined
+    case 'paralelo': return undefined
     case 'intermediario': return item.nome
     case 'inicio': return 'Início'
     case 'fim': return 'Fim'
