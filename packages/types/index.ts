@@ -325,7 +325,15 @@ export interface SetaDesenho {
   condition?: string; conditionSpec?: EdgeConditionSpec; rotulo?: string
   /** o "Senão" antigo (caminho padrão) */
   padrao?: true
+  /** Ponta livre (só visual): onde a seta sai da forma de origem. Ausente = automática. */
+  saida?: PontaDaSeta
+  /** Ponta livre (só visual): onde a seta chega na forma de destino. Ausente = automática. */
+  entrada?: PontaDaSeta
 }
+/** Ponto do contorno de uma forma onde a seta encosta, na coordenada LÓGICA (horizontal; a
+ *  vertical transpõe na tela). `t` vai de 0 a 1 ao longo do lado, a partir do topo/esquerda.
+ *  No losango e no círculo, o ponto do lado da caixa é projetado no contorno a partir do centro. */
+export interface PontaDaSeta { lado: 'cima' | 'direita' | 'baixo' | 'esquerda'; t: number }
 export interface DesenhoV2 {
   versao: 2
   formas: FormaDesenho[]
@@ -346,7 +354,9 @@ export interface LayoutDesenho {
 export interface FaseDesenho { id: string; nome: string; largura: number; prazoDiasUteis?: number }
 export interface PiscinaExterna { id: string; nome: string; altura: number; quem: 'contratada' | 'fixo' | 'orgao'; canal: 'portal' | 'email' }
 /** `de`/`para`: id de forma ou de piscina externa */
-export interface FluxoMensagem { id: string; de: string; para: string; rotulo?: string }
+export interface FluxoMensagem { id: string; de: string; para: string; rotulo?: string
+  /** pontas livres na forma (lógicas; ausente = automática). Na piscina externa não valem. */
+  saida?: PontaDaSeta; entrada?: PontaDaSeta }
 
 export interface ProcessFormSchema {
   steps: StepFormSchema[]

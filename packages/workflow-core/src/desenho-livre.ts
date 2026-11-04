@@ -4,7 +4,7 @@
    e voltam para ele (`blocosParaDesenho`) quando uma ação sobre os blocos (excluir, mover,
    caminho da escolha, cópia vinculada) muda a estrutura. */
 
-import type { DesenhoV2, FaseDesenho, FluxoMensagem, FormaDesenho, LayoutDesenho, PiscinaExterna, RaiaDesenho, SetaDesenho, TipoForma, VarianteForma } from '@nxt/types'
+import type { DesenhoV2, FaseDesenho, FluxoMensagem, FormaDesenho, LayoutDesenho, PiscinaExterna, PontaDaSeta, RaiaDesenho, SetaDesenho, TipoForma, VarianteForma } from '@nxt/types'
 import { lerDesenho } from './desenho'
 import { executaHoje, rotuloDaVariante } from './variantes'
 import {
@@ -18,6 +18,20 @@ const VARIANTES: readonly VarianteForma[] = ['simples', 'agendado', 'evento', 'u
 const ehObjeto = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x)
 const ehTexto = (x: unknown): x is string => typeof x === 'string'
 const ehNumero = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x)
+
+const LADOS: ReadonlyArray<PontaDaSeta['lado']> = ['cima', 'direita', 'baixo', 'esquerda']
+const pontaValida = (p: unknown): p is PontaDaSeta =>
+  ehObjeto(p) && LADOS.includes(p.lado as PontaDaSeta['lado']) && ehNumero(p.t) && p.t >= 0 && p.t <= 1
+
+/** Pontas livres (só visuais): a inválida some, sem recusar o desenho. Sem nada a tirar,
+ *  devolve o mesmo objeto. */
+function comPontasValidas<T extends { saida?: unknown; entrada?: unknown }>(x: T): T {
+  const tira = (['saida', 'entrada'] as const).filter((k) => x[k] !== undefined && !pontaValida(x[k]))
+  if (!tira.length) return x
+  const out = { ...x }
+  for (const k of tira) delete out[k]
+  return out
+}
 
 /** Lê o layout (orientação, fases, piscinas externas, fluxos de mensagem). `undefined` quando a
  *  forma do objeto não confere — o desenho segue sem ele. Fluxo de mensagem cujo `de`/`para` não é
@@ -48,7 +62,7 @@ function lerLayout(bruto: unknown, ids: Set<string>): LayoutDesenho | undefined 
     orientacao: bruto.orientacao,
     fases: fases as FaseDesenho[],
     piscinasExternas: piscinasExternas as PiscinaExterna[],
-    fluxosMensagem: (fluxosMensagem as FluxoMensagem[]).filter((m) => alvos.has(m.de) && alvos.has(m.para)),
+    fluxosMensagem: (fluxosMensagem as FluxoMensagem[]).filter((m) => alvos.has(m.de) && alvos.has(m.para)).map(comPontasValidas),
     tamanhos: tamanhos as LayoutDesenho['tamanhos'],
   }
   if (bruto.larguraPiscina !== undefined) layout.larguraPiscina = bruto.larguraPiscina
@@ -76,7 +90,7 @@ export function lerDesenhoV2(bruto: unknown): DesenhoV2 | null {
   const setas: SetaDesenho[] = []
   for (const s of bruto.setas) {
     if (!obj(s) || typeof s.id !== 'string' || typeof s.de !== 'string' || typeof s.para !== 'string') return null
-    if (ids.has(s.de) && ids.has(s.para)) setas.push(s as unknown as SetaDesenho)
+    if (ids.has(s.de) && ids.has(s.para)) setas.push(comPontasValidas(s as unknown as SetaDesenho))
   }
   const desenho: DesenhoV2 = { versao: 2, formas, setas, posicoes: bruto.posicoes as DesenhoV2['posicoes'], raias: bruto.raias as DesenhoV2['raias'] }
   const layout = lerLayout(bruto.layout, ids)
@@ -188,9 +202,21 @@ export function blocosParaDesenho(
   // rótulo da seta comum (a que não sai de um losango): volta se ela segue ligando as mesmas formas
   const losangos = new Set(d.formas.filter((x) => x.tipo === 'exclusiveGateway' || x.tipo === 'parallelGateway').map((x) => x.id))
   const rotuloAntes = new Map((anterior?.setas ?? []).filter((x) => x.rotulo && !losangos.has(x.de)).map((x) => [`${x.de}>${x.para}`, x.rotulo!]))
-  const setasFinais = rotuloAntes.size
+  const comRotulo = rotuloAntes.size
     ? d.setas.map((x) => (x.rotulo || losangos.has(x.de) || !rotuloAntes.has(`${x.de}>${x.para}`) ? x : { ...x, rotulo: rotuloAntes.get(`${x.de}>${x.para}`) }))
     : d.setas
+  // pontas livres (só visuais): voltam em QUALQUER seta que segue ligando as mesmas formas
+  const pontasAntes = new Map((anterior?.setas ?? []).filter((x) => x.saida || x.entrada).map((x) => [`${x.de}>${x.para}`, x]))
+  const setasFinais = pontasAntes.size
+    ? comRotulo.map((x) => {
+      const a = pontasAntes.get(`${x.de}>${x.para}`)
+      if (!a || x.saida || x.entrada) return x
+      const y = { ...x }
+      if (a.saida) y.saida = a.saida
+      if (a.entrada) y.entrada = a.entrada
+      return y
+    })
+    : comRotulo
   const out: DesenhoV2 = { versao: 2, formas: d.formas, setas: setasFinais, posicoes, raias: anterior?.raias ?? [] }
   if (anterior?.layout) {
     // o que apontava para uma forma que saiu sai junto (como ao apagar a forma no desenho)
