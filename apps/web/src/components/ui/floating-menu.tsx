@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
+import { posicaoDoMenu } from '@/lib/posicao-do-menu'
 
 /**
  * Menu flutuante ancorado num botão e desenhado no <body>.
@@ -15,11 +16,13 @@ import { cn } from '@/lib/utils'
  * Fecha em clique fora (o botão âncora não conta — ele mesmo alterna), Esc e reposiciona
  * ao rolar ou redimensionar.
  */
-export function FloatingMenu({ anchor, onClose, align = 'start', matchWidth, className, style, children, ...rest }: {
+export function FloatingMenu({ anchor, onClose, align = 'start', lado = 'baixo', matchWidth, className, style, children, ...rest }: {
   anchor: React.RefObject<HTMLElement | null>
   onClose: () => void
   /** Borda do botão com que o menu se alinha. */
   align?: 'start' | 'center' | 'end'
+  /** 'esquerda': submenu ao lado do item (ver `posicaoDoMenu`). */
+  lado?: 'baixo' | 'esquerda'
   /** Lista de um campo (combo): no mínimo a largura do próprio campo. */
   matchWidth?: boolean
   className?: string
@@ -35,18 +38,13 @@ export function FloatingMenu({ anchor, onClose, align = 'start', matchWidth, cla
     const a = anchor.current, m = ref.current
     if (!a || !m) return
     const r = a.getBoundingClientRect()
-    const w = m.offsetWidth, h = m.offsetHeight
-    const MARGEM = 8, FOLGA = 4
-    const vw = window.innerWidth, vh = window.innerHeight
-    let left = align === 'end' ? r.right - w : align === 'center' ? r.left + r.width / 2 - w / 2 : r.left
-    left = Math.max(MARGEM, Math.min(left, vw - w - MARGEM))
-    let top = r.bottom + FOLGA
-    // sem espaço embaixo e com espaço em cima: abre para cima
-    if (top + h > vh - MARGEM && r.top - FOLGA - h >= MARGEM) top = r.top - FOLGA - h
-    top = Math.max(MARGEM, Math.min(top, vh - h - MARGEM))
+    const { top, left } = posicaoDoMenu({
+      ancora: r, menu: { largura: m.offsetWidth, altura: m.offsetHeight },
+      janela: { largura: window.innerWidth, altura: window.innerHeight }, align, lado,
+    })
     const width = Math.round(r.width)
     setPos((p) => (p && p.top === top && p.left === left && p.width === width ? p : { top, left, width }))
-  }, [anchor, align])
+  }, [anchor, align, lado])
 
   useLayoutEffect(() => { posicionar() }, [posicionar])
 
@@ -77,6 +75,9 @@ export function FloatingMenu({ anchor, onClose, align = 'start', matchWidth, cla
     const esc = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       if (document.querySelector('[data-radix-popper-content-wrapper] [role="listbox"]')) return
+      // menu aberto DE DENTRO deste (submenu): o Esc fecha só ele, o de cima
+      const menus = document.querySelectorAll('[data-floating-menu]')
+      if (menus.length && menus[menus.length - 1] !== ref.current) return
       fechar.current()
     }
     window.addEventListener('pointerdown', fora, true)
