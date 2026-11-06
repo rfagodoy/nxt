@@ -668,7 +668,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const abrir = useCallback((id: string | null) => {
     const alvo = id && !id.endsWith(SUFIXO_REENCONTRO) ? id : null
     const it = alvo && fluxo ? acharItem(fluxo, alvo) : undefined
-    /* a forma diz a gaveta (também sem blocos: com umum item removido ou o desenho
+    /* a forma diz a gaveta (também sem blocos: com um item removido ou o desenho
        incompleto, a etapa segue configurável); sem forma, o item */
     const forma = alvo ? formaDoDoc(alvo) : undefined
     const qual = forma ? gavetaDaForma(forma, !!it && it.kind !== 'atividade') : null

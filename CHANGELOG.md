@@ -4,6 +4,14 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ## [Não lançado]
 
+### Alterado
+
+- cada caminho do workflow pode terminar no seu próprio Fim; o aviso na tarefa só aparece quando a raia tem executor padrão e a tarefa usa outro.
+
+### Removido
+
+- da paleta, Início agendado, Início por evento, Envio de mensagem, Recebimento de mensagem, Fim com erro, Fim com cancelamento e Terminar tudo. Desenhos que já os usam continuam abrindo, mas não ativam.
+
 ## [2.0.0] — Boole — 2026-11-04
 
 A versão 2 homenageia **George Boole** (1815–1864), matemático inglês que transformou a lógica em álgebra: verdadeiro e falso, "e", "ou" e "não" viraram operações que se calculam. Toda decisão que um computador toma descende do trabalho dele, e por isso o nome combina com uma versão dedicada às regras e aos fluxos de aprovação.
