@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  listaPt, resumoDaEscolha, resumoDaFase, resumoDaMensagem, resumoDaPiscinaExterna, resumoDaRaia, resumoDaSeta, resumoDoBaseadoEmEvento,
-  resumoDoEnvio, resumoDoFim, resumoDoInicio, resumoDoParalelo, resumoDoRecebimento, resumoDoSubprocesso, resumoDoTemporizador, textoDoResumo,
+  listaPt, resumoDaEscolha, resumoDaFase, resumoDaMensagem, resumoDaPiscinaExterna, resumoDaRaia, resumoDaSeta, resumoDoFim, resumoDoInicio, resumoDoParalelo, textoDoResumo,
   type Trecho,
 } from './resumos'
 
@@ -87,55 +86,11 @@ describe('mensagem e seta', () => {
   })
 })
 
-describe('resumoDoTemporizador', () => {
-  it('prazo', () => {
-    expect(texto(resumoDoTemporizador({ espera: 'prazo', n: 5, unidade: 'diasUteis' }))).toBe('Espera 5 dias úteis e segue.')
-    expect(texto(resumoDoTemporizador({ espera: 'prazo', n: 1, unidade: 'horasUteis' }))).toBe('Espera 1 hora útil e segue.')
+describe('início e fim', () => {
+  it('fim', () => {
+    expect(texto(resumoDoFim())).toBe('Encerra este caminho. Quando todos os caminhos terminam, o processo fica Concluído.')
   })
-  it('data do contrato', () => {
-    expect(texto(resumoDoTemporizador({ espera: 'data', n: 30, unidade: 'diasUteis', campoData: 'vencimento', sentido: 'antes' })))
-      .toBe('Espera até 30 dias antes da data de vencimento do contrato e segue.')
-    expect(texto(resumoDoTemporizador({ espera: 'data', n: 0, unidade: 'diasUteis', campoData: 'inicioVigencia', sentido: 'depois' })))
-      .toBe('Espera até o início da vigência do contrato e segue.')
-  })
-})
-
-describe('resumoDoSubprocesso', () => {
-  it('com workflow, levando o contrato e esperando', () => {
-    expect(texto(resumoDoSubprocesso({ workflow: 'Renovação', levarContrato: true, esperar: true })))
-      .toBe('Chama o workflow Renovação, levando o contrato do processo, e espera ele terminar para seguir.')
-  })
-  it('sem workflow: falta', () => {
-    const r = resumoDoSubprocesso({ levarContrato: false, esperar: false })
-    expect(faltas(r)).toEqual(['(falta escolher qual)'])
-    expect(texto(r)).toContain('segue na hora, sem esperar.')
-  })
-})
-
-describe('resumoDoFim', () => {
-  it('cada variante', () => {
-    expect(texto(resumoDoFim('simples', {}))).toBe('Encerra este caminho. Quando todos os caminhos terminam, o processo fica Concluído.')
-    expect(texto(resumoDoFim('erro', { motivo: 'Doc recusada' }))).toBe('Encerra o processo com erro: “Doc recusada”.')
-    expect(faltas(resumoDoFim('erro', {}))).toEqual(['Falta o motivo.'])
-    expect(texto(resumoDoFim('cancela', { motivo: 'Sem resposta', avisarQuemIniciou: true }))).toBe('Cancela o processo com o motivo “Sem resposta” e avisa quem iniciou.')
-    expect(texto(resumoDoFim('cancela', { avisarQuemIniciou: false }))).toBe('Cancela o processo.')
-    expect(texto(resumoDoFim('terminar', {}))).toContain('inteiro')
-  })
-})
-
-describe('início, envio, recebimento, baseado em evento', () => {
   it('início', () => {
-    expect(texto(resumoDoInicio('simples', {}))).toBe('O processo começa aqui, quando alguém clica em + Novo processo.')
-    expect(texto(resumoDoInicio('agendado', { quando: 'mes' }))).toBe('O processo começa sozinho, todo mês, num dia fixo.')
-    expect(texto(resumoDoInicio('evento', { evento: 'criado' }))).toBe('O processo começa quando um contrato é criado.')
-  })
-  it('envio e recebimento', () => {
-    expect(texto(resumoDoEnvio({ para: 'Fornecedor', canal: 'email' }))).toBe('Envia para Fornecedor por e-mail com link seguro.')
-    expect(faltas(resumoDoEnvio({ canal: 'portal' }))).toEqual(['(falta escolher para quem)'])
-    expect(texto(resumoDoRecebimento({ de: 'Fornecedor', recebido: 'portal' }))).toBe('Espera a resposta no portal de Fornecedor e segue.')
-  })
-  it('baseado em evento', () => {
-    expect(texto(resumoDoBaseadoEmEvento(2))).toBe('Espera o primeiro evento que acontecer entre 2 saídas e segue por ele.')
-    expect(faltas(resumoDoBaseadoEmEvento(0))).toEqual(['nenhuma seta sai daqui ainda'])
+    expect(texto(resumoDoInicio())).toBe('O processo começa aqui, quando alguém clica em + Novo processo.')
   })
 })

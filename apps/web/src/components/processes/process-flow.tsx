@@ -22,7 +22,7 @@ import { PAPEIS_KEY, INIT_PAPEIS, referenciaDoPapelEntry } from '@/lib/contract-
 import { layoutGraph, nodeSize, LANE_SEM_RESPONSAVEL, type FlowNode as LNode, type FlowNodeType } from '@/lib/flow-layout'
 import { GRADE, abrirEspaco, adicionarRaia, apagarSeta, completarPosicoes, desenhoInicial, larguraDaInsercao, ligar, organizar, pontasDaSeta, religar, religarSaida, soltarForma, atualizarSeta, apagarForma, pendenciaDaRecusa, type PatchDasPontas } from '@/lib/desenho-bpmn'
 import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, type ExportEdge } from '@/lib/flow-export'
-import { apiFetch, apiJson } from '@/lib/http'
+import { apiFetch } from '@/lib/http'
 import { ProcessHistoryDrawer } from './process-history-drawer'
 import { GatewayGlyph, PendenciasPill, type Pendencia } from './flow-shared'
 import { EXECUTOR_CONTRATO_DO_PROCESSO, EXECUTOR_QUEM_INICIOU, nasceDeContrato, type QuemInicia } from '@nxt/types'
@@ -46,8 +46,8 @@ import { formaNova, type GrupoItem, type GrupoPaleta, type ItemCatalogo } from '
 import { alturaPeloDesenho, caixaDaForma } from '@/lib/editor-bizagi/formas-do-canvas'
 import { adicionarFase, adicionarPiscinaExterna, atualizarPiscinaExterna, layoutDe, mudarOrientacao, prazoDaFase, redimensionarForma, removerFase, removerPiscinaExterna, renomearFase, rotularMensagem, apagarMensagem, pontasDaMensagem } from '@/lib/editor-bizagi/layout'
 import {
-  PISCINA_DO_PROCESSO, comConfig, executorDaRaia, formasNaFase, gavetaDaForma, gavetaDoAlvo, nomeDaRaia, nomeDoElemento, restaurarAlvo, restaurarDesenhoDoBloco,
-  restaurarPasso, rotuloDaSeta, setasParaGravar, tarefasNaRaia, workflowsAtivos, type WorkflowDaLista,
+  PISCINA_DO_PROCESSO, executorDaRaia, formasNaFase, gavetaDaForma, gavetaDoAlvo, nomeDaRaia, restaurarAlvo, restaurarDesenhoDoBloco,
+  restaurarPasso, rotuloDaSeta, setasParaGravar, tarefasNaRaia,
 } from '@/lib/editor-bizagi/gavetas'
 import { GavetaFase, GavetaFormaNova, GavetaMensagem, GavetaPiscinaExterna, GavetaPiscinaPrincipal, GavetaRaia, GavetaSeta, type PatchDaForma } from './desenho-bpmn/gavetas'
 import { alinharNaTela, conteudoDasFormas, faixasDoDesenho } from '@/lib/editor-bizagi/faixas'
@@ -668,7 +668,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const abrir = useCallback((id: string | null) => {
     const alvo = id && !id.endsWith(SUFIXO_REENCONTRO) ? id : null
     const it = alvo && fluxo ? acharItem(fluxo, alvo) : undefined
-    /* a forma diz a gaveta (também sem blocos: com uma forma da "Próxima rodada" ou o desenho
+    /* a forma diz a gaveta (também sem blocos: com umum item removido ou o desenho
        incompleto, a etapa segue configurável); sem forma, o item */
     const forma = alvo ? formaDoDoc(alvo) : undefined
     const qual = forma ? gavetaDaForma(forma, !!it && it.kind !== 'atividade') : null
@@ -717,7 +717,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     abrir(id)
     // abre já na pergunta que falta (abrir limpa a seção; esta vem depois e vale)
     setConfigSecao(secaoDaPendencia(p, stepsEfetivos[raizRef.current.get(id) ?? id]))
-    // (sem blocos a etapa também abre: `abrir` decide pela forma — a da "Próxima rodada" abre a gaveta dela)
+    // (sem blocos a etapa também abre: `abrir` decide pela forma — a de um item removido abre a gaveta de forma)
     setFocoEm((f) => ({ id, vez: (f?.vez ?? 0) + 1 }))
   }, [abrir, stepsEfetivos])
 
@@ -753,7 +753,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     const id = raizRef.current.get(idAlvo) ?? idAlvo
     // o grupo vinculado inteiro muda junto (é a mesma atividade em vários lugares)
     const grupo = [id, ...[...raizRef.current.entries()].filter(([, r]) => r === id).map(([v]) => v)]
-    // sem blocos (desenho incompleto, forma da "Próxima rodada"): direto nas formas
+    // sem blocos (desenho incompleto, item removido): direto nas formas
     if (fluxo) setFluxo((f) => (f ? grupo.reduce((g, gid) => atualizarItem(g, gid, { tipo: t }), f) : f))
     else setDoc((d) => ({ ...d, formas: d.formas.map((f) => (grupo.includes(f.id) && f.tipo !== t ? { ...f, tipo: t } : f)) }))
     setSteps((prev) => ({ ...prev, [id]: { ...(prev[id] ?? passoVazio(id, t)), stepType: t } }))
@@ -1062,25 +1062,11 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       if (i === -1) return d
       let f = d.formas[i]
       if (p.nome !== undefined && f.nome !== p.nome) f = { ...f, nome: p.nome }
-      if (p.config) f = comConfig(f, p.config)
       return f === d.formas[i] ? d : { ...d, formas: d.formas.map((x, j) => (j === i ? f : x)) }
     })
     const tipo = formaDoDoc(id)?.tipo
     if (p.nome !== undefined && (tipo === 'userTask' || tipo === 'serviceTask')) patchStep(id, { stepName: p.nome })
   }, [formaDoDoc, patchStep])
-  /* Workflows que um subprocesso pode chamar: os ativos (a mesma lista da tela Workflows), sem
-     este. Carrega na primeira gaveta de subprocesso. */
-  const [workflowsDaOrg, setWorkflowsDaOrg] = useState<WorkflowDaLista[] | null>(null)
-  const pediuWorkflows = useRef(false)
-  const abriuSubprocesso = alvoNovo?.k === 'forma' && formaDoDoc(alvoNovo.id)?.tipo === 'subProcess'
-  useEffect(() => {
-    if (!abriuSubprocesso || pediuWorkflows.current) return
-    pediuWorkflows.current = true
-    apiJson<WorkflowDaLista[]>('/api/processes')
-      .then((l) => setWorkflowsDaOrg(l ?? []))
-      .catch(() => { pediuWorkflows.current = false; setWorkflowsDaOrg([]) })
-  }, [abriuSubprocesso])
-  const workflowsChamaveis = useMemo(() => (workflowsDaOrg ? workflowsAtivos(workflowsDaOrg, initial?.id) : null), [workflowsDaOrg, initial?.id])
   /** Nome de uma ponta (forma ou piscina externa) para as frases das gavetas. */
   const nomeDoPonto = useCallback((id: string) => {
     const ext = layoutDe(doc).piscinasExternas.find((p) => p.id === id)
@@ -1534,14 +1520,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
         /* como o Apagar do menu: qualquer forma, menos o único Início e o último Fim */
         const podeSair = (forma.tipo !== 'start' && forma.tipo !== 'end') || doc.formas.filter((f) => f.tipo === forma.tipo).length > 1
         const nome = (ehEtapa ? stepsEfetivos[id]?.stepName : undefined) ?? forma.nome ?? ''
-        const saidas = doc.setas.filter((x) => x.de === id).map((x) => {
-          const destino = formaDoDoc(x.para)
-          return { id: x.para, nome: nomeDoPonto(x.para), tipo: destino ? nomeDoElemento(destino) : '' }
-        })
-        return <GavetaFormaNova key={chave} {...moldura} forma={forma} nome={nome} workflowsAtivos={workflowsChamaveis} piscinasExternas={l.piscinasExternas}
-          saidas={saidas} nomeDaPiscina={name} papeis={papeis} onPatch={(p) => aoMudarForma(id, p)}
-          onRemover={podeSair ? () => { registrarPasso(); removerNoDesenho(id); setAlvoNovo(null); setGavetaDe(null) } : undefined}
-          onAbrirForma={(destino) => { setFocarGaveta(true); abrir(destino) }} />
+        return <GavetaFormaNova key={chave} {...moldura} forma={forma} nome={nome} nomeDaPiscina={name} onPatch={(p) => aoMudarForma(id, p)}
+          onRemover={podeSair ? () => { registrarPasso(); removerNoDesenho(id); setAlvoNovo(null); setGavetaDe(null) } : undefined} />
       }
       default: return null
     }

@@ -40,15 +40,6 @@ export const TOM_DO_TIPO = {
 } as const
 export type TomDoTipo = keyof typeof TOM_DO_TIPO
 
-/** O chip "Próxima rodada" — só os elementos que o motor ainda não executa o mostram. */
-export function SeloProximaRodada(): JSX.Element {
-  return (
-    <span className="whitespace-nowrap rounded bg-[#EEF0EE] px-1.5 py-0.5 text-[10.5px] font-semibold tracking-[0.01em] text-[var(--e-5B6B63)] dark:bg-white/[0.06] dark:text-[var(--e-9DB0A5)]">
-      Próxima rodada
-    </span>
-  )
-}
-
 /* ── Em resumo ── */
 
 export function ResumoForte({ children }: { children: ReactNode }): JSX.Element {
