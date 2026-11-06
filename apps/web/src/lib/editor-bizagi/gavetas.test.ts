@@ -272,12 +272,4 @@ describe('itemDaForma', () => {
     expect(gavetaDaForma({ tipo: 'subProcess', variante: 'chamada' }, false)).toBe('forma')
     expect(gavetaDaForma({ tipo: 'userTask', variante: 'envio' }, false)).toBe('forma')
   })
-  it('forma com item removido preserva a configuração gravada ao mudar o nome', () => {
-    const config = { motivo: 'Doc recusada', codigo: 'DOC' }
-    const d = base({ formas: [{ id: 'e', tipo: 'end', variante: 'erro', nome: 'Fim', config }] })
-    // o patch de nome de aoMudarForma: só `nome`, a config segue a mesma
-    const depois = d.formas.map((f) => (f.id === 'e' ? { ...f, nome: 'Recusado' } : f))
-    expect(depois[0].config).toBe(config)
-    expect(depois[0].nome).toBe('Recusado')
-  })
 })

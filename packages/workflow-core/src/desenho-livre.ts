@@ -477,7 +477,7 @@ export function desenhoParaBlocos(desenho: DesenhoV2, opcoes: { nomeDe?: (id: st
   if (fins.length > 1) {
     for (const f of fins) {
       if (desenho.setas.some((s) => s.para === f.id)) continue
-      recusasDeInicioFim.push({ tipo: 'fim-sem-seta', mensagem: `O Fim "${nomeDaForma(f)}" não recebe nenhuma seta. Ligue um caminho a ele ou apague-o.`, formas: [f.id], setas: [] })
+      recusasDeInicioFim.push({ tipo: 'fim-sem-seta', mensagem: `O Fim "${f.nome?.trim() || 'Fim'}" não recebe nenhuma seta. Ligue um caminho a ele ou apague-o.`, formas: [f.id], setas: [] })
     }
   }
   if (recusasDeInicioFim.length) return { ok: false, problemas: recusasDeInicioFim }

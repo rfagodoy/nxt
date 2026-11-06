@@ -141,6 +141,10 @@ describe('desenhoParaBlocos — vários Fins', () => {
     const [p] = problemas(desenho([F('a1'), F('end2', 'end', { nome: 'Recusado' })], [S('start', 'a1'), S('a1', 'end')]))
     expect(p).toEqual({ tipo: 'fim-sem-seta', mensagem: 'O Fim "Recusado" não recebe nenhuma seta. Ligue um caminho a ele ou apague-o.', formas: ['end2'], setas: [] })
   })
+  it('Fim sem nome e sem seta aparece como "Fim" na frase', () => {
+    const [p] = problemas(desenho([F('a1'), F('end2', 'end')], [S('start', 'a1'), S('a1', 'end')]))
+    expect(p.mensagem).toBe('O Fim "Fim" não recebe nenhuma seta. Ligue um caminho a ele ou apague-o.')
+  })
   it('todos os Fins sem seta aparecem numa só resposta', () => {
     const ps = problemas(desenho([F('a1'), F('end2', 'end', { nome: 'B' }), F('end3', 'end', { nome: 'C' })], [S('start', 'a1'), S('a1', 'end')]))
     expect(ps.map((p) => [p.tipo, p.formas])).toEqual([['fim-sem-seta', ['end2']], ['fim-sem-seta', ['end3']]])
