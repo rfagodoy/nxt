@@ -35,10 +35,12 @@ export function fluxoQueExecuta(fs: unknown): FluxoBlocos | 'invalido' | null {
   return lerFluxoBlocos((fs as { blocos?: unknown } | null)?.blocos)
 }
 
-/** O que não muda a execução: o losango que junta com o id de sempre (`juntaId` igual ao
- *  padrão), o id do "senão" vazio e o modo padrão da escolha. */
+/** O que não muda a execução: o `fimId` (qual dos Fins a conversão escolheu; apagar o primeiro
+ *  não muda nada), o losango que junta com o id de sempre (`juntaId` igual ao padrão), o id do
+ *  "senão" vazio e o modo padrão da escolha. */
 export function normalizarFluxo(f: FluxoBlocos): unknown {
-  return JSON.parse(JSON.stringify(f, (_k, v) => {
+  const { fimId: _fimId, ...semFim } = f
+  return JSON.parse(JSON.stringify(semFim, (_k, v) => {
     if (v && typeof v === 'object' && (v.kind === 'escolha' || v.kind === 'paralelo')) {
       const { juntaId, ...resto } = v
       const out = juntaId && juntaId !== v.id + SUFIXO_REENCONTRO ? { ...resto, juntaId } : resto

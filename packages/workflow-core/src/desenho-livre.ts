@@ -144,7 +144,8 @@ function itensPorId(f: FluxoBlocos): Map<string, ItemFluxo> {
  *  externas, fluxos de mensagem, tamanhos) e o rótulo das setas comuns — que os blocos não
  *  têm — voltam do desenho anterior. A seta que sai do losango para um caminho leva o id do caminho —
  *  é o que liga a condição editada no bloco à seta do desenho (e vice-versa). Com as formas
- *  e setas do desenho anterior, os losangos de passagem dele ficam (`manterPassagens`). */
+ *  e setas do desenho anterior, os losangos de passagem dele ficam (`manterPassagens`) e os
+ *  Fins dele também (`comFinsDeAntes`). */
 export function blocosParaDesenho(
   f: FluxoBlocos,
   anterior?: { posicoes: Record<string, { x: number; y: number }>; raias: RaiaDesenho[]; formas?: FormaDesenho[]; setas?: SetaDesenho[]; layout?: LayoutDesenho } | null,
@@ -194,9 +195,11 @@ export function blocosParaDesenho(
     if (e.isDefault) s.padrao = true
     return s
   })
-  const d = anterior?.formas && anterior.setas
-    ? manterPassagens(f, { versao: 2, formas: anterior.formas, setas: anterior.setas, posicoes: {}, raias: [] }, formas, setas)
-    : { formas, setas }
+  let d = { formas, setas }
+  if (anterior?.formas && anterior.setas) {
+    const comFins = comFinsDeAntes(f.fimId, anterior.formas, anterior.setas, formas, setas)
+    d = manterPassagens(f, { versao: 2, formas: anterior.formas, setas: anterior.setas, posicoes: {}, raias: [] }, comFins.formas, comFins.setas)
+  }
   const vivos = new Set(d.formas.map((x) => x.id))
   const posicoes = Object.fromEntries(Object.entries(anterior?.posicoes ?? {}).filter(([id]) => vivos.has(id)))
   // rótulo da seta comum (a que não sai de um losango): volta se ela segue ligando as mesmas formas
@@ -231,6 +234,33 @@ export function blocosParaDesenho(
   return out
 }
 
+/** Os blocos têm um Fim só; o desenho pode ter vários. Volta da estrutura mudada: os outros
+ *  Fins ficam, depois das formas do grafo (o principal segue sendo o primeiro, e o `fimId`
+ *  não muda). Cada seta nova para o Fim volta ao Fim de antes pela seta de mesmo id ou, se não
+ *  houver, de mesma origem, usando cada seta de antes uma vez. Sem correspondência, fica no
+ *  principal; o Fim que ficar sem seta continua no desenho e vira pendência (`fim-sem-seta`). */
+function comFinsDeAntes(fimId: string, formasAntes: FormaDesenho[], setasAntes: SetaDesenho[], formas: FormaDesenho[], setas: SetaDesenho[]): { formas: FormaDesenho[]; setas: SetaDesenho[] } {
+  const fins = formasAntes.filter((x) => x.tipo === 'end')
+  if (fins.length < 2) return { formas, setas }
+  const ids = new Set(fins.map((x) => x.id))
+  const livres = new Set(setasAntes.filter((s) => ids.has(s.para)))
+  const novas = setas.filter((s) => s.para === fimId)
+  const destino = new Map<SetaDesenho, string>()
+  for (const igual of [(n: SetaDesenho, a: SetaDesenho) => a.id === n.id, (n: SetaDesenho, a: SetaDesenho) => a.de === n.de]) {
+    for (const n of novas) {
+      if (destino.has(n)) continue
+      const a = [...livres].find((x) => igual(n, x))
+      if (!a) continue
+      destino.set(n, a.para)
+      livres.delete(a)
+    }
+  }
+  return {
+    formas: [...formas, ...fins.filter((x) => x.id !== fimId)],
+    setas: setas.map((s) => (destino.has(s) ? { ...s, para: destino.get(s)! } : s)),
+  }
+}
+
 /** Os blocos sem o que não muda a execução: o losango que junta com o id de sempre, o
  *  "senão" vazio e o modo padrão da escolha. */
 function blocosNormalizados(f: FluxoBlocos): string {
@@ -252,7 +282,8 @@ function blocosNormalizados(f: FluxoBlocos): string {
  *  só as que já chegavam nele — e ele segue para ela. Só fica se o desenho continuar dando
  *  os MESMOS blocos que o Roteiro fez; se a forma de depois saiu, ele sai junto. */
 function manterPassagens(f: FluxoBlocos, antes: DesenhoV2, formas: FormaDesenho[], setas: SetaDesenho[]): { formas: FormaDesenho[]; setas: SetaDesenho[] } {
-  const c = desenhoParaBlocos(antes)
+  // os Fins não decidem se o losango fica: um Fim sem seta (pendência) não o derruba
+  const c = desenhoParaBlocos(comFimUnico(antes))
   if (!c.ok) return { formas, setas }
   const doFluxo = new Set(blocosParaGrafo(c.fluxo, { juncaoSempre: true }).nodes.map((n) => n.id))
   const presentes = new Set(formas.map((x) => x.id))
@@ -267,7 +298,7 @@ function manterPassagens(f: FluxoBlocos, antes: DesenhoV2, formas: FormaDesenho[
   }
   const esperado = blocosNormalizados(f)
   const daOsMesmosBlocos = (fs: FormaDesenho[], ss: SetaDesenho[]) => {
-    const r = desenhoParaBlocos({ versao: 2, formas: fs, setas: ss, posicoes: {}, raias: [] })
+    const r = desenhoParaBlocos(comFimUnico({ versao: 2, formas: fs, setas: ss, posicoes: {}, raias: [] }))
     return r.ok && blocosNormalizados(r.fluxo) === esperado
   }
   let fs = formas, ss = setas
@@ -372,14 +403,48 @@ class Recusa extends Error {
 type Fim = FimCaminho
 interface Trecho { itens: ItemFluxo[]; fim: Fim; /** forma onde o trecho parou (reencontro), quando segue */ ate?: string }
 
-export function desenhoParaBlocos(d: DesenhoV2, opcoes: { nomeDe?: (id: string) => string } = {}): Conversao {
-  // O desenho aceita o que o motor ainda não executa (rascunho); ativar, não.
-  const naoExecutam: ProblemaDoDesenho[] = d.formas.filter((f) => !executaHoje(f)).map((f) => ({
+/** O desenho com um Fim só, o primeiro: as setas que chegam aos outros passam a chegar nele,
+ *  com os mesmos ids (os culpados das recusas continuam certos). É assim que os blocos e o
+ *  grafo seguem com um Fim, e que um ramo de "Ao mesmo tempo" continua recusado. */
+function comFimUnico(d: DesenhoV2): DesenhoV2 {
+  const [principal, ...outros] = d.formas.filter((f) => f.tipo === 'end')
+  if (!outros.length) return d
+  const ids = new Set(outros.map((f) => f.id))
+  return {
+    ...d,
+    formas: d.formas.filter((f) => !ids.has(f.id)),
+    setas: d.setas.map((s) => (ids.has(s.para) ? { ...s, para: principal.id } : s)),
+  }
+}
+
+export function desenhoParaBlocos(desenho: DesenhoV2, opcoes: { nomeDe?: (id: string) => string } = {}): Conversao {
+  const nomeDaForma = (f: FormaDesenho) => f.nome?.trim() || opcoes.nomeDe?.(f.id) || 'Sem nome'
+  // O desenho aceita o que o motor não executa (rascunho); ativar, não.
+  const naoExecutam: ProblemaDoDesenho[] = desenho.formas.filter((f) => !executaHoje(f)).map((f) => ({
     tipo: 'ainda-nao-executa',
-    mensagem: `"${f.nome?.trim() || opcoes.nomeDe?.(f.id) || 'Sem nome'}" é ${rotuloDaVariante(f)}, que ainda não executa. Troque por outro elemento ou deixe o workflow em rascunho.`,
+    mensagem: `"${nomeDaForma(f)}" é ${rotuloDaVariante(f)}, que não executa. Troque por outro elemento ou deixe o workflow em rascunho.`,
     formas: [f.id], setas: [],
   }))
   if (naoExecutam.length) return { ok: false, problemas: naoExecutam }
+  const inicios = desenho.formas.filter((f) => f.tipo === 'start')
+  const fins = desenho.formas.filter((f) => f.tipo === 'end')
+  if (!inicios.length || !fins.length) {
+    return { ok: false, problemas: [{ tipo: 'inicio-fim', mensagem: 'O desenho precisa de um Início e de um Fim.', formas: [], setas: [] }] }
+  }
+  const recusasDeInicioFim: ProblemaDoDesenho[] = []
+  if (inicios.length > 1) {
+    recusasDeInicioFim.push({ tipo: 'inicio-fim', mensagem: `O desenho tem ${inicios.length} Inícios. O workflow começa por um Início só: apague os outros.`, formas: inicios.map((x) => x.id), setas: [] })
+  }
+  if (fins.length > 1) {
+    for (const f of fins) {
+      if (desenho.setas.some((s) => s.para === f.id)) continue
+      recusasDeInicioFim.push({ tipo: 'fim-sem-seta', mensagem: `O Fim "${nomeDaForma(f)}" não recebe nenhuma seta. Ligue um caminho a ele ou apague-o.`, formas: [f.id], setas: [] })
+    }
+  }
+  if (recusasDeInicioFim.length) return { ok: false, problemas: recusasDeInicioFim }
+  const inicio = inicios[0].id, fim = fins[0].id
+  // daqui em diante, um Fim só: a mesma conversão de sempre
+  const d = comFimUnico(desenho)
   const formas = new Map(d.formas.map((f) => [f.id, f]))
   const saidas = (id: string) => d.setas.filter((s) => s.de === id)
   const entradas = (id: string) => d.setas.filter((s) => s.para === id)
@@ -400,23 +465,6 @@ export function desenhoParaBlocos(d: DesenhoV2, opcoes: { nomeDe?: (id: string) 
   /** Losango de passagem (uma saída, fora de bloco) → a forma depois dele: a volta que chega
    *  nele é volta para essa forma (ex.: o losango que junta a volta com o caminho de ida). */
   const passagem = new Map<string, string>()
-
-  const inicios = d.formas.filter((f) => f.tipo === 'start')
-  const fins = d.formas.filter((f) => f.tipo === 'end')
-  if (!inicios.length || !fins.length) {
-    return { ok: false, problemas: [{ tipo: 'inicio-fim', mensagem: 'O desenho precisa de um Início e de um Fim.', formas: [], setas: [] }] }
-  }
-  if (inicios.length > 1 || fins.length > 1) {
-    const problemas: ProblemaDoDesenho[] = []
-    if (inicios.length > 1) {
-      problemas.push({ tipo: 'inicio-fim', mensagem: `O desenho tem ${inicios.length} Inícios. O workflow começa por um Início só: apague os outros.`, formas: inicios.map((x) => x.id), setas: [] })
-    }
-    if (fins.length > 1) {
-      problemas.push({ tipo: 'inicio-fim', mensagem: `O desenho tem ${fins.length} Fins. Por enquanto o workflow termina num Fim só: ligue os caminhos ao mesmo Fim. Vários Fins chegam na próxima entrega.`, formas: fins.map((x) => x.id), setas: [] })
-    }
-    return { ok: false, problemas }
-  }
-  const inicio = inicios[0].id, fim = fins[0].id
 
   /** Formas alcançáveis a partir de `de`, sem passar pela rota (que vira volta) nem pelo Fim. */
   const alcance = (de: string, rota: Set<string>): Set<string> => {

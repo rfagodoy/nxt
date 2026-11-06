@@ -97,7 +97,7 @@ describe('variantes', () => {
 
 type VarianteEsperada = ReturnType<typeof varianteDe>
 
-describe('desenhoParaBlocos: o que ainda não executa', () => {
+describe('desenhoParaBlocos: o que não executa', () => {
   const comTemporizador = (): DesenhoV2 => ({
     versao: 2,
     formas: [
@@ -114,7 +114,7 @@ describe('desenhoParaBlocos: o que ainda não executa', () => {
     if (r.ok) return
     expect(r.problemas).toEqual([{
       tipo: 'ainda-nao-executa',
-      mensagem: '"Esperar 5 dias" é um temporizador, que ainda não executa. Troque por outro elemento ou deixe o workflow em rascunho.',
+      mensagem: '"Esperar 5 dias" é um temporizador, que não executa. Troque por outro elemento ou deixe o workflow em rascunho.',
       formas: ['t'], setas: [],
     }])
   })
@@ -125,7 +125,7 @@ describe('desenhoParaBlocos: o que ainda não executa', () => {
     expect(r.ok).toBe(false)
     if (r.ok) return
     expect(r.problemas.map((p) => [p.tipo, p.formas])).toEqual([['ainda-nao-executa', ['t']], ['ainda-nao-executa', ['end']]])
-    expect(r.problemas[1].mensagem).toBe('"Falhou" é um fim com erro, que ainda não executa. Troque por outro elemento ou deixe o workflow em rascunho.')
+    expect(r.problemas[1].mensagem).toBe('"Falhou" é um fim com erro, que não executa. Troque por outro elemento ou deixe o workflow em rascunho.')
   })
   it('piscinas externas, fluxos de mensagem e fases não impedem', () => {
     const sem = base()

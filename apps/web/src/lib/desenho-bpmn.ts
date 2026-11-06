@@ -492,7 +492,7 @@ export function soltarForma(d: DesenhoV2, forma: FormaDesenho, posicao: { x: num
 export function apagarForma(d: DesenhoV2, id: string, costurar = false): DesenhoV2 {
   const f = d.formas.find((x) => x.id === id)
   if (!f) return d
-  // um Início ou Fim a mais (o conversor recusa) se apaga; o último que sobra, não
+  // um Início a mais se apaga; o último Início ou Fim, não
   if ((f.tipo === 'start' || f.tipo === 'end') && d.formas.filter((x) => x.tipo === f.tipo).length < 2) return d
   const posicoes = { ...d.posicoes }
   delete posicoes[id]
