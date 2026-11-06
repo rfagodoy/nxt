@@ -298,15 +298,6 @@ export function removerRaia(d: DesenhoBpmn, id: string, alturaDe: AlturaDe = () 
   return { ...d, raias: d.raias.filter((r) => r.id !== id), posicoes: moverFormas(d, alturaDe, base, Infinity, -d.raias[i].altura) }
 }
 
-const normaliza = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
-
-/** Aviso quando a atividade está numa raia cujo nome não aparece em quem a executa. */
-export function avisoDeRaia(nomeRaia: string, responsavel: string | undefined): string | null {
-  if (!nomeRaia.trim() || !responsavel) return null
-  if (normaliza(responsavel).includes(normaliza(nomeRaia))) return null
-  return `Está na raia “${nomeRaia}”, mas quem executa é ${responsavel}.`
-}
-
 type Pt = { x: number; y: number }
 
 function distanciaAoSegmento(p: Pt, a: Pt, b: Pt): number {

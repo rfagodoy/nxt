@@ -522,27 +522,26 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
      Quem executa, em texto ("Analista de Central de Contratos", "Quem iniciou o processo"):
      o mesmo que o cartão mostra, e o que sugere e confere as raias. Ação automática é do
      "Sistema" (a mesma raia do layout automático); sem papel, não há responsável. */
-  const responsavelDe = useCallback((id: string): string | undefined => {
-    const n = nodeEfetivoById[id]
-    if (!n) return undefined
-    if (n.type === 'serviceTask') return LANE_SISTEMA
-    const ex = n.type === 'userTask' ? n.step?.executor : undefined
+  const rotuloDoExecutor = useCallback((ex: StepFormSchema['executor']): string | undefined => {
     if (!ex?.papelId) return undefined
     const papel = resolvePapel(ex.papelId) ?? 'Responsável'
     // entidade FIXA entra no nome; "da variável"/"do contrato" muda a cada processo — fica só o papel
     const entidade = ex.mode !== 'VARIAVEL' && ex.entityId ? resolveEntidade(ex.entityType, ex.entityId) : undefined
     return entidade ? `${papel} de ${entidade}` : papel
-  }, [nodeEfetivoById, resolvePapel, resolveEntidade])
+  }, [resolvePapel, resolveEntidade])
+  const responsavelDe = useCallback((id: string): string | undefined => {
+    const n = nodeEfetivoById[id]
+    if (!n) return undefined
+    if (n.type === 'serviceTask') return LANE_SISTEMA
+    return rotuloDoExecutor(n.type === 'userTask' ? n.step?.executor : undefined)
+  }, [nodeEfetivoById, rotuloDoExecutor])
   /** A raia onde a etapa está desenhada (pelo centro) e o executor padrão dela, para o "Quem faz?". */
   const raiaDaEtapa = useMemo(() => {
     if (!configId || !desenhoVisto) return undefined
     const raia = raiaDaForma({ ...doc, posicoes: desenhoVisto.posicoes, raias: desenhoVisto.raias }, configId, alturaDe)
     if (!raia) return undefined
-    const ex = raia.executor
-    const papel = ex?.papelId ? resolvePapel(ex.papelId) ?? 'Responsável' : undefined
-    const entidade = ex && ex.mode !== 'VARIAVEL' && ex.entityId ? resolveEntidade(ex.entityType, ex.entityId) : undefined
-    return { nome: raia.nome, executor: ex, rotuloExecutor: papel && (entidade ? `${papel} de ${entidade}` : papel) }
-  }, [configId, desenhoVisto, doc, alturaDe, resolvePapel, resolveEntidade])
+    return { nome: raia.nome, executor: raia.executor, rotuloExecutor: rotuloDoExecutor(raia.executor) }
+  }, [configId, desenhoVisto, doc, alturaDe, rotuloDoExecutor])
   const prazoDe = useCallback((id: string) => dueText(nodeById[id]?.step), [nodeById])
   /** Os nomes que `responsavelDe` usa já chegaram? (papéis e entidades vêm da rede) */
   const consultasProntas = useMemo(() => nodesEfetivos.every((n) => {
@@ -1696,7 +1695,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
           {grafo && desenhoVisto ? (
             <CanvasBpmn fluxo={fluxo ?? FLUXO_VAZIO} grafo={grafo} desenho={desenhoVisto} steps={stepsEfetivos} selecionado={selectedId}
               nomeDoProcesso={name} revisaoDasConsultas={revisaoDasConsultas} somenteLeitura={somenteLeitura}
-              responsavelDe={responsavelDe} prazoDe={prazoDe} problemasDe={problemasDe}
+              responsavelDe={responsavelDe} rotuloDoExecutorDaRaia={rotuloDoExecutor} prazoDe={prazoDe} problemasDe={problemasDe}
               onSelecionar={somenteLeitura ? aoSelecionarNaLeitura : aoSelecionarNoDesenho} onAbrir={aoAbrir} onProximo={aoProximo} gavetaAberta={gavetaAberta}
               orientacao={orientacao} grade={grade} conector={conector} onSelecaoMultipla={setSelecaoMultipla} onLayout={aoLayout}
               onDesenho={aoMudarDesenho} onSoltar={aoSoltar} onMoverItem={aoMoverItem}
