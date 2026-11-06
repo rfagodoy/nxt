@@ -96,6 +96,21 @@ describe('desenhoParaBlocos — vários Fins', () => {
     expect(g.nodes.filter((n) => n.type === 'end').map((n) => n.id)).toEqual(['end'])
     expect(g.edges.filter((e) => e.to === 'end').map((e) => e.from)).toEqual(['a1', 'a2', 'a3'])
   })
+  it('três Fins concluem pelo interpretador, por cada caminho', () => {
+    const f = fluxoDe(desenho([F('a0'), F('e', 'exclusiveGateway'), F('a1'), F('a2'), F('a3'), F('end2', 'end'), F('end3', 'end')], [
+      S('start', 'a0'), S('a0', 'e'), S('e', 'a1', { condition: 'valor > 100' }), S('e', 'a2', { condition: 'valor > 10' }), S('e', 'a3', { condition: 'valor <= 10' }),
+      S('a1', 'end'), S('a2', 'end2'), S('a3', 'end3'),
+    ]))
+    expect(validarBlocos(f)).toEqual([])
+    const g = grafoParaMotor(blocosParaGrafo(f))
+    for (const [valor, tarefa] of [[500, 'a1'], [50, 'a2'], [5, 'a3']] as const) {
+      const s = rodar(g, valor)
+      expect(s.tokens.map((t) => t.nodeId)).toEqual([tarefa])
+      const fim = completeToken(g, s, s.tokens[0].id, {}, makeCounterRuntime('d')).state
+      expect(fim.status).toBe('completed')
+      expect(fim.reachedEnd).toBe(true)
+    }
+  })
 
   it('um Fim gera exatamente os mesmos blocos de antes', () => {
     const f = fluxoDe(desenho([F('e', 'exclusiveGateway', { pergunta: 'Valor?' }), F('a1', 'userTask', { nome: 'Analisar' }), F('a2', 'serviceTask')], [
@@ -230,6 +245,93 @@ describe('blocosParaDesenho — vários Fins', () => {
     const r = blocosParaDesenho(removerItem(fluxoDe(d), 'a2'), d)
     expect(r.formas.map((f) => f.id)).toEqual(['start', 'a1', 'end'])
     expect(para(r, 'a1')).toEqual(['end'])
+  })
+})
+
+describe('blocosParaDesenho — o Fim de um passo que saiu ou que ganhou outro depois', () => {
+  const NOVO = { kind: 'atividade', id: 'novo', tipo: 'userTask' } as const
+  const semPendencia = (d: DesenhoV2) => expect(desenhoParaBlocos(d).ok).toBe(true)
+  /** e → a1 → end; e → <o que vier> → end2 */
+  const comCaminho = (formas: FormaDesenho[], setas: SetaDesenho[]): DesenhoV2 => desenho([F('e', 'exclusiveGateway'), F('a1'), ...formas, F('end2', 'end')], [
+    S('start', 'e'), S('e', 'a1', { condition: 'x' }), S('a1', 'end'), ...setas,
+  ])
+
+  it('retirar o último passo antes do Fim, num caminho da Escolha', () => {
+    const d = comCaminho([F('a2')], [S('e', 'a2', { condition: 'y' }), S('a2', 'end2')])
+    const r = blocosParaDesenho(removerItem(fluxoDe(d), 'a2'), d)
+    expect(r.setas.filter((s) => s.de === 'e').map((s) => [s.id, s.para])).toEqual([['s_e_a1', 'a1'], ['s_e_a2', 'end2']])
+    semPendencia(r)
+  })
+  it('retirar o último passo antes do Fim, numa sequência', () => {
+    const d = comCaminho([F('x'), F('a2')], [S('e', 'x', { condition: 'y' }), S('x', 'a2'), S('a2', 'end2')])
+    const r = blocosParaDesenho(removerItem(fluxoDe(d), 'a2'), d)
+    expect(para(r, 'x')).toEqual(['end2'])
+    semPendencia(r)
+  })
+  it('inserir no fim de um caminho que vai a um Fim secundário', () => {
+    const d = comCaminho([F('a2')], [S('e', 'a2', { condition: 'y' }), S('a2', 'end2')])
+    const r = blocosParaDesenho(inserirItem(fluxoDe(d), 's_e_a2', 1, NOVO), d)
+    expect(para(r, 'a2')).toEqual(['novo'])
+    expect(para(r, 'novo')).toEqual(['end2'])
+    expect(para(r, 'a1')).toEqual(['end'])
+    semPendencia(r)
+  })
+  it('inserir num caminho vazio, ligado direto ao Fim secundário: o id do caminho desfaz a dúvida', () => {
+    const d = escolhaDiretoAosFins({ condition: COND.y })
+    const r = blocosParaDesenho(inserirItem(fluxoDe(d), 's_e_end2', 0, NOVO), d)
+    expect(para(r, 'novo')).toEqual(['end2'])
+    expect(r.setas.find((s) => s.id === 's_e_end')?.para).toBe('end')
+    semPendencia(r)
+  })
+  it('retirar dois últimos passos, um de cada vez', () => {
+    const d = comCaminho([F('x'), F('a2'), F('a3')], [S('e', 'x', { condition: 'y' }), S('x', 'a2'), S('a2', 'a3'), S('a3', 'end2')])
+    const um = blocosParaDesenho(removerItem(fluxoDe(d), 'a3'), d)
+    const dois = blocosParaDesenho(removerItem(fluxoDe(um), 'a2'), um)
+    expect(para(dois, 'x')).toEqual(['end2'])
+    semPendencia(dois)
+  })
+  it('retirar um bloco leva várias formas de uma vez: o caminhar passa por todas até o Fim', () => {
+    // x → G; G → p → q → end2; G → w → end2
+    const d = comCaminho([F('x'), F('G', 'exclusiveGateway'), F('p'), F('q'), F('w')], [
+      S('e', 'x', { condition: 'y' }), S('x', 'G'), S('G', 'p', { condition: 'm' }), S('G', 'w', { condition: 'n' }), S('p', 'q'), S('q', 'end2'), S('w', 'end2'),
+    ])
+    const r = blocosParaDesenho(removerItem(fluxoDe(d), 'G'), d)
+    expect(r.setas.filter((s) => s.para === 'end2')).toHaveLength(1)
+    expect(para(r, 'a1')).toEqual(['end'])
+    semPendencia(r)
+  })
+  it('caminhar que chega a dois Fins não adivinha: fica no principal, e o outro vira pendência', () => {
+    // x → G; G → p → end; G → w → end2. Sai o bloco G: x poderia ir a qualquer um
+    const d = desenho([F('x'), F('G', 'exclusiveGateway'), F('p'), F('w'), F('end2', 'end', { nome: 'Recusado' })], [
+      S('start', 'x'), S('x', 'G'), S('G', 'p', { condition: 'm' }), S('G', 'w', { condition: 'n' }), S('p', 'end'), S('w', 'end2'),
+    ])
+    const r = blocosParaDesenho(removerItem(fluxoDe(d), 'G'), d)
+    expect(para(r, 'x')).toEqual(['end'])
+    expect(problemas(r).map((p) => [p.tipo, p.formas])).toEqual([['fim-sem-seta', ['end2']]])
+  })
+  it('forma nova depois de caminhos que iam a Fins diferentes não adivinha', () => {
+    // os dois caminhos passam a seguir: nasce o losango que junta, e a seta dele poderia ir a qualquer Fim
+    const d = desenho([F('e', 'exclusiveGateway'), F('a1'), F('a2'), F('end2', 'end')], [
+      S('start', 'e'), S('e', 'a1', { condition: 'x' }), S('e', 'a2', { condition: 'y' }), S('a1', 'end'), S('a2', 'end2'),
+    ])
+    const f = atualizarCaminho(atualizarCaminho(fluxoDe(d), 's_e_a1', { fim: { tipo: 'segue' } }), 's_e_a2', { fim: { tipo: 'segue' } })
+    const r = blocosParaDesenho(f, d)
+    expect(r.setas.find((s) => s.de === 'e__fim')?.para).toBe('end')
+    expect(problemas(r).map((p) => p.formas)).toEqual([['end2']])
+  })
+  it('cada seta de antes vale uma vez: dois caminhos novos não dividem o mesmo Fim secundário', () => {
+    const d = comCaminho([F('a2')], [S('e', 'a2', { condition: 'y' }), S('a2', 'end2')])
+    const f = removerItem(atualizarCaminho(adicionarCaminho(fluxoDe(d), 'e', 'c3'), 'c3', { condition: 'z', fim: { tipo: 'encerra' } }), 'a2')
+    const r = blocosParaDesenho(f, d)
+    expect(r.setas.filter((s) => s.de === 'e').map((s) => [s.id, s.para])).toEqual([['s_e_a1', 'a1'], ['s_e_a2', 'end2'], ['c3', 'end']])
+  })
+  it('um Fim só: nenhum caminhar muda nada', () => {
+    const d = desenho([F('x'), F('a2')], [S('start', 'x'), S('x', 'a2'), S('a2', 'end')])
+    const r = blocosParaDesenho(removerItem(fluxoDe(d), 'a2'), d)
+    expect(r.formas.filter((f) => f.tipo === 'end').map((f) => f.id)).toEqual(['end'])
+    expect(para(r, 'x')).toEqual(['end'])
+    const i = blocosParaDesenho(inserirItem(fluxoDe(d), 'raiz', 2, NOVO), d)
+    expect(para(i, 'novo')).toEqual(['end'])
   })
 })
 

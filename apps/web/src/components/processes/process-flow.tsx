@@ -160,7 +160,7 @@ const FIM_ID = 'End_1'
 /** Fluxo vazio para quem precisa de um enquanto o desenho não cabe em blocos (o canvas). */
 const FLUXO_VAZIO = novoFluxo(INICIO_ID, FIM_ID)
 /** Recusas do conversor que são "falta desenhar" (o resto é "o motor não executa"). */
-const TIPOS_DESENHO_INCOMPLETO = new Set(['fora-do-fluxo', 'sem-saida', 'inicio-desligado', 'inicio-fim'])
+const TIPOS_DESENHO_INCOMPLETO = new Set(['fora-do-fluxo', 'sem-saida', 'inicio-desligado', 'inicio-fim', 'fim-sem-seta'])
 
 
 const passoVazio = (id: string, tipo: 'userTask' | 'serviceTask'): StepFormSchema => ({ stepId: id, stepName: '', fields: [], stepType: tipo })

@@ -237,8 +237,11 @@ export function blocosParaDesenho(
 /** Os blocos têm um Fim só; o desenho pode ter vários. Volta da estrutura mudada: os outros
  *  Fins ficam, depois das formas do grafo (o principal segue sendo o primeiro, e o `fimId`
  *  não muda). Cada seta nova para o Fim volta ao Fim de antes pela seta de mesmo id ou, se não
- *  houver, de mesma origem, usando cada seta de antes uma vez. Sem correspondência, fica no
- *  principal; o Fim que ficar sem seta continua no desenho e vira pendência (`fim-sem-seta`). */
+ *  houver, de mesma origem, usando cada seta de antes uma vez. Se o passo antes do Fim saiu ou
+ *  ganhou outro depois dele, o Fim é achado caminhando: pelas setas de antes, por formas que
+ *  saíram, ou pelas novas para trás, por formas novas. Sem correspondência, ou com mais de um
+ *  Fim possível, fica no principal; o Fim que ficar sem seta continua no desenho e vira
+ *  pendência (`fim-sem-seta`). */
 function comFinsDeAntes(fimId: string, formasAntes: FormaDesenho[], setasAntes: SetaDesenho[], formas: FormaDesenho[], setas: SetaDesenho[]): { formas: FormaDesenho[]; setas: SetaDesenho[] } {
   const fins = formasAntes.filter((x) => x.tipo === 'end')
   if (fins.length < 2) return { formas, setas }
@@ -254,6 +257,42 @@ function comFinsDeAntes(fimId: string, formasAntes: FormaDesenho[], setasAntes: 
       destino.set(n, a.para)
       livres.delete(a)
     }
+  }
+  const idsAntes = new Set(formasAntes.map((x) => x.id))
+  const idsAgora = new Set(formas.map((x) => x.id))
+  const idsDeSetasAgora = new Set(setas.map((x) => x.id))
+  /** As setas de antes que correspondem a `n`. Origem nova (forma inserida): anda para trás
+   *  pelas setas novas, só por formas novas, até as formas que já existiam. */
+  const correspondentes = (n: SetaDesenho, vistas = new Set<string>()): SetaDesenho[] => {
+    if (idsAntes.has(n.de)) {
+      const mesmoId = setasAntes.filter((a) => a.id === n.id)
+      // a seta de antes que ainda tem a sua, de mesmo id, não é de mais ninguém
+      return mesmoId.length ? mesmoId : setasAntes.filter((a) => a.de === n.de && !idsDeSetasAgora.has(a.id))
+    }
+    if (vistas.has(n.de)) return []
+    vistas.add(n.de)
+    return setas.filter((x) => x.para === n.de).flatMap((x) => correspondentes(x, vistas))
+  }
+  /** Anda para a frente pelas setas de antes, só por formas que saíram; devolve as que chegam a um Fim. */
+  const chegadasAoFim = (partida: SetaDesenho[]): SetaDesenho[] => {
+    const vistas = new Set<SetaDesenho>(), chegadas: SetaDesenho[] = [], fila = [...partida]
+    while (fila.length) {
+      const a = fila.shift()!
+      if (vistas.has(a)) continue
+      vistas.add(a)
+      if (ids.has(a.para)) chegadas.push(a)
+      else if (!idsAgora.has(a.para)) fila.push(...setasAntes.filter((x) => x.de === a.para))
+    }
+    return chegadas
+  }
+  for (const n of novas) {
+    if (destino.has(n)) continue
+    const chegadas = chegadasAoFim(correspondentes(n))
+    if (new Set(chegadas.map((a) => a.para)).size !== 1) continue // nenhum Fim, ou mais de um: não adivinha
+    const a = chegadas.find((x) => livres.has(x))
+    if (!a) continue
+    destino.set(n, a.para)
+    livres.delete(a)
   }
   return {
     formas: [...formas, ...fins.filter((x) => x.id !== fimId)],
