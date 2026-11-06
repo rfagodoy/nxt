@@ -7,6 +7,7 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 ### Alterado
 
 - cada caminho do workflow pode terminar no seu próprio Fim; o aviso na tarefa só aparece quando a raia tem executor padrão e a tarefa usa outro.
+- Tarefas sem nada pendente mostram a mesma mensagem discreta da tela de Processos, sem ícone nem emoji.
 
 ### Removido
 
