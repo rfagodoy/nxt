@@ -1,16 +1,19 @@
 'use client'
 
 /* ─── Peças da gaveta PADRÃO do editor ─────────────────────────────────────────
-   O padrão é o das perguntas da etapa (PO 27/10/2026): cabeçalho com o chip colorido do tipo
-   (GavetaLateral + `TOM_DO_TIPO`), o cartão escuro "EM RESUMO" com a frase do elemento,
-   PERGUNTAS numeradas (o número vira ✓ quando respondida), respostas em CARTÃO (`Opcao`) e o
-   rodapé com a linha de status, Remover à esquerda e Cancelar / Aplicar à direita.
+   Padrão dos cadastros do sistema (PO 07/11/2026, opção A dos mockups — substitui o padrão
+   de perguntas numeradas e cartão escuro "Em resumo" de 27/10): cabeçalho com o chip colorido
+   do tipo, o nome e o RESUMO numa linha discreta (GavetaLateral `resumo`); o corpo em SEÇÕES
+   em sanfona (`Pergunta`) com ícone, título curto e, à direita, o valor atual ou "Falta";
+   campos com o rótulo em cima, escolhas em LISTA (`CampoEscolha`) e o rodapé dizendo o que
+   falta, com Remover à esquerda e Cancelar / Aplicar à direita.
    Toda gaveta do desenho monta com estas peças — a etapa, a escolha, o "ao mesmo tempo",
    a raia, a fase, as piscinas, a mensagem, a seta e as formas novas. */
 import type { JSX, ReactNode } from 'react'
-import { useEffect } from 'react'
-import { Check, Trash2 } from 'lucide-react'
+import { useEffect, useId, useState } from 'react'
+import { Check, ChevronDown, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { Trecho } from '@/lib/editor-bizagi/resumos'
 import { cn } from '@/lib/utils'
 import { ehEscDaGaveta } from './gaveta'
@@ -18,8 +21,11 @@ import { ehEscDaGaveta } from './gaveta'
 /** Altura e letra dos campos seguem a DENSIDADE escolhida pelo usuário (lib/densidade). */
 export const CAMPO = 'h-[var(--campo-altura)] text-[length:var(--campo-fonte)]'
 
-/** O corpo da gaveta: as perguntas numa coluna, com o respiro do padrão. */
-export const CORPO_DA_GAVETA = 'flex flex-col gap-7 px-4 py-4'
+/** Rótulo de campo, em cima dele (o mesmo dos formulários do sistema). */
+export const ROTULO = 'text-[length:var(--rotulo-fonte)] font-medium text-muted-foreground'
+
+/** O corpo da gaveta: as seções numa coluna. */
+export const CORPO_DA_GAVETA = 'flex flex-col gap-2.5 px-4 py-4'
 
 /** Cor do chip do cabeçalho, por tipo de elemento (claro e escuro). */
 export const TOM_DO_TIPO = {
@@ -40,14 +46,14 @@ export const TOM_DO_TIPO = {
 } as const
 export type TomDoTipo = keyof typeof TOM_DO_TIPO
 
-/* ── Em resumo ── */
+/* ── Resumo (linha do cabeçalho) ── */
 
 export function ResumoForte({ children }: { children: ReactNode }): JSX.Element {
-  return <b className="font-semibold text-white">{children}</b>
+  return <b className="font-semibold text-foreground">{children}</b>
 }
 /** O que ainda falta, dito DENTRO da frase: quem lê o resumo vê o buraco no lugar dele. */
 export function ResumoFalta({ children }: { children: ReactNode }): JSX.Element {
-  return <span className="font-semibold text-[#F5B971] underline decoration-dotted underline-offset-2">{children}</span>
+  return <span className="font-semibold text-amber-800 dark:text-amber-300">{children}</span>
 }
 
 /** A frase pronta (`lib/editor-bizagi/resumos`), trecho a trecho. */
@@ -59,67 +65,71 @@ export function FraseDoResumo({ trechos }: { trechos: ReadonlyArray<Trecho> }): 
   )
 }
 
-/** O cartão escuro do alto: o elemento inteiro numa frase. `vivo` = anuncia as mudanças. */
-export function EmResumo({ children, vivo = true }: { children: ReactNode; vivo?: boolean }): JSX.Element {
-  return (
-    <div className="rounded-xl bg-forest p-4 text-white/80 shadow-[0_18px_40px_-24px_rgba(12,20,16,0.7)] ring-1 ring-white/5">
-      <span className="inline-block rounded bg-spark px-1.5 py-0.5 text-[10.5px] font-extrabold tracking-wide text-forest">EM RESUMO</span>
-      <p className="mt-2 text-[13px] leading-relaxed" aria-live={vivo ? 'polite' : undefined}>{children}</p>
-    </div>
-  )
+/* ── Seções ── */
+
+/** Selo "Falta" do cabeçalho de uma seção incompleta. */
+export function SeloFalta(): JSX.Element {
+  return <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10.5px] font-semibold text-amber-800 dark:text-amber-300">Falta</span>
 }
 
-/* ── Perguntas ── */
-
-export function NumeroPergunta({ n, ok, pequeno }: { n: number; ok: boolean; pequeno?: boolean }): JSX.Element {
-  return (
-    <span className={cn('flex shrink-0 items-center justify-center rounded-full font-mono font-bold',
-      pequeno ? 'h-5 w-5 text-[10.5px]' : 'h-6 w-6 text-[11px]',
-      ok ? 'bg-primary text-primary-foreground' : 'bg-amber-500/15 text-amber-800 ring-1 ring-amber-500/50 dark:text-amber-300')}
-      aria-label={ok ? `Pergunta ${n}, respondida` : `Pergunta ${n}, falta responder`}>
-      {ok ? <Check className={pequeno ? 'h-3 w-3' : 'h-3.5 w-3.5'} /> : n}
-    </span>
-  )
-}
-
-/** Uma pergunta: número (vira ✓ quando respondida), a pergunta, uma linha de ajuda. */
-export function Pergunta({ id, n, titulo, ajuda, ok, children }: {
-  id: string; n: number; titulo: string; ajuda?: string; ok: boolean; children: ReactNode
+/** Uma SEÇÃO em sanfona (o nome `Pergunta` ficou do padrão anterior): ícone, título curto e,
+ *  à direita, o valor atual (fechada) e ✓ ou "Falta". `ajuda` é a primeira linha do conteúdo.
+ *  O id `pergunta-<id>` continua sendo o alvo de "abrir a gaveta já nesta seção". */
+export function Pergunta({ id, titulo, ajuda, ok, icone, valor, abertaInicial = true, children }: {
+  id: string; titulo: string; ajuda?: string; ok: boolean; children: ReactNode
+  icone?: ReactNode
+  /** o que está escolhido, mostrado no cabeçalho com a seção fechada */
+  valor?: ReactNode
+  abertaInicial?: boolean
 }): JSX.Element {
+  const [aberta, setAberta] = useState(abertaInicial)
+  const idConteudo = useId()
   return (
-    <section id={`pergunta-${id}`} aria-labelledby={`pergunta-${id}-titulo`} className="flex scroll-mt-4 flex-col gap-[var(--form-gap)]">
-      <div className="flex items-start gap-3">
-        <NumeroPergunta n={n} ok={ok} />
-        <div className="min-w-0">
-          <h3 id={`pergunta-${id}-titulo`} className="text-[15px] font-bold leading-snug">{titulo}</h3>
-          {ajuda && <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{ajuda}</p>}
+    <section id={`pergunta-${id}`} aria-labelledby={`pergunta-${id}-titulo`} className="shrink-0 scroll-mt-4 overflow-hidden rounded-xl border bg-card shadow-sm">
+      <button type="button" aria-expanded={aberta} aria-controls={idConteudo} onClick={() => setAberta((v) => !v)}
+        className={cn('flex w-full items-center gap-2 bg-muted/30 px-3.5 py-2 text-left transition-colors hover:bg-muted/50', aberta && 'border-b')}>
+        {icone && <span className="flex shrink-0 text-muted-foreground [&_svg]:h-3.5 [&_svg]:w-3.5" aria-hidden>{icone}</span>}
+        <h3 id={`pergunta-${id}-titulo`} className="shrink-0 text-xs font-semibold">{titulo}</h3>
+        <span className="min-w-0 flex-1 truncate text-right text-[11px] text-muted-foreground">{!aberta && ok ? valor : null}</span>
+        {ok ? <Check className="h-3.5 w-3.5 shrink-0 text-primary" aria-label="Preenchida" /> : <SeloFalta />}
+        <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200', aberta && 'rotate-180')} aria-hidden />
+      </button>
+      {aberta && (
+        <div id={idConteudo} className="flex flex-col gap-[var(--form-gap)] p-[var(--secao-pad)]">
+          {ajuda && <p className="text-[11.5px] leading-snug text-muted-foreground">{ajuda}</p>}
+          {children}
         </div>
-      </div>
-      <div className="flex flex-col gap-[var(--form-gap)] pl-9">{children}</div>
+      )}
     </section>
   )
 }
 
-/** Resposta em CARTÃO (rádio): título + uma linha que explica a consequência. */
-export function Opcao({ ativo, onClick, titulo, descricao, icone, disabled }: {
-  ativo: boolean; onClick: () => void; titulo: string; descricao?: string; icone?: ReactNode; disabled?: boolean
+/** Escolha entre poucas opções, em LISTA (o padrão dos cadastros), com o rótulo em cima e,
+ *  embaixo, a explicação da opção escolhida — a consequência continua à vista sem um
+ *  cartão por opção. */
+export function CampoEscolha<T extends string>({ rotulo, valor, opcoes, onMudar, ajuda, className, placeholder }: {
+  rotulo: string; valor: T | undefined
+  opcoes: ReadonlyArray<{ v: T; titulo: string; descricao?: string; disabled?: boolean }>
+  onMudar: (v: T) => void
+  /** ajuda fixa; sem ela, aparece a `descricao` da opção escolhida */
+  ajuda?: ReactNode
+  className?: string
+  placeholder?: string
 }): JSX.Element {
+  const id = useId()
+  const escolhida = opcoes.find((o) => o.v === valor)
+  const linha = ajuda ?? escolhida?.descricao
   return (
-    <button type="button" role="radio" aria-checked={ativo} disabled={disabled} onClick={onClick}
-      className={cn('flex min-w-0 items-start gap-2.5 rounded-lg border bg-card px-3 py-[var(--secao-pad)] text-left transition-colors',
-        ativo ? 'border-primary bg-primary/[0.06] ring-1 ring-primary' : 'hover:border-foreground/25 hover:bg-muted/50',
-        disabled && 'cursor-not-allowed opacity-50')}>
-      <span className={cn('mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border',
-        ativo ? 'border-primary bg-primary' : 'border-muted-foreground/50')} aria-hidden>
-        {ativo && <span className="h-1.5 w-1.5 rounded-full bg-primary-foreground" />}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5 text-[length:var(--campo-fonte)] font-semibold">
-          {icone && <span className={cn('shrink-0', ativo ? 'text-primary' : 'text-muted-foreground')}>{icone}</span>}{titulo}
-        </span>
-        {descricao && <span className="mt-0.5 block text-[11.5px] leading-snug text-muted-foreground">{descricao}</span>}
-      </span>
-    </button>
+    <div className={cn('flex min-w-0 flex-col gap-1', className)}>
+      <label htmlFor={id} className={ROTULO}>{rotulo}</label>
+      <Select value={valor ?? ''} onValueChange={(v) => onMudar(v as T)}>
+        <SelectTrigger id={id} className={CAMPO}><SelectValue placeholder={placeholder ?? 'Escolha'} /></SelectTrigger>
+        <SelectContent>
+          {opcoes.map((o) => <SelectItem key={o.v} value={o.v} disabled={o.disabled}>{o.titulo}</SelectItem>)}
+        </SelectContent>
+      </Select>
+      {linha && <p className="text-[11px] leading-snug text-muted-foreground">{linha}</p>}
+    </div>
   )
 }
 
@@ -148,32 +158,37 @@ export function BotaoAcrescentar({ onClick, children }: { onClick: () => void; c
 
 /* ── Rodapé ── */
 
-/** Linha de status + Remover (opcional, à esquerda) + Cancelar / Aplicar. */
-export function RodapePadrao({ pendentes, remover, onCancelar, onAplicar }: {
-  /** perguntas que faltam responder (0 = "Tudo respondido") */
+/** "prazo", "prazo e devolução", "nome, prazo e devolução" */
+const listaComE = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} e ${xs[xs.length - 1]}`)
+
+/** O que falta + Remover (opcional, à esquerda) + Cancelar / Aplicar, numa linha. As mudanças
+ *  valem no desenho na hora e vão para o workflow ao Salvar rascunho ou Ativar (o topo do
+ *  editor mostra "Não salvo"). */
+export function RodapePadrao({ pendentes, faltam, remover, onCancelar, onAplicar }: {
+  /** seções incompletas (0 = nada falta) */
   pendentes: number
+  /** o nome do que falta ("prazo"); sem ele, o rodapé diz só quantos itens faltam */
+  faltam?: string[]
   remover?: { rotulo: string; aoRemover: () => void; nomeAcessivel?: string }
   onCancelar: () => void
   onAplicar: () => void
 }): JSX.Element {
+  const texto = pendentes <= 0 ? ''
+    : faltam?.length ? `Falta: ${listaComE(faltam)}`
+      : pendentes > 1 ? `Faltam ${pendentes} itens` : 'Falta 1 item'
   return (
-    <div className="flex flex-col gap-2.5">
-      <p className="text-[11.5px] leading-snug text-muted-foreground">
-        {pendentes > 0
-          ? <span className="font-semibold text-amber-800 dark:text-amber-300">Falta responder {pendentes} pergunta{pendentes > 1 ? 's' : ''}</span>
-          : <span className="inline-flex items-center gap-1 font-semibold text-primary"><Check className="h-3.5 w-3.5" />Tudo respondido</span>}
-        {' · '}As alterações entram no workflow ao <span className="font-medium">Salvar rascunho</span> ou <span className="font-medium">Ativar</span>.
+    <div className="flex items-center gap-2">
+      {remover && (
+        <Button variant="ghost" size="sm" onClick={remover.aoRemover} aria-label={remover.nomeAcessivel ?? remover.rotulo}
+          className="-ml-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+          <Trash2 className="h-3.5 w-3.5" />{remover.rotulo}
+        </Button>
+      )}
+      <p className="line-clamp-2 min-w-0 flex-1 text-[11.5px] font-semibold leading-tight text-amber-800 dark:text-amber-300" aria-live="polite" title={texto || undefined}>
+        {texto}
       </p>
-      <div className="flex items-center justify-end gap-2">
-        {remover && (
-          <Button variant="ghost" size="sm" onClick={remover.aoRemover} aria-label={remover.nomeAcessivel ?? remover.rotulo}
-            className="mr-auto text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
-            <Trash2 className="h-3.5 w-3.5" />{remover.rotulo}
-          </Button>
-        )}
-        <Button variant="ghost" size="sm" onClick={onCancelar}>Cancelar</Button>
-        <Button size="sm" onClick={onAplicar}>Aplicar</Button>
-      </div>
+      <Button variant="outline" size="sm" onClick={onCancelar}>Cancelar</Button>
+      <Button size="sm" onClick={onAplicar}>Aplicar</Button>
     </div>
   )
 }
@@ -187,7 +202,7 @@ export function useEscCancela(onCancelar: () => void): void {
   }, [onCancelar])
 }
 
-/** Conta as perguntas sem resposta enquanto a gaveta monta: `ok(false)` soma uma. */
+/** Conta as seções incompletas enquanto a gaveta monta: `ok(false)` soma uma. */
 export function contadorDePendencias(): { ok: (v: boolean) => boolean; total: () => number } {
   let faltam = 0
   return { ok: (v) => { if (!v) faltam++; return v }, total: () => faltam }

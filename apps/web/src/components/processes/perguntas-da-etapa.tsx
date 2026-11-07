@@ -1,7 +1,7 @@
 'use client'
 
 import { Fragment, useState, useMemo, useRef, useEffect } from 'react'
-import { Zap, Trash2, User, CircleDot, Loader2, UserSquare, AlertTriangle, ChevronUp, Plus, ChevronDown, Check, Info, Lock, Link2, Users } from 'lucide-react'
+import { Zap, Trash2, User, Loader2, UserSquare, AlertTriangle, ChevronUp, Plus, ChevronDown, Check, Info, Lock, Link2, ClipboardCheck, Monitor, Clock, Undo2 } from 'lucide-react'
 import type { StepFormSchema } from '@nxt/types'
 import { CONNECTORS, findConnector, isRetiredConnector, isCompensable } from '@nxt/types'
 import { Input } from '@/components/ui/input'
@@ -16,7 +16,7 @@ import { apiFetch } from '@/lib/http'
 import { ExecutorDaVariavel } from './executor-da-variavel'
 import { EXECUTOR_CONTRATO_DO_PROCESSO, EXECUTOR_QUEM_INICIOU } from '@nxt/types'
 import { GavetaLateral, ehEscDaGaveta } from './desenho-bpmn/gaveta'
-import { CAMPO, EmResumo, Opcao, Pergunta, ResumoFalta, ResumoForte, RodapePadrao } from './desenho-bpmn/gaveta-padrao'
+import { CAMPO, CampoEscolha, CORPO_DA_GAVETA, Pergunta, ROTULO, RodapePadrao } from './desenho-bpmn/gaveta-padrao'
 import { cn } from '@/lib/utils'
 import { STEP_TONE, dueText, entityKindLabel, type EEdge, type ENode, type Papeis, type Screens } from './editor-comum'
 
@@ -40,11 +40,11 @@ function predecessorasDe(edges: EEdge[], alvo: string): Set<string> {
 }
 
 /**
- * Configuração da atividade: PERGUNTAS numa GAVETA lateral de 440 px (desenho BPMN,
- * 27/10/2026). Antes era um modal amplo por cima do editor; agora o desenho fica visível
- * ao lado enquanto se configura. Coluna única: o "Em resumo" no alto e as perguntas
- * embaixo, na ordem em que a pessoa pensa a etapa (o índice lateral saiu — não cabia;
- * a contagem do que falta segue no rodapé).
+ * Configuração da atividade numa GAVETA lateral de 440 px: o desenho fica visível ao lado
+ * enquanto se configura. Padrão dos cadastros (PO 07/11/2026, opção A): o resumo numa linha
+ * no cabeçalho e SEÇÕES em sanfona — Identificação, Quem faz, Tela, Prazo e Devolução (ou
+ * Ação automática). Abrem a Identificação e a primeira seção incompleta; o rodapé diz o que
+ * falta.
  *
  * Cancelar RESTAURA o estado de quando a gaveta abriu (snapshot em `original`): o editor
  * aplica cada mudança ao vivo no grafo, então sem isso "Cancelar" seria só um "Fechar"
@@ -221,12 +221,9 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
     return () => window.removeEventListener('keydown', onKey, true)
   })
 
-  /* ── Perguntas ─────────────────────────────────────────────────────────────
-     A configuração deixou de ser um formulário em seções (Identificação, Quem executa…)
-     e virou PERGUNTAS em português, numa coluna só, na ordem em que a pessoa pensa a
-     etapa (mockup "Configurar a etapa por perguntas", PO 27/10/2026). No alto, o
-     "Em resumo" escreve a etapa numa frase — quem configura confere o que entendeu
-     sem precisar ler campo por campo. */
+  /* ── Seções ─────────────────────────────────────────────────────────────────
+     Na ordem em que a pessoa pensa a etapa. `falta` é como o rodapé nomeia a seção
+     incompleta ("Falta: prazo"). */
   const faltaNome = !step.stepName?.trim()
   const faltaQuem = type === 'userTask' && !porIniciador && !herdando && (
     !executor?.papelId
@@ -236,18 +233,25 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
   const faltaDevolucao = type === 'userTask' && retorno.mode === 'SELECTED' && !(retorno.nodeIds ?? []).length
   const perguntas = type === 'userTask'
     ? [
-        { id: 'identificacao', titulo: 'O que precisa ser feito?',          ok: !faltaNome },
-        { id: 'executor',      titulo: 'Quem faz?',                         ok: !faltaQuem },
-        { id: 'formulario',    titulo: 'O que a pessoa vê e preenche?',     ok: true },
-        { id: 'prazo',         titulo: 'Em quanto tempo?',                  ok: !faltaPrazo },
-        { id: 'devolucao',     titulo: 'Se precisar, pode devolver para…',  ok: !faltaDevolucao },
+        { id: 'identificacao', falta: 'nome',      ok: !faltaNome },
+        { id: 'executor',      falta: 'quem faz',  ok: !faltaQuem },
+        { id: 'formulario',    falta: 'tela',      ok: true },
+        { id: 'prazo',         falta: 'prazo',     ok: !faltaPrazo },
+        { id: 'devolucao',     falta: 'devolução', ok: !faltaDevolucao },
       ]
     : [
-        { id: 'identificacao', titulo: 'O que precisa ser feito?', ok: !faltaNome },
-        { id: 'acao',          titulo: 'O que o sistema faz?',     ok: !!step.connector },
+        { id: 'identificacao', falta: 'nome', ok: !faltaNome },
+        { id: 'acao',          falta: 'ação', ok: !!step.connector },
       ]
-  const pendentes = perguntas.filter((p) => !p.ok).length
-  const nPergunta = (id: string) => perguntas.findIndex((p) => p.id === id) + 1
+  const faltam = perguntas.filter((p) => !p.ok).map((p) => p.falta)
+  /* Abertas na chegada: a Identificação, a seção pedida (aviso da escolha) e a primeira
+     incompleta. Fixado na abertura — depois, quem abre e fecha é a pessoa. */
+  const [abertasNaChegada] = useState(() => new Set(['identificacao', secaoInicial, perguntas.find((p) => !p.ok)?.id].filter(Boolean)))
+  /* Seção que surge DEPOIS (trocar "Executada por" faz nascer a de Ação automática) abre
+     sozinha se estiver incompleta: é ela que a pessoa precisa preencher agora. */
+  const montada = useRef(false)
+  useEffect(() => { montada.current = true }, [])
+  const abre = (id: string) => (montada.current ? !perguntas.find((p) => p.id === id)?.ok : abertasNaChegada.has(id))
 
   const [mostrarInstrucoes, setMostrarInstrucoes] = useState(!!step.instructions?.trim())
   const [maisDaTela, setMaisDaTela] = useState(extras.length > 0 || travados.length > 0)
@@ -285,7 +289,7 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
     caixa.scrollTop += alvo.getBoundingClientRect().top - caixa.getBoundingClientRect().top - 12
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ── A frase do "Em resumo" ── */
+  /* ── O resumo do cabeçalho: a etapa numa linha ── */
   const quem = herdando ? (raiaDaEtapa?.rotuloExecutor ?? null) : porIniciador ? 'Quem iniciou o processo' : papelSel ? (() => {
     if (!executor || !execOrigem || execOrigem === ORIGEM.ORG) return papelSel.label
     if (executor.mode === 'FIXA') {
@@ -301,31 +305,13 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
   })() : null
   const due = dueText(step)
   const nomesDevolucao = (retorno.nodeIds ?? []).map((id) => destinosDevolucao.find((d) => d.id === id)?.nome).filter((x): x is string => !!x)
-  const frase = type === 'userTask' ? (
-    <>
-      {quem ? <ResumoForte>{quem}</ResumoForte> : <ResumoFalta>alguém (falta escolher quem)</ResumoFalta>}
-      {' recebe “'}<ResumoForte>{step.stepName?.trim() || 'esta tarefa'}</ResumoForte>{'”'}
-      {telaSel
-        ? <>, {VERBO_DO_MODO[step.entityMode ?? 'CREATE']} o {entityWord} na tela <ResumoForte>{telaSel.name}</ResumoForte></>
-        : ', sem tela: só conclui ou devolve'}
-      {due ? <> e tem <ResumoForte>{due}</ResumoForte> para concluir.</> : <> e <ResumoFalta>ainda não tem prazo</ResumoFalta>.</>}
-      {' '}
-      {retorno.mode === 'NONE' ? 'Não pode devolver o processo.'
-        : retorno.mode === 'SELECTED'
-          ? (nomesDevolucao.length
-              ? <>Se precisar, pode devolver para <ResumoForte>{listaPt(nomesDevolucao)}</ResumoForte>.</>
-              : <ResumoFalta>Falta marcar para onde pode devolver.</ResumoFalta>)
-          : 'Se precisar, pode devolver para qualquer etapa anterior.'}
-    </>
-  ) : (
-    <>
-      {'O sistema faz sozinho: '}
-      {step.connector
-        ? <ResumoForte>{findConnector(step.connector)?.label ?? step.connector}</ResumoForte>
-        : <ResumoFalta>falta escolher a ação</ResumoFalta>}.
-      {step.connector && <> {FRASE_RETORNO[step.onReturn ?? 'BLOCK']}</>}
-    </>
-  )
+  const textoDevolucao = retorno.mode === 'NONE' ? 'Não pode devolver'
+    : retorno.mode === 'SELECTED' ? (nomesDevolucao.length ? `Só para ${listaPt(nomesDevolucao)}` : 'Só para algumas')
+      : 'Qualquer etapa anterior'
+  const rotuloDaAcao = step.connector ? (findConnector(step.connector)?.label ?? step.connector) : undefined
+  const resumo = type === 'userTask'
+    ? [quem ?? 'Falta quem faz', telaSel ? `Tela ${telaSel.name}` : 'Sem tela', due ?? 'Sem prazo'].join(' · ')
+    : `O sistema faz: ${rotuloDaAcao ?? 'falta escolher a ação'}`
 
   if (somenteLeitura) {
     const respostas: Array<{ rotulo: string; valor: string }> = type === 'userTask'
@@ -343,10 +329,9 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
         ]
     return (
       <GavetaLateral rotulo={`${meta.label} · só leitura`} rotuloTom={meta.tone} rotuloIcone={<meta.Icon className="h-3 w-3" />}
-        titulo={step.stepName?.trim() || 'Etapa sem nome'} onFechar={onClose}>
+        titulo={step.stepName?.trim() || 'Etapa sem nome'} onFechar={onClose} resumo={resumo}>
         <div className="flex flex-col gap-4 px-4 py-4">
-          <EmResumo vivo={false}>{frase}</EmResumo>
-          <dl className="divide-y rounded-lg border bg-muted/20">
+          <dl className="divide-y rounded-xl border bg-card">
             {respostas.map((r) => (
               <div key={r.rotulo} className="flex items-baseline justify-between gap-3 px-3 py-2">
                 <dt className="shrink-0 text-xs text-muted-foreground">{r.rotulo}</dt>
@@ -367,7 +352,7 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
   }
 
   const rodape = (
-    <RodapePadrao pendentes={pendentes} remover={{ rotulo: 'Remover', nomeAcessivel: 'Remover atividade', aoRemover: onRemove }}
+    <RodapePadrao pendentes={faltam.length} faltam={faltam} remover={{ rotulo: 'Remover', nomeAcessivel: 'Remover atividade', aoRemover: onRemove }}
       onCancelar={cancelar} onAplicar={onClose} />
   )
 
@@ -386,23 +371,25 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
           </div>
         )}
 
-        <div className="flex flex-col gap-7 px-4 py-4">
-          <EmResumo>{frase}</EmResumo>
-
-          <Pergunta id="identificacao" n={nPergunta('identificacao')} titulo="O que precisa ser feito?" ok={!faltaNome}
-            ajuda="É o nome que aparece no fluxo e na caixa de tarefas de quem executa.">
-            <Input className={cn(CAMPO, 'max-w-lg')} aria-label="Nome da etapa" value={step.stepName}
-              placeholder={type === 'serviceTask' ? 'Ex.: Cadastrar o contrato' : 'Ex.: Analisar os dados cadastrais'}
-              onChange={(e) => onPatchStep({ stepName: e.target.value })} />
-            <div role="radiogroup" aria-label="Quem realiza esta etapa" className="grid gap-2 sm:grid-cols-2">
-              <Opcao ativo={type === 'userTask'} onClick={() => onChangeType('userTask')} icone={<UserSquare className="h-4 w-4" />}
-                titulo="Uma pessoa" descricao="A tarefa cai na caixa de alguém, que preenche, analisa ou aprova." />
-              <Opcao ativo={type === 'serviceTask'} onClick={() => onChangeType('serviceTask')} icone={<Zap className="h-4 w-4" />}
-                titulo="O sistema, sozinho" descricao="Uma ação automática, sem ninguém precisar clicar." />
+        <div className={CORPO_DA_GAVETA}>
+          <Pergunta id="identificacao" titulo="Identificação" ok={!faltaNome} icone={<ClipboardCheck />} abertaInicial={abre('identificacao')}
+            valor={type === 'userTask' ? 'Uma pessoa' : 'O sistema'}>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="cfg-nome" className={ROTULO}>Nome da etapa</label>
+              <Input id="cfg-nome" className={CAMPO} value={step.stepName}
+                placeholder={type === 'serviceTask' ? 'Ex.: Cadastrar o contrato' : 'Ex.: Analisar os dados cadastrais'}
+                onChange={(e) => onPatchStep({ stepName: e.target.value })} />
+              <p className="text-[11px] leading-snug text-muted-foreground">
+                {type === 'userTask' ? 'Aparece no fluxo e na caixa de tarefas de quem executa.' : 'Aparece no fluxo e no histórico do processo.'}
+              </p>
             </div>
+            <CampoEscolha rotulo="Executada por" valor={type} onMudar={onChangeType} opcoes={[
+              { v: 'userTask', titulo: 'Uma pessoa', descricao: 'A tarefa cai na caixa de alguém, que preenche, analisa ou aprova.' },
+              { v: 'serviceTask', titulo: 'O sistema, sozinho', descricao: 'Uma ação automática, sem ninguém precisar clicar.' },
+            ]} />
             {type === 'userTask' && (mostrarInstrucoes ? (
               <div className="flex flex-col gap-1">
-                <label htmlFor="cfg-instrucoes" className="text-[length:var(--rotulo-fonte)] font-medium text-muted-foreground">Instruções para quem executa</label>
+                <label htmlFor="cfg-instrucoes" className={ROTULO}>Instruções para quem executa</label>
                 <Textarea id="cfg-instrucoes" className="min-h-[80px] text-[length:var(--campo-fonte)]"
                   placeholder="Ex.: confira se as certidões estão em dia antes de aprovar."
                   value={step.instructions ?? ''} onChange={(e) => onPatchStep({ instructions: e.target.value })} />
@@ -416,31 +403,24 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
           </Pergunta>
 
           {type === 'userTask' && (
-            <Pergunta id="executor" n={nPergunta('executor')} titulo="Quem faz?" ok={!faltaQuem}
-              ajuda="A tarefa vai para quem ocupar o papel na hora em que ela nascer.">
-              <div role="radiogroup" aria-label="Quem recebe a tarefa" className="grid gap-2 sm:grid-cols-2">
-                <Opcao ativo={herdando} disabled={!raiaDaEtapa?.executor?.papelId}
-                  onClick={() => { if (!herdando) onPatchStep({ executorDaRaia: true, executor: raiaDaEtapa?.executor ? { ...raiaDaEtapa.executor } : undefined }) }}
-                  icone={<Users className="h-4 w-4" />}
-                  titulo={raiaDaEtapa?.executor?.papelId ? `O padrão da raia: ${raiaDaEtapa.rotuloExecutor ?? 'Responsável'}` : 'O padrão da raia'}
-                  descricao={raiaDaEtapa?.executor?.papelId ? `Herdado de “${raiaDaEtapa.nome}”. Mudou a raia, muda junto.` : 'Esta raia não tem executor padrão'} />
-                <Opcao ativo={!herdando && !porIniciador} onClick={() => { if (herdando) onPatchStep({ executorDaRaia: false }); else if (porIniciador) onPatchStep({ executorDaRaia: false, executor: undefined }) }}
-                  icone={<User className="h-4 w-4" />} titulo="Quem ocupa um papel" descricao="Ex.: o Analista da Central de Contratos." />
-                <Opcao ativo={!herdando && porIniciador} onClick={() => onPatchStep({ executorDaRaia: false, executor: { papelId: EXECUTOR_QUEM_INICIOU, entityType: 'ORG', mode: 'FIXA' } })}
-                  icone={<CircleDot className="h-4 w-4" />} titulo="Quem iniciou o processo" descricao="A pessoa que clicou em “+ Novo processo”." />
-              </div>
-              {herdando ? (
-                <p className="max-w-xl text-xs leading-relaxed text-muted-foreground">
-                  A tarefa vai para quem ocupa esse papel na raia “{raiaDaEtapa?.nome}”. Para escolher outra pessoa só para esta tarefa, use uma das outras opções.
-                </p>
-              ) : porIniciador ? (
-                <p className="max-w-xl text-xs leading-relaxed text-muted-foreground">
-                  Na primeira etapa, a tarefa abre na hora, como aba; mais adiante, cai na caixa de tarefas dessa pessoa.
-                  Se ela estiver inativa quando a tarefa nascer, vai para os administradores, com aviso.
-                </p>
-              ) : (<>
-                <div className="flex max-w-sm flex-col gap-1">
-                  <label htmlFor="cfg-papel" className="text-[length:var(--rotulo-fonte)] font-medium text-muted-foreground">Papel</label>
+            <Pergunta id="executor" titulo="Quem faz" ok={!faltaQuem} icone={<User />} abertaInicial={abre('executor')} valor={quem}>
+              <CampoEscolha rotulo="A tarefa vai para" valor={herdando ? 'raia' : porIniciador ? 'iniciador' : 'papel'}
+                onMudar={(v) => {
+                  if (v === 'raia') { if (!herdando) onPatchStep({ executorDaRaia: true, executor: raiaDaEtapa?.executor ? { ...raiaDaEtapa.executor } : undefined }) }
+                  else if (v === 'papel') { if (herdando) onPatchStep({ executorDaRaia: false }); else if (porIniciador) onPatchStep({ executorDaRaia: false, executor: undefined }) }
+                  else onPatchStep({ executorDaRaia: false, executor: { papelId: EXECUTOR_QUEM_INICIOU, entityType: 'ORG', mode: 'FIXA' } })
+                }}
+                opcoes={[
+                  { v: 'raia', disabled: !raiaDaEtapa?.executor?.papelId,
+                    titulo: raiaDaEtapa?.executor?.papelId ? `O padrão da raia: ${raiaDaEtapa.rotuloExecutor ?? 'Responsável'}` : 'O padrão da raia (a raia não tem)',
+                    descricao: `Herdado da raia “${raiaDaEtapa?.nome ?? ''}”: mudou a raia, muda junto. Para escolher outra pessoa só para esta tarefa, use outra opção.` },
+                  { v: 'papel', titulo: 'Quem ocupa um papel', descricao: 'Ex.: o Analista da Central de Contratos. Vai para quem ocupar o papel na hora em que a tarefa nascer.' },
+                  { v: 'iniciador', titulo: 'Quem iniciou o processo',
+                    descricao: 'Na primeira etapa, a tarefa abre na hora, como aba; mais adiante, cai na caixa de tarefas dessa pessoa. Se ela estiver inativa, vai para os administradores, com aviso.' },
+                ]} />
+              {herdando || porIniciador ? null : (<>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="cfg-papel" className={ROTULO}>Papel</label>
                   <Select value={executor?.papelId ?? ''} onValueChange={pickPapel}>
                     <SelectTrigger id="cfg-papel" className={CAMPO}><SelectValue placeholder="Escolha o papel" /></SelectTrigger>
                     <SelectContent>
@@ -455,15 +435,12 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
                   const tipo = entityKindLabel(execOrigem)
                   const masc = execOrigem === ORIGEM.PARCEIRO || execOrigem === 'CONTRATO'
                   return (<>
-                    <p className="text-[13px] font-semibold">{papelSel?.label ?? 'O papel'} de qual {tipo}?</p>
-                    <div role="radiogroup" aria-label={`De qual ${tipo}`} className="grid gap-2 sm:grid-cols-2">
-                      <Opcao ativo={executor.mode === 'FIXA'} onClick={() => setExec({ mode: 'FIXA' })}
-                        titulo={`Sempre ${masc ? 'o mesmo' : 'a mesma'}`} descricao={`Você escolhe agora qual ${tipo}.`} />
-                      <Opcao ativo={executor.mode === 'VARIAVEL'} onClick={() => setExec({ mode: 'VARIAVEL' })}
-                        titulo={execOrigem === ORIGEM.PARCEIRO ? 'Depende do processo' : 'A do contrato do processo'}
-                        descricao="Muda conforme o contrato que passa pelo processo." />
-                    </div>
-                    <div className="max-w-lg">
+                    <CampoEscolha rotulo={`${papelSel?.label ?? 'O papel'} de qual ${tipo}`} valor={executor.mode} onMudar={(mode) => setExec({ mode })} opcoes={[
+                      { v: 'FIXA', titulo: `Sempre ${masc ? 'o mesmo' : 'a mesma'}`, descricao: `Você escolhe agora qual ${tipo}.` },
+                      { v: 'VARIAVEL', titulo: execOrigem === ORIGEM.PARCEIRO ? 'Depende do processo' : 'A do contrato do processo',
+                        descricao: 'Muda conforme o contrato que passa pelo processo.' },
+                    ]} />
+                    <div>
                       {executor.mode === 'FIXA' ? (
                         <EntitySelect entityType={execOrigem as EntityKind} value={executor.entityId}
                           onChange={(id) => setExec({ entityId: id, entityVar: undefined, stakeholder: undefined })}
@@ -481,10 +458,13 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
           )}
 
           {type === 'userTask' && (
-            <Pergunta id="formulario" n={nPergunta('formulario')} titulo="O que a pessoa vê e preenche?" ok
-              ajuda="Opcional. Sem tela, a pessoa só conclui ou devolve — bom para aprovações e ciência.">
+            <Pergunta id="formulario" titulo="Tela" ok icone={<Monitor />} abertaInicial={abre('formulario')}
+              valor={telaSel ? `${telaSel.name} · ${ENTITY_MODE_LABEL[step.entityMode ?? 'CREATE']}` : 'Sem tela'}
+              ajuda="O que a pessoa vê e preenche. Opcional: sem tela, ela só conclui ou devolve — bom para aprovações e ciência.">
+              <div className="flex flex-col gap-1">
+              <label htmlFor="cfg-tela" className={ROTULO}>Tela</label>
               <Select value={step.screenRef || 'none'} onValueChange={pickScreen}>
-                <SelectTrigger aria-label="Tela" className={cn(CAMPO, 'max-w-lg')}><SelectValue placeholder="Sem tela" /></SelectTrigger>
+                <SelectTrigger id="cfg-tela" className={CAMPO}><SelectValue placeholder="Sem tela" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Sem tela — só concluir ou devolver</SelectItem>
                   {/* Workflow não trata de parceiro (PO, 07/11/2026): só telas de contrato são
@@ -493,16 +473,12 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
                     .map((s) => <SelectItem key={s.id} value={s.id} className="text-xs">{SUBJECT_LABEL[s.subjectType] ?? s.subjectType} · {s.name}</SelectItem>)}
                 </SelectContent>
               </Select>
-              {step.screenRef && (<>
-                <p className="text-[13px] font-semibold">E o que faz com o {entityWord}?</p>
-                <div role="radiogroup" aria-label={`O que a atividade faz com o ${entityWord}`} className="grid gap-2">
-                  {(['CREATE', 'EDIT', 'VIEW'] as const).map((m) => (
-                    <Opcao key={m} ativo={(step.entityMode ?? 'CREATE') === m}
-                      onClick={() => onPatchStep({ entityMode: m, entityVar: undefined, ...(m === 'CREATE' ? { lockedFields: undefined } : {}) })}
-                      titulo={`${ENTITY_MODE_LABEL[m]} ${entityWord}`} descricao={ENTITY_MODE_CURTO[m]} />
-                  ))}
-                </div>
-              </>)}
+              </div>
+              {step.screenRef && (
+                <CampoEscolha rotulo={`O que faz com o ${entityWord}`} valor={step.entityMode ?? 'CREATE'}
+                  onMudar={(m) => onPatchStep({ entityMode: m, entityVar: undefined, ...(m === 'CREATE' ? { lockedFields: undefined } : {}) })}
+                  opcoes={(['CREATE', 'EDIT', 'VIEW'] as const).map((m) => ({ v: m, titulo: `${ENTITY_MODE_LABEL[m]} ${entityWord}`, descricao: ENTITY_MODE_CURTO[m] }))} />
+              )}
               {telaSel && (
                 <div className="rounded-lg border bg-muted/20">
                   <button type="button" aria-expanded={maisDaTela} onClick={() => setMaisDaTela((v) => !v)}
@@ -621,8 +597,8 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
           )}
 
           {type === 'userTask' && (
-            <Pergunta id="prazo" n={nPergunta('prazo')} titulo="Em quanto tempo?" ok={!faltaPrazo}
-              ajuda="Conta só o expediente: pula fins de semana e feriados.">
+            <Pergunta id="prazo" titulo="Prazo" ok={!faltaPrazo} icone={<Clock />} abertaInicial={abre('prazo')} valor={due}
+              ajuda="Em quanto tempo a tarefa deve ser concluída. Conta só o expediente: pula fins de semana e feriados.">
               <div className="flex flex-wrap items-center gap-2">
                 <Input className={cn(CAMPO, 'w-20 text-center font-mono')} type="number" min={0} placeholder="0" aria-label="Prazo"
                   value={slaValue} onChange={(e) => setSla(slaUnit, e.target.value)} />
@@ -650,16 +626,12 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
           )}
 
           {type === 'userTask' && (
-            <Pergunta id="devolucao" n={nPergunta('devolucao')} titulo="Se precisar, pode devolver para…" ok={!faltaDevolucao}
-              ajuda="Para onde quem executa pode mandar o processo de volta, com o botão Retroceder.">
-              <div role="radiogroup" aria-label="Para onde pode devolver" className="grid gap-2">
-                <Opcao ativo={retorno.mode === 'ANY'} onClick={() => setRetornoMode('ANY')}
-                  titulo="Qualquer etapa anterior" descricao="O padrão: a pessoa escolhe para onde." />
-                <Opcao ativo={retorno.mode === 'SELECTED'} onClick={() => setRetornoMode('SELECTED')}
-                  titulo="Só para algumas" descricao="Você marca as etapas permitidas." />
-                <Opcao ativo={retorno.mode === 'NONE'} onClick={() => setRetornoMode('NONE')}
-                  titulo="Não pode devolver" descricao="O botão Retroceder não aparece." />
-              </div>
+            <Pergunta id="devolucao" titulo="Devolução" ok={!faltaDevolucao} icone={<Undo2 />} abertaInicial={abre('devolucao')} valor={textoDevolucao}>
+              <CampoEscolha rotulo="Pode devolver para" valor={retorno.mode} onMudar={setRetornoMode} opcoes={[
+                { v: 'ANY', titulo: 'Qualquer etapa anterior', descricao: 'O padrão: quem executa escolhe para onde, com o botão Retroceder.' },
+                { v: 'SELECTED', titulo: 'Só para algumas', descricao: 'Você marca as etapas permitidas.' },
+                { v: 'NONE', titulo: 'Não pode devolver', descricao: 'O botão Retroceder não aparece.' },
+              ]} />
               {retorno.mode === 'SELECTED' && (destinosDevolucao.length === 0 ? (
                 <p className="rounded-md border border-dashed p-3 text-[11.5px] text-muted-foreground">
                   Nada a marcar: não há tarefa de pessoa antes desta no fluxo.
@@ -693,10 +665,12 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
           )}
 
           {type === 'serviceTask' && (
-            <Pergunta id="acao" n={nPergunta('acao')} titulo="O que o sistema faz?" ok={!!step.connector}
+            <Pergunta id="acao" titulo="Ação automática" ok={!!step.connector} icone={<Zap />} abertaInicial={abre('acao')} valor={rotuloDaAcao}
               ajuda="O sistema executa esta ação sozinho e grava o registro de verdade.">
+              <div className="flex flex-col gap-1">
+              <label htmlFor="cfg-acao" className={ROTULO}>O que o sistema faz</label>
               <Select value={step.connector || 'none'} onValueChange={(v) => onPatchStep({ connector: v && v !== 'none' ? v : undefined })}>
-                <SelectTrigger aria-label="Ação automática" className={cn(CAMPO, 'max-w-lg')}><SelectValue placeholder="Escolha a ação" /></SelectTrigger>
+                <SelectTrigger id="cfg-acao" className={CAMPO}><SelectValue placeholder="Escolha a ação" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Nenhuma (só passa)</SelectItem>
                   {CONNECTORS.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
@@ -707,6 +681,7 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
                   )}
                 </SelectContent>
               </Select>
+              </div>
               {isRetiredConnector(step.connector) && (
                 <p className="max-w-xl text-[11.5px] leading-snug text-amber-700 dark:text-amber-400">
                   {step.connector === 'partners.activate' ? (
@@ -721,19 +696,14 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
               )}
               {step.connector && (() => {
                 const compensable = isCompensable(step.connector)
-                return (<>
-                  <p className="text-[13px] font-semibold">E se alguém devolver o processo para antes daqui?</p>
-                  <div role="radiogroup" aria-label="Se o processo for devolvido para trás daqui" className={cn('grid gap-2', compensable ? 'grid-cols-1' : 'sm:grid-cols-2')}>
-                    <Opcao ativo={(step.onReturn ?? 'BLOCK') === 'BLOCK'} onClick={() => onPatchStep({ onReturn: 'BLOCK' })}
-                      titulo="Não deixar devolver" descricao={compensable ? 'O padrão, e o mais seguro.' : 'Esta ação não tem como ser desfeita.'} />
-                    <Opcao ativo={step.onReturn === 'IDEMPOTENT'} onClick={() => onPatchStep({ onReturn: 'IDEMPOTENT' })}
-                      titulo="Deixar e refazer" descricao="Refazer a ação não causa dano." />
-                    {compensable && (
-                      <Opcao ativo={step.onReturn === 'COMPENSATE'} onClick={() => onPatchStep({ onReturn: 'COMPENSATE' })}
-                        titulo="Deixar e desfazer" descricao="Ao voltar, a ação é desfeita." />
-                    )}
-                  </div>
-                </>)
+                return (
+                  <CampoEscolha rotulo="Se alguém devolver o processo para antes daqui" valor={step.onReturn ?? 'BLOCK'}
+                    onMudar={(onReturn) => onPatchStep({ onReturn })} opcoes={[
+                      { v: 'BLOCK', titulo: 'Não deixar devolver', descricao: compensable ? 'O padrão, e o mais seguro.' : 'Esta ação não tem como ser desfeita.' },
+                      { v: 'IDEMPOTENT', titulo: 'Deixar e refazer', descricao: 'Refazer a ação não causa dano.' },
+                      ...(compensable ? [{ v: 'COMPENSATE' as const, titulo: 'Deixar e desfazer', descricao: 'Ao voltar, a ação é desfeita.' }] : []),
+                    ]} />
+                )
               })()}
             </Pergunta>
           )}
@@ -743,7 +713,7 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
 
   return (
     <GavetaLateral rotulo={meta.label} rotuloTom={meta.tone} rotuloIcone={<meta.Icon className="h-3 w-3" />} rotuloFechar="Fechar sem aplicar"
-      titulo={step.stepName?.trim() || 'Etapa sem nome'} onFechar={cancelar} rodape={rodape} focarAoAbrir={focarAoAbrir}>
+      titulo={step.stepName?.trim() || 'Etapa sem nome'} onFechar={cancelar} rodape={rodape} focarAoAbrir={focarAoAbrir} resumo={resumo}>
       {corpo}
     </GavetaLateral>
   )
@@ -751,7 +721,6 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
 
 /* ─── Peças das perguntas da etapa ────────────────────────────────────────── */
 
-const VERBO_DO_MODO: Record<string, string> = { CREATE: 'cadastra', EDIT: 'altera', VIEW: 'consulta' }
 const ENTITY_MODE_CURTO: Record<string, string> = {
   CREATE: 'Cadastra um novo, do zero.',
   EDIT: 'Altera o que uma etapa anterior criou.',
