@@ -4,8 +4,8 @@
    Painel de 440 px encostado à direita do editor, POR CIMA da coluna lateral, sem
    fundo escuro: o desenho continua visível (e clicável) ao lado. Hospeda as perguntas
    da etapa e a configuração de uma escolha / "ao mesmo tempo".
-   Cabeçalho: rótulo (o tipo — em chip colorido quando vem `rotuloTom`), título e o botão
-   Fechar. O corpo rola; o rodapé (opcional) fica fixo embaixo.
+   Cabeçalho: rótulo (o tipo — em chip colorido quando vem `rotuloTom`), título, o resumo
+   numa linha e o botão Fechar. O corpo rola; o rodapé (opcional) fica fixo embaixo.
    O Esc é de quem está DENTRO (as perguntas cancelam no Esc): a gaveta não escuta
    teclado — `ehEscDaGaveta` diz a quem escuta se o Esc é mesmo para ela.
    Foco: ao abrir vai para o título; ao fechar volta para quem estava focado antes (se
@@ -29,8 +29,10 @@ export function ehEscDaGaveta(e: KeyboardEvent): boolean {
   return !document.querySelector('[role="dialog"][data-state="open"], [data-radix-popper-content-wrapper], [data-floating-menu]')
 }
 
-export function GavetaLateral({ titulo, rotulo, onFechar, rodape, children, rotuloTom, rotuloIcone, rotuloFechar = 'Fechar', focarAoAbrir = true }: {
+export function GavetaLateral({ titulo, rotulo, onFechar, rodape, children, rotuloTom, rotuloIcone, rotuloFechar = 'Fechar', focarAoAbrir = true, resumo }: {
   titulo: string; rotulo: string; onFechar: () => void; rodape?: ReactNode; children: ReactNode
+  /** o elemento numa linha, embaixo do nome (padrão dos cadastros, PO 07/11/2026) */
+  resumo?: ReactNode
   /** classes de cor do chip do rótulo (ex.: 'bg-sky-500/10 text-sky-600'); sem elas, rótulo simples */
   rotuloTom?: string
   rotuloIcone?: ReactNode
@@ -65,14 +67,15 @@ export function GavetaLateral({ titulo, rotulo, onFechar, rodape, children, rotu
           </div>
           <h2 id={idTitulo} ref={tituloRef} tabIndex={-1} title={titulo}
             className="mt-1 truncate text-[15px] font-bold leading-snug outline-none focus-visible:underline focus-visible:decoration-dotted">{titulo}</h2>
+          {resumo && <p className="mt-0.5 text-[11.5px] leading-snug text-muted-foreground" aria-live="polite">{resumo}</p>}
         </div>
         <button type="button" onClick={onFechar} aria-label={rotuloFechar} title={rotuloFechar}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
           <X className="h-4 w-4" />
         </button>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto rolagem-visivel">{children}</div>
-      {rodape && <footer className="shrink-0 border-t bg-muted/20 px-4 py-3">{rodape}</footer>}
+      <div className="min-h-0 flex-1 overflow-y-auto bg-muted/25 rolagem-visivel">{children}</div>
+      {rodape && <footer className="shrink-0 border-t bg-card px-4 py-3">{rodape}</footer>}
     </aside>
   )
 }
