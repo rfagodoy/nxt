@@ -41,7 +41,8 @@ function predecessorasDe(edges: EEdge[], alvo: string): Set<string> {
 
 /**
  * Configuração da atividade numa GAVETA lateral de 440 px: o desenho fica visível ao lado
- * enquanto se configura. Padrão dos cadastros (PO 07/11/2026, opção A): o resumo numa linha
+ * enquanto se configura. Toda atividade é feita por uma pessoa (PO, 07/11/2026); a ação
+ * automática só aparece em desenho antigo, com o aviso para trocá-la. Padrão dos cadastros (PO 07/11/2026, opção A): o resumo numa linha
  * no cabeçalho e SEÇÕES em sanfona — Identificação, Quem faz, Tela, Prazo e Devolução (ou
  * Ação automática). Abrem a Identificação e a primeira seção incompleta; o rodapé diz o que
  * falta.
@@ -247,8 +248,8 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
   /* Abertas na chegada: a Identificação, a seção pedida (aviso da escolha) e a primeira
      incompleta. Fixado na abertura — depois, quem abre e fecha é a pessoa. */
   const [abertasNaChegada] = useState(() => new Set(['identificacao', secaoInicial, perguntas.find((p) => !p.ok)?.id].filter(Boolean)))
-  /* Seção que surge DEPOIS (trocar "Executada por" faz nascer a de Ação automática) abre
-     sozinha se estiver incompleta: é ela que a pessoa precisa preencher agora. */
+  /* Seção que surge DEPOIS (transformar uma ação automática antiga em tarefa faz nascer
+     Quem faz, Prazo…) abre sozinha se estiver incompleta: é ela que falta preencher agora. */
   const montada = useRef(false)
   useEffect(() => { montada.current = true }, [])
   const abre = (id: string) => (montada.current ? !perguntas.find((p) => p.id === id)?.ok : abertasNaChegada.has(id))
@@ -372,8 +373,27 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
         )}
 
         <div className={CORPO_DA_GAVETA}>
+          {/* Toda atividade é feita por uma pessoa (PO, 07/11/2026): a ação automática saiu da
+              paleta e do "Executada por". A de um desenho antigo continua executando; o aviso
+              oferece a troca, que é como aditivo e encerramento se registram agora (Tela do
+              contrato, no modo Editar). */}
+          {type === 'serviceTask' && (
+            <div role="note" className="flex flex-col gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-3 text-xs leading-snug text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+              <p className="flex items-start gap-2">
+                <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
+                <span>
+                  A ação automática foi aposentada: no Nxt, toda atividade é feita por uma pessoa. Esta continua funcionando
+                  até ser trocada. Para registrar aditivo ou encerramento, use uma tarefa com a Tela do contrato, no modo Editar.
+                </span>
+              </p>
+              <button type="button" onClick={() => onChangeType('userTask')}
+                className="inline-flex items-center gap-1.5 self-start rounded-md border border-amber-400/70 bg-card px-2.5 py-1 font-semibold text-foreground hover:bg-muted">
+                <UserSquare className="h-3.5 w-3.5" />Transformar em tarefa de pessoa
+              </button>
+            </div>
+          )}
           <Pergunta id="identificacao" titulo="Identificação" ok={!faltaNome} icone={<ClipboardCheck />} abertaInicial={abre('identificacao')}
-            valor={type === 'userTask' ? 'Uma pessoa' : 'O sistema'}>
+            valor={step.stepName}>
             <div className="flex flex-col gap-1">
               <label htmlFor="cfg-nome" className={ROTULO}>Nome da etapa</label>
               <Input id="cfg-nome" className={CAMPO} value={step.stepName}
@@ -383,10 +403,6 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
                 {type === 'userTask' ? 'Aparece no fluxo e na caixa de tarefas de quem executa.' : 'Aparece no fluxo e no histórico do processo.'}
               </p>
             </div>
-            <CampoEscolha rotulo="Executada por" valor={type} onMudar={onChangeType} opcoes={[
-              { v: 'userTask', titulo: 'Uma pessoa', descricao: 'A tarefa cai na caixa de alguém, que preenche, analisa ou aprova.' },
-              { v: 'serviceTask', titulo: 'O sistema, sozinho', descricao: 'Uma ação automática, sem ninguém precisar clicar.' },
-            ]} />
             {type === 'userTask' && (mostrarInstrucoes ? (
               <div className="flex flex-col gap-1">
                 <label htmlFor="cfg-instrucoes" className={ROTULO}>Instruções para quem executa</label>

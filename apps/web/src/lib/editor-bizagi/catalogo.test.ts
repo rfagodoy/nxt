@@ -7,19 +7,18 @@ describe('catálogo da paleta', () => {
     expect(Object.keys(CATALOGO)).toEqual(['inicio', 'tarefa', 'escolha', 'paralelo', 'fim'])
     const nomes = (g: GrupoPaleta) => CATALOGO[g].map((i) => i.nome)
     expect(nomes('inicio')).toEqual(['Início'])
-    expect(nomes('tarefa')).toEqual(['Tarefa de usuário', 'Ação automática'])
+    expect(nomes('tarefa')).toEqual(['Tarefa de usuário'])
     expect(nomes('escolha')).toEqual(['Escolha'])
     expect(nomes('paralelo')).toEqual(['Ao mesmo tempo'])
     expect(nomes('fim')).toEqual(['Fim'])
     for (const g of Object.keys(CATALOGO) as GrupoPaleta[]) for (const i of CATALOGO[g]) expect(i.grupo).toBe(g)
-    expect(CATALOGO.tarefa[1]).toMatchObject({ tipo: 'serviceTask' })
     expect(CATALOGO.escolha[0]).toMatchObject({ tipo: 'exclusiveGateway', modo: 'primeiro' })
     expect(CATALOGO.paralelo[0]).toMatchObject({ tipo: 'parallelGateway' })
   })
 
   it('o que saiu da paleta continua catalogado, só para reconhecer formas dos desenhos', () => {
     expect(CATALOGO_FORA_DA_PALETA.map((i) => i.nome)).toEqual([
-      'Início agendado', 'Início por evento', 'Envio de mensagem', 'Recebimento de mensagem',
+      'Início agendado', 'Início por evento', 'Ação automática', 'Envio de mensagem', 'Recebimento de mensagem',
       'Fim com erro', 'Fim com cancelamento', 'Terminar tudo',
       'Subprocesso', 'Subprocesso embutido', 'Inclusivo', 'Baseado em evento', 'Temporizador', 'Recebe mensagem', 'Envia mensagem',
     ])
@@ -27,6 +26,11 @@ describe('catálogo da paleta', () => {
     for (const n of ['Início agendado', 'Início por evento', 'Envio de mensagem', 'Recebimento de mensagem', 'Fim com erro', 'Fim com cancelamento', 'Terminar tudo']) {
       expect(todos).toContain(n)
     }
+  })
+
+  it('toda atividade é de pessoa: a ação automática saiu da paleta (PO, 07/11/2026)', () => {
+    expect(Object.values(CATALOGO).flat().some((i) => i.tipo === 'serviceTask')).toBe(false)
+    expect(TODOS_OS_ITENS.find((i) => i.tipo === 'serviceTask')?.nome).toBe('Ação automática')
   })
 
   it('nada na paleta deixa de executar', () => {
