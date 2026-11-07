@@ -4,6 +4,14 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ## [Não lançado]
 
+### Corrigido
+
+- Um usuário recém-cadastrado aparece na hora para ser escolhido como responsável ou parte envolvida, sem precisar recarregar a página.
+
+### Alterado
+
+- A escolha de pessoas busca no servidor enquanto você digita, por nome ou e-mail. A lista mostra os primeiros 20 e pede para refinar a busca, para continuar rápida com centenas de usuários.
+
 ## [2.1.0] — Boole — 2026-11-07
 
 ### Adicionado
