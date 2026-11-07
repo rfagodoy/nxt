@@ -1,6 +1,90 @@
 # Editor de workflow no estilo Bizagi — especificação
 
-**Data:** 03/11/2026 · **Decisões do PO:** quiz e conversa de 03/11/2026 · **Mockup aprovado:** https://claude.ai/artifact/8QjkU7Sx9C6kjMPrcuhZFb (v2, com "próximo item")
+**Data:** 03/11/2026 · **Revisão vigente:** 06/11/2026 · **Decisões do PO:** quiz e conversa de 03/11/2026 e quiz de 06/11/2026 · **Mockup aprovado:** https://claude.ai/artifact/8QjkU7Sx9C6kjMPrcuhZFb (v2, com "próximo item")
+
+> **Leia primeiro a Revisão de 06/11/2026, logo abaixo.** Quando houver conflito, ela prevalece. O restante do documento fica como histórico do que foi planejado em 03/11. O motor **não** vai executar temporizador, subprocesso nem os fins especiais.
+
+## Revisão de 06/11/2026 (vigente)
+
+### Objetivo
+A paleta só oferece o que funciona. Saem os itens que o motor não executa, e cada caminho do workflow pode terminar no seu próprio Fim.
+
+**Sucesso:** tudo o que a paleta oferece pode ser ativado, exceto os itens que só documentam, que não impedem a ativação. Um workflow com vários Fins ativa e conclui por qualquer um deles. Workflows existentes abrem e rodam iguais. Nenhum texto promete entrega futura.
+
+### Decisões do PO (quiz de 06/11/2026)
+| # | Tema | Decisão |
+|---|---|---|
+| 1 | Início agendado e Início por evento | Saem da paleta. |
+| 2 | Envio de mensagem e Recebimento de mensagem | Saem da paleta. |
+| 3 | Fim com erro, Fim com cancelamento e Terminar tudo | Saem da paleta. |
+| 4 | Vários Fins | **Permitir**, todos como Fim simples. Dentro de "Ao mesmo tempo", a recusa de hoje continua. |
+| 5 | Piscina, Fase e Fluxo de mensagem | Ficam e continuam só documentando. |
+| 6 | Aviso de raia | Só aparece quando a raia tem executor padrão e a tarefa usa outro. |
+
+Temporizador, subprocesso, losango inclusivo e baseado em evento já estão fora da paleta e continuam fora.
+
+### Paleta depois da revisão
+| Grupo | Itens |
+|---|---|
+| Início | Início |
+| Tarefa ▾ | Tarefa de usuário, Ação automática |
+| Escolha | Escolha |
+| Ao mesmo tempo | Ao mesmo tempo |
+| Fim | Fim |
+| Conectores | Sequência, Fluxo de mensagem |
+| Estrutura | Piscina, Raia, Fase |
+
+- O ▾ só continua na Tarefa, porque o Início e o Fim ficam com um item cada.
+- A etiqueta de execução sai do ▾ e dos tooltips das formas, já que tudo o que fica ali executa. O tooltip "Só documenta" continua em Piscina, Fase e Fluxo de mensagem.
+- Saem as etiquetas "Executa hoje" e "Próxima rodada".
+
+### Desenhos que já usam um item removido
+- Os itens removidos passam para `CATALOGO_FORA_DA_PALETA`: a forma continua abrindo, com nome e ícone, mas não se cria outra.
+- O rascunho continua salvando, e a ativação continua recusando, agora sem o "ainda", que prometia entrega: `"<nome>" é <rótulo>, que não executa. Troque por outro elemento ou deixe o workflow em rascunho.`
+- A gaveta dessas formas fica só com o nome, o aviso de que não executa e o botão Remover. A configuração gravada no desenho é preservada, mas não é mais editada.
+- Saem as perguntas específicas dessas gavetas e os textos que citam temporizador, subprocesso e baseado em evento (`gavetas.tsx`).
+- No banco de desenvolvimento, nenhum desenho usa esses itens (conferido em 06/11/2026). Outros ambientes não foram conferidos, por isso a tolerância continua.
+
+### Vários Fins
+O motor já aceita: o interpretador só marca que o processo passou por um fim (`reachedEnd`), e o processo conclui quando não resta nenhum token. A trava está na conversão do desenho (`desenhoParaBlocos`, em `desenho-livre.ts`), e os blocos têm um único `fimId`.
+
+- **Conversão:** antes de converter, as setas que chegam a qualquer Fim simples passam a apontar para um único Fim. Os blocos e o grafo continuam com um Fim só, sem mudança em `FluxoBlocos`, `WfGraph`, interpretador, API ou banco.
+- **Ao mesmo tempo:** a regra atual vale sem código novo, pois a conversão enxerga os Fins como um só. Um ramo que encerra o processo continua recusado.
+- **Fim sem seta chegando:** com mais de um Fim no desenho, vira pendência que impede ativar, com a forma em destaque: `O Fim "<nome>" não recebe nenhuma seta. Ligue um caminho a ele ou apague-o.`
+- **Desenho com dois Inícios:** continua recusado, como hoje.
+- **Frase removida:** "Vários Fins chegam na próxima entrega."
+- **Ativo volta a rascunho?** Acrescentar ou religar um Fim sem mudar o que executa não devolve o workflow a rascunho; `assinaturaDoQueExecuta` precisa comparar o resultado já convertido.
+- **Assinatura:** o `fimId` escolhido na conversão sai da comparação (`normalizarFluxo`). Sem isso, apagar o primeiro Fim mudaria a assinatura sem mudar a execução.
+- **Ações que passam pelos blocos:** `blocosParaDesenho` monta um Fim só e descartaria os outros quando uma ação alterasse a estrutura pelos blocos. Ele passa a preservar os Fins do desenho anterior: a seta nova para o Fim volta ao Fim de antes pelo mesmo `id` ou, se não houver, pela mesma forma de origem. Cada seta de antes vale uma vez só. Sem isso, há um terceiro passo, que caminha pelo desenho: se o passo antes do Fim saiu, a busca segue as setas de antes, passando só por formas que não existem mais, até um Fim; se a origem da seta é uma forma nova (inserida no fim do caminho), a busca volta pelas setas novas, passando só por formas novas, até a forma de antes, e segue dali. Se a busca alcança mais de um Fim, o sistema não adivinha. Sem correspondência, ela chega ao Fim principal. Remover um caminho inteiro que só levava àquele Fim continua deixando-o sem seta. Um Fim que fique sem seta continua no desenho e vira a pendência acima, nunca some em silêncio.
+- **Editor:** o canvas desenha a partir do documento (`grafoDoDoc`), então os vários Fins já aparecem. Clicar na paleta sem seleção continua colocando a forma antes do primeiro Fim.
+
+### Aviso de raia
+- Hoje o aviso compara o **nome** da raia com o nome do responsável, por isso acusa "Solicitante" × "Quem iniciou o processo" sem haver divergência real.
+- Passa a valer: a raia tem `executor.papelId` definido, a tarefa não herda da raia (`herdaDaRaia`) e o executor dela é outro (outro `papelId` ou outro `entityId`). Raia sem executor padrão nunca gera aviso. Tarefa automática também não.
+- Frase: `Está na raia "<raia>", cujo executor padrão é <papel da raia>, mas quem executa é <responsável>.`
+- Continua sendo só um aviso: não impede ativar e não altera o selo "Pronto para ativar".
+
+### Padrões adotados: revise
+- **Sem migração de dados:** os desenhos gravados não são alterados. Só a conversão enxerga os Fins como um.
+- **O histórico não diz por qual Fim o processo terminou.** Com um Fim só no grafo, nomes como "Aprovado" e "Recusado" aparecem só no desenho, e o processo fica como concluído nos dois casos. Registrar o Fim alcançado exigiria mudar blocos, grafo e histórico, e fica fora desta entrega.
+- **Encerramento com problema:** um caminho de "recusado" termina em Fim simples, e o processo fica **concluído**. Para ficar como cancelado, continua sendo preciso cancelar à mão.
+- **Associação:** continua fora da paleta (padrão de 03/11).
+
+### Fora do escopo
+Execução de temporizador, subprocesso, fins especiais, mensagens e inícios especiais. Tabela `WorkflowTimer`, campos `parentInstanceId` e `parentTokenId`, tipos `timerEvent` e `callActivity`, `endKind` e status novos. Nenhuma migração de banco. O `executaHoje` continua, porque a recusa na ativação depende dele.
+
+### Testes
+- **workflow-core:** dois e três Fins ativam e concluem por qualquer um; Escolha com um Fim por caminho; ramo de "Ao mesmo tempo" indo a um Fim continua recusado; Fim sem seta vira pendência; dois Inícios continuam recusados; forma com variante removida continua recusada; workflow de um Fim gera o mesmo grafo de antes; trocar o Fim de destino sem mudar o que executa mantém `assinaturaDoQueExecuta`. O teste da frase antiga, em `desenho-livre-recusas.test.ts`, é atualizado.
+- **Web:** catálogo com os itens da tabela acima; item removido continua sendo encontrado em `TODOS_OS_ITENS`; aviso de raia nos quatro casos (sem executor, herda, mesmo executor, outro executor).
+- **Navegador:** desenhar uma Escolha com dois Fins, ativar e concluir um processo por cada caminho; conferir a paleta e as gavetas nos temas claro e escuro.
+
+### Versão e documentos
+- `CHANGELOG.md`: entrada em "Não lançado". A entrada 2.0.0 fica como está, pois registra o que foi lançado.
+- Número de versão e tag só com o PO (`docs/versionamento.md`).
+
+---
+
+*O que vem a seguir é o texto de 03/11/2026. O PR 1 foi entregue na versão 2.0.0; o que tratava dos PRs 2, 3 e 4 foi cancelado.*
 
 ## Objetivo
 Deixar a tela de parametrização do workflow igual à do Bizagi: paleta completa em grade, piscinas, raias e fases, e a parametrização de cada elemento aberta direto do desenho. E fazer o motor executar três elementos novos: **temporizador**, **subprocesso** e **fim com erro ou cancelamento**.
@@ -120,10 +204,12 @@ Deixar a tela de parametrização do workflow igual à do Bizagi: paleta complet
 - A aba e os componentes `components/processes/roteiro/` são removidos, e os testes deles também.
 
 ## Entregas (PRs, nesta ordem)
-1. **Editor:** paleta Bizagi, próximo item, duplo clique, canvas (grade, guias, laço, alinhar, tamanhos), fases, orientação, piscinas externas e fluxo de mensagem, raia com executor padrão, Roteiro fora. Os quatro elementos novos já desenháveis, mas **impedem ativar** até o PR deles.
-2. **Fins com erro e cancelamento** + vários Fins (motor, API, gaveta).
-3. **Temporizador** (motor, migração `WorkflowTimer`, varredura, gaveta, histórico da instância).
-4. **Subprocesso** (motor, migração de `ProcessInstance`, API, gaveta, link pai ↔ filho na instância).
+1. **Editor:** paleta Bizagi, próximo item, duplo clique, canvas (grade, guias, laço, alinhar, tamanhos), fases, orientação, piscinas externas e fluxo de mensagem, raia com executor padrão, Roteiro fora. Os quatro elementos novos já desenháveis, mas **impedem ativar** até o PR deles. **Entregue na versão 2.0.0 (#104).**
+2. ~~**Fins com erro e cancelamento** + vários Fins (motor, API, gaveta).~~ **Cancelado em 06/11/2026.** Só os vários Fins continuam, na forma descrita na Revisão.
+3. ~~**Temporizador** (motor, migração `WorkflowTimer`, varredura, gaveta, histórico da instância).~~ **Cancelado em 06/11/2026.**
+4. ~~**Subprocesso** (motor, migração de `ProcessInstance`, API, gaveta, link pai ↔ filho na instância).~~ **Cancelado em 06/11/2026.**
+
+A entrega que resta é uma só, descrita na Revisão de 06/11/2026: limpeza da paleta, vários Fins e aviso de raia.
 
 Cada PR entra no `CHANGELOG.md` em "Não lançado". Número de versão e tag só com o PO (docs/versionamento.md).
 

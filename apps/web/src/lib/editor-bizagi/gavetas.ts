@@ -1,11 +1,8 @@
-/* ─── Gavetas do editor (estilo Bizagi): qual abre, configuração e contas ───────
-   Puro. `gavetaDoAlvo` diz qual gaveta o duplo clique (Enter, "Parametrizar") abre; as
-   `config*` completam a configuração gravada na forma com os padrões (o que a gaveta mostra);
+/* ─── Gavetas do editor (estilo Bizagi): qual abre e contas ───────
+   Puro. `gavetaDoAlvo` diz qual gaveta o duplo clique (Enter, "Parametrizar") abre;
    `restaurarAlvo` é o Cancelar das gavetas novas: devolve SÓ o que a gaveta edita ao estado da
    abertura (o resto do desenho — uma forma movida ao lado — fica como está). */
-import type {
-  ConfigFim, ConfigForma, ConfigSubprocesso, ConfigTemporizador, DesenhoV2, FaseDesenho, FormaDesenho, LayoutDesenho, SetaDesenho, StepFormSchema,
-} from '@nxt/types'
+import type { DesenhoV2, FaseDesenho, FormaDesenho, LayoutDesenho, SetaDesenho, StepFormSchema } from '@nxt/types'
 import { varianteDe } from '@nxt/workflow-core'
 import { herdaDaRaia, raiaDaForma } from './raias'
 import { layoutDe, mudarOrientacao } from './layout'
@@ -24,7 +21,7 @@ export type QualGaveta =
   | 'escolha'
   /** o "ao mesmo tempo" de hoje, quando o losango é um bloco */
   | 'bloco'
-  /** a gaveta nova da forma (início, fim, intermediário, subprocesso, envio…) */
+  /** a gaveta nova da forma (início, fim, ao mesmo tempo solto e os itens removidos) */
   | 'forma'
   | 'seta' | 'raia' | 'fase' | 'piscinaPrincipal' | 'piscinaExterna' | 'mensagem'
 
@@ -70,92 +67,7 @@ export function nomeDoElemento(f: Pick<FormaDesenho, 'tipo' | 'variante' | 'modo
   return itemDaForma(f)?.nome ?? 'Elemento'
 }
 
-/* ── configuração das formas novas ── */
-
-type Livre = Record<string, string | number | boolean>
-const ehObjeto = (c: unknown): c is Record<string, unknown> => !!c && typeof c === 'object' && !Array.isArray(c)
-
-const UNIDADES: ReadonlyArray<ConfigTemporizador['unidade']> = ['diasUteis', 'diasCorridos', 'horasUteis']
-const CAMPOS_DATA: ReadonlyArray<NonNullable<ConfigTemporizador['campoData']>> = ['vencimento', 'assinatura', 'inicioVigencia']
-
-/** O temporizador como a gaveta o mostra: o gravado, completado pelos padrões. */
-export function configTemporizador(c: ConfigForma | undefined): ConfigTemporizador {
-  const o = ehObjeto(c) ? c : {}
-  const espera = o.espera === 'data' ? 'data' : 'prazo'
-  const n = typeof o.n === 'number' && Number.isFinite(o.n) && o.n >= 0 ? o.n : espera === 'data' ? 30 : 1
-  const unidade = UNIDADES.includes(o.unidade as ConfigTemporizador['unidade']) ? o.unidade as ConfigTemporizador['unidade'] : 'diasUteis'
-  const out: ConfigTemporizador = { espera, n, unidade }
-  if (espera === 'data') {
-    out.campoData = CAMPOS_DATA.includes(o.campoData as NonNullable<ConfigTemporizador['campoData']>) ? o.campoData as ConfigTemporizador['campoData'] : 'vencimento'
-    out.sentido = o.sentido === 'depois' ? 'depois' : 'antes'
-  }
-  return out
-}
-
-export function configSubprocesso(c: ConfigForma | undefined): ConfigSubprocesso {
-  const o = ehObjeto(c) ? c : {}
-  const out: ConfigSubprocesso = {
-    versao: o.versao === 'fixa' ? 'fixa' : 'ativa',
-    levarContrato: o.levarContrato !== false,
-    campos: Array.isArray(o.campos) ? o.campos.filter((x): x is string => typeof x === 'string') : [],
-    esperar: o.esperar !== false,
-  }
-  if (typeof o.processId === 'string' && o.processId) out.processId = o.processId
-  if (out.versao === 'fixa' && typeof o.versaoFixa === 'number') out.versaoFixa = o.versaoFixa
-  return out
-}
-
-/** Fim com erro / cancelamento. `avisarQuemIniciou` nasce marcado (o mockup). */
-export function configFim(c: ConfigForma | undefined): ConfigFim {
-  const o = ehObjeto(c) ? c : {}
-  const out: ConfigFim = { avisarQuemIniciou: o.avisarQuemIniciou !== false }
-  if (typeof o.motivo === 'string') out.motivo = o.motivo
-  if (typeof o.codigo === 'string') out.codigo = o.codigo
-  return out
-}
-
-/** Configuração livre (envio, recebimento, início agendado/por evento): o gravado por cima dos
- *  padrões, só com as chaves e os tipos dos padrões. */
-export function configLivre<T extends Livre>(c: ConfigForma | undefined, padrao: T): T {
-  const o = ehObjeto(c) ? c : {}
-  const out = { ...padrao }
-  for (const k of Object.keys(padrao) as Array<keyof T>) {
-    const v = o[k as string]
-    if (typeof v === typeof padrao[k]) out[k] = v as T[keyof T]
-  }
-  return out
-}
-
-export const ENVIO_PADRAO = { para: '', canal: 'portal', levaMinuta: true, levaMensagem: true, levaAnexos: false }
-export const RECEBIMENTO_PADRAO = { de: '', recebido: 'assinatura' }
-export const INICIO_AGENDADO_PADRAO = { quando: 'contrato', quemIniciou: 'gestor' }
-export const INICIO_EVENTO_PADRAO = { evento: 'criado' }
-
-/** A forma com `patch` por cima da configuração (o mesmo objeto se nada muda). */
-export function comConfig(f: FormaDesenho, patch: Record<string, unknown>): FormaDesenho {
-  const atual = ehObjeto(f.config) ? f.config as Record<string, unknown> : {}
-  if (Object.keys(patch).every((k) => atual[k] === patch[k])) return f
-  const nova: Record<string, unknown> = { ...atual }
-  for (const [k, v] of Object.entries(patch)) {
-    if (v === undefined) delete nova[k]
-    else nova[k] = v
-  }
-  return { ...f, config: nova as ConfigForma }
-}
-
-/** "a, b , ,c" → ['a', 'b', 'c'] (os campos que vão para o subprocesso). */
-export const camposDoTexto = (texto: string): string[] => texto.split(',').map((x) => x.trim()).filter(Boolean)
-
-/* ── listas e contas das gavetas ── */
-
-export interface WorkflowDaLista { id: string; name: string; status: string; version?: number }
-
-/** Workflows que um subprocesso pode chamar: os ATIVOS, menos este, por nome. */
-export function workflowsAtivos<T extends WorkflowDaLista>(lista: readonly T[] | null | undefined, idAtual?: string): T[] {
-  return (lista ?? [])
-    .filter((w) => w.status === 'ACTIVE' && w.id !== idAtual)
-    .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
-}
+/* ── contas das gavetas ── */
 
 /** Tarefas de usuário desenhadas na raia (pelo centro) e quantas seguem o executor padrão. */
 export function tarefasNaRaia(

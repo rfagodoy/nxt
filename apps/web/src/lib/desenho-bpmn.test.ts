@@ -3,7 +3,7 @@ import type { GrafoGerado } from '@nxt/workflow-core'
 import type { DesenhoBpmn, DesenhoV2 } from '@nxt/types'
 import { nodeSize } from './flow-layout'
 import {
-  GRADE, RAIA_ALTURA_PADRAO, RAIA_ALTURA_MINIMA, RAIA_ALTURA_MAXIMA, desenhoInicial, organizar, completarPosicoes, raiaNaAltura, avisoDeRaia, setaSobPonto, polilinhaDaSeta,
+  GRADE, RAIA_ALTURA_PADRAO, RAIA_ALTURA_MINIMA, RAIA_ALTURA_MAXIMA, desenhoInicial, organizar, completarPosicoes, raiaNaAltura, setaSobPonto, polilinhaDaSeta,
   adicionarRaia, renomearRaia, redimensionarRaia, moverRaia, removerRaia, abrirEspaco, larguraDaInsercao, reordenarNoDesenho, pontoDoRotuloNaPolilinha,
   formasDoItem, posicoesAoMover, podeLigar, ligar, religar, apagarSeta, apagarForma, soltarForma, atualizarSeta, religarSaida, pontasDaSeta,
   pendenciaDaRecusa,
@@ -118,16 +118,6 @@ describe('raiaNaAltura', () => {
     expect(raiaNaAltura(raias, 140)).toBe(1)
     expect(raiaNaAltura(raias, 240)).toBe(-1)
     expect(raiaNaAltura(raias, -1)).toBe(-1)
-  })
-})
-
-describe('avisoDeRaia', () => {
-  it('avisa só quando o nome da raia não aparece no responsável', () => {
-    expect(avisoDeRaia('RH', 'Analista de RH')).toBeNull()
-    expect(avisoDeRaia('Patrimônio', 'Analista de Patrimonio')).toBeNull()
-    expect(avisoDeRaia('RH', 'Analista de Fluxo de Contas')).toBe('Está na raia “RH”, mas quem executa é Analista de Fluxo de Contas.')
-    expect(avisoDeRaia('', 'X')).toBeNull()
-    expect(avisoDeRaia('RH', undefined)).toBeNull()
   })
 })
 

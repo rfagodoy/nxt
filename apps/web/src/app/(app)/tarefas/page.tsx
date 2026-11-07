@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Loader2, RefreshCw, AlertTriangle, X, CheckCircle2, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { EmptyState } from '@/components/ui/empty-state'
 import { LoadErrorBlock } from '@/components/list/load-error'
 import { apiJson } from '@/lib/http'
 import { useAoVivo } from '@/lib/realtime'
@@ -17,7 +16,7 @@ export default function TarefasPage() {
   const [tasks, setTasks] = useState<Task[] | null>(null)
   const [notice, setNotice] = useState<{ msg: string; tom: 'aviso' | 'sucesso' } | null>(null)
 
-  /* Falha de carga ≠ caixa vazia — sem isto, API fora do ar viraria "Tudo em dia! 🎉",
+  /* Falha de carga ≠ caixa vazia — sem isto, API fora do ar viraria "Nenhuma tarefa aguardando você",
      o pior falso-negativo possível numa caixa de trabalho (load-error.tsx). */
   const [erroCarga, setErroCarga] = useState(false)
   const load = useCallback(async () => {
@@ -106,10 +105,10 @@ export default function TarefasPage() {
       {tasks === null ? (
         <div className="flex items-center justify-center py-16 text-xs text-muted-foreground xl:flex-1"><Loader2 className="h-4 w-4 animate-spin mr-2" /> Carregando…</div>
       ) : tasks.length === 0 ? (
-        <div className="rounded-xl border bg-card shadow-sm flex items-center justify-center xl:flex-1 xl:min-h-0">
+        <div className={cn('rounded-xl border bg-card shadow-sm xl:flex-1 xl:min-h-0', erroCarga && 'flex items-center justify-center')}>
           {erroCarga
             ? <LoadErrorBlock onRetry={() => void load()} />
-            : <EmptyState icon={CheckCircle2} tone="success" size="lg" title="Tudo em dia! 🎉" description="Nenhuma tarefa aguardando você." />}
+            : <p className="px-3 py-8 text-center text-xs text-muted-foreground">Nenhuma tarefa aguardando você.</p>}
         </div>
       ) : (
         <div className={cn('grid grid-cols-1 gap-3 items-start xl:grid-rows-1 xl:items-stretch xl:flex-1 xl:min-h-0',

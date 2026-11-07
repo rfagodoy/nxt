@@ -29,10 +29,8 @@ export function ehEscDaGaveta(e: KeyboardEvent): boolean {
   return !document.querySelector('[role="dialog"][data-state="open"], [data-radix-popper-content-wrapper], [data-floating-menu]')
 }
 
-export function GavetaLateral({ titulo, rotulo, onFechar, rodape, children, rotuloTom, rotuloIcone, rotuloFechar = 'Fechar', focarAoAbrir = true, selo }: {
+export function GavetaLateral({ titulo, rotulo, onFechar, rodape, children, rotuloTom, rotuloIcone, rotuloFechar = 'Fechar', focarAoAbrir = true }: {
   titulo: string; rotulo: string; onFechar: () => void; rodape?: ReactNode; children: ReactNode
-  /** ao lado do rótulo (o selo "Próxima rodada" do elemento que o motor ainda não executa) */
-  selo?: ReactNode
   /** classes de cor do chip do rótulo (ex.: 'bg-sky-500/10 text-sky-600'); sem elas, rótulo simples */
   rotuloTom?: string
   rotuloIcone?: ReactNode
@@ -64,7 +62,6 @@ export function GavetaLateral({ titulo, rotulo, onFechar, rodape, children, rotu
             {rotuloTom
               ? <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold', rotuloTom)}>{rotuloIcone}{rotulo}</span>
               : <p className="flex items-center gap-1 text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">{rotuloIcone}{rotulo}</p>}
-            {selo}
           </div>
           <h2 id={idTitulo} ref={tituloRef} tabIndex={-1} title={titulo}
             className="mt-1 truncate text-[15px] font-bold leading-snug outline-none focus-visible:underline focus-visible:decoration-dotted">{titulo}</h2>

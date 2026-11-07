@@ -25,3 +25,16 @@ export function aplicarExecutorDasRaias(
     return executor ? { ...s, executorDaRaia: true, executor: { ...executor } } : s
   })
 }
+
+/** Aviso na forma quando a tarefa foi dada a outro executor que não o padrão da raia onde está.
+ *  Só avisa; não impede ativar. Compara o executor como guardado (papel e entidade). */
+export function avisoDeRaia(
+  raia: Pick<RaiaDesenho, 'nome' | 'executor'>, step: StepFormSchema | undefined,
+  nomes: { daRaia?: string; responsavel?: string },
+): string | null {
+  const padrao = raia.executor
+  if (!padrao?.papelId || !step || (step.stepType ?? 'userTask') !== 'userTask' || herdaDaRaia(step)) return null
+  const ex = step.executor
+  if (ex?.papelId === padrao.papelId && (ex.entityId ?? '') === (padrao.entityId ?? '')) return null
+  return `Está na raia “${raia.nome}”, cujo executor padrão é ${nomes.daRaia ?? 'Responsável'}, mas quem executa é ${nomes.responsavel ?? 'Sem responsável'}.`
+}

@@ -3,9 +3,8 @@ import type { DesenhoV2, FormaDesenho, StepFormSchema } from '@nxt/types'
 import { LAYOUT_PADRAO } from '@nxt/workflow-core'
 import { mudarOrientacao } from './layout'
 import {
-  camposDoTexto, comConfig, configFim, configLivre, configSubprocesso, configTemporizador, ENVIO_PADRAO, executorDaRaia,
-  formasNaFase, gavetaDaForma, gavetaDoAlvo, itemDaForma, nomeDaRaia, nomeDoElemento, restaurarAlvo, restaurarDesenhoDoBloco, restaurarPasso, rotuloDaSeta, setasParaGravar,
-  tarefasNaRaia, workflowsAtivos,
+  executorDaRaia, formasNaFase, gavetaDaForma, gavetaDoAlvo, itemDaForma, nomeDaRaia, nomeDoElemento, restaurarAlvo, restaurarDesenhoDoBloco, restaurarPasso, rotuloDaSeta, setasParaGravar,
+  tarefasNaRaia,
 } from './gavetas'
 
 const EXEC = { papelId: 'p1', entityType: 'ORG', mode: 'FIXA' } as const
@@ -86,52 +85,6 @@ describe('gavetaDoAlvo', () => {
     const p = base({ formas: [{ id: 'p', tipo: 'parallelGateway' }] })
     expect(gavetaDoAlvo({ k: 'forma', id: 'p' }, p, (id) => id === 'p')).toBe('bloco')
     expect(gavetaDoAlvo({ k: 'forma', id: 'p' }, p)).toBe('forma')
-  })
-})
-
-describe('configurações', () => {
-  it('temporizador: completa o gravado e troca os padrões pela espera', () => {
-    expect(configTemporizador(undefined)).toEqual({ espera: 'prazo', n: 1, unidade: 'diasUteis' })
-    expect(configTemporizador({ espera: 'prazo', n: 5, unidade: 'horasUteis' })).toEqual({ espera: 'prazo', n: 5, unidade: 'horasUteis' })
-    expect(configTemporizador({ espera: 'data' })).toEqual({ espera: 'data', n: 30, unidade: 'diasUteis', campoData: 'vencimento', sentido: 'antes' })
-    expect(configTemporizador({ espera: 'data', n: 10, campoData: 'assinatura', sentido: 'depois' }))
-      .toMatchObject({ n: 10, campoData: 'assinatura', sentido: 'depois' })
-    expect(configTemporizador({ unidade: 'semanas', n: -2 } as never)).toEqual({ espera: 'prazo', n: 1, unidade: 'diasUteis' })
-  })
-  it('subprocesso: ativa, leva o contrato e espera por padrão; versão fixa só com a versão', () => {
-    expect(configSubprocesso(undefined)).toEqual({ versao: 'ativa', levarContrato: true, campos: [], esperar: true })
-    expect(configSubprocesso({ processId: 'w1', versao: 'fixa', versaoFixa: 3, levarContrato: false, campos: ['a', 2 as never], esperar: false }))
-      .toEqual({ processId: 'w1', versao: 'fixa', versaoFixa: 3, levarContrato: false, campos: ['a'], esperar: false })
-    expect(configSubprocesso({ versao: 'ativa', versaoFixa: 3 } as never)).not.toHaveProperty('versaoFixa')
-  })
-  it('fim: avisar quem iniciou nasce marcado', () => {
-    expect(configFim(undefined)).toEqual({ avisarQuemIniciou: true })
-    expect(configFim({ motivo: 'x', codigo: 'Y', avisarQuemIniciou: false })).toEqual({ motivo: 'x', codigo: 'Y', avisarQuemIniciou: false })
-  })
-  it('livre: só as chaves e os tipos do padrão', () => {
-    expect(configLivre({ canal: 'email', levaAnexos: true, estranho: 1, para: 3 } as never, ENVIO_PADRAO))
-      .toEqual({ ...ENVIO_PADRAO, canal: 'email', levaAnexos: true })
-  })
-  it('comConfig: mescla, tira com undefined e devolve a mesma forma sem mudança', () => {
-    const f: FormaDesenho = { id: 'x', tipo: 'end', variante: 'erro', config: { motivo: 'a' } }
-    expect(comConfig(f, { motivo: 'a' })).toBe(f)
-    expect(comConfig(f, { codigo: 'C' }).config).toEqual({ motivo: 'a', codigo: 'C' })
-    expect(comConfig(f, { motivo: undefined }).config).toEqual({})
-    expect(comConfig({ id: 'y', tipo: 'start' }, { quando: 'mes' }).config).toEqual({ quando: 'mes' })
-  })
-  it('camposDoTexto', () => {
-    expect(camposDoTexto(' Objeto, Valor estimado , ,')).toEqual(['Objeto', 'Valor estimado'])
-  })
-})
-
-describe('workflowsAtivos', () => {
-  it('só os ativos, sem o próprio, por nome', () => {
-    const l = [
-      { id: 'a', name: 'Zeta', status: 'ACTIVE' }, { id: 'b', name: 'Alfa', status: 'ACTIVE' },
-      { id: 'c', name: 'Beta', status: 'DRAFT' }, { id: 'eu', name: 'Eu', status: 'ACTIVE' },
-    ]
-    expect(workflowsAtivos(l, 'eu').map((w) => w.id)).toEqual(['b', 'a'])
-    expect(workflowsAtivos(null)).toEqual([])
   })
 })
 
@@ -313,5 +266,10 @@ describe('itemDaForma', () => {
     expect(itemDaForma({ tipo: 'end', variante: 'erro' })?.nome).toBe('Fim com erro')
     expect(itemDaForma({ tipo: 'exclusiveGateway', modo: 'todos' })?.nome).toBe('Inclusivo')
     expect(itemDaForma({ tipo: 'intermediateEvent', variante: 'temporizador' })?.grupo).toBe('intermediario')
+  })
+  it('forma com item removido abre a gaveta de forma', () => {
+    expect(gavetaDaForma({ tipo: 'end', variante: 'erro' }, false)).toBe('forma')
+    expect(gavetaDaForma({ tipo: 'subProcess', variante: 'chamada' }, false)).toBe('forma')
+    expect(gavetaDaForma({ tipo: 'userTask', variante: 'envio' }, false)).toBe('forma')
   })
 })

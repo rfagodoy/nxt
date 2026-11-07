@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DesenhoV2, StepFormSchema } from '@nxt/types'
-import { aplicarExecutorDasRaias, herdaDaRaia, raiaDaForma } from './raias'
+import { aplicarExecutorDasRaias, avisoDeRaia, herdaDaRaia, raiaDaForma } from './raias'
 
 const EXEC_A = { papelId: 'papel-a', entityType: 'ORG', mode: 'FIXA' } as const
 const EXEC_B = { papelId: 'papel-b', entityType: 'ORG', mode: 'FIXA' } as const
@@ -67,5 +67,35 @@ describe('aplicarExecutorDasRaias', () => {
   it('serviceTask não herda', () => {
     const p = passo({ stepType: 'serviceTask' })
     expect(aplicarExecutorDasRaias([p], desenho(0), alturaDe)[0]).toBe(p)
+  })
+})
+
+describe('avisoDeRaia', () => {
+  const raia = { nome: 'Solicitante', executor: { papelId: 'p1', entityType: 'ORG', mode: 'FIXA' } as const }
+  const outro = { papelId: 'p2', entityType: 'ORG', mode: 'FIXA' } as const
+  const nomes = { daRaia: 'Gestor', responsavel: 'Analista' }
+  const FRASE = 'Está na raia “Solicitante”, cujo executor padrão é Gestor, mas quem executa é Analista.'
+
+  it('raia sem executor padrão não avisa', () => {
+    expect(avisoDeRaia({ nome: 'Solicitante' }, passo({ executorDaRaia: false, executor: { ...outro } }), nomes)).toBeNull()
+    expect(avisoDeRaia({ nome: 'Solicitante' }, passo({ executorDaRaia: false, executor: { papelId: '@iniciador', entityType: 'ORG', mode: 'FIXA' } }), nomes)).toBeNull()
+  })
+  it('tarefa que herda não avisa', () => {
+    expect(avisoDeRaia(raia, passo({ executorDaRaia: true, executor: { ...outro } }), nomes)).toBeNull()
+  })
+  it('mesmo executor não avisa', () => {
+    expect(avisoDeRaia(raia, passo({ executorDaRaia: false, executor: { ...raia.executor } }), nomes)).toBeNull()
+  })
+  it('tarefa automática não avisa', () => {
+    expect(avisoDeRaia(raia, passo({ stepType: 'serviceTask', executorDaRaia: false, executor: { ...outro } }), nomes)).toBeNull()
+  })
+  it('sem etapa não avisa', () => {
+    expect(avisoDeRaia(raia, undefined, nomes)).toBeNull()
+  })
+  it('outro papel avisa com a frase', () => {
+    expect(avisoDeRaia(raia, passo({ executorDaRaia: false, executor: { ...outro } }), nomes)).toBe(FRASE)
+  })
+  it('mesmo papel em outra entidade avisa', () => {
+    expect(avisoDeRaia(raia, passo({ executorDaRaia: false, executor: { ...raia.executor, entityId: 'e2' } }), nomes)).toBe(FRASE)
   })
 })

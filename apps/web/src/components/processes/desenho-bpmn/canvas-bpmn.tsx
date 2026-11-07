@@ -37,9 +37,10 @@ import {
   type FluxoBlocos, type GrafoGerado, type ItemFluxo, type PontoDeInsercao,
 } from '@nxt/workflow-core'
 import {
-  GRADE, RAIA_ROTULO_W, adicionarRaia, avisoDeRaia, moverRaia, podeLigar, polilinhaDaSeta, raiaNaAltura, redimensionarRaia, removerRaia,
+  GRADE, RAIA_ROTULO_W, adicionarRaia, moverRaia, podeLigar, polilinhaDaSeta, raiaNaAltura, redimensionarRaia, removerRaia,
   renomearRaia, reordenarNoDesenho, setaSobPonto, type LadoDaSeta, type PatchDasPontas,
 } from '@/lib/desenho-bpmn'
+import { avisoDeRaia } from '@/lib/editor-bizagi/raias'
 import { nodeSize, type FlowNodeType } from '@/lib/flow-layout'
 import type { ExportModel, ExportNode, ExportNodeType } from '@/lib/flow-export'
 import { ZOOM_MAX, ZOOM_MIN } from '@/components/processes/flow-shared'
@@ -74,6 +75,8 @@ export interface CanvasBpmnProps {
   selecionado: string | null
   somenteLeitura?: boolean
   responsavelDe: (id: string) => string | undefined   // "Analista de Central de Contratos"
+  /** O mesmo texto, para o executor padrão de uma raia (o aviso de raia o usa). */
+  rotuloDoExecutorDaRaia: (ex: StepFormSchema['executor']) => string | undefined
   prazoDe: (id: string) => string | null               // dueText
   problemasDe: (id: string) => string[]                // mensagens de validação do nó
   /** Clique na forma (ou no vazio, `null`): só seleciona. */
@@ -192,7 +195,7 @@ const CORES = {
 }
 
 /* ─── Projeção: grafo + desenho → nós e setas do React Flow ───────────────── */
-type Projecao = Pick<CanvasBpmnProps, 'grafo' | 'desenho' | 'steps' | 'selecionado' | 'responsavelDe' | 'prazoDe' | 'problemasDe' | 'nomeDoProcesso'> & {
+type Projecao = Pick<CanvasBpmnProps, 'grafo' | 'desenho' | 'steps' | 'selecionado' | 'responsavelDe' | 'rotuloDoExecutorDaRaia' | 'prazoDe' | 'problemasDe' | 'nomeDoProcesso'> & {
   /** As formas do desenho livre (variante e nome de cada uma). */
   formas: readonly FormaDesenho[]
   tamanhos: Tamanhos
@@ -218,7 +221,7 @@ const FUNDO = {
   style: { pointerEvents: 'none' as const },
 }
 
-function projetarNos({ grafo, desenho, steps, selecionado, responsavelDe, prazoDe, problemasDe, nomeDoProcesso, formas, tamanhos, faixas, orientacao, selecionadas }: Projecao): NoBpmn[] {
+function projetarNos({ grafo, desenho, steps, selecionado, responsavelDe, rotuloDoExecutorDaRaia, prazoDe, problemasDe, nomeDoProcesso, formas, tamanhos, faixas, orientacao, selecionadas }: Projecao): NoBpmn[] {
   const pos = (id: string) => desenho.posicoes[id] ?? { x: 0, y: 0 }
   const nos: NoBpmn[] = []
 
@@ -269,7 +272,8 @@ function projetarNos({ grafo, desenho, steps, selecionado, responsavelDe, prazoD
       const responsavel = responsavelDe(n.id)
       if (desenho.raias.length) {
         const i = raiaNaAltura(desenho.raias, pos(n.id).y + h / 2)
-        const aviso = i === -1 ? null : avisoDeRaia(desenho.raias[i].nome, responsavel)
+        const raia = i === -1 ? undefined : desenho.raias[i]
+        const aviso = raia ? avisoDeRaia(raia, steps[n.id], { daRaia: rotuloDoExecutorDaRaia(raia.executor), responsavel }) : null
         if (aviso) problemas.push(aviso)
       }
       const nome = n.name?.trim() || steps[n.id]?.stepName?.trim() || (automatica ? 'Ação automática' : 'Tarefa sem nome')
@@ -501,8 +505,8 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   /* As funções de consulta costumam nascer a cada render do pai: ficam numa ref (sempre a
      mais nova, atribuída no render para a projeção nunca ler uma antiga) e a projeção só
      refaz quando os DADOS mudam (grafo deriva do fluxo) ou quando `revisaoDasConsultas` muda. */
-  const consultas = useRef({ responsavelDe: props.responsavelDe, prazoDe: props.prazoDe, problemasDe: props.problemasDe })
-  consultas.current = { responsavelDe: props.responsavelDe, prazoDe: props.prazoDe, problemasDe: props.problemasDe }
+  const consultas = useRef({ responsavelDe: props.responsavelDe, rotuloDoExecutorDaRaia: props.rotuloDoExecutorDaRaia, prazoDe: props.prazoDe, problemasDe: props.problemasDe })
+  consultas.current = { responsavelDe: props.responsavelDe, rotuloDoExecutorDaRaia: props.rotuloDoExecutorDaRaia, prazoDe: props.prazoDe, problemasDe: props.problemasDe }
   /** Altura provisória da raia enquanto a alça é arrastada (só na tela; grava ao soltar). */
   const [previa, setPrevia] = useState<{ id: string; altura: number } | null>(null)
   // a raia da prévia sumiu ou o desenho virou só leitura: descarta (ajuste durante o render)

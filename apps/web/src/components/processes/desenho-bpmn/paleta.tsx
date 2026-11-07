@@ -3,15 +3,15 @@
 /* ─── Paleta de formas do desenho BPMN (estilo Bizagi) ─────────────────────────
    Coluna à esquerda do canvas, recolhível (112 px ↔ 30 px; a preferência fica no
    navegador). Em cima, a grade de 2 colunas com os grupos do catálogo (Início, Tarefa, Escolha,
-   Ao mesmo tempo, Fim): cada botão mostra só o desenho da variação
-   escolhida, e o ▾ ao lado (só nos grupos com variações) abre a lista de variações com a etiqueta de cada uma ("Executa
-   hoje" / "Próxima rodada"). O botão é arrastado para o desenho (`{ grupo, indice }` no
+   Ao mesmo tempo, Fim): só entra o que o motor executa. Cada botão mostra só o desenho da variação
+   escolhida, e o ▾ ao lado (hoje só na Tarefa, o único grupo com mais de uma variação) abre a lista
+   de variações, com o ícone e o nome de cada uma. O botão é arrastado para o desenho (`{ grupo, indice }` no
    `dataTransfer`, em `TIPO_ARRASTO_FORMA`) ou escolhido por clique/Enter (`onEscolher`;
    a página põe a forma depois da selecionada). Embaixo, os conectores (Sequência / Fluxo
    de mensagem: o ativo vale para as setas novas) e Piscina, Raia e Fase. */
 import { useEffect, useRef, useState, type DragEvent, type JSX, type KeyboardEvent, type ReactNode } from 'react'
 import { FloatingMenu } from '@/components/ui/floating-menu'
-import { CATALOGO, ROTULO_ETIQUETA, type GrupoPaleta, type ItemCatalogo } from '@/lib/editor-bizagi/catalogo'
+import { CATALOGO, type GrupoPaleta, type ItemCatalogo } from '@/lib/editor-bizagi/catalogo'
 
 /** Tipo do `dataTransfer` com a forma arrastada da paleta: `JSON.stringify({ grupo, indice })`. */
 export const TIPO_ARRASTO_FORMA = 'application/nxt-forma'
@@ -178,16 +178,11 @@ const SETA = `relative h-6 w-2 shrink-0 rounded-[3px] border-0 bg-transparent p-
 const GRADE_CLS = 'grid grid-cols-2 gap-0.5 border-b border-b-[var(--e-DCE4DE)] px-1.5 py-2 dark:border-b-[var(--e-22332A)]'
 /** As formas: cada célula é botão + ▾ (48 px); as colunas se ajustam ao conteúdo e se afastam. */
 const GRADE_FORMAS = 'grid grid-cols-[repeat(2,auto)] justify-between gap-y-0.5 border-b border-b-[var(--e-DCE4DE)] px-1.5 py-2 dark:border-b-[var(--e-22332A)]'
-/** Cores da etiqueta nas variações da paleta. */
-export const CHIP: Record<ItemCatalogo['etiqueta'], string> = {
-  hoje: 'bg-[#E3F3EA] text-[var(--e-11804F)] dark:bg-[rgba(198,242,78,0.12)] dark:text-spark',
-  proxima: 'bg-[#EEF0EE] text-[var(--e-5B6B63)] dark:bg-white/[0.06] dark:text-[var(--e-9DB0A5)]',
-}
-const ITEM_MENU = `grid w-full grid-cols-[30px_1fr_auto] items-center gap-2 rounded-[7px] border-0 bg-transparent px-2 py-[5px] text-left font-sans text-xs font-semibold
+const ITEM_MENU = `grid w-full grid-cols-[30px_1fr] items-center gap-2 rounded-[7px] border-0 bg-transparent px-2 py-[5px] text-left font-sans text-xs font-semibold
   text-[var(--e-142420)] hover:bg-[rgba(17,128,79,0.08)] aria-checked:bg-[rgba(17,128,79,0.08)] dark:text-[var(--e-E3ECE6)] dark:hover:bg-[rgba(198,242,78,0.12)]
   dark:aria-checked:bg-[rgba(198,242,78,0.12)] ${FOCO}`
 
-const rotulo = (item: ItemCatalogo) => `${item.nome} · ${ROTULO_ETIQUETA[item.etiqueta]}`
+const rotulo = (item: ItemCatalogo) => item.nome
 
 export function PaletaBpmn({
   escolhidas, onTrocarVariante, onEscolher, conector, onConector, onAdicionarRaia, onAdicionarFase, onAdicionarPiscina, desabilitada = false,
@@ -275,7 +270,7 @@ export function PaletaBpmn({
           </div>
           <div role="group" aria-label="Conectores" className={GRADE_CLS}>
             <button type="button" aria-pressed={conector === 'sequencia'} disabled={desabilitada} onClick={() => onConector('sequencia')} className={BOTAO}
-              aria-label="Sequência" title="Sequência · Executa hoje. Arraste a bolinha de uma forma até outra para ligar.">
+              aria-label="Sequência" title="Sequência. Arraste a bolinha de uma forma até outra para ligar.">
               <svg aria-hidden width={32} height={32} viewBox="0 0 32 32" overflow="visible">{ICONE_FERRAMENTA.sequencia}</svg>
             </button>
             <button type="button" aria-pressed={conector === 'mensagem'} disabled={desabilitada} onClick={() => onConector('mensagem')} className={BOTAO}
@@ -289,7 +284,7 @@ export function PaletaBpmn({
               <svg aria-hidden width={32} height={32} viewBox="0 0 32 32" overflow="visible">{ICONE_FERRAMENTA.piscina}</svg>
             </button>
             <button type="button" disabled={desabilitada} onClick={onAdicionarRaia} className={BOTAO}
-              aria-label="Nova raia" title="Nova raia · Executa hoje. Entra no fim da piscina.">
+              aria-label="Nova raia" title="Nova raia. Entra no fim da piscina.">
               <svg aria-hidden width={32} height={32} viewBox="0 0 32 32" overflow="visible">{ICONE_FERRAMENTA.raia}</svg>
             </button>
             <button type="button" disabled={desabilitada} onClick={onAdicionarFase} className={BOTAO}
@@ -311,7 +306,6 @@ export function PaletaBpmn({
                   className={ITEM_MENU} onClick={() => { onTrocarVariante(menu, i); fecharMenu(true) }}>
                   <IconeDoItem item={item} tamanho={26} />
                   <span>{item.nome}</span>
-                  <span className={`whitespace-nowrap rounded px-1.5 py-0.5 text-[10.5px] font-semibold tracking-[0.01em] ${CHIP[item.etiqueta]}`}>{ROTULO_ETIQUETA[item.etiqueta]}</span>
                 </button>
               )
             })}
