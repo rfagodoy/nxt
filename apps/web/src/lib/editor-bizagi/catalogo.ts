@@ -23,10 +23,9 @@ const grupo = (g: GrupoItem, itens: Base[]): ItemCatalogo[] => itens.map((i) => 
 
 export const CATALOGO: Record<GrupoPaleta, ItemCatalogo[]> = {
   inicio: grupo('inicio', [{ tipo: 'start', variante: 'simples', nome: 'Início' }]),
-  tarefa: grupo('tarefa', [
-    { tipo: 'userTask', variante: 'usuario', nome: 'Tarefa de usuário' },
-    { tipo: 'serviceTask', nome: 'Ação automática' },
-  ]),
+  /* Toda atividade é feita por uma pessoa (PO, 07/11/2026): a Ação automática saiu da paleta.
+     Aditivo e encerramento se registram pela Tela do contrato, no modo Editar. */
+  tarefa: grupo('tarefa', [{ tipo: 'userTask', variante: 'usuario', nome: 'Tarefa de usuário' }]),
   escolha: grupo('escolha', [{ tipo: 'exclusiveGateway', modo: 'primeiro', nome: 'Escolha' }]),
   paralelo: grupo('paralelo', [{ tipo: 'parallelGateway', nome: 'Ao mesmo tempo' }]),
   fim: grupo('fim', [{ tipo: 'end', variante: 'simples', nome: 'Fim' }]),
@@ -40,6 +39,7 @@ export const CATALOGO_FORA_DA_PALETA: ItemCatalogo[] = [
     { tipo: 'start', variante: 'evento', nome: 'Início por evento' },
   ]),
   ...grupo('tarefa', [
+    { tipo: 'serviceTask', nome: 'Ação automática' },
     { tipo: 'userTask', variante: 'envio', nome: 'Envio de mensagem' },
     { tipo: 'userTask', variante: 'recebimento', nome: 'Recebimento de mensagem' },
   ]),

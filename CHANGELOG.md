@@ -13,6 +13,13 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
   - O rodapé diz o que falta pelo nome ("Falta: prazo").
   - Na atividade, abrem a Identificação e a primeira seção incompleta.
 
+### Removido
+
+- **Ação automática:** toda atividade do workflow é feita por uma pessoa. A ação automática saiu da paleta e do campo "Executada por", que também deixou de existir.
+  - Aditivo e encerramento passam a ser registrados numa tarefa com a Tela do contrato, no modo Editar.
+  - Processos e workflows ativos que já usam ação automática continuam funcionando.
+  - No editor, a ação automática de um desenho antigo mostra um aviso e o botão "Transformar em tarefa de pessoa".
+
 ## [2.1.0] — Boole — 2026-11-07
 
 ### Adicionado
