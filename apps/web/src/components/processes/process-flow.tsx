@@ -25,7 +25,7 @@ import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, t
 import { apiFetch, apiJson } from '@/lib/http'
 import { ProcessHistoryDrawer } from './process-history-drawer'
 import { GatewayGlyph, PendenciasPill, type Pendencia } from './flow-shared'
-import { EXECUTOR_CONTRATO_DO_PROCESSO, EXECUTOR_QUEM_INICIOU, nasceDeContrato, type QuemInicia } from '@nxt/types'
+import { EXECUTOR_CONTRATO_DO_PROCESSO, EXECUTOR_QUEM_INICIOU, nasceDeContrato, tipoDeWorkflowValido, TIPO_DE_WORKFLOW_PADRAO, type QuemInicia } from '@nxt/types'
 import { QuemIniciaPill } from './quem-inicia'
 import { GavetaDoBloco, comNomes, novoItem, type NovoItem, type Simulacao } from './workflow-blocos'
 import { NoticeDialog } from '@/components/ui/confirm-dialog'
@@ -306,7 +306,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const somenteLeitura = false
   const [name, setName] = useState(initial?.name ?? '')
   const [description, setDescription] = useState(initial?.description ?? '')
-  const [kind, setKind] = useState(initial?.kind ?? '')
+  /* Todo workflow tem tipo (PO, 07/11/2026). Novo nasce Contrato; um antigo sem tipo, ou
+     com o legado Parceiro, abre como Contrato — é o que a API passa a exigir ao gravar. */
+  const [kind, setKind] = useState<string>(tipoDeWorkflowValido(initial?.kind) ? initial!.kind! : TIPO_DE_WORKFLOW_PADRAO)
   const [quemInicia, setQuemInicia] = useState<QuemInicia | undefined>(initial?.quemInicia)
   /* A AUTORIA é o fluxo em blocos + a configuração de cada atividade. Nós e setas não
      são editados: são gerados disso — é o que impede as formas que travavam o motor. */
@@ -1254,7 +1256,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     const formSchema = formSchemaVivo
     /* gravação automática de um workflow novo sem nome: não perde o trabalho */
     const nome = name.trim() || (auto ? 'Rascunho sem nome' : '')
-    const body = JSON.stringify({ name: nome, description: description.trim() || undefined, bpmnXml, formSchema, kind: kind || undefined, ...(confirmarReducao ? { confirmarReducao: true } : {}) })
+    const body = JSON.stringify({ name: nome, description: description.trim() || undefined, bpmnXml, formSchema, kind, ...(confirmarReducao ? { confirmarReducao: true } : {}) })
     const keepalive = !!auto?.keepalive
     if (editing) {
       const res = await apiFetch(`/api/processes/${initial!.id}`, { method: 'PATCH', body, keepalive })
@@ -1347,7 +1349,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const handleActivate = useCallback(async (confirmarReducao?: boolean) => {
     if (!name.trim()) { setAviso({ msg: 'Dê um nome ao workflow antes de ativar.' }); return }
     // O tipo decide em que tela o workflow aparece no "Novo processo" (o backend também recusa).
-    if (!kind) { setAviso({ msg: 'Escolha o tipo do workflow (contrato, aditivo ou parceiro) antes de ativar.' }); return }
+    if (!kind) { setAviso({ msg: 'Escolha o tipo do workflow (contrato, aditivo ou encerramento) antes de ativar.' }); return }
     if (activityCount === 0) { setAviso({ msg: 'Adicione ao menos uma atividade antes de ativar.' }); return }
     // Pendências conhecidas ANTES do servidor: abre a lista clicável. AVISO não impede.
     if (bloqueantes(pendencias).length) { setPendAberto(true); return }

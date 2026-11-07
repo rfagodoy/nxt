@@ -1,4 +1,5 @@
-import { IsString, IsOptional, IsObject } from 'class-validator'
+import { IsString, IsOptional, IsObject, IsIn } from 'class-validator'
+import { TIPOS_DE_WORKFLOW } from '@nxt/types'
 import { ApiProperty } from '@nestjs/swagger'
 
 export class CreateProcessDto {
@@ -19,8 +20,8 @@ export class CreateProcessDto {
   @IsObject()
   formSchema: Record<string, unknown>
 
-  @ApiProperty({ required: false, description: 'CONTRATO | ADITIVO | DISTRATO' })
-  @IsOptional()
-  @IsString()
-  kind?: string
+  /** Obrigatório: todo workflow tem tipo (PO, 07/11/2026). */
+  @ApiProperty({ enum: TIPOS_DE_WORKFLOW, description: 'CONTRATO | ADITIVO | DISTRATO (encerramento)' })
+  @IsIn(TIPOS_DE_WORKFLOW, { message: 'Informe o tipo do workflow: contrato, aditivo ou encerramento.' })
+  kind: string
 }

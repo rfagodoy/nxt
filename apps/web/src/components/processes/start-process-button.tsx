@@ -26,7 +26,7 @@ interface ProcRow {
  *  clicar numa tarefa na caixa de Tarefas. Reutilizável no Dashboard e em Contratos.
  *  `variant='hero'` casa com o card escuro do topo. `kinds` filtra por tipo:
  *  Contratos passa ['CONTRATO','ADITIVO','DISTRATO']; sem `kinds` (Dashboard)
- *  mostra TODOS. Workflows sem tipo só aparecem no Dashboard.
+ *  mostra TODOS (todo workflow tem tipo desde 07/11/2026).
  *
  *  A tarefa aqui é escolher um nome e começar — então a tela não carrega mais
  *  nada além disso. Houve uma versão com etapa de conferência (onde você entra,

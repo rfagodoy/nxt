@@ -117,35 +117,31 @@ export function SobreDoWorkflow({ descricao, onDescricao, tipo, onTipo, tipos, r
     const novo = typeof v === 'function' ? v(aberto) : v
     if (abertoProp !== undefined) onAberto?.(novo); else setAbertoLocal(novo)
   }
-  const rotuloTipo = tipos.find((k) => k.value === tipo)?.label
+  /* Todo workflow tem tipo (PO, 07/11/2026): não existe mais o estado "sem tipo". */
+  const rotuloTipo = tipos.find((k) => k.value === tipo)?.label ?? tipos[0]?.label
   return (
     <>
       <button ref={botao} type="button" onClick={() => setAberto((v) => !v)} aria-haspopup="dialog" aria-expanded={aberto}
-        title={`Sobre: tipo e descrição do workflow${rotuloTipo ? ` · tipo: ${rotuloTipo}` : ' · sem tipo'}`}
-        aria-label={soIcone ? `Sobre o workflow${rotuloTipo ? ` · ${rotuloTipo}` : ' · sem tipo'}` : undefined}
+        title={`Sobre: tipo e descrição do workflow · tipo: ${rotuloTipo}`}
+        aria-label={soIcone ? `Sobre o workflow · ${rotuloTipo}` : undefined}
         className={cn('inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border text-xs', soIcone ? 'px-2' : 'px-3', ' font-semibold transition-colors',
-          /* sem tipo, PEDE (tracejado âmbar); com tipo, AFIRMA (sólido, com o glifo) */
-          tipo ? 'border-primary/30 bg-primary/10 text-primary hover:bg-primary/15'
-            : 'border-dashed border-amber-400/70 bg-amber-500/10 text-amber-700 hover:bg-amber-500/15 dark:text-amber-400')}>
+          'border-primary/30 bg-primary/10 text-primary hover:bg-primary/15')}>
         <WorkflowKindIcon kind={tipo || undefined} className="h-3.5 w-3.5" />
-        {!soIcone && <>Sobre{rotuloTipo ? ` · ${rotuloTipo}` : ' · sem tipo'}<ChevronDown className="h-3 w-3 opacity-60" /></>}
+        {!soIcone && <>Sobre · {rotuloTipo}<ChevronDown className="h-3 w-3 opacity-60" /></>}
       </button>
       {aberto && (
         <FloatingMenu anchor={botao} onClose={() => setAberto(false)} role="dialog" aria-label="Sobre este workflow"
           className="w-[380px] max-w-[calc(100vw-32px)] space-y-3 rounded-xl border bg-card p-3 text-card-foreground shadow-xl">
           <div>
             <p className="mb-1 text-xs font-semibold">Tipo</p>
-            <Select value={tipo || 'none'} onValueChange={(v) => onTipo(v === 'none' ? '' : v)}>
+            <Select value={tipo} onValueChange={onTipo}>
               <SelectTrigger aria-label="Tipo do workflow" className="h-8 text-xs">
                 <span className="flex items-center gap-2">
                   <WorkflowKindIcon kind={tipo || undefined} className="h-4 w-4" />
-                  {rotuloTipo ?? '— sem tipo (só no Dashboard)'}
+                  {rotuloTipo}
                 </span>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">
-                  <span className="flex items-center gap-2 text-muted-foreground"><WorkflowKindIcon className="h-4 w-4" />— sem tipo (só no Dashboard)</span>
-                </SelectItem>
                 {tipos.map((k) => (
                   <SelectItem key={k.value} value={k.value}>
                     <span className="flex items-center gap-2"><WorkflowKindIcon kind={k.value} className="h-4 w-4" />{k.label}</span>
