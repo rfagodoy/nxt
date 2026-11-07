@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { ChevronsUpDown, Check, Search, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useSelectableUsers } from '@/hooks/use-users'
+import { useBuscaDeUsuarios, useUserNames } from '@/hooks/use-users'
 import { FloatingMenu } from '@/components/ui/floating-menu'
 
 interface UserSelectProps {
@@ -19,22 +19,24 @@ interface UserSelectProps {
 }
 
 /** Seletor de Usuário do sistema (buscável). Reutilizável em Responsáveis, executor
- *  de workflow, etc. Lista via GET /api/users/selectable (usuários ATIVOS). */
+ *  de workflow, etc. A lista vem da API a cada busca (GET /api/users/selectable?q=,
+ *  usuários ATIVOS): a organização tem centenas de usuários e um recém-cadastrado
+ *  aparece na hora. O nome do valor escolhido vem por ?ids=. */
 export function UserSelect({
   value, onChange, placeholder = 'Selecionar usuário...', disabled, exclude = [], className, clearable,
 }: UserSelectProps) {
-  const { users, loading } = useSelectableUsers()
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const wrapRef = useRef<HTMLDivElement>(null)
+  /* só busca com a lista aberta: fechado, o campo não faz chamada nenhuma */
+  const { users, loading, talvezMais } = useBuscaDeUsuarios(q, open)
+  const { nomeDe, ausente } = useUserNames([value])
 
-  const selected = users.find((u) => u.id === value)
-  const filtered = useMemo(() => {
-    const term = q.trim().toLowerCase()
-    return users
-      .filter((u) => u.id === value || !exclude.includes(u.id))
-      .filter((u) => !term || u.name.toLowerCase().includes(term) || u.email.toLowerCase().includes(term))
-  }, [users, q, exclude, value])
+  const filtered = useMemo(
+    () => users.filter((u) => u.id === value || !exclude.includes(u.id)),
+    [users, exclude, value],
+  )
+  const rotulo = value ? (nomeDe(value) ?? (ausente(value) ? '(usuário removido)' : 'Carregando…')) : placeholder
 
   const reveal = () => {
     if (disabled) return
@@ -51,8 +53,8 @@ export function UserSelect({
           disabled ? 'opacity-60 cursor-not-allowed' : 'hover:bg-muted/40',
         )}
       >
-        <span className={cn('truncate', !selected && 'text-muted-foreground')}>
-          {selected ? selected.name : (value ? '(usuário removido)' : placeholder)}
+        <span className={cn('truncate', !(value && nomeDe(value)) && 'text-muted-foreground')}>
+          {rotulo}
         </span>
         <span className="flex items-center gap-0.5 shrink-0">
           {clearable && value && !disabled && (
@@ -76,7 +78,7 @@ export function UserSelect({
               />
             </div>
             <div className="max-h-56 overflow-auto py-1">
-              {loading && <div className="px-3 py-2 text-xs text-muted-foreground">Carregando…</div>}
+              {loading && filtered.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground">Carregando…</div>}
               {!loading && filtered.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground">Nenhum usuário encontrado.</div>}
               {filtered.map((u) => (
                 <button
@@ -91,6 +93,11 @@ export function UserSelect({
                   </span>
                 </button>
               ))}
+              {talvezMais && (
+                <div className="px-3 pb-1 pt-1.5 text-[11px] text-muted-foreground">
+                  Mostrando os primeiros. Digite o nome ou o e-mail para encontrar outros.
+                </div>
+              )}
             </div>
         </FloatingMenu>
       )}
