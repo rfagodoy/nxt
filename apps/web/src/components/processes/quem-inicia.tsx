@@ -15,6 +15,30 @@ const CONTRATO_DO_PROCESSO = '@contrato'
 const TIPO: Record<string, string> = { UNIDADE: 'unidade', EMPRESA: 'empresa do grupo', PARCEIRO: 'parceiro', CONTRATO: 'contrato' }
 const COM_CONTRATO = ['CONTRATO', 'ADITIVO', 'DISTRATO']
 
+/** O resumo de "quem pode iniciar" em português ("Solicitante · qualquer unidade",
+ *  "qualquer usuário"): o da pastilha e o do cabeçalho e do checklist do editor. */
+export function useResumoDeQuemInicia(value: QuemInicia | undefined, papeis: LookupEntry[]) {
+  const cfg: QuemInicia = value ?? { modo: 'TODOS', regras: [] }
+  const restrito = cfg.modo === 'PAPEIS'
+  const nomeEntidade = useEntityLabels(['UNIDADE', 'EMPRESA', 'PARCEIRO', 'CONTRATO'])
+  const rotulo = (id: string) => papeis.find((p) => p.id === id)?.label
+
+  const frase = (r: RegraDeInicio) => {
+    const papel = rotulo(r.papelId) ?? 'papel removido'
+    if (r.entityType === ORIGEM.ORG) return papel
+    if (r.entityId) return `${papel} · ${nomeEntidade(r.entityType, r.entityId) ?? TIPO[r.entityType] ?? 'entidade'}`
+    if (r.stakeholder === CONTRATO_DO_PROCESSO) return `${papel} · do contrato escolhido`
+    if (r.stakeholder) return `${papel} · da ${rotulo(r.stakeholder) ?? 'parte'} do contrato`
+    return `${papel} · qualquer ${TIPO[r.entityType] ?? 'entidade'}`
+  }
+
+  const vazio = restrito && cfg.regras.length === 0
+  const texto = !restrito
+    ? 'qualquer usuário'
+    : vazio ? 'escolha um papel' : `${frase(cfg.regras[0])}${cfg.regras.length > 1 ? ` +${cfg.regras.length - 1}` : ''}`
+  return { cfg, restrito, vazio, texto, frase, rotulo }
+}
+
 /**
  * "Quem inicia" — pastilha no cabeçalho do documento, ao lado do tipo (alternativa C do PO,
  * 04/10/2026). Diz quem pode clicar em "+ Novo processo" para este workflow: qualquer usuário,
@@ -44,24 +68,7 @@ export function QuemIniciaPill({ value, onChange, papeis, kind, soIcone, aberto:
     const novo = typeof v === 'function' ? v(aberto) : v
     if (controlado) onAberto?.(novo); else setAbertoLocal(novo)
   }
-  const cfg: QuemInicia = value ?? { modo: 'TODOS', regras: [] }
-  const restrito = cfg.modo === 'PAPEIS'
-  const nomeEntidade = useEntityLabels(['UNIDADE', 'EMPRESA', 'PARCEIRO', 'CONTRATO'])
-  const rotulo = (id: string) => papeis.find((p) => p.id === id)?.label
-
-  const frase = (r: RegraDeInicio) => {
-    const papel = rotulo(r.papelId) ?? 'papel removido'
-    if (r.entityType === ORIGEM.ORG) return papel
-    if (r.entityId) return `${papel} · ${nomeEntidade(r.entityType, r.entityId) ?? TIPO[r.entityType] ?? 'entidade'}`
-    if (r.stakeholder === CONTRATO_DO_PROCESSO) return `${papel} · do contrato escolhido`
-    if (r.stakeholder) return `${papel} · da ${rotulo(r.stakeholder) ?? 'parte'} do contrato`
-    return `${papel} · qualquer ${TIPO[r.entityType] ?? 'entidade'}`
-  }
-
-  const vazio = restrito && cfg.regras.length === 0
-  const texto = !restrito
-    ? 'qualquer usuário'
-    : vazio ? 'escolha um papel' : `${frase(cfg.regras[0])}${cfg.regras.length > 1 ? ` +${cfg.regras.length - 1}` : ''}`
+  const { cfg, restrito, vazio, texto, frase } = useResumoDeQuemInicia(value, papeis)
 
   const mudar = (v: QuemInicia) => onChange(v.modo === 'TODOS' && !v.regras.length ? undefined : v)
 

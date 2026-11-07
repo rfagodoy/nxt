@@ -1,10 +1,9 @@
 'use client'
 
-/* Peças do editor de workflow: limites do zoom do desenho, glifo de gateway e a pílula de saúde (topo). */
+/* Peças do editor de workflow: limites do zoom do desenho, glifo de gateway e o tipo das
+   pendências de ativação (a lista delas mora no "Antes de ativar", desenho-bpmn/checklist-de-ativacao). */
 
-import { AlertTriangle, Check, Info } from 'lucide-react'
-import { bloqueantes, avisos as avisosDe, type ProblemaAtivacao } from '@nxt/workflow-core'
-import { cn } from '@/lib/utils'
+import type { ProblemaAtivacao } from '@nxt/workflow-core'
 
 /* Zoom. O teto acima de 100% existe para LER: com o desenho grande, é o que permite
    conferir prazo e executor sem abrir a atividade. Abaixo do piso o texto vira borrão. */
@@ -23,96 +22,5 @@ export function GatewayGlyph({ kind, className }: { kind: 'exclusive' | 'paralle
   )
 }
 
-/** Pendências de ativação: pílula + painel clicável. DUAS classes, e a diferença é dita
- *  na tela — o que IMPEDE a ativação (triângulo) e o AVISO (i), que é desenho válido.
- *  A forma do ícone carrega a diferença; a cor só reforça. */
 /** Pendência com o grupo do desenho livre e as setas culpadas (para o destaque). */
 export type Pendencia = ProblemaAtivacao & { grupo?: 'desenho' | 'motor'; setas?: string[] }
-const TITULO_DO_GRUPO = { desenho: 'Desenho incompleto', motor: 'O motor não executa' } as const
-
-export function PendenciasPill({ pendencias, aberto, onToggle, onItem, style, noTopo, compacta }: {
-  pendencias: Pendencia[]
-  aberto: boolean
-  onToggle: () => void
-  onItem: (p: Pendencia) => void
-  style?: React.CSSProperties
-  /** Na barra do topo (desenho BPMN): fica no fluxo da linha, o painel abre PARA BAIXO e,
-   *  sem nada a dizer, a pílula afirma que está tudo certo (a saúde do workflow). */
-  noTopo?: boolean
-  /** No topo apertado: só o ícone e o número (a frase vai para o leitor de tela). */
-  compacta?: boolean
-}) {
-  if (!pendencias.length) {
-    return noTopo
-      ? <span role="status" title="Pronto para ativar" className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-          <Check className="h-3.5 w-3.5" /><span className={compacta ? 'sr-only' : undefined}>Pronto para ativar</span>
-        </span>
-      : null
-  }
-  const erros: Pendencia[] = bloqueantes(pendencias)
-  const infos = avisosDe(pendencias)
-  const item = (p: Pendencia, i: number, erro: boolean) => (
-    <li key={`${p.tipo}-${p.nodeId ?? i}-${i}`}>
-      <button type="button" onClick={() => onItem(p)}
-        className="w-full text-left rounded-lg px-2.5 py-1.5 text-[11px] leading-snug text-muted-foreground hover:bg-muted hover:text-foreground transition-colors flex gap-2">
-        {erro
-          ? <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />
-          : <Info className="mt-0.5 h-3 w-3 shrink-0 text-sky-500" />}
-        <span>{p.mensagem}</span>
-      </button>
-    </li>
-  )
-  return (
-    <div className={noTopo ? 'relative shrink-0' : 'absolute bottom-3 z-20'} style={style}>
-      {aberto && (
-        <div className={cn(noTopo ? 'absolute left-0 top-full z-40 mt-2' : 'mb-2', 'w-[400px] max-w-[calc(100vw-2rem)] max-h-[60vh] overflow-y-auto rounded-xl border bg-card shadow-lg')}>
-          <div className="sticky top-0 px-3 py-2 border-b bg-card/95 backdrop-blur-sm">
-            <p className="text-xs font-semibold flex items-center gap-1.5">
-              {erros.length
-                ? <><AlertTriangle className="h-3.5 w-3.5 text-amber-500" />Ainda não dá para ativar</>
-                : <><Info className="h-3.5 w-3.5 text-sky-500" />Dá para ativar — com avisos</>}
-            </p>
-            <p className="text-[10px] text-muted-foreground mt-0.5">Clique num item para ir até ele no desenho.</p>
-          </div>
-          {/* o desenho livre separa o que falta desenhar do que o motor não sabe executar */}
-          {(['desenho', 'motor'] as const).map((g) => {
-            const doGrupo = erros.filter((p) => p.grupo === g)
-            return doGrupo.length > 0 && (
-              <section key={g} aria-label={TITULO_DO_GRUPO[g]}>
-                <p className="px-3 pt-2 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{TITULO_DO_GRUPO[g]}</p>
-                <ul className="p-1.5 pt-0">{doGrupo.map((p, i) => item(p, i, true))}</ul>
-              </section>
-            )
-          })}
-          {erros.some((p) => !p.grupo) && (
-            <>
-              {erros.some((p) => p.grupo) && <p className="px-3 pt-2 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground border-t">Configuração das etapas</p>}
-              <ul className="p-1.5">{erros.filter((p) => !p.grupo).map((p, i) => item(p, i, true))}</ul>
-            </>
-          )}
-          {infos.length > 0 && (
-            <>
-              <p className="px-3 pt-1.5 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground border-t">
-                Avisos · não impedem a ativação
-              </p>
-              <ul className="p-1.5 pt-0">{infos.map((p, i) => item(p, i, false))}</ul>
-            </>
-          )}
-        </div>
-      )}
-      <button type="button" onClick={onToggle}
-        title={aberto ? 'Recolher' : erros.length ? 'Ver o que falta para ativar' : 'Ver os avisos do desenho'}
-        aria-expanded={aberto}
-        className={cn('inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-xs font-semibold shadow-sm backdrop-blur-sm transition-colors', noTopo ? 'py-1' : 'py-1.5',
-          erros.length
-            ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20'
-            : 'border-sky-500/40 bg-sky-500/10 text-sky-600 dark:text-sky-400 hover:bg-sky-500/20')}>
-        {erros.length ? <AlertTriangle className="h-3.5 w-3.5" /> : <Info className="h-3.5 w-3.5" />}
-        {/* no topo, em tela estreita, fica só o número (a frase vai para o leitor de tela) */}
-        {erros.length
-          ? <>{erros.length}<span className={compacta ? 'sr-only' : undefined}> {erros.length === 1 ? 'pendência' : 'pendências'} para ativar</span></>
-          : <>{infos.length}<span className={compacta ? 'sr-only' : undefined}> {infos.length === 1 ? 'aviso' : 'avisos'} no desenho</span></>}
-      </button>
-    </div>
-  )
-}

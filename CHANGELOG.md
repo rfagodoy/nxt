@@ -19,6 +19,14 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
   - A roda do mouse ou o trackpad rolam o desenho (Shift + roda, para os lados).
   - O zoom fica no Ctrl + roda, na pinça do trackpad e nos botões + e −.
   - A seleção de várias formas por laço passa a ser Shift + arrastar. Com Ctrl junto, ela soma à seleção atual.
+- **Cabeçalho do editor de workflow mais simples:**
+  - Ficam o nome, uma linha de resumo ("Contrato · inicia: Solicitante · Editar"), desfazer, "⋯", Salvar e Ativar.
+  - O **Editar** abre a gaveta do workflow, que agora reúne nome, tipo, descrição e quem pode iniciar.
+  - Saíram do topo os botões "Sobre", "Quem inicia" e a lista de pendências.
+- **"Antes de ativar":** o botão Ativar mostra quantos ajustes faltam e, ao clicar, abre um checklist.
+  - Em vez de uma frase longa por problema, há uma linha por assunto, com a contagem (por exemplo, "4 caminhos que não chegam ao Fim").
+  - Cada linha mostra os itens, e cada item leva até a forma no desenho.
+  - A configuração (tipo e quem pode iniciar) aparece no alto, com "Alterar".
 - A escolha de pessoas busca no servidor enquanto você digita, por nome ou e-mail. A lista mostra os primeiros 20 e pede para refinar a busca, para continuar rápida com centenas de usuários.
 
 ### Corrigido

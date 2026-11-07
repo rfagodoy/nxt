@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Save, Zap, Loader2, AlertTriangle, Redo2, Undo2, Info, DoorOpen } from 'lucide-react'
+import { ArrowLeft, Save, Zap, Loader2, AlertTriangle, Redo2, Undo2, Info } from 'lucide-react'
 import {
   generateBpmn, compileBpmn, validarDesenho, validarAtividades, validarTelasDasAtividades,
   bloqueantes, grafoParaBlocos, novoFluxo, pendenciasDosBlocos, validarOrigemDoRegistro, validarExecutores, validarExecutoresFixos, validarQuemInicia, listarEscolhas,
@@ -24,9 +24,9 @@ import { GRADE, abrirEspaco, adicionarRaia, apagarSeta, completarPosicoes, desen
 import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, type ExportEdge } from '@/lib/flow-export'
 import { apiFetch } from '@/lib/http'
 import { ProcessHistoryDrawer } from './process-history-drawer'
-import { PendenciasPill, type Pendencia } from './flow-shared'
+import { type Pendencia } from './flow-shared'
 import { EXECUTOR_CONTRATO_DO_PROCESSO, EXECUTOR_QUEM_INICIOU, nasceDeContrato, tipoDeWorkflowValido, TIPO_DE_WORKFLOW_PADRAO, type QuemInicia } from '@nxt/types'
-import { QuemIniciaPill } from './quem-inicia'
+import { useResumoDeQuemInicia } from './quem-inicia'
 import { GavetaDoBloco, comNomes, novoItem, type NovoItem, type Simulacao } from './workflow-blocos'
 import { NoticeDialog } from '@/components/ui/confirm-dialog'
 import { aoSairDoEditor, destinoInterno } from '@/lib/sair-do-editor'
@@ -37,7 +37,8 @@ import { GavetaDoLosango } from './desenho-bpmn/gaveta-losango'
 import { camposDasTelasDasAtividades } from '@/lib/flow-conditions'
 import { CanvasBpmn, modeloDeExportacao, type AlvoDaGaveta } from './desenho-bpmn/canvas-bpmn'
 import { PaletaBpmn, type Conector } from './desenho-bpmn/paleta'
-import { ControlesDoDesenho, MenuMais, NomeNoTopo, SobreDoWorkflow, tamanhoDoNome, useNivelDoTopo } from './desenho-bpmn/topo'
+import { ControlesDoDesenho, MenuMais, NomeNoTopo, tamanhoDoNome, useNivelDoTopo } from './desenho-bpmn/topo'
+import { ChecklistDeAtivacao } from './desenho-bpmn/checklist-de-ativacao'
 import { cn } from '@/lib/utils'
 import { dueText, entityKindLabel, type EEdge, type ENode } from './editor-comum'
 import { PerguntasDaEtapa } from './perguntas-da-etapa'
@@ -1027,20 +1028,20 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
      não existia — digitar o nome a cria, e o Cancelar a tira. */
   const retratoDaGaveta = useRef<{
     chave: string; doc: DesenhoV2; passo?: { id: string; step: StepFormSchema | undefined }
-    name: string; description: string; quemInicia?: QuemInicia
+    name: string; description: string; quemInicia?: QuemInicia; kind: string
   } | null>(null)
   const chaveDaGaveta = alvoNovo ? `${alvoNovo.k}:${alvoNovo.id}` : null
   if (!chaveDaGaveta) retratoDaGaveta.current = null
   else if (retratoDaGaveta.current?.chave !== chaveDaGaveta) {
     const raiz = alvoNovo?.k === 'forma' ? raizRef.current.get(alvoNovo.id) ?? alvoNovo.id : undefined
-    retratoDaGaveta.current = { chave: chaveDaGaveta, doc, passo: raiz ? { id: raiz, step: steps[raiz] } : undefined, name, description, quemInicia }
+    retratoDaGaveta.current = { chave: chaveDaGaveta, doc, passo: raiz ? { id: raiz, step: steps[raiz] } : undefined, name, description, quemInicia, kind }
   }
   const cancelarGavetaNova = useCallback(() => {
     const r = retratoDaGaveta.current
     if (r && alvoNovo) {
       setDoc((d) => restaurarAlvo(d, r.doc, alvoNovo))
       if (r.passo) setSteps((s) => restaurarPasso(s, r.passo!.id, r.passo!.step))
-      if (alvoNovo.k === 'piscina' && alvoNovo.id === PISCINA_DO_PROCESSO) { setName(r.name); setDescription(r.description); setQuemInicia(r.quemInicia) }
+      if (alvoNovo.k === 'piscina' && alvoNovo.id === PISCINA_DO_PROCESSO) { setName(r.name); setDescription(r.description); setQuemInicia(r.quemInicia); setKind(r.kind) }
     }
     setAlvoNovo(null); setGavetaDe(null)
   }, [alvoNovo])
@@ -1494,7 +1495,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       }
       case 'piscinaPrincipal':
         return <GavetaPiscinaPrincipal key={chave} {...moldura} nome={name} descricao={description} quemInicia={quemInicia} papeis={papeis} kind={kind} orientacao={orientacao}
-          onNome={setName} onDescricao={setDescription} onQuemInicia={setQuemInicia} onOrientacao={aoOrientacao} />
+          tipos={WORKFLOW_KINDS} onKind={setKind} onNome={setName} onDescricao={setDescription} onQuemInicia={setQuemInicia} onOrientacao={aoOrientacao} />
       case 'piscinaExterna':
         return <GavetaPiscinaExterna key={chave} {...moldura} piscina={l.piscinasExternas.find((p) => p.id === id)!}
           onPatch={(p) => setDoc((d) => atualizarPiscinaExterna(d, id, p))}
@@ -1528,24 +1529,19 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
      inicia", os papéis que chegam) é pego pela medida a cada render, que só sobe. */
   const topoRef = useRef<HTMLDivElement>(null)
   const maisRef = useRef<HTMLButtonElement>(null)
-  /* Os balões do topo têm o estado AQUI: mudar de nível não pode fechá-los. E, com um deles
-     aberto, o nível congela (ver useNivelDoTopo). */
-  const [quemIniciaAberto, setQuemIniciaAberto] = useState(false)
-  const [sobreAberto, setSobreAberto] = useState(false)
+  /* Topo mínimo (opção C, PO 07/11/2026): o nome com uma linha de resumo ("Contrato · inicia:
+     … · Editar", que abre a gaveta do workflow) e, à direita, desfazer, ⋯, Salvar e Ativar.
+     As pendências saíram do topo: aparecem no "Antes de ativar", ancorado no Ativar. */
+  const ativarRef = useRef<HTMLButtonElement>(null)
   const [maisAberto, setMaisAberto] = useState(false)
+  const faltamParaAtivar = bloqueantes(pendencias).length
   const nivelTopo = useNivelDoTopo(topoRef, [
-    tamanhoDoNome(name), !name.trim(), sujo, voltaARascunho, pendencias.length, bloqueantes(pendencias).length, kind,
-    exportError ?? '', editing, selecaoMultipla.length >= 2,
-    // fechar um balão do topo remede desde o 0 (o que mudou com ele aberto — ex.: "Quem inicia" — conta)
-    quemIniciaAberto || sobreAberto || maisAberto,
-  ].join('|'), quemIniciaAberto || sobreAberto || maisAberto)
-  const quemIniciaNoMenu = nivelTopo >= 6
-  /* saiu do ⋯ (o nível desceu) com o balão fechado: nada de reabrir sozinho depois */
-  const [noMenuAntes, setNoMenuAntes] = useState(quemIniciaNoMenu)
-  if (noMenuAntes !== quemIniciaNoMenu) {
-    setNoMenuAntes(quemIniciaNoMenu)
-    if (!quemIniciaNoMenu && quemIniciaAberto) setQuemIniciaAberto(false)
-  }
+    tamanhoDoNome(name), !name.trim(), sujo, voltaARascunho, faltamParaAtivar, kind,
+    exportError ?? '', editing, selecaoMultipla.length >= 2, maisAberto || pendAberto,
+  ].join('|'), maisAberto || pendAberto)
+  const { texto: quemIniciaTexto } = useResumoDeQuemInicia(quemInicia, papeis.entries)
+  const rotuloDoTipo = WORKFLOW_KINDS.find((k) => k.value === kind)?.label ?? 'Sem tipo'
+  const abrirConfiguracao = () => { setPendAberto(false); aoAbrir({ k: 'piscina', id: PISCINA_DO_PROCESSO }) }
 
   return (
     /* O editor é um cartão que ocupa a área toda, com cantos da mesma família das ilhas. */
@@ -1554,14 +1550,19 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
           baixo, por cima do desenho e da gaveta. */}
       <div ref={topoRef} className="relative z-40 flex min-w-0 items-center gap-2 border-b bg-card px-3 py-2 shrink-0">
         <Button variant="ghost" size="icon" onClick={() => sairPara('/workflows')} className="h-8 w-8 shrink-0" aria-label="Voltar para Workflows" title="Voltar para Workflows"><ArrowLeft className="h-4 w-4" /></Button>
-        <NomeNoTopo nome={name} onNome={setName} autoFocus={!editing} podeEncolher={nivelTopo >= 7} />
-        <SobreDoWorkflow descricao={description} onDescricao={setDescription} tipo={kind} onTipo={setKind} tipos={WORKFLOW_KINDS} resumo={resumo} soIcone={nivelTopo >= 4}
-          aberto={sobreAberto} onAberto={setSobreAberto} />
-        {/* no nível 6 o botão vai para o ⋯; o balão continua aqui, ancorado no ⋯ */}
-        <QuemIniciaPill value={quemInicia} onChange={setQuemInicia} papeis={papeis.entries} kind={kind} soIcone={nivelTopo >= 2}
-          aberto={quemIniciaAberto} onAberto={setQuemIniciaAberto} semBotao={quemIniciaNoMenu} ancora={maisRef} />
-        <PendenciasPill noTopo compacta={nivelTopo >= 3} pendencias={pendencias} aberto={pendAberto} onToggle={() => setPendAberto((v) => !v)}
-          onItem={(p) => { setPendAberto(false); focarPendencia(p) }} />
+        <div className="flex min-w-0 flex-col">
+          <NomeNoTopo nome={name} onNome={setName} autoFocus={!editing} podeEncolher={nivelTopo >= 7} />
+          <p className="flex min-w-0 items-center gap-1 pl-2 text-[11px] leading-tight text-muted-foreground">
+            <span className="truncate" title={`Tipo: ${rotuloDoTipo} · quem pode iniciar: ${quemIniciaTexto} · ${resumo}`}>{rotuloDoTipo} · inicia: {quemIniciaTexto}</span>
+            {!somenteLeitura && (
+              <>
+                <span aria-hidden>·</span>
+                <button type="button" onClick={abrirConfiguracao} title="Tipo, descrição e quem pode iniciar"
+                  className="shrink-0 rounded font-semibold text-primary hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Editar</button>
+              </>
+            )}
+          </p>
+        </div>
         <div data-topo-espaco className="min-w-0 flex-1" />
         {exportError && <span className="shrink-0 text-[11px] text-destructive font-medium">{exportError}</span>}
         {/* Frase CURTA: o detalhe fica no title. */}
@@ -1591,11 +1592,6 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
           <ControlesDoDesenho selecionadas={selecaoMultipla.length} onAlinhar={aoAlinhar} />
         )}
         <MenuMais botaoRef={maisRef} aberto={maisAberto} onAberto={setMaisAberto}
-          // com o "Quem inicia" aberto a partir do ⋯, clicar no ⋯ só o fecha (não abre os dois)
-          antesDeAlternar={() => { if (quemIniciaNoMenu && quemIniciaAberto) { setQuemIniciaAberto(false); return true } return false }}
-          extras={nivelTopo >= 6 ? [
-            { rotulo: 'Quem inicia…', icone: <DoorOpen className="h-4 w-4 text-muted-foreground" />, onClick: () => setQuemIniciaAberto(true) },
-          ] : undefined}
           onHistorico={editing ? () => setHistoricoAberto(true) : undefined}
           onExportar={handleExport} exportando={exporting} exportarDesabilitado={saving || activating} />
         {editing && <ProcessHistoryDrawer processId={initial!.id} aberto={historicoAberto} onFechar={() => setHistoricoAberto(false)} />}
@@ -1603,10 +1599,23 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
             `confirmarReducao` — truthy — e a guarda seria burlada em TODO salvamento. */}
         <Button variant="outline" size="sm" className="shrink-0" onClick={() => { aplicarGaveta(); void handleSaveDraft() }} disabled={saving || activating || somenteLeitura}
           aria-label="Salvar rascunho" title="Salvar rascunho">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}{nivelTopo >= 5 ? 'Salvar' : 'Salvar rascunho'}</Button>
-        <Button size="sm" className="shrink-0" onClick={() => { aplicarGaveta(); void handleActivate() }} disabled={saving || activating || !name.trim() || somenteLeitura}
-          title={somenteLeitura ? 'Workflow do editor antigo: aberto só para leitura' : !name.trim() ? 'Dê um nome ao workflow para poder ativá-lo' : 'Ativar workflow'}
-          aria-label="Ativar workflow">
-          {activating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}{nivelTopo >= 7 ? 'Ativar' : 'Ativar workflow'}</Button>
+        <Button ref={ativarRef} size="sm" className="shrink-0" onClick={() => { aplicarGaveta(); void handleActivate() }} disabled={saving || activating || !name.trim() || somenteLeitura}
+          title={somenteLeitura ? 'Workflow do editor antigo: aberto só para leitura' : !name.trim() ? 'Dê um nome ao workflow para poder ativá-lo'
+            : faltamParaAtivar ? `Ativar workflow · faltam ${faltamParaAtivar} ajuste${faltamParaAtivar > 1 ? 's' : ''}` : 'Ativar workflow'}
+          aria-haspopup="dialog" aria-expanded={pendAberto}
+          aria-label={faltamParaAtivar ? `Ativar workflow, faltam ${faltamParaAtivar} ajustes` : 'Ativar workflow'}>
+          {activating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}{nivelTopo >= 7 ? 'Ativar' : 'Ativar workflow'}
+          {faltamParaAtivar > 0 && !somenteLeitura && (
+            <span className="ml-0.5 rounded-full bg-amber-400 px-1.5 text-[10.5px] font-bold leading-4 text-amber-950" aria-hidden>{faltamParaAtivar}</span>
+          )}
+        </Button>
+        {pendAberto && !somenteLeitura && (
+          <ChecklistDeAtivacao ancora={ativarRef} pendencias={pendencias} tipo={rotuloDoTipo} quemInicia={quemIniciaTexto}
+            onFechar={() => setPendAberto(false)}
+            onItem={(p) => { setPendAberto(false); focarPendencia(p) }}
+            onConfigurar={abrirConfiguracao}
+            onAtivar={() => { setPendAberto(false); void handleActivate() }} ativando={activating} />
+        )}
       </div>
 
       {somenteLeitura && (
