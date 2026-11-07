@@ -13,6 +13,7 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
   - O rodapé diz o que falta pelo nome ("Falta: prazo").
   - Na atividade, abrem a Identificação e a primeira seção incompleta.
   - A seção Prazo tem só o número e a unidade. Os atalhos (4 horas, 1 dia, 2 dias, 5 dias) saíram.
+  - A gaveta do **Caminho**, que abre ao clicar numa seta que sai de uma escolha, também segue o padrão: tem as seções Condição e Rótulo no desenho, e Cancelar e Aplicar.
 - **O desenho do workflow anda como um mapa:**
   - Arrastar no vazio move o desenho para cima, para baixo e para os lados.
   - A roda do mouse ou o trackpad rolam o desenho (Shift + roda, para os lados).
