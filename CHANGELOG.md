@@ -4,6 +4,19 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ## [Não lançado]
 
+### Alterado
+
+- **Todo workflow tem tipo:** Contrato, Aditivo ou Encerramento. Um workflow novo nasce como Contrato, e os antigos sem tipo passam a Contrato.
+
+### Corrigido
+
+- O cadastro de usuário (Novo usuário e Resetar senha) não abre mais com o nome, o e-mail e a senha preenchidos pelo login salvo no navegador.
+
+### Removido
+
+- A opção "— sem tipo" do campo Tipo do workflow.
+- Workflow não trata mais de parceiro: as telas de parceiro saem da escolha de tela da atividade, e a ação automática "Ativar parceiro" sai do catálogo. Processos que já usam esses recursos continuam funcionando.
+
 ## [2.0.0] — Boole — 2026-11-04
 
 A versão 2 homenageia **George Boole** (1815–1864), matemático inglês que transformou a lógica em álgebra: verdadeiro e falso, "e", "ou" e "não" viraram operações que se calculam. Toda decisão que um computador toma descende do trabalho dele, e por isso o nome combina com uma versão dedicada às regras e aos fluxos de aprovação.
