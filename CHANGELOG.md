@@ -12,6 +12,7 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
   - Os cartões grandes de opção viraram listas de escolha, com a explicação da opção escolhida logo abaixo.
   - O rodapé diz o que falta pelo nome ("Falta: prazo").
   - Na atividade, abrem a Identificação e a primeira seção incompleta.
+  - A gaveta do **Caminho**, que abre ao clicar numa seta que sai de uma escolha, também segue o padrão: tem as seções Condição e Rótulo no desenho, e Cancelar e Aplicar.
 
 ## [2.1.0] — Boole — 2026-11-07
 

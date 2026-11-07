@@ -24,15 +24,15 @@ import { GRADE, abrirEspaco, adicionarRaia, apagarSeta, completarPosicoes, desen
 import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, type ExportEdge } from '@/lib/flow-export'
 import { apiFetch } from '@/lib/http'
 import { ProcessHistoryDrawer } from './process-history-drawer'
-import { GatewayGlyph, PendenciasPill, type Pendencia } from './flow-shared'
+import { PendenciasPill, type Pendencia } from './flow-shared'
 import { EXECUTOR_CONTRATO_DO_PROCESSO, EXECUTOR_QUEM_INICIOU, nasceDeContrato, tipoDeWorkflowValido, TIPO_DE_WORKFLOW_PADRAO, type QuemInicia } from '@nxt/types'
 import { QuemIniciaPill } from './quem-inicia'
 import { GavetaDoBloco, comNomes, novoItem, type NovoItem, type Simulacao } from './workflow-blocos'
 import { NoticeDialog } from '@/components/ui/confirm-dialog'
 import { aoSairDoEditor, destinoInterno } from '@/lib/sair-do-editor'
 import { SairSemSalvarDialog } from './sair-sem-salvar'
-import { ATRIBUTO_GAVETA, GavetaLateral } from './desenho-bpmn/gaveta'
-import { EditorDaSeta, type PatchDaSeta } from './desenho-bpmn/painel-da-seta'
+import { ATRIBUTO_GAVETA } from './desenho-bpmn/gaveta'
+import { GavetaDoCaminho, type PatchDaSeta } from './desenho-bpmn/painel-da-seta'
 import { GavetaDoLosango } from './desenho-bpmn/gaveta-losango'
 import { camposDasTelasDasAtividades } from '@/lib/flow-conditions'
 import { CanvasBpmn, modeloDeExportacao, type AlvoDaGaveta } from './desenho-bpmn/canvas-bpmn'
@@ -1702,13 +1702,10 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
         {/* Condição de uma seta que sai de uma Escolha. */}
         {!somenteLeitura && setaDoPainel && !(configNode && configNode.step) && (
-          <GavetaLateral key={setaDoPainel.id} rotulo="Caminho" titulo={`Para ${nomeDaForma(setaDoPainel.para)}`}
-            rotuloTom="bg-violet-500/10 text-violet-600 dark:text-violet-400"
-            rotuloIcone={<GatewayGlyph kind="exclusive" className="h-3 w-3" />}
-            onFechar={() => setSetaAberta(null)} focarAoAbrir={false}>
-            <EditorDaSeta seta={setaDoPainel} campos={camposDaSeta(setaDoPainel)} onPatch={(p) => aoMudarSeta(setaDoPainel.id, p)}
-              onCaminhoAutomatico={() => aoPontas(setaDoPainel.id, { saida: null, entrada: null })} />
-          </GavetaLateral>
+          <GavetaDoCaminho key={setaDoPainel.id} seta={setaDoPainel} pergunta={formaDoDoc(setaDoPainel.de)?.pergunta?.trim() || undefined} para={nomeDaForma(setaDoPainel.para)}
+            campos={camposDaSeta(setaDoPainel)} onPatch={(p) => aoMudarSeta(setaDoPainel.id, p)}
+            onCaminhoAutomatico={() => aoPontas(setaDoPainel.id, { saida: null, entrada: null })}
+            onFechar={() => setSetaAberta(null)} focarAoAbrir={false} />
         )}
 
         {/* Escolha que ainda não fecha em blocos: a pergunta e as setas que saem dela. */}
