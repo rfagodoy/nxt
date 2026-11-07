@@ -362,19 +362,19 @@ function UserFormModal({ user, onClose }: { user?: UserRow; onClose: (reload?: b
         {error && <ErrorBox message={error} />}
         <div className="space-y-1.5">
           <Label htmlFor="u-name">Nome</Label>
-          <Input id="u-name" value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
+          <Input id="u-name" value={name} onChange={(e) => setName(e.target.value)} required autoFocus autoComplete="off" />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="u-email">E-mail</Label>
           <Input id="u-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-            required disabled={editing} placeholder="voce@empresa.com" />
+            required disabled={editing} placeholder="voce@empresa.com" autoComplete="off" />
           {editing && <p className="text-[11px] text-muted-foreground">O e-mail não pode ser alterado.</p>}
         </div>
         {!editing && (
           <div className="space-y-1.5">
             <Label htmlFor="u-pass">Senha inicial</Label>
             <Input id="u-pass" type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-              required minLength={8} placeholder="mínimo 8 caracteres" />
+              required minLength={8} placeholder="mínimo 8 caracteres" autoComplete="new-password" />
           </div>
         )}
         <div className="grid grid-cols-2 gap-3">
@@ -435,7 +435,7 @@ function PasswordModal({ user, onClose }: { user: UserRow; onClose: (reload?: bo
         <div className="space-y-1.5">
           <Label htmlFor="p-new">Nova senha</Label>
           <Input id="p-new" type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-            required minLength={8} autoFocus placeholder="mínimo 8 caracteres" />
+            required minLength={8} autoFocus placeholder="mínimo 8 caracteres" autoComplete="new-password" />
         </div>
         <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="outline" size="sm" onClick={() => onClose()}>Cancelar</Button>
