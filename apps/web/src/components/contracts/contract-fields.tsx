@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils'
 import { apiFetch, apiJson } from '@/lib/http'
 import { exportExcel } from '@/lib/export-excel'
 import { UserSelect } from '@/components/ui/user-select'
-import { useSelectableUsers } from '@/hooks/use-users'
+import { useUserNames } from '@/hooks/use-users'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { useIndiceValores } from '@/hooks/use-indice-valores'
 import { INIT_PAPEIS, PAPEIS_KEY, ORIGEM, REFERENCIA, origemDoPapel, ladoDoPapel, referenciaDoPapelEntry } from '@/lib/contract-roles'
@@ -2139,7 +2139,6 @@ export function PartesFields({ form, ro, onOpenSearch, onNewPartner, contractId 
   contractId?: string
 }) {
   const papeis = useLookupTable(PAPEIS_KEY, INIT_PAPEIS)
-  const { users } = useSelectableUsers()
   const papeisEntidade = papeis.active.filter(p => referenciaDoPapelEntry(p) === REFERENCIA.ENTIDADE)
   const papeisPessoa   = papeis.active.filter(p => referenciaDoPapelEntry(p) === REFERENCIA.PESSOA && p.origem === ORIGEM.CONTRATO)
   const isPessoaPapel  = (id: string) => papeisPessoa.some(p => p.id === id)
@@ -2166,7 +2165,9 @@ export function PartesFields({ form, ro, onOpenSearch, onNewPartner, contractId 
     void apiFetch('/api/role-assignments', { method: 'PUT', body: JSON.stringify({ entityType: 'CONTRATO', entityId: contractId, items }) })
       .then(res => setSaving(res.ok ? 'saved' : 'idle')).catch(() => setSaving('idle'))
   }
-  const userName = (r: PartePessoa) => r.userName ?? users.find(u => u.id === r.userId)?.name ?? '(usuário removido)'
+  /* nomes de quem a API de responsáveis não trouxe (ex.: escolhido agora no seletor) */
+  const nomes = useUserNames(people.filter(r => !r.userName).map(r => r.userId))
+  const userName = (r: PartePessoa) => r.userName ?? nomes.nomeDe(r.userId) ?? (nomes.ausente(r.userId) ? '(usuário removido)' : '…')
 
   const partesList = ro ? partesVigentes(v) : v.partes
   const isEmpty = partesList.length === 0 && people.length === 0
