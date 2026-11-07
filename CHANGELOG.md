@@ -8,6 +8,10 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 - **Todo workflow tem tipo:** Contrato, Aditivo ou Encerramento. Um workflow novo nasce como Contrato, e os antigos sem tipo passam a Contrato.
 
+### Corrigido
+
+- O cadastro de usuário (Novo usuário e Resetar senha) não abre mais com o nome, o e-mail e a senha preenchidos pelo login salvo no navegador.
+
 ### Removido
 
 - A opção "— sem tipo" do campo Tipo do workflow.
