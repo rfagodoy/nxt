@@ -189,15 +189,6 @@ export const CONNECTORS: ConnectorManifest[] = [
     outputs: ['contratoSituacao'],
     compensable: true, // inversa: restaura a situação anterior
   },
-  {
-    value: 'partners.activate', label: 'Ativar parceiro', domain: 'partner',
-    inputs: [
-      { key: 'partnerId', label: 'Parceiro-alvo', required: true, kind: 'ref' },
-      { key: 'motivo', label: 'Motivo/observação', kind: 'text' },
-    ],
-    outputs: ['partnerStatus'],
-    compensable: true, // inversa: restaura o status anterior
-  },
 ]
 
 /** APOSENTADOS: não aparecem mais para escolher, mas continuam válidos em processos
@@ -230,6 +221,17 @@ export const RETIRED_CONNECTORS: ConnectorManifest[] = [
       { key: 'email', label: 'E-mail', kind: 'text' },
     ],
     outputs: ['partnerId', 'partnerStatus'],
+  },
+  /* Workflow não trata mais de parceiro (decisão do PO, 07/11/2026): ativar parceiro
+     saiu da vitrine junto com as Telas de parceiro nas atividades. */
+  {
+    value: 'partners.activate', label: 'Ativar parceiro (aposentado)', domain: 'partner',
+    inputs: [
+      { key: 'partnerId', label: 'Parceiro-alvo', required: true, kind: 'ref' },
+      { key: 'motivo', label: 'Motivo/observação', kind: 'text' },
+    ],
+    outputs: ['partnerStatus'],
+    compensable: true, // inversa: restaura o status anterior
   },
 ]
 
@@ -435,6 +437,16 @@ export type InstanceStatus = 'RUNNING' | 'COMPLETED' | 'CANCELLED' | 'ERROR'
 /** Executor "Da variável" que aponta para o PRÓPRIO contrato do processo (papel de pessoa
  *  com origem Contrato, ex.: Gestor do contrato). */
 export const EXECUTOR_CONTRATO_DO_PROCESSO = '@contrato'
+
+/** Tipos de workflow aceitos. Todo workflow TEM tipo (decisão do PO, 07/11/2026): o
+ *  "sem tipo" saiu, e o legado PARCEIRO não é mais oferecido — workflow não trata de
+ *  parceiro. DISTRATO aparece na tela como "Encerramento". */
+export const TIPOS_DE_WORKFLOW = ['CONTRATO', 'ADITIVO', 'DISTRATO'] as const
+export type TipoDeWorkflowValor = (typeof TIPOS_DE_WORKFLOW)[number]
+/** Tipo de um workflow novo, e o que um workflow antigo sem tipo passa a ter. */
+export const TIPO_DE_WORKFLOW_PADRAO: TipoDeWorkflowValor = 'CONTRATO'
+export const tipoDeWorkflowValido = (kind?: string | null): kind is TipoDeWorkflowValor =>
+  (TIPOS_DE_WORKFLOW as readonly string[]).includes(kind ?? '')
 
 /** Tipos de workflow que nascem DE um contrato existente: o contrato é escolhido ao
  *  iniciar e vira a variável `contratoId` desde a partida. */

@@ -487,7 +487,10 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
                 <SelectTrigger aria-label="Tela" className={cn(CAMPO, 'max-w-lg')}><SelectValue placeholder="Sem tela" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Sem tela — só concluir ou devolver</SelectItem>
-                  {entityScreens.map((s) => <SelectItem key={s.id} value={s.id} className="text-xs">{SUBJECT_LABEL[s.subjectType] ?? s.subjectType} · {s.name}</SelectItem>)}
+                  {/* Workflow não trata de parceiro (PO, 07/11/2026): só telas de contrato são
+                      oferecidas. Uma tela de parceiro já escolhida neste passo continua listada. */}
+                  {entityScreens.filter((s) => s.subjectType === 'CONTRATO' || s.id === step.screenRef)
+                    .map((s) => <SelectItem key={s.id} value={s.id} className="text-xs">{SUBJECT_LABEL[s.subjectType] ?? s.subjectType} · {s.name}</SelectItem>)}
                 </SelectContent>
               </Select>
               {step.screenRef && (<>
@@ -706,9 +709,14 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
               </Select>
               {isRetiredConnector(step.connector) && (
                 <p className="max-w-xl text-[11.5px] leading-snug text-amber-700 dark:text-amber-400">
-                  Esta ação foi aposentada: criar {step.connector === 'contracts.create' ? 'contrato' : 'parceiro'} agora
-                  se faz por uma <span className="font-medium">tela</span> numa tarefa de pessoa, que valida e mostra o
-                  cadastro inteiro. O processo continua funcionando; troque quando for revisá-lo.
+                  {step.connector === 'partners.activate' ? (
+                    <>Esta ação foi aposentada: workflow não trata mais de parceiro. O processo continua funcionando;
+                      retire-a quando for revisá-lo.</>
+                  ) : (
+                    <>Esta ação foi aposentada: criar {step.connector === 'contracts.create' ? 'contrato' : 'parceiro'} agora
+                      se faz por uma <span className="font-medium">tela</span> numa tarefa de pessoa, que valida e mostra o
+                      cadastro inteiro. O processo continua funcionando; troque quando for revisá-lo.</>
+                  )}
                 </p>
               )}
               {step.connector && (() => {

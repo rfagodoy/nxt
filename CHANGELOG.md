@@ -8,10 +8,17 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 - cada caminho do workflow pode terminar no seu próprio Fim; o aviso na tarefa só aparece quando a raia tem executor padrão e a tarefa usa outro.
 - Tarefas sem nada pendente mostram a mesma mensagem discreta da tela de Processos, sem ícone nem emoji.
+- **Todo workflow tem tipo:** Contrato, Aditivo ou Encerramento. Um workflow novo nasce como Contrato, e os antigos sem tipo passam a Contrato.
+
+### Corrigido
+
+- O cadastro de usuário (Novo usuário e Resetar senha) não abre mais com o nome, o e-mail e a senha preenchidos pelo login salvo no navegador.
 
 ### Removido
 
 - da paleta, Início agendado, Início por evento, Envio de mensagem, Recebimento de mensagem, Fim com erro, Fim com cancelamento e Terminar tudo. Desenhos que já os usam continuam abrindo, mas não ativam.
+- A opção "— sem tipo" do campo Tipo do workflow.
+- Workflow não trata mais de parceiro: as telas de parceiro saem da escolha de tela da atividade, e a ação automática "Ativar parceiro" sai do catálogo. Processos que já usam esses recursos continuam funcionando.
 
 ## [2.0.0] — Boole — 2026-11-04
 

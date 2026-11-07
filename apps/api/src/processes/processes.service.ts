@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, ConflictException }
 import { PrismaService } from '../prisma.service'
 import { CreateProcessDto } from './dto/create-process.dto'
 import { UpdateProcessDto } from './dto/update-process.dto'
-import { ProcessFormSchema, isCompensable, findConnector, nasceDeContrato, EXECUTOR_QUEM_INICIOU } from '@nxt/types'
+import { ProcessFormSchema, isCompensable, findConnector, nasceDeContrato, tipoDeWorkflowValido, EXECUTOR_QUEM_INICIOU } from '@nxt/types'
 import {
   compileBpmn, CompileError, type WfGraph, validarDesenho, validarDecisoes, validarAtividades, validarTelasDasAtividades, validarExecutores, validarExecutoresFixos, validarQuemInicia, formatarProblemas, bloqueantes,
   type ProblemaAtivacao, resumoDeInicio, type EtapaPrevia,
@@ -358,7 +358,7 @@ export class ProcessesService {
         description: dto.description,
         bpmnXml: dto.bpmnXml,
         formSchema: dto.formSchema as never,
-        kind: dto.kind ?? null,
+        kind: dto.kind,
         organizationId,
         status: 'DRAFT',
       },
@@ -372,11 +372,11 @@ export class ProcessesService {
   async activate(id: string, organizationId: string, autor?: Autor) {
     const process = await this.findOne(id, organizationId)
 
-    // TIPO obrigatório para ativar: é ele que decide onde o workflow aparece no
-    // "Novo processo" (Contratos mostra CONTRATO/ADITIVO, Parceiros mostra PARCEIRO).
-    // Sem tipo, o workflow nasce ativo e invisível — só o Dashboard o lista.
-    if (!process.kind) {
-      throw new BadRequestException('Informe o tipo do workflow (contrato, aditivo ou parceiro) antes de ativar.')
+    // TIPO válido para ativar: é ele que decide onde o workflow aparece no "Novo
+    // processo" e se pede o contrato ao iniciar. Todo workflow tem tipo (PO, 07/11/2026);
+    // esta guarda pega o legado PARCEIRO, que não é mais aceito.
+    if (!tipoDeWorkflowValido(process.kind)) {
+      throw new BadRequestException('Informe o tipo do workflow (contrato, aditivo ou encerramento) antes de ativar.')
     }
 
     const formSchema = process.formSchema as unknown as ProcessFormSchema
@@ -626,7 +626,7 @@ export class ProcessesService {
     if (dto.description !== undefined) data.description = dto.description
     if (dto.bpmnXml !== undefined) data.bpmnXml = dto.bpmnXml
     if (dto.formSchema !== undefined) data.formSchema = dto.formSchema as never
-    if (dto.kind !== undefined) data.kind = dto.kind || null
+    if (dto.kind !== undefined) data.kind = dto.kind
     if (mudaOFluxo(antes, dto)) data.status = 'DRAFT'
     const salvo = await this.prisma.processDefinition.update({ where: { id }, data: data as never })
 
