@@ -242,15 +242,20 @@ export function GavetaFase({ fase, formasNaFase, onPatch, onRemover, ...moldura 
 
 /* ─── Piscina principal (o workflow) ────────────────────────────────────────── */
 
-export function GavetaPiscinaPrincipal({ nome, descricao, quemInicia, papeis, kind, orientacao, onNome, onDescricao, onQuemInicia, onOrientacao, ...moldura }: Moldura & {
+export function GavetaPiscinaPrincipal({ nome, descricao, quemInicia, papeis, kind, tipos, orientacao, onNome, onKind, onDescricao, onQuemInicia, onOrientacao, ...moldura }: Moldura & {
   nome: string; descricao: string; quemInicia: QuemInicia | undefined; papeis: Papeis; kind: string; orientacao: Orientacao
-  onNome: (v: string) => void; onDescricao: (v: string) => void; onQuemInicia: (v: QuemInicia | undefined) => void; onOrientacao: (o: Orientacao) => void
+  /** os tipos aceitos (Contrato, Aditivo, Encerramento): é aqui que o tipo se escolhe desde que
+   *  o topo ficou mínimo (opção C, PO 07/11/2026) */
+  tipos: ReadonlyArray<{ value: string; label: string }>
+  onNome: (v: string) => void; onKind: (v: string) => void; onDescricao: (v: string) => void; onQuemInicia: (v: QuemInicia | undefined) => void; onOrientacao: (o: Orientacao) => void
 }): JSX.Element {
   return (
     <MolduraDaGaveta rotulo="Piscina principal · o workflow" titulo={nome.trim() || 'Workflow sem nome'} tom="estrutura" icone={<PanelLeft className={ICONE} />}
       pendentes={nome.trim() ? 0 : 1} {...moldura}>
       <Pergunta id="wf-nome" titulo="Identificação" ok={!!nome.trim()} icone={<Tag />} valor={nome}>
         <Rotulado rotulo="Nome do workflow" id="wf-nome-campo"><CampoTexto id="wf-nome-campo" rotulo="Nome do workflow" valor={nome} placeholder="Dê um nome a este workflow" onMudar={onNome} /></Rotulado>
+        <CampoEscolha rotulo="Tipo" valor={kind} onMudar={onKind} ajuda="Define onde o workflow aparece em “Novo processo”."
+          opcoes={tipos.map((t) => ({ v: t.value, titulo: t.label }))} />
         <Rotulado rotulo="Descrição" id="wf-descricao-campo" ajuda="O objetivo do workflow, para quem for gerenciá-lo depois.">
           <CampoTexto id="wf-descricao-campo" rotulo="Descrição do workflow" multilinha valor={descricao} onMudar={onDescricao} />
         </Rotulado>

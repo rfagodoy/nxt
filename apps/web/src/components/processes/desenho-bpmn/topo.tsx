@@ -1,36 +1,31 @@
 'use client'
 
 /* ─── Peças do topo do editor (desenho BPMN) ───────────────────────────────────
-   O topo é UMA linha (spec "Topo"): voltar · nome · Sobre · Quem inicia · saúde ·
-   desfazer/refazer · alinhar (com 2+ formas no laço) · ⋯ · Salvar rascunho · Ativar. O nome, o tipo e a
-   descrição que moravam no cabeçalho do documento (WorkflowIdentity) vieram para cá —
-   o desenho ganhou a altura inteira.
+   Topo MÍNIMO (opção C, PO 07/11/2026): voltar · nome (com a linha "Contrato · inicia: … ·
+   Editar" embaixo) · desfazer/refazer · alinhar (com 2+ formas no laço) · ⋯ · Salvar
+   rascunho · Ativar (com o número do que falta). Tipo, descrição e quem pode iniciar ficam na
+   gaveta do workflow (o "Editar"); as pendências, no "Antes de ativar" (checklist-de-ativacao).
    ⚠️ O nome continua sendo o que mais pede atenção: sem ele a API recusa salvar e ativar.
    Vazio, o campo mostra a ordem ("Dê um nome…") e fundo âmbar tracejado. */
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type ReactNode, type RefObject } from 'react'
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignHorizontalDistributeCenter, AlignStartHorizontal, AlignStartVertical,
-  AlignVerticalDistributeCenter, ChevronDown, Download, FileImage, FileText, History, Loader2,
+  AlignVerticalDistributeCenter, Download, FileImage, FileText, History, Loader2,
   MoreHorizontal,
 } from 'lucide-react'
-import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { FloatingMenu } from '@/components/ui/floating-menu'
 import type { FlowExportFormat } from '@/lib/flow-export'
 import { cn } from '@/lib/utils'
 import type { ModoAlinhar } from '@/lib/editor-bizagi/geometria'
-import { WorkflowKindIcon } from '../workflow-kind-icon'
-
-export interface TipoDeWorkflow { value: string; label: string }
 
 /* ─── Prioridade pela largura DISPONÍVEL ──────────────────────────────────────
    O topo nunca transborda nem quebra linha: quando o que está nele não cabe na largura
    do próprio topo (que muda com a barra lateral do app, não só com a janela), ele sobe um
    NÍVEL de compactação e mede de novo, até caber. A ordem é a do PO: o que mais importa
    (voltar, nome, Ativar, Salvar, ⋯, desfazer) é o último a encolher.
-     1 (livre: era o Organizar)      5 "Salvar rascunho" vira "Salvar"; "Não salvo" só o ponto
-     2 Quem inicia só com o ícone    6 Quem inicia vai para o ⋯
-     3 saúde só com ícone + número   7 "Ativar workflow" vira "Ativar" e o nome encolhe (até 200px)
-     4 Sobre só com o ícone
+     1–4 e 6 (livres: eram Organizar, Quem inicia, saúde e Sobre, que saíram do topo)
+     5 "Salvar rascunho" vira "Salvar"; "Não salvo" só o ponto
+     7 "Ativar workflow" vira "Ativar" e o nome encolhe (até 200px)
    Mudou a largura ou a `chave`? Recomeça do nível 0 e sobe de novo — tudo em layout
    effect, antes de pintar, então não pisca. Com um balão do topo aberto, o nível congela. */
 export const NIVEL_MAXIMO_DO_TOPO = 7
@@ -94,73 +89,6 @@ export function NomeNoTopo({ nome, onNome, autoFocus, podeEncolher }: {
       className={cn('h-8 min-w-[200px] text-ellipsis rounded-md', podeEncolher ? 'shrink' : 'shrink-0', ' border bg-transparent px-2 text-[15px] font-extrabold tracking-tight outline-none transition-colors',
         'placeholder:font-bold placeholder:text-muted-foreground/60 hover:bg-muted/50 focus:bg-muted/50 focus-visible:ring-2 focus-visible:ring-primary/40',
         vazio ? 'border-dashed border-amber-400/70 bg-amber-500/5' : 'border-transparent')} />
-  )
-}
-
-/** "Sobre": tipo, descrição e o tamanho do fluxo, num balão ancorado no botão. */
-export function SobreDoWorkflow({ descricao, onDescricao, tipo, onTipo, tipos, resumo, soIcone, aberto: abertoProp, onAberto }: {
-  descricao: string; onDescricao: (v: string) => void
-  tipo: string; onTipo: (v: string) => void
-  tipos: readonly TipoDeWorkflow[]
-  /** "14 atividades · 3 escolhas" */
-  resumo: string
-  /** Topo apertado: só o glifo do tipo (o resto vai no title e no nome acessível). */
-  soIcone?: boolean
-  /** Controlado pela página (o topo congela a compactação enquanto o balão está aberto). */
-  aberto?: boolean
-  onAberto?: (v: boolean) => void
-}): JSX.Element {
-  const botao = useRef<HTMLButtonElement>(null)
-  const [abertoLocal, setAbertoLocal] = useState(false)
-  const aberto = abertoProp ?? abertoLocal
-  const setAberto = (v: boolean | ((x: boolean) => boolean)) => {
-    const novo = typeof v === 'function' ? v(aberto) : v
-    if (abertoProp !== undefined) onAberto?.(novo); else setAbertoLocal(novo)
-  }
-  /* Todo workflow tem tipo (PO, 07/11/2026): não existe mais o estado "sem tipo". */
-  const rotuloTipo = tipos.find((k) => k.value === tipo)?.label ?? tipos[0]?.label
-  return (
-    <>
-      <button ref={botao} type="button" onClick={() => setAberto((v) => !v)} aria-haspopup="dialog" aria-expanded={aberto}
-        title={`Sobre: tipo e descrição do workflow · tipo: ${rotuloTipo}`}
-        aria-label={soIcone ? `Sobre o workflow · ${rotuloTipo}` : undefined}
-        className={cn('inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border text-xs', soIcone ? 'px-2' : 'px-3', ' font-semibold transition-colors',
-          'border-primary/30 bg-primary/10 text-primary hover:bg-primary/15')}>
-        <WorkflowKindIcon kind={tipo || undefined} className="h-3.5 w-3.5" />
-        {!soIcone && <>Sobre · {rotuloTipo}<ChevronDown className="h-3 w-3 opacity-60" /></>}
-      </button>
-      {aberto && (
-        <FloatingMenu anchor={botao} onClose={() => setAberto(false)} role="dialog" aria-label="Sobre este workflow"
-          className="w-[380px] max-w-[calc(100vw-32px)] space-y-3 rounded-xl border bg-card p-3 text-card-foreground shadow-xl">
-          <div>
-            <p className="mb-1 text-xs font-semibold">Tipo</p>
-            <Select value={tipo} onValueChange={onTipo}>
-              <SelectTrigger aria-label="Tipo do workflow" className="h-8 text-xs">
-                <span className="flex items-center gap-2">
-                  <WorkflowKindIcon kind={tipo || undefined} className="h-4 w-4" />
-                  {rotuloTipo}
-                </span>
-              </SelectTrigger>
-              <SelectContent>
-                {tipos.map((k) => (
-                  <SelectItem key={k.value} value={k.value}>
-                    <span className="flex items-center gap-2"><WorkflowKindIcon kind={k.value} className="h-4 w-4" />{k.label}</span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="mt-1 text-[11px] text-muted-foreground">O tipo determina onde ele aparece em “Novo processo”.</p>
-          </div>
-          <div>
-            <p className="mb-1 text-xs font-semibold">Descrição</p>
-            <textarea value={descricao} onChange={(e) => onDescricao(e.target.value)} rows={3} aria-label="Descrição do workflow"
-              placeholder="Descreva o objetivo — para quem for gerenciá-lo depois."
-              className="w-full resize-y rounded-md border bg-background px-2 py-1.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-primary/40" />
-          </div>
-          <p className="border-t pt-2 text-[11px] text-muted-foreground">{resumo}</p>
-        </FloatingMenu>
-      )}
-    </>
   )
 }
 
