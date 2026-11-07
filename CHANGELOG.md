@@ -12,6 +12,11 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
   - Os cartões grandes de opção viraram listas de escolha, com a explicação da opção escolhida logo abaixo.
   - O rodapé diz o que falta pelo nome ("Falta: prazo").
   - Na atividade, abrem a Identificação e a primeira seção incompleta.
+- **O desenho do workflow anda como um mapa:**
+  - Arrastar no vazio move o desenho para cima, para baixo e para os lados.
+  - A roda do mouse ou o trackpad rolam o desenho (Shift + roda, para os lados).
+  - O zoom fica no Ctrl + roda, na pinça do trackpad e nos botões + e −.
+  - A seleção de várias formas por laço passa a ser Shift + arrastar. Com Ctrl junto, ela soma à seleção atual.
 
 ### Removido
 
