@@ -10,6 +10,7 @@ import { assertStrongPassword } from '../auth/password-policy'
 import { normalizeEmail } from '../auth/auth.service'
 import { CreateUserDto } from './dto/create-user.dto'
 import { UpdateUserDto } from './dto/update-user.dto'
+import { consultaDeSelecionaveis, type ParametrosSelecionaveis } from './usuarios-selecionaveis'
 
 // Nunca expõe passwordHash.
 const USER_SELECT = {
@@ -38,10 +39,11 @@ export class UsersService {
 
   /** Lista mínima para SELETORES (qualquer autenticado): usuários ATIVOS, só id/nome/email.
    *  Não expõe papel de acesso, datas nem nada sensível — é só para escolher uma pessoa. */
-  selectable(organizationId: string) {
+  /** Seletor de pessoas: busca no servidor por nome/e-mail, ou nomes por ids — ver
+   *  `usuarios-selecionaveis.ts`. */
+  selectable(organizationId: string, params: ParametrosSelecionaveis = {}) {
     return this.prisma.user.findMany({
-      where: { organizationId, status: 'ATIVO' },
-      orderBy: { name: 'asc' },
+      ...consultaDeSelecionaveis(organizationId, params),
       select: { id: true, name: true, email: true },
     })
   }

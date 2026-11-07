@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import { apiFetch, apiJson } from '@/lib/http'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { UserSelect } from '@/components/ui/user-select'
-import { useSelectableUsers } from '@/hooks/use-users'
+import { useUserNames } from '@/hooks/use-users'
 import { PAPEIS_KEY, INIT_PAPEIS, REFERENCIA, referenciaDoPapelEntry } from '@/lib/contract-roles'
 
 export type ResponsavelEntityType = 'EMPRESA' | 'PARCEIRO' | 'UNIDADE' | 'CONTRATO'
@@ -29,15 +29,16 @@ export function ResponsaveisSection({ entityType, entityId, readOnly }: {
   readOnly?: boolean
 }) {
   const papeis = useLookupTable(PAPEIS_KEY, INIT_PAPEIS)
-  const { users } = useSelectableUsers()
   const papeisPessoa = useMemo(
     () => papeis.active.filter(p => referenciaDoPapelEntry(p) === REFERENCIA.PESSOA && p.origem === entityType),
     [papeis.active, entityType],
   )
   const papelLabel = (id: string) => papeis.entries.find(p => p.id === id)?.label ?? id
-  const userName = (a: Assignment) => a.userName ?? users.find(u => u.id === a.userId)?.name ?? '(usuário removido)'
 
   const [rows, setRows] = useState<Assignment[]>([])
+  /* nomes de quem a API de responsáveis não trouxe (ex.: escolhido agora no seletor) */
+  const nomes = useUserNames(rows.filter(r => !r.userName).map(r => r.userId))
+  const userName = (a: Assignment) => a.userName ?? nomes.nomeDe(a.userId) ?? (nomes.ausente(a.userId) ? '(usuário removido)' : '…')
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState<'idle' | 'saving' | 'saved'>('idle')
 

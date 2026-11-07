@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common'
 import { UsersService } from './users.service'
 import { CreateUserDto } from './dto/create-user.dto'
 import { UpdateUserDto } from './dto/update-user.dto'
@@ -23,8 +23,13 @@ export class UsersController {
   // autenticado — o @Roles do método SOBRESCREVE o 'admin' da classe (getAllAndOverride).
   @Get('selectable')
   @Roles('admin', 'user')
-  selectable(@CurrentOrg() organizationId: string) {
-    return this.users.selectable(organizationId)
+  selectable(
+    @CurrentOrg() organizationId: string,
+    @Query('q') q?: string,
+    @Query('ids') ids?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.users.selectable(organizationId, { q, ids, limit })
   }
 
   @Post()

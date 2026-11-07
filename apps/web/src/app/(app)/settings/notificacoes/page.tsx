@@ -7,7 +7,7 @@ import { useSession } from '@/lib/session-context'
 import { cacheRead, pullSetting, pushSetting } from '@/lib/settings-store'
 import { apiFetch } from '@/lib/http'
 import { emitContractsChanged } from '@/lib/contract-events'
-import { useSelectableUsers } from '@/hooks/use-users'
+import { useUserNames } from '@/hooks/use-users'
 import { UserSelect } from '@/components/ui/user-select'
 
 const KEY = 'nxt:settings:notificacoes'
@@ -201,10 +201,10 @@ function EmailCard({ p, setP, isAdmin }: { p: Params; setP: (v: Params) => void;
    pergunta é outra: lá se escolhe COMO usar o canal para avisos que já têm dono;
    aqui se resolve QUEM é o dono de um aviso que nasce da organização. */
 function ContratosEmailCard({ p, setP }: { p: Params; setP: (v: Params) => void }) {
-  const { users } = useSelectableUsers()
   const c = p.emailContratos
+  const nomes = useUserNames(c.destinatarios)
   const set = (v: Partial<Params['emailContratos']>) => setP({ ...p, emailContratos: { ...c, ...v } })
-  const nomeDe = (id: string) => users.find(u => u.id === id)?.name ?? '(usuário removido)'
+  const nomeDe = (id: string) => nomes.nomeDe(id) ?? (nomes.ausente(id) ? '(usuário removido)' : '…')
 
   return (
     <Card icon={Mail} color="bg-teal-500/10 text-teal-600 dark:text-teal-400"
