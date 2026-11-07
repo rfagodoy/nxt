@@ -2,12 +2,12 @@
 
 /* ─── Gaveta da escolha que ainda não fecha em blocos (losango solto) ───────────
    Sem conversão para blocos não há `GavetaDoBloco`: os caminhos são as SETAS que saem do
-   losango. Mesmo padrão da escolha no bloco (gaveta-padrao): a pergunta, o modo e os caminhos
-   em cartões — Editar abre a condição da seta (a gaveta "Caminho"), Remover apaga a seta. A
+   losango. Mesmo padrão da escolha no bloco (gaveta-padrao): a pergunta e o modo numa seção,
+   os caminhos em cartões — Editar abre a condição da seta (a gaveta "Caminho"), Remover apaga a seta. A
    seta marcada como padrão é o "Caso contrário". Mesma regra das outras gavetas: ao vivo;
    Cancelar, X e Esc voltam ao retrato da abertura; Aplicar mantém. */
 import type { JSX } from 'react'
-import { AlertTriangle, Pencil, Trash2 } from 'lucide-react'
+import { AlertTriangle, GitBranch, HelpCircle, Pencil, Trash2 } from 'lucide-react'
 import type { FormaDesenho, SetaDesenho } from '@nxt/types'
 import { Input } from '@/components/ui/input'
 import { resumoDaEscolha } from '@/lib/editor-bizagi/resumos'
@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils'
 import { GatewayGlyph } from '../flow-shared'
 import { GavetaLateral } from './gaveta'
 import {
-  AcaoDoCartao, CAMPO, CORPO_DA_GAVETA, EmResumo, FraseDoResumo, Opcao, Pergunta, RodapePadrao, TOM_DO_TIPO, useEscCancela,
+  AcaoDoCartao, CAMPO, CampoEscolha, CORPO_DA_GAVETA, FraseDoResumo, Pergunta, ROTULO, RodapePadrao, TOM_DO_TIPO, useEscCancela,
 } from './gaveta-padrao'
 
 export function GavetaDoLosango({ forma, setas, nomeDe, anteriores, onMudar, onEditarSeta, onApagarSeta, onRemover, onCancelar, onAplicar, focarAoAbrir }: {
@@ -73,29 +73,25 @@ export function GavetaDoLosango({ forma, setas, nomeDe, anteriores, onMudar, onE
   return (
     <GavetaLateral rotulo="Escolha" rotuloTom={TOM_DO_TIPO.escolha} rotuloIcone={<GatewayGlyph kind="exclusive" className="h-3 w-3" />}
       titulo={forma.pergunta?.trim() || 'Escolha sem pergunta'} rotuloFechar="Fechar sem aplicar" onFechar={onCancelar} focarAoAbrir={focarAoAbrir}
-      rodape={<RodapePadrao pendentes={pendentes} onCancelar={onCancelar} onAplicar={onAplicar}
+      resumo={<FraseDoResumo trechos={resumoDaEscolha({ anteriores, pergunta: forma.pergunta, modo, seNenhum: padrao ? nomeDe(padrao.para) : undefined, semCondicao })} />}
+      rodape={<RodapePadrao pendentes={pendentes} faltam={[...(okPergunta ? [] : ['pergunta']), ...(okCaminhos ? [] : ['caminhos'])]} onCancelar={onCancelar} onAplicar={onAplicar}
         remover={{ rotulo: 'Remover', nomeAcessivel: 'Remover a escolha', aoRemover: onRemover }} />}>
       <div className={CORPO_DA_GAVETA}>
-        <EmResumo>
-          <FraseDoResumo trechos={resumoDaEscolha({ anteriores, pergunta: forma.pergunta, modo, seNenhum: padrao ? nomeDe(padrao.para) : undefined, semCondicao })} />
-        </EmResumo>
-
-        <Pergunta id="losango-pergunta" n={1} titulo="Qual é a pergunta?" ok={okPergunta}
-          ajuda="Aparece no losango e ajuda quem lê o desenho a entender a decisão.">
-          <Input className={cn(CAMPO, 'max-w-lg')} aria-label="Pergunta da escolha" value={forma.pergunta ?? ''} placeholder="Ex.: Quais pareceres são necessários?"
-            onChange={(e) => onMudar({ pergunta: e.target.value })} />
-        </Pergunta>
-
-        <Pergunta id="losango-modo" n={2} titulo="Como escolher o caminho?" ok ajuda="Quando mais de um caminho servir.">
-          <div role="radiogroup" aria-label="Como escolher o caminho" className="grid gap-2 sm:grid-cols-2">
-            <Opcao ativo={modo === 'primeiro'} onClick={() => onMudar({ modo: 'primeiro' })}
-              titulo="O primeiro que servir" descricao="Testa de cima para baixo e segue só pelo primeiro." />
-            <Opcao ativo={modo === 'todos'} onClick={() => onMudar({ modo: 'todos' })}
-              titulo="Todos os que servirem" descricao="Os caminhos que servirem acontecem juntos." />
+        <Pergunta id="losango-pergunta" titulo="Pergunta" ok={okPergunta} icone={<HelpCircle />} valor={forma.pergunta}>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="losango-pergunta-campo" className={ROTULO}>Qual é a pergunta</label>
+            <Input id="losango-pergunta-campo" className={CAMPO} value={forma.pergunta ?? ''} placeholder="Ex.: Quais pareceres são necessários?"
+              onChange={(e) => onMudar({ pergunta: e.target.value })} />
+            <p className="text-[11px] leading-snug text-muted-foreground">Aparece no losango e ajuda quem lê o desenho a entender a decisão.</p>
           </div>
+          <CampoEscolha rotulo="Quando mais de um caminho servir" valor={modo} onMudar={(m) => onMudar({ modo: m })} opcoes={[
+            { v: 'primeiro', titulo: 'O primeiro que servir', descricao: 'Testa de cima para baixo e segue só pelo primeiro.' },
+            { v: 'todos', titulo: 'Todos os que servirem', descricao: 'Os caminhos que servirem acontecem juntos.' },
+          ]} />
         </Pergunta>
 
-        <Pergunta id="losango-caminhos" n={3} titulo="Caminhos" ok={okCaminhos}
+        <Pergunta id="losango-caminhos" titulo="Caminhos" ok={okCaminhos} icone={<GitBranch />}
+          valor={`${caminhos.length} caminho${caminhos.length === 1 ? '' : 's'}`}
           ajuda="Cada seta que sai do losango é um caminho, com a condição dela.">
           {setas.length ? (
             <ul className="flex flex-col gap-2">

@@ -4,6 +4,15 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ## [Não lançado]
 
+### Alterado
+
+- **Gavetas do editor de workflow no padrão dos cadastros:** atividade, escolha, "ao mesmo tempo", raia, fase, piscinas, mensagem, seta e as demais formas.
+  - O resumo virou uma linha discreta embaixo do nome, no lugar do cartão escuro "Em resumo".
+  - As perguntas numeradas viraram seções que abrem e fecham. Fechada, cada seção mostra o valor escolhido ou o selo "Falta".
+  - Os cartões grandes de opção viraram listas de escolha, com a explicação da opção escolhida logo abaixo.
+  - O rodapé diz o que falta pelo nome ("Falta: prazo").
+  - Na atividade, abrem a Identificação e a primeira seção incompleta.
+
 ## [2.1.0] — Boole — 2026-11-07
 
 ### Adicionado

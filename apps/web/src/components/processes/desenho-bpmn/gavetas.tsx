@@ -7,12 +7,12 @@
    o que se muda aqui vale AO VIVO no desenho; Cancelar, o X e o Esc voltam ao estado da
    abertura (a página guarda o retrato); Aplicar — ou clicar noutra coisa, Salvar, Ativar —
    mantém. O que um item removido tinha gravado em `forma.config` fica como está: a gaveta não o
-   edita nem o apaga. Todas no padrão das perguntas da etapa (gaveta-padrao): chip colorido do tipo, "Em resumo"
-   quando há o que resumir, perguntas numeradas e o rodapé com o status. O elemento que o motor
+   edita nem o apaga. Todas no padrão das seções (gaveta-padrao): chip colorido do tipo, o resumo no
+   cabeçalho quando há o que resumir, seções em sanfona e o rodapé dizendo o que falta. O elemento que o motor
    não executa mostra a nota fixa `AVISO_NAO_EXECUTA`. */
 import type { JSX, ReactNode } from 'react'
 import { useState } from 'react'
-import { AlertTriangle, ArrowRight, Columns3, Info, Mail, PanelLeft, Rows3, SquareDashed } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Clock, Columns3, Compass, Info, Mail, PanelLeft, PlayCircle, Radio, Rows3, SquareDashed, Tag, User, Users } from 'lucide-react'
 import type { FaseDesenho, FluxoMensagem, FormaDesenho, PiscinaExterna, QuemInicia, SetaDesenho, StepFormSchema } from '@nxt/types'
 import { executaHoje, varianteDe } from '@nxt/workflow-core'
 import { Input } from '@/components/ui/input'
@@ -32,7 +32,7 @@ import { entityKindLabel, type Papeis } from '../editor-comum'
 import { GavetaLateral } from './gaveta'
 import { CaminhoAutomatico } from './painel-da-seta'
 import {
-  CAMPO, CORPO_DA_GAVETA, EmResumo, FraseDoResumo, Opcao, Pergunta, RodapePadrao, TOM_DO_TIPO, contadorDePendencias, useEscCancela,
+  CAMPO, CampoEscolha, CORPO_DA_GAVETA, FraseDoResumo, Pergunta, ROTULO, RodapePadrao, TOM_DO_TIPO, contadorDePendencias, useEscCancela,
   type TomDoTipo,
 } from './gaveta-padrao'
 import { IconeDoItem } from './paleta'
@@ -49,25 +49,26 @@ interface Moldura {
 
 export const AVISO_NAO_EXECUTA = 'Este elemento não executa. Para ativar o workflow, troque-o por outro ou remova-o.'
 
-function MolduraDaGaveta({ rotulo, titulo, tom, icone, resumo, pendentes, onCancelar, onAplicar, focarAoAbrir, remover, children }: Moldura & {
+function MolduraDaGaveta({ rotulo, titulo, tom, icone, resumo, pendentes, faltam, onCancelar, onAplicar, focarAoAbrir, remover, children }: Moldura & {
   rotulo: string; titulo: string; children: ReactNode
   /** cor e ícone do chip do tipo, no cabeçalho */
   tom: TomDoTipo; icone: ReactNode
-  /** a frase do "Em resumo" (sem ela, o cartão não aparece) */
+  /** a frase do resumo, no cabeçalho */
   resumo?: Trecho[]
-  /** perguntas sem resposta (a linha de status do rodapé) */
+  /** seções incompletas (a linha do rodapé) */
   pendentes: number
+  /** como o rodapé nomeia o que falta ("nome") */
+  faltam?: string[]
   /** botão de remover no rodapé, à esquerda (como o "Remover" da etapa) */
   remover?: { nomeAcessivel: string; aoRemover: () => void }
 }): JSX.Element {
   useEscCancela(onCancelar)
   return (
     <GavetaLateral rotulo={rotulo} rotuloTom={TOM_DO_TIPO[tom]} rotuloIcone={icone} titulo={titulo} rotuloFechar="Fechar sem aplicar" onFechar={onCancelar}
-      focarAoAbrir={focarAoAbrir}
-      rodape={<RodapePadrao pendentes={pendentes} onCancelar={onCancelar} onAplicar={onAplicar}
+      focarAoAbrir={focarAoAbrir} resumo={resumo && <FraseDoResumo trechos={resumo} />}
+      rodape={<RodapePadrao pendentes={pendentes} faltam={faltam ?? ['nome']} onCancelar={onCancelar} onAplicar={onAplicar}
         remover={remover && { rotulo: 'Remover', nomeAcessivel: remover.nomeAcessivel, aoRemover: remover.aoRemover }} />}>
       <div className={CORPO_DA_GAVETA}>
-        {resumo && <EmResumo><FraseDoResumo trechos={resumo} /></EmResumo>}
         {children}
       </div>
     </GavetaLateral>
@@ -102,8 +103,19 @@ function CampoTexto({ valor, onMudar, rotulo, placeholder, multilinha, id }: {
   const [texto, setTexto] = useState(valor)
   const mudar = (v: string) => { setTexto(v); onMudar(v) }
   return multilinha
-    ? <Textarea id={id} aria-label={rotulo} className="min-h-[80px] max-w-lg text-[length:var(--campo-fonte)]" value={texto} placeholder={placeholder} onChange={(e) => mudar(e.target.value)} />
-    : <Input id={id} aria-label={rotulo} className={cn(CAMPO, 'max-w-lg')} value={texto} placeholder={placeholder} onChange={(e) => mudar(e.target.value)} />
+    ? <Textarea id={id} aria-label={rotulo} className="min-h-[80px] text-[length:var(--campo-fonte)]" value={texto} placeholder={placeholder} onChange={(e) => mudar(e.target.value)} />
+    : <Input id={id} aria-label={rotulo} className={CAMPO} value={texto} placeholder={placeholder} onChange={(e) => mudar(e.target.value)} />
+}
+
+/** Rótulo em cima do campo (padrão dos cadastros) e, embaixo, uma linha de ajuda. */
+function Rotulado({ rotulo, id, ajuda, children }: { rotulo: string; id: string; ajuda?: string; children: ReactNode }): JSX.Element {
+  return (
+    <div className="flex flex-col gap-1">
+      <label htmlFor={id} className={ROTULO}>{rotulo}</label>
+      {children}
+      {ajuda && <p className="text-[11px] leading-snug text-muted-foreground">{ajuda}</p>}
+    </div>
+  )
 }
 
 /** Número inteiro ≥ `min`; vazio = `undefined` (quem chama decide o que é "sem valor"). */
@@ -121,16 +133,6 @@ function CampoNumero({ valor, onMudar, rotulo, min = 0 }: {
   )
 }
 
-/** Rádios em cartão (o `Opcao` das perguntas da etapa), um por linha. */
-function Opcoes<T extends string>({ valor, opcoes, onMudar, rotulo, colunas }: {
-  valor: T; opcoes: ReadonlyArray<{ v: T; titulo: string; descricao?: string; disabled?: boolean }>; onMudar: (v: T) => void; rotulo: string; colunas?: boolean
-}): JSX.Element {
-  return (
-    <div role="radiogroup" aria-label={rotulo} className={cn('grid gap-2', colunas && 'sm:grid-cols-2')}>
-      {opcoes.map((o) => <Opcao key={o.v} ativo={valor === o.v} disabled={o.disabled} onClick={() => onMudar(o.v)} titulo={o.titulo} descricao={o.descricao} />)}
-    </div>
-  )
-}
 
 /* ─── Raia ──────────────────────────────────────────────────────────────────── */
 
@@ -152,26 +154,26 @@ function ExecutorDaRaia({ executor, papeis, onMudar }: {
   const masc = origem === ORIGEM.PARCEIRO || origem === 'CONTRATO'
   return (
     <>
-      <Select value={executor?.papelId ?? SEM_PADRAO} onValueChange={escolher}>
-        <SelectTrigger aria-label="Papel de quem faz as tarefas desta raia" className={cn(CAMPO, 'max-w-sm')}><SelectValue placeholder="Escolha o papel" /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value={SEM_PADRAO}>— sem executor padrão —</SelectItem>
-          {papeisPessoa.map((p) => <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>)}
-        </SelectContent>
-      </Select>
+      <div className="flex flex-col gap-1">
+        <label htmlFor="raia-papel" className={ROTULO}>Papel</label>
+        <Select value={executor?.papelId ?? SEM_PADRAO} onValueChange={escolher}>
+          <SelectTrigger id="raia-papel" className={CAMPO}><SelectValue placeholder="Escolha o papel" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value={SEM_PADRAO}>— sem executor padrão —</SelectItem>
+            {papeisPessoa.map((p) => <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
       {papeisPessoa.length === 0 && (
         <p className="text-[11px] leading-snug text-muted-foreground">Nenhum papel de pessoa cadastrado. Crie em Configurações → Papéis (referência “Pessoa”).</p>
       )}
       {executor && origem && origem !== ORIGEM.ORG && (<>
-        <p className="text-[13px] font-semibold">{papelSel?.label ?? 'O papel'} de qual {tipo}?</p>
-        <div role="radiogroup" aria-label={`De qual ${tipo}`} className="grid gap-2 sm:grid-cols-2">
-          <Opcao ativo={executor.mode === 'FIXA'} onClick={() => setExec({ mode: 'FIXA' })}
-            titulo={`Sempre ${masc ? 'o mesmo' : 'a mesma'}`} descricao={`Você escolhe agora qual ${tipo}.`} />
-          <Opcao ativo={executor.mode === 'VARIAVEL'} onClick={() => setExec({ mode: 'VARIAVEL' })}
-            titulo={origem === ORIGEM.PARCEIRO ? 'Depende do processo' : 'A do contrato do processo'}
-            descricao="Muda conforme o contrato que passa pelo processo." />
-        </div>
-        <div className="max-w-lg">
+        <CampoEscolha rotulo={`${papelSel?.label ?? 'O papel'} de qual ${tipo}`} valor={executor.mode} onMudar={(mode) => setExec({ mode })} opcoes={[
+          { v: 'FIXA', titulo: `Sempre ${masc ? 'o mesmo' : 'a mesma'}`, descricao: `Você escolhe agora qual ${tipo}.` },
+          { v: 'VARIAVEL', titulo: origem === ORIGEM.PARCEIRO ? 'Depende do processo' : 'A do contrato do processo',
+            descricao: 'Muda conforme o contrato que passa pelo processo.' },
+        ]} />
+        <div>
           {executor.mode === 'FIXA' ? (
             <EntitySelect entityType={origem as EntityKind} value={executor.entityId}
               onChange={(id) => setExec({ entityId: id, entityVar: undefined, stakeholder: undefined })}
@@ -199,11 +201,11 @@ export function GavetaRaia({ raia, tarefasNaRaia, papeis, onPatch, ...moldura }:
   return (
     <MolduraDaGaveta rotulo="Raia" titulo={raia.nome || 'Raia sem nome'} tom="estrutura" icone={<Rows3 className={ICONE} />}
       resumo={resumoDaRaia({ papel, total, usamOPadrao })} pendentes={raia.nome.trim() ? 0 : 1} {...moldura}>
-      <Pergunta id="raia-nome" n={1} titulo="Nome da raia" ok={!!raia.nome.trim()}>
-        <CampoTexto rotulo="Nome da raia" valor={raia.nome} onMudar={(v) => onPatch({ nome: v })} />
+      <Pergunta id="raia-nome" titulo="Identificação" ok={!!raia.nome.trim()} icone={<Tag />} valor={raia.nome}>
+        <Rotulado rotulo="Nome da raia" id="raia-nome-campo"><CampoTexto id="raia-nome-campo" rotulo="Nome da raia" valor={raia.nome} onMudar={(v) => onPatch({ nome: v })} /></Rotulado>
       </Pergunta>
-      <Pergunta id="raia-executor" n={2} titulo="Quem faz as tarefas desta raia?" ok
-        ajuda="É o padrão. Cada tarefa pode escolher outro executor no “Quem faz?” dela.">
+      <Pergunta id="raia-executor" titulo="Quem faz as tarefas" ok icone={<User />} valor={papel ?? 'Sem executor padrão'}
+        ajuda="É o padrão. Cada tarefa pode escolher outro executor no “Quem faz” dela.">
         <ExecutorDaRaia executor={raia.executor} papeis={papeis} onMudar={(e) => onPatch({ executor: e })} />
       </Pergunta>
     </MolduraDaGaveta>
@@ -224,13 +226,14 @@ export function GavetaFase({ fase, formasNaFase, onPatch, onRemover, ...moldura 
     <MolduraDaGaveta rotulo="Fase" titulo={fase.nome || 'Fase sem nome'} tom="estrutura" icone={<Columns3 className={ICONE} />}
       resumo={resumoDaFase({ formas: formasNaFase, prazoDiasUteis: fase.prazoDiasUteis })} pendentes={fase.nome.trim() ? 0 : 1}
       remover={{ nomeAcessivel: 'Remover fase', aoRemover: onRemover }} {...moldura}>
-      <Pergunta id="fase-nome" n={1} titulo="Nome da fase" ok={!!fase.nome.trim()}>
-        <CampoTexto rotulo="Nome da fase" valor={fase.nome} onMudar={(v) => onPatch({ nome: v })} />
+      <Pergunta id="fase-nome" titulo="Identificação" ok={!!fase.nome.trim()} icone={<Tag />} valor={fase.nome}>
+        <Rotulado rotulo="Nome da fase" id="fase-nome-campo"><CampoTexto id="fase-nome-campo" rotulo="Nome da fase" valor={fase.nome} onMudar={(v) => onPatch({ nome: v })} /></Rotulado>
       </Pergunta>
-      <Pergunta id="fase-prazo" n={2} titulo="Prazo da fase (opcional)" ok ajuda="Por enquanto é só informativo.">
+      <Pergunta id="fase-prazo" titulo="Prazo (opcional)" ok icone={<Clock />} valor={fase.prazoDiasUteis ? `${fase.prazoDiasUteis} dias úteis` : 'Sem prazo'}
+        ajuda="Por enquanto é só informativo.">
         <div className="flex items-center gap-2">
           <CampoNumero rotulo="Prazo da fase em dias úteis" min={1} valor={fase.prazoDiasUteis} onMudar={(n) => onPatch({ prazoDiasUteis: n })} />
-          <span className="text-sm text-muted-foreground">dias úteis</span>
+          <span className="text-xs text-muted-foreground">dias úteis</span>
         </div>
       </Pergunta>
     </MolduraDaGaveta>
@@ -246,17 +249,17 @@ export function GavetaPiscinaPrincipal({ nome, descricao, quemInicia, papeis, ki
   return (
     <MolduraDaGaveta rotulo="Piscina principal · o workflow" titulo={nome.trim() || 'Workflow sem nome'} tom="estrutura" icone={<PanelLeft className={ICONE} />}
       pendentes={nome.trim() ? 0 : 1} {...moldura}>
-      <Pergunta id="wf-nome" n={1} titulo="Nome do workflow" ok={!!nome.trim()}>
-        <CampoTexto rotulo="Nome do workflow" valor={nome} placeholder="Dê um nome a este workflow" onMudar={onNome} />
+      <Pergunta id="wf-nome" titulo="Identificação" ok={!!nome.trim()} icone={<Tag />} valor={nome}>
+        <Rotulado rotulo="Nome do workflow" id="wf-nome-campo"><CampoTexto id="wf-nome-campo" rotulo="Nome do workflow" valor={nome} placeholder="Dê um nome a este workflow" onMudar={onNome} /></Rotulado>
+        <Rotulado rotulo="Descrição" id="wf-descricao-campo" ajuda="O objetivo do workflow, para quem for gerenciá-lo depois.">
+          <CampoTexto id="wf-descricao-campo" rotulo="Descrição do workflow" multilinha valor={descricao} onMudar={onDescricao} />
+        </Rotulado>
       </Pergunta>
-      <Pergunta id="wf-descricao" n={2} titulo="Descrição" ok ajuda="O objetivo do workflow, para quem for gerenciá-lo depois.">
-        <CampoTexto rotulo="Descrição do workflow" multilinha valor={descricao} onMudar={onDescricao} />
-      </Pergunta>
-      <Pergunta id="wf-quem-inicia" n={3} titulo="Quem pode iniciar?" ok ajuda="Quem vê este workflow em “+ Novo processo”. Administrador sempre pode.">
+      <Pergunta id="wf-quem-inicia" titulo="Quem pode iniciar" ok icone={<Users />} ajuda="Quem vê este workflow em “+ Novo processo”. Administrador sempre pode.">
         <div><QuemIniciaPill value={quemInicia} onChange={onQuemInicia} papeis={papeis.entries} kind={kind} /></div>
       </Pergunta>
-      <Pergunta id="wf-orientacao" n={4} titulo="Orientação do desenho" ok>
-        <Opcoes rotulo="Orientação do desenho" valor={orientacao} onMudar={onOrientacao} colunas opcoes={[
+      <Pergunta id="wf-orientacao" titulo="Desenho" ok icone={<Compass />} valor={orientacao === 'vertical' ? 'Vertical' : 'Horizontal'}>
+        <CampoEscolha rotulo="Orientação" valor={orientacao} onMudar={onOrientacao} opcoes={[
           { v: 'horizontal', titulo: 'Horizontal', descricao: 'Raias deitadas, o fluxo anda para a direita.' },
           { v: 'vertical', titulo: 'Vertical', descricao: 'Raias em pé, o fluxo desce.' },
         ]} />
@@ -277,18 +280,16 @@ export function GavetaPiscinaExterna({ piscina, onPatch, onRemover, ...moldura }
     <MolduraDaGaveta rotulo="Piscina de participante externo" titulo={piscina.nome || 'Participante sem nome'} tom="estrutura" icone={<SquareDashed className={ICONE} />}
       resumo={resumoDaPiscinaExterna(piscina)} pendentes={piscina.nome.trim() ? 0 : 1}
       remover={{ nomeAcessivel: 'Remover piscina', aoRemover: onRemover }} {...moldura}>
-      <Pergunta id="ext-nome" n={1} titulo="Nome" ok={!!piscina.nome.trim()}>
-        <CampoTexto rotulo="Nome do participante externo" valor={piscina.nome} onMudar={(v) => onPatch({ nome: v })} />
-      </Pergunta>
-      <Pergunta id="ext-quem" n={2} titulo="Quem é?" ok>
-        <Opcoes rotulo="Quem é o participante" valor={piscina.quem} onMudar={(quem) => onPatch({ quem })} opcoes={[
+      <Pergunta id="ext-nome" titulo="Participante" ok={!!piscina.nome.trim()} icone={<User />} valor={piscina.nome}>
+        <Rotulado rotulo="Nome" id="ext-nome-campo"><CampoTexto id="ext-nome-campo" rotulo="Nome do participante externo" valor={piscina.nome} onMudar={(v) => onPatch({ nome: v })} /></Rotulado>
+        <CampoEscolha rotulo="Quem é" valor={piscina.quem} onMudar={(quem) => onPatch({ quem })} opcoes={[
           { v: 'contratada', titulo: 'A contratada do contrato do processo', descricao: 'Muda a cada processo, conforme o contrato.' },
           { v: 'fixo', titulo: 'Um fornecedor fixo' },
           { v: 'orgao', titulo: 'Um órgão ou sistema externo' },
         ]} />
       </Pergunta>
-      <Pergunta id="ext-canal" n={3} titulo="Como ele interage?" ok>
-        <Opcoes rotulo="Como o participante interage" valor={piscina.canal} onMudar={(canal) => onPatch({ canal })} colunas opcoes={[
+      <Pergunta id="ext-canal" titulo="Como interage" ok icone={<Radio />} valor={piscina.canal === 'email' ? 'E-mail com link seguro' : 'Portal do fornecedor'}>
+        <CampoEscolha rotulo="Canal" valor={piscina.canal} onMudar={(canal) => onPatch({ canal })} opcoes={[
           { v: 'portal', titulo: 'Portal do fornecedor' },
           { v: 'email', titulo: 'E-mail com link seguro' },
         ]} />
@@ -312,10 +313,10 @@ export function GavetaMensagem({ fluxo, de, para, onPatch, onRemover, onCaminhoA
 }): JSX.Element {
   return (
     <MolduraDaGaveta rotulo="Fluxo de mensagem" titulo={fluxo.rotulo || `${de} → ${para}`} tom="ligacao" icone={<Mail className={ICONE} />}
-      resumo={resumoDaMensagem({ rotulo: fluxo.rotulo, de, para })} pendentes={fluxo.rotulo ? 0 : 1}
+      resumo={resumoDaMensagem({ rotulo: fluxo.rotulo, de, para })} pendentes={fluxo.rotulo ? 0 : 1} faltam={['o que é enviado']}
       remover={{ nomeAcessivel: 'Remover fluxo de mensagem', aoRemover: onRemover }} {...moldura}>
-      <Pergunta id="msg-rotulo" n={1} titulo="O que é enviado?" ok={!!fluxo.rotulo}>
-        <CampoTexto rotulo="O que é enviado" valor={fluxo.rotulo ?? ''} placeholder="Ex.: Minuta para assinatura" onMudar={(v) => onPatch({ rotulo: v })} />
+      <Pergunta id="msg-rotulo" titulo="Mensagem" ok={!!fluxo.rotulo} icone={<Mail />} valor={fluxo.rotulo}>
+        <Rotulado rotulo="O que é enviado" id="msg-rotulo-campo"><CampoTexto id="msg-rotulo-campo" rotulo="O que é enviado" valor={fluxo.rotulo ?? ''} placeholder="Ex.: Minuta para assinatura" onMudar={(v) => onPatch({ rotulo: v })} /></Rotulado>
       </Pergunta>
       <Nota>O canal e os anexos ficam na forma que envia ou recebe.</Nota>
       {onCaminhoAutomatico && <CaminhoAutomatico ajustado={!!(fluxo.saida || fluxo.entrada)} onRestaurar={onCaminhoAutomatico} />}
@@ -336,8 +337,10 @@ export function GavetaSeta({ seta, de, para, onPatch, onCaminhoAutomatico, ...mo
   return (
     <MolduraDaGaveta rotulo="Seta de sequência" titulo={seta.rotulo || `${de} → ${para}`} tom="ligacao" icone={<ArrowRight className={ICONE} />}
       resumo={resumoDaSeta({ de, para })} pendentes={0} {...moldura}>
-      <Pergunta id="seta-rotulo" n={1} titulo="Rótulo na seta (opcional)" ok ajuda="Aparece ao lado da seta, no desenho.">
-        <CampoTexto rotulo="Rótulo na seta" valor={seta.rotulo ?? ''} onMudar={(v) => onPatch({ rotulo: v })} />
+      <Pergunta id="seta-rotulo" titulo="Rótulo (opcional)" ok icone={<Tag />} valor={seta.rotulo || 'Sem rótulo'}>
+        <Rotulado rotulo="Rótulo na seta" id="seta-rotulo-campo" ajuda="Aparece ao lado da seta, no desenho.">
+          <CampoTexto id="seta-rotulo-campo" rotulo="Rótulo na seta" valor={seta.rotulo ?? ''} onMudar={(v) => onPatch({ rotulo: v })} />
+        </Rotulado>
       </Pergunta>
       {onCaminhoAutomatico && <CaminhoAutomatico ajustado={!!(seta.saida || seta.entrada)} onRestaurar={onCaminhoAutomatico} />}
     </MolduraDaGaveta>
@@ -377,12 +380,10 @@ export function GavetaFormaNova({ forma, nome, nomeDaPiscina, onPatch, onRemover
   const pend = contadorDePendencias()
   let resumo: Trecho[] | undefined
   const chave = `${forma.tipo}:${varianteDe(forma) ?? ''}`
-  let n = 1
-  const q = () => n++
 
   const campoNome = (titulo = 'Nome') => (
-    <Pergunta id="forma-nome" n={q()} titulo={titulo} ok={pend.ok(!!nome.trim() || titulo === 'Nome (opcional)')}>
-      <CampoTexto rotulo={`Nome: ${elemento}`} valor={nome} onMudar={(v) => onPatch({ nome: v })} />
+    <Pergunta id="forma-nome" titulo="Identificação" ok={pend.ok(!!nome.trim() || titulo === 'Nome (opcional)')} icone={<PlayCircle />} valor={nome}>
+      <Rotulado rotulo={titulo} id="forma-nome-campo"><CampoTexto id="forma-nome-campo" rotulo={`Nome: ${elemento}`} valor={nome} onMudar={(v) => onPatch({ nome: v })} /></Rotulado>
     </Pergunta>
   )
   let corpo: ReactNode

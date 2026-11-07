@@ -10,7 +10,7 @@
  */
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type JSX } from 'react'
-import { AlertTriangle, ArrowDown, ArrowUp, CornerDownRight, Info, Pencil, Play, Plus, SlidersHorizontal, Trash2, X } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, CornerDownRight, GitBranch, HelpCircle, Info, Tag, Pencil, Play, Plus, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import {
   acharItem, adicionarCaminho, atualizarCaminho, atualizarItem, destinosDeVolta, modoDaEscolha, moverCaminho, senaoParaCaminho, temSenaoAntigo,
   type BlocoEscolha, type ModoEscolha, type BlocoParalelo, type CaminhoCondicional, type FimCaminho, type FluxoBlocos,
@@ -26,7 +26,7 @@ import { FloatingMenu } from '@/components/ui/floating-menu'
 import { CondBuilder } from './condition-builder'
 import { GavetaLateral } from './desenho-bpmn/gaveta'
 import {
-  BotaoAcrescentar, CAMPO, CORPO_DA_GAVETA, EmResumo, FraseDoResumo, Opcao, Pergunta, RodapePadrao, TOM_DO_TIPO, useEscCancela,
+  BotaoAcrescentar, CAMPO, CampoEscolha, CORPO_DA_GAVETA, FraseDoResumo, Pergunta, ROTULO, RodapePadrao, TOM_DO_TIPO, useEscCancela,
 } from './desenho-bpmn/gaveta-padrao'
 import { resumoDaEscolha, resumoDoParalelo } from '@/lib/editor-bizagi/resumos'
 import { GatewayGlyph } from './flow-shared'
@@ -407,8 +407,8 @@ function CartaoDoCaminho({ bloco, caminho: c, indice: i }: { bloco: BlocoEscolha
   )
 }
 
-/** A escolha (e o inclusivo) na gaveta, no padrão das perguntas da etapa. */
-function PerguntasDaEscolha({ bloco, anteriores }: { bloco: BlocoEscolha; anteriores: string[] }) {
+/** A escolha (e o inclusivo) na gaveta, no padrão das seções (gaveta-padrao). */
+function PerguntasDaEscolha({ bloco }: { bloco: BlocoEscolha }) {
   const t = useTrilho()
   const todos = modoDaEscolha(bloco) === 'todos'
   const senao = bloco.casoContrario
@@ -418,27 +418,24 @@ function PerguntasDaEscolha({ bloco, anteriores }: { bloco: BlocoEscolha; anteri
   const okCaminhos = semCondicao === 0 && !senaoAntigo
   return (
     <div className={CORPO_DA_GAVETA}>
-      <EmResumo>
-        <FraseDoResumo trechos={resumoDaEscolha({ anteriores, pergunta: bloco.pergunta, modo: todos ? 'todos' : 'primeiro', semCondicao })} />
-      </EmResumo>
       <PendenciasDoBloco id={bloco.id} />
 
-      <Pergunta id="escolha-pergunta" n={1} titulo="Qual é a pergunta?" ok={okPergunta}
-        ajuda="Aparece no losango e ajuda quem lê o desenho a entender a decisão.">
-        <Input className={cn(CAMPO, 'max-w-lg')} aria-label="Pergunta da escolha" value={bloco.pergunta ?? ''} placeholder="Ex.: Quais pareceres são necessários?"
-          onChange={(e) => { const pergunta = e.target.value; t.onFluxo((f) => atualizarItem(f, bloco.id, { pergunta })) }} />
-      </Pergunta>
-
-      <Pergunta id="escolha-modo" n={2} titulo="Como escolher o caminho?" ok ajuda="Quando mais de um caminho servir.">
-        <div role="radiogroup" aria-label="Como escolher o caminho" className="grid gap-2 sm:grid-cols-2">
-          <Opcao ativo={!todos} onClick={() => t.onFluxo((f) => atualizarItem(f, bloco.id, { modo: 'primeiro' as ModoEscolha }))}
-            titulo="O primeiro que servir" descricao="Testa de cima para baixo e segue só pelo primeiro." />
-          <Opcao ativo={todos} onClick={() => t.onFluxo((f) => atualizarItem(f, bloco.id, { modo: 'todos' as ModoEscolha }))}
-            titulo="Todos os que servirem" descricao="Os caminhos que servirem acontecem juntos." />
+      <Pergunta id="escolha-pergunta" titulo="Pergunta" ok={okPergunta} icone={<HelpCircle />} valor={bloco.pergunta}>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="escolha-pergunta-campo" className={ROTULO}>Qual é a pergunta</label>
+          <Input id="escolha-pergunta-campo" className={CAMPO} value={bloco.pergunta ?? ''} placeholder="Ex.: Quais pareceres são necessários?"
+            onChange={(e) => { const pergunta = e.target.value; t.onFluxo((f) => atualizarItem(f, bloco.id, { pergunta })) }} />
+          <p className="text-[11px] leading-snug text-muted-foreground">Aparece no losango e ajuda quem lê o desenho a entender a decisão.</p>
         </div>
+        <CampoEscolha rotulo="Quando mais de um caminho servir" valor={todos ? 'todos' : 'primeiro'}
+          onMudar={(modo) => t.onFluxo((f) => atualizarItem(f, bloco.id, { modo: modo as ModoEscolha }))} opcoes={[
+            { v: 'primeiro', titulo: 'O primeiro que servir', descricao: 'Testa de cima para baixo e segue só pelo primeiro.' },
+            { v: 'todos', titulo: 'Todos os que servirem', descricao: 'Os caminhos que servirem acontecem juntos.' },
+          ]} />
       </Pergunta>
 
-      <Pergunta id="escolha-caminhos" n={3} titulo="Caminhos" ok={okCaminhos}
+      <Pergunta id="escolha-caminhos" titulo="Caminhos" ok={okCaminhos} icone={<GitBranch />}
+        valor={`${bloco.caminhos.length} caminho${bloco.caminhos.length === 1 ? '' : 's'}`}
         ajuda="Cada caminho tem uma condição. As etapas de cada um ficam no desenho.">
         <ul className="flex flex-col gap-2">
           {bloco.caminhos.map((c, i) => <CartaoDoCaminho key={c.id} bloco={bloco} caminho={c} indice={i} />)}
@@ -469,20 +466,24 @@ function PerguntasDaEscolha({ bloco, anteriores }: { bloco: BlocoEscolha; anteri
   )
 }
 
-/** O "ao mesmo tempo" na gaveta: o nome e as frentes, no padrão das perguntas da etapa. */
+/** O "ao mesmo tempo" na gaveta: o nome e as frentes, no padrão das seções (gaveta-padrao). */
 function PerguntasDoParalelo({ bloco }: { bloco: BlocoParalelo }) {
   const t = useTrilho()
   return (
     <div className={CORPO_DA_GAVETA}>
-      <EmResumo><FraseDoResumo trechos={resumoDoParalelo(bloco.caminhos.length)} /></EmResumo>
       <PendenciasDoBloco id={bloco.id} />
 
-      <Pergunta id="paralelo-nome" n={1} titulo="Nome (opcional)" ok ajuda="Aparece no losango. Ex.: Pareceres.">
-        <Input className={cn(CAMPO, 'max-w-lg')} aria-label="Nome do bloco" value={bloco.nome ?? ''} placeholder="Ex.: Pareceres"
-          onChange={(e) => { const nome = e.target.value; t.onFluxo((f) => atualizarItem(f, bloco.id, { nome })) }} />
+      <Pergunta id="paralelo-nome" titulo="Identificação" ok icone={<Tag />} valor={bloco.nome?.trim() || 'Sem nome'}>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="paralelo-nome-campo" className={ROTULO}>Nome (opcional)</label>
+          <Input id="paralelo-nome-campo" className={CAMPO} value={bloco.nome ?? ''} placeholder="Ex.: Pareceres"
+            onChange={(e) => { const nome = e.target.value; t.onFluxo((f) => atualizarItem(f, bloco.id, { nome })) }} />
+          <p className="text-[11px] leading-snug text-muted-foreground">Aparece no losango.</p>
+        </div>
       </Pergunta>
 
-      <Pergunta id="paralelo-frentes" n={2} titulo="Frentes" ok={bloco.caminhos.length >= 2}
+      <Pergunta id="paralelo-frentes" titulo="Frentes" ok={bloco.caminhos.length >= 2} icone={<GitBranch />}
+        valor={`${bloco.caminhos.length} frente${bloco.caminhos.length === 1 ? '' : 's'}`}
         ajuda="Cada frente anda sozinha. As etapas de cada uma ficam no desenho.">
         <ul className="flex flex-col gap-2">
           {bloco.caminhos.map((c, i) => {
@@ -550,8 +551,8 @@ export function FimSelect({ fluxo, escolhaId, caminhoId, fim, nomeDe, onFluxo, s
 }
 
 /* ─── A gaveta do bloco (desenho BPMN) ───────────────────────────────────────────
-   Escolha e "ao mesmo tempo" selecionados abrem aqui, no padrão das perguntas da etapa
-   (gaveta-padrao): chip do tipo, "Em resumo", perguntas numeradas e o rodapé. O que se muda
+   Escolha e "ao mesmo tempo" selecionados abrem aqui, no padrão das seções (gaveta-padrao):
+   chip do tipo, o resumo no cabeçalho, seções em sanfona e o rodapé. O que se muda
    vale AO VIVO no desenho; Cancelar, o X e o Esc voltam ao retrato da abertura (a página o
    guarda); Aplicar — ou clicar noutra coisa — mantém. As etapas dos caminhos ficam no desenho. */
 
@@ -580,20 +581,23 @@ export function GavetaDoBloco({ blocoId, anteriores, focarAoAbrir, onCancelar, o
   if (!b || b.kind === 'atividade') return null
   const ctx = { ...props, problemas, emParalelo, nomeDe }
   if (b.kind === 'escolha') {
-    const { pendentes } = respostasDaEscolha(b)
+    const { pendentes, semCondicao, okPergunta, okCaminhos } = respostasDaEscolha(b)
+    const faltam = [...(okPergunta ? [] : ['pergunta']), ...(okCaminhos ? [] : ['caminhos'])]
     return (
       <GavetaLateral rotulo="Escolha" rotuloTom={TOM_DO_TIPO.escolha} rotuloIcone={<GatewayGlyph kind="exclusive" className="h-3 w-3" />}
         titulo={b.pergunta?.trim() || 'Escolha sem pergunta'} rotuloFechar="Fechar sem aplicar" onFechar={onCancelar} focarAoAbrir={focarAoAbrir}
-        rodape={<RodapePadrao pendentes={pendentes} onCancelar={onCancelar} onAplicar={onAplicar}
+        resumo={<FraseDoResumo trechos={resumoDaEscolha({ anteriores, pergunta: b.pergunta, modo: modoDaEscolha(b) === 'todos' ? 'todos' : 'primeiro', semCondicao })} />}
+        rodape={<RodapePadrao pendentes={pendentes} faltam={faltam} onCancelar={onCancelar} onAplicar={onAplicar}
           remover={{ rotulo: 'Remover', nomeAcessivel: 'Remover a escolha e o que há dentro dela', aoRemover: () => props.onRemover(b.id) }} />}>
-        <Ctx.Provider value={ctx}><PerguntasDaEscolha bloco={b} anteriores={anteriores} /></Ctx.Provider>
+        <Ctx.Provider value={ctx}><PerguntasDaEscolha bloco={b} /></Ctx.Provider>
       </GavetaLateral>
     )
   }
   return (
     <GavetaLateral rotulo="Ao mesmo tempo" rotuloTom={TOM_DO_TIPO.paralelo} rotuloIcone={<GatewayGlyph kind="parallel" className="h-3 w-3" />}
       titulo={b.nome?.trim() || 'Ao mesmo tempo sem nome'} rotuloFechar="Fechar sem aplicar" onFechar={onCancelar} focarAoAbrir={focarAoAbrir}
-      rodape={<RodapePadrao pendentes={b.caminhos.length >= 2 ? 0 : 1} onCancelar={onCancelar} onAplicar={onAplicar}
+      resumo={<FraseDoResumo trechos={resumoDoParalelo(b.caminhos.length)} />}
+      rodape={<RodapePadrao pendentes={b.caminhos.length >= 2 ? 0 : 1} faltam={['frentes']} onCancelar={onCancelar} onAplicar={onAplicar}
         remover={{ rotulo: 'Remover', nomeAcessivel: 'Remover o bloco e o que há dentro dele', aoRemover: () => props.onRemover(b.id) }} />}>
       <Ctx.Provider value={ctx}><PerguntasDoParalelo bloco={b} /></Ctx.Provider>
     </GavetaLateral>
