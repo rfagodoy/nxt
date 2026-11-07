@@ -2,7 +2,7 @@
 
 /* ─── Peças do topo do editor (desenho BPMN) ───────────────────────────────────
    O topo é UMA linha (spec "Topo"): voltar · nome · Sobre · Quem inicia · saúde ·
-   desfazer/refazer · controles do desenho · Organizar · ⋯ · Salvar rascunho · Ativar. O nome, o tipo e a
+   desfazer/refazer · alinhar (com 2+ formas no laço) · ⋯ · Salvar rascunho · Ativar. O nome, o tipo e a
    descrição que moravam no cabeçalho do documento (WorkflowIdentity) vieram para cá —
    o desenho ganhou a altura inteira.
    ⚠️ O nome continua sendo o que mais pede atenção: sem ele a API recusa salvar e ativar.
@@ -10,14 +10,14 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type ReactNode, type RefObject } from 'react'
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignHorizontalDistributeCenter, AlignStartHorizontal, AlignStartVertical,
-  AlignVerticalDistributeCenter, ChevronDown, Columns3, Download, FileImage, FileText, Grid3x3, History, Loader2,
-  MoreHorizontal, Rows3,
+  AlignVerticalDistributeCenter, ChevronDown, Download, FileImage, FileText, History, Loader2,
+  MoreHorizontal,
 } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { FloatingMenu } from '@/components/ui/floating-menu'
 import type { FlowExportFormat } from '@/lib/flow-export'
 import { cn } from '@/lib/utils'
-import type { ModoAlinhar, Orientacao } from '@/lib/editor-bizagi/geometria'
+import type { ModoAlinhar } from '@/lib/editor-bizagi/geometria'
 import { WorkflowKindIcon } from '../workflow-kind-icon'
 
 export interface TipoDeWorkflow { value: string; label: string }
@@ -27,8 +27,8 @@ export interface TipoDeWorkflow { value: string; label: string }
    do próprio topo (que muda com a barra lateral do app, não só com a janela), ele sobe um
    NÍVEL de compactação e mede de novo, até caber. A ordem é a do PO: o que mais importa
    (voltar, nome, Ativar, Salvar, ⋯, desfazer) é o último a encolher.
-     1 Organizar só com o ícone      5 "Salvar rascunho" vira "Salvar"; "Não salvo" só o ponto
-     2 Quem inicia só com o ícone    6 Organizar e Quem inicia vão para o ⋯
+     1 (livre: era o Organizar)      5 "Salvar rascunho" vira "Salvar"; "Não salvo" só o ponto
+     2 Quem inicia só com o ícone    6 Quem inicia vai para o ⋯
      3 saúde só com ícone + número   7 "Ativar workflow" vira "Ativar" e o nome encolhe (até 200px)
      4 Sobre só com o ícone
    Mudou a largura ou a `chave`? Recomeça do nível 0 e sobe de novo — tudo em layout
@@ -171,7 +171,7 @@ export function MenuMais({ onHistorico, onExportar, exportando, exportarDesabili
   onExportar: (f: FlowExportFormat) => void
   exportando: FlowExportFormat | null
   exportarDesabilitado?: boolean
-  /** Ações que saíram do topo por falta de espaço (Organizar, Quem inicia): no alto do menu. */
+  /** Ações que saíram do topo por falta de espaço (Quem inicia): no alto do menu. */
   extras?: Array<{ rotulo: string; icone: ReactNode; onClick: () => void; disabled?: boolean }>
   /** O botão ⋯ — quem abre um balão a partir de um item do menu ancora nele. */
   botaoRef?: RefObject<HTMLButtonElement | null>
@@ -242,39 +242,16 @@ const ALINHAR: ReadonlyArray<{ modo: ModoAlinhar; rotulo: string; Icone: typeof 
   { modo: 'distribuirY', rotulo: 'Distribuir na vertical', Icone: AlignVerticalDistributeCenter },
 ]
 
-/** Controles do desenho no topo: orientação (Horizontal | Vertical), grade e — com 2+ formas
- *  no laço — os 6 botões de alinhar (como se vê na tela, nas duas orientações). */
-export function ControlesDoDesenho({ orientacao, onOrientacao, grade, onGrade, selecionadas, onAlinhar, soIcone }: {
-  orientacao: Orientacao; onOrientacao: (o: Orientacao) => void
-  grade: boolean; onGrade: (v: boolean) => void
+/** Controles do desenho no topo: só os 6 botões de alinhar, quando há 2+ formas no laço.
+ *  Orientação, grade e Organizar saíram do topo (PO, 07/11/2026): a orientação fica na gaveta
+ *  da piscina principal; a grade fica sempre ligada; o Organizar foi removido. */
+export function ControlesDoDesenho({ selecionadas, onAlinhar }: {
   /** Quantas formas estão selecionadas (o laço). */
   selecionadas: number
   onAlinhar: (m: ModoAlinhar) => void
-  /** Topo apertado: só os ícones. */
-  soIcone?: boolean
 }): JSX.Element {
-  const opcoes = [
-    { o: 'horizontal' as const, rotulo: 'Horizontal', titulo: 'Raias na horizontal', Icone: Rows3 },
-    { o: 'vertical' as const, rotulo: 'Vertical', titulo: 'Raias na vertical', Icone: Columns3 },
-  ]
   return (
     <>
-      <div role="radiogroup" aria-label="Orientação do desenho" className="flex shrink-0 items-center rounded-md border bg-muted/40 p-0.5">
-        {opcoes.map(({ o, rotulo, titulo, Icone }) => {
-          const ativo = orientacao === o
-          return (
-            <button key={o} type="button" role="radio" aria-checked={ativo} onClick={() => { if (!ativo) onOrientacao(o) }}
-              title={titulo} aria-label={rotulo}
-              className={cn(BOTAO_DO_DESENHO, ativo ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-              <Icone className="h-3.5 w-3.5" />{!soIcone && rotulo}
-            </button>
-          )
-        })}
-      </div>
-      <button type="button" aria-pressed={grade} onClick={() => onGrade(!grade)} title="Mostrar a grade e encaixar nela" aria-label="Grade"
-        className={cn(BOTAO_DO_DESENHO, 'h-8 shrink-0 rounded-md border shadow-sm', grade ? 'bg-primary/10 text-primary border-primary/30' : 'bg-card text-muted-foreground hover:text-foreground')}>
-        <Grid3x3 className="h-4 w-4" />{!soIcone && 'Grade'}
-      </button>
       {selecionadas >= 2 && (
         <div role="group" aria-label={`Alinhar ${selecionadas} formas`} className="flex shrink-0 items-center rounded-md border bg-card p-0.5 shadow-sm">
           {ALINHAR.map(({ modo, rotulo, Icone }) => (

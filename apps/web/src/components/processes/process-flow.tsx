@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Save, Zap, Loader2, AlertTriangle, Redo2, Undo2, Info, LayoutGrid, DoorOpen } from 'lucide-react'
+import { ArrowLeft, Save, Zap, Loader2, AlertTriangle, Redo2, Undo2, Info, DoorOpen } from 'lucide-react'
 import {
   generateBpmn, compileBpmn, validarDesenho, validarAtividades, validarTelasDasAtividades,
   bloqueantes, grafoParaBlocos, novoFluxo, pendenciasDosBlocos, validarOrigemDoRegistro, validarExecutores, validarExecutoresFixos, validarQuemInicia, listarEscolhas,
@@ -20,7 +20,7 @@ import { useScreens } from '@/hooks/use-screens'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { PAPEIS_KEY, INIT_PAPEIS, referenciaDoPapelEntry } from '@/lib/contract-roles'
 import { layoutGraph, nodeSize, LANE_SEM_RESPONSAVEL, type FlowNode as LNode, type FlowNodeType } from '@/lib/flow-layout'
-import { GRADE, abrirEspaco, adicionarRaia, apagarSeta, completarPosicoes, desenhoInicial, larguraDaInsercao, ligar, organizar, pontasDaSeta, religar, religarSaida, soltarForma, atualizarSeta, apagarForma, pendenciaDaRecusa, type PatchDasPontas } from '@/lib/desenho-bpmn'
+import { GRADE, abrirEspaco, adicionarRaia, apagarSeta, completarPosicoes, desenhoInicial, larguraDaInsercao, ligar, pontasDaSeta, religar, religarSaida, soltarForma, atualizarSeta, apagarForma, pendenciaDaRecusa, type PatchDasPontas } from '@/lib/desenho-bpmn'
 import { exportFlow, type FlowExportFormat, type ExportModel, type ExportNode, type ExportEdge } from '@/lib/flow-export'
 import { apiFetch } from '@/lib/http'
 import { ProcessHistoryDrawer } from './process-history-drawer'
@@ -870,12 +870,6 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const [escolhidas, setEscolhidas] = useState<Record<GrupoPaleta, number>>(ESCOLHIDAS_INICIAIS)
   const aoTrocarVariante = useCallback((g: GrupoPaleta, indice: number) => setEscolhidas((e) => ({ ...e, [g]: indice })), [])
   const [conector, setConector] = useState<Conector>('sequencia')
-  const organizarDesenho = useCallback(() => {
-    if (!grafo || !desenhoVisto) return
-    aplicarGaveta()
-    setDesenho(organizar(grafo, desenhoVisto, responsavelDe))
-    setEnquadrar((n) => n + 1) // B7: depois de arrumar, a vista mostra o desenho todo
-  }, [grafo, desenhoVisto, responsavelDe, aplicarGaveta, setDesenho])
 
   /* R12: "Próxima: mesma configuração de…" — as atividades que podem ser repetidas (as
      raízes; uma cópia vinculada repete a raiz dela). */
@@ -998,8 +992,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
 
   /* DESENHO (orientação, grade, laço, fases, piscinas, mensagens). Cada ação aqui é UM passo
      do desfazer: o passo pendente fecha antes (`registrarPasso`) e o retrato depois pega a
-     mudança. A orientação é do desenho (gravada com ele); a grade é só da tela. */
-  const [grade, setGrade] = useState(true)
+     mudança. A orientação é do desenho (gravada com ele, escolhida na gaveta da piscina). A
+     grade fica sempre ligada: o botão saiu do topo (PO, 07/11/2026). */
+  const grade = true
   const [selecaoMultipla, setSelecaoMultipla] = useState<string[]>([])
   const aoOrientacao = useCallback((o: Orientacao) => { registrarPasso(); setDoc((d) => mudarOrientacao(d, o)) }, [registrarPasso])
   /** Fase, largura da piscina e fluxo de mensagem vêm do canvas como o desenho com o layout novo. */
@@ -1593,20 +1588,12 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
           </button>
         </div>
         {!somenteLeitura && (
-          <ControlesDoDesenho orientacao={orientacao} onOrientacao={aoOrientacao} grade={grade} onGrade={setGrade}
-            selecionadas={selecaoMultipla.length} onAlinhar={aoAlinhar} soIcone={nivelTopo >= 1} />
-        )}
-        {nivelTopo < 6 && !somenteLeitura && (
-          <Button variant="outline" size="sm" className={cn('shrink-0', nivelTopo >= 1 && 'px-2')} onClick={organizarDesenho} disabled={!desenhoVisto}
-            aria-label="Organizar" title="Organizar: arruma as formas na ordem do fluxo e cada uma na raia de quem a executa">
-            <LayoutGrid className="h-4 w-4" />{nivelTopo < 1 && 'Organizar'}
-          </Button>
+          <ControlesDoDesenho selecionadas={selecaoMultipla.length} onAlinhar={aoAlinhar} />
         )}
         <MenuMais botaoRef={maisRef} aberto={maisAberto} onAberto={setMaisAberto}
           // com o "Quem inicia" aberto a partir do ⋯, clicar no ⋯ só o fecha (não abre os dois)
           antesDeAlternar={() => { if (quemIniciaNoMenu && quemIniciaAberto) { setQuemIniciaAberto(false); return true } return false }}
           extras={nivelTopo >= 6 ? [
-            ...(!somenteLeitura ? [{ rotulo: 'Organizar', icone: <LayoutGrid className="h-4 w-4 text-muted-foreground" />, onClick: organizarDesenho, disabled: !desenhoVisto }] : []),
             { rotulo: 'Quem inicia…', icone: <DoorOpen className="h-4 w-4 text-muted-foreground" />, onClick: () => setQuemIniciaAberto(true) },
           ] : undefined}
           onHistorico={editing ? () => setHistoricoAberto(true) : undefined}
