@@ -599,7 +599,9 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
           {type === 'userTask' && (
             <Pergunta id="prazo" titulo="Prazo" ok={!faltaPrazo} icone={<Clock />} abertaInicial={abre('prazo')} valor={due}
               ajuda="Em quanto tempo a tarefa deve ser concluída. Conta só o expediente: pula fins de semana e feriados.">
-              <div className="flex flex-wrap items-center gap-2">
+              {/* Só o número e a unidade: os atalhos (4 horas, 1 dia…) saíram (PO, 07/11/2026) —
+                  na gaveta estreita eles quebravam de linha e pareciam um campo solto. */}
+              <div className="flex items-center gap-2">
                 <Input className={cn(CAMPO, 'w-20 text-center font-mono')} type="number" min={0} placeholder="0" aria-label="Prazo"
                   value={slaValue} onChange={(e) => setSla(slaUnit, e.target.value)} />
                 <Select value={slaUnit} onValueChange={(u) => setSla(u as 'DAYS' | 'HOURS' | 'MINUTES', slaValue)}>
@@ -610,17 +612,6 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
                     <SelectItem value="MINUTES">minutos úteis</SelectItem>
                   </SelectContent>
                 </Select>
-                <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden />
-                {ATALHOS_PRAZO.map((a) => {
-                  const on = slaUnit === a.unidade && Number(slaValue) === a.valor
-                  return (
-                    <button key={a.rotulo} type="button" aria-pressed={on} onClick={() => setSla(a.unidade, a.valor)}
-                      className={cn('h-[var(--campo-altura)] rounded-full border px-3 text-xs font-semibold transition-colors',
-                        on ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
-                      {a.rotulo}
-                    </button>
-                  )
-                })}
               </div>
             </Pergunta>
           )}
@@ -731,12 +722,6 @@ const FRASE_RETORNO: Record<string, string> = {
   IDEMPOTENT: 'Se alguém devolver o processo para antes daqui, ela é refeita.',
   COMPENSATE: 'Se alguém devolver o processo para antes daqui, ela é desfeita.',
 }
-const ATALHOS_PRAZO: Array<{ rotulo: string; unidade: 'DAYS' | 'HOURS'; valor: number }> = [
-  { rotulo: '4 horas', unidade: 'HOURS', valor: 4 },
-  { rotulo: '1 dia', unidade: 'DAYS', valor: 1 },
-  { rotulo: '2 dias', unidade: 'DAYS', valor: 2 },
-  { rotulo: '5 dias', unidade: 'DAYS', valor: 5 },
-]
 const listaPt = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} e ${xs[xs.length - 1]}`)
 
 /** "Quem recebe hoje": a consequência do papel escolhido, em nomes de gente. */
