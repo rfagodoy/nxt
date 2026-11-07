@@ -27,6 +27,7 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ### Removido
 
+- **Miniatura do desenho do workflow:** saiu, junto com o botão "Miniatura". Agora que arrastar e rolar movem o desenho, ela não faz mais falta. Sem ela, o desenho ganha mais espaço na tela.
 - **Ação automática:** toda atividade do workflow é feita por uma pessoa. A ação automática saiu da paleta e do campo "Executada por", que também deixou de existir.
   - Aditivo e encerramento passam a ser registrados numa tarefa com a Tela do contrato, no modo Editar.
   - Processos e workflows ativos que já usam ação automática continuam funcionando.
