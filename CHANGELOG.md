@@ -12,7 +12,25 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
   - Os cartões grandes de opção viraram listas de escolha, com a explicação da opção escolhida logo abaixo.
   - O rodapé diz o que falta pelo nome ("Falta: prazo").
   - Na atividade, abrem a Identificação e a primeira seção incompleta.
+  - A seção Prazo tem só o número e a unidade. Os atalhos (4 horas, 1 dia, 2 dias, 5 dias) saíram.
   - A gaveta do **Caminho**, que abre ao clicar numa seta que sai de uma escolha, também segue o padrão: tem as seções Condição e Rótulo no desenho, e Cancelar e Aplicar.
+- **O desenho do workflow anda como um mapa:**
+  - Arrastar no vazio move o desenho para cima, para baixo e para os lados.
+  - A roda do mouse ou o trackpad rolam o desenho (Shift + roda, para os lados).
+  - O zoom fica no Ctrl + roda, na pinça do trackpad e nos botões + e −.
+  - A seleção de várias formas por laço passa a ser Shift + arrastar. Com Ctrl junto, ela soma à seleção atual.
+- A escolha de pessoas busca no servidor enquanto você digita, por nome ou e-mail. A lista mostra os primeiros 20 e pede para refinar a busca, para continuar rápida com centenas de usuários.
+
+### Corrigido
+
+- Um usuário recém-cadastrado aparece na hora para ser escolhido como responsável ou parte envolvida, sem precisar recarregar a página.
+
+### Removido
+
+- **Ação automática:** toda atividade do workflow é feita por uma pessoa. A ação automática saiu da paleta e do campo "Executada por", que também deixou de existir.
+  - Aditivo e encerramento passam a ser registrados numa tarefa com a Tela do contrato, no modo Editar.
+  - Processos e workflows ativos que já usam ação automática continuam funcionando.
+  - No editor, a ação automática de um desenho antigo mostra um aviso e o botão "Transformar em tarefa de pessoa".
 
 ## [2.1.0] — Boole — 2026-11-07
 

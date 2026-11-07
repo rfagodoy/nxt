@@ -17,8 +17,10 @@
    fluxos de mensagem saem por `onLayout`.
    Orientação: as posições são LÓGICAS; a tela é transposta na vertical (`paraTela`/
    `retanguloParaTela`) e tudo o que o ponteiro dá volta ao lógico (`daTela`, `pontoNaTela`).
-   Laço no vazio (Shift soma) seleciona várias (`onSelecaoMultipla`); o arrasto encaixa na
-   grade (se ligada) e nas guias de centro das outras formas. */
+   A vista anda como um mapa (PO, 07/11/2026): arrastar no vazio e a roda/trackpad movem o
+   desenho (Shift + roda, para os lados); zoom no Ctrl + roda, na pinça e nos botões. Shift +
+   arrastar no vazio é o laço, que seleciona várias (`onSelecaoMultipla`; com Ctrl, soma); o
+   arrasto de formas encaixa na grade (se ligada) e nas guias de centro das outras formas. */
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type DragEvent, type JSX, type KeyboardEvent as TeclaReact, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { useTheme } from 'next-themes'
 import { useTema } from '@/lib/temas-provider'
@@ -1071,7 +1073,7 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
    *  chegam antes do próximo render). */
   const selecaoVista = useRef<string[]>([])
   selecaoVista.current = multi.length ? multi : selecionado ? [selecionado] : []
-  /** Laço em andamento: `somar` = a seleção de antes (com Shift), `ids` = as formas dentro. */
+  /** Laço em andamento: `somar` = a seleção de antes (com Ctrl/⌘), `ids` = as formas dentro. */
   const laco = useRef<{ somar: string[]; ids: Set<string> } | null>(null)
   const confirmarSelecao = useCallback((ids: string[]) => {
     if (ids.length >= 2) {
@@ -1087,7 +1089,8 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     } else onSelecionar(null)
   }, [onSelecionar, onAbrir, gavetaAberta, ligandoDe])
   const onSelectionStart = useCallback((e: ReactMouseEvent) => {
-    laco.current = { somar: e.shiftKey ? selecaoVista.current : [], ids: new Set() }
+    // o laço já pede Shift; somar à seleção de antes é com Ctrl (⌘ no Mac) junto
+    laco.current = { somar: e.ctrlKey || e.metaKey ? selecaoVista.current : [], ids: new Set() }
   }, [])
   const onSelectionEnd = useCallback(() => {
     const l = laco.current
@@ -1333,11 +1336,13 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
           nodesConnectable={!somenteLeitura}
           edgesReconnectable={false}
           deleteKeyCode={null}
-          selectionKeyCode={null}
-          // laço: arrastar no vazio seleciona (Shift soma à seleção); a vista anda com o botão do
-          // meio/direito ou com espaço + arrastar. Só leitura: arrastar no vazio move a vista.
-          selectionOnDrag={!somenteLeitura}
-          panOnDrag={somenteLeitura ? true : [1, 2]}
+          // A vista anda como um mapa (PO, 07/11/2026): arrastar no vazio (qualquer botão) e a
+          // roda/trackpad movem; Shift + roda, para os lados; zoom com Ctrl + roda e pinça.
+          // Laço: Shift + arrastar no vazio (Ctrl junto soma). Shift + clique soma uma forma.
+          selectionKeyCode={somenteLeitura ? null : 'Shift'}
+          selectionOnDrag={false}
+          panOnDrag
+          panOnScroll
           multiSelectionKeyCode={somenteLeitura ? null : 'Shift'}
           onSelectionStart={onSelectionStart}
           onSelectionEnd={onSelectionEnd}
