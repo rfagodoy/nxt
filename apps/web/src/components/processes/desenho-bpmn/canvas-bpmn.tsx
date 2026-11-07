@@ -25,13 +25,13 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type DragEven
 import { useTheme } from 'next-themes'
 import { useTema } from '@/lib/temas-provider'
 import {
-  ReactFlow, Background, BackgroundVariant, Controls, MiniMap, NodeToolbar, Panel, Position, ViewportPortal, applyNodeChanges,
+  ReactFlow, Background, BackgroundVariant, Controls, NodeToolbar, Panel, Position, ViewportPortal, applyNodeChanges,
   useStore, useStoreApi, useUpdateNodeInternals,
   useReactFlow,
   type AriaLabelConfig, type Connection, type Edge, type NodeChange, type NodePositionChange, type NodeSelectionChange, type OnConnectEnd,
   type OnNodeDrag, type ReactFlowInstance,
 } from '@xyflow/react'
-import { ArrowRight, Link2, Map as MapIcon, Route, Settings, Trash2 } from 'lucide-react'
+import { ArrowRight, Link2, Route, Settings, Trash2 } from 'lucide-react'
 import '@xyflow/react/dist/style.css'
 import type { DesenhoBpmn, DesenhoV2, FormaDesenho, LayoutDesenho, PontaDaSeta, SetaDesenho, StepFormSchema, TipoForma } from '@nxt/types'
 import {
@@ -145,11 +145,9 @@ export interface CanvasBpmnProps {
   enquadrar?: number
 }
 
-/** Preferência do usuário para a miniatura (ausente = automática: só quando o desenho não cabe). */
-const PREF_MINIATURA = 'nxt:desenho-bpmn:miniatura'
-
-/** Enquadrar deixa folga embaixo para a miniatura e os controles não cobrirem formas. */
-const ENQUADRAR = { padding: { top: '48px', left: '48px', right: '48px', bottom: '170px' } } as const
+/** Enquadrar deixa folga embaixo para os controles de zoom não cobrirem formas. A miniatura
+ *  saiu (PO, 07/11/2026): com arrastar e rolar movendo o desenho, ela não fazia mais falta. */
+const ENQUADRAR = { padding: { top: '48px', left: '48px', right: '48px', bottom: '96px' } } as const
 /** Folga à direita da última forma, dentro da raia. */
 const FOLGA_RAIA = 160
 const LARGURA_MINIMA_RAIA = 640
@@ -186,14 +184,13 @@ const rotulosAria = (somenteLeitura: boolean): Partial<AriaLabelConfig> => ({
   'controls.zoomOut.ariaLabel': 'Afastar',
   'controls.fitView.ariaLabel': 'Enquadrar o desenho',
   'controls.interactive.ariaLabel': 'Travar ou destravar o desenho',
-  'minimap.ariaLabel': 'Miniatura do desenho',
   'handle.ariaLabel': 'Ponto de ligação',
 })
 
 /* Cores que o React Flow pinta por prop (não aceitam classe `dark:`). */
 const CORES = {
-  claro: { fundo: 'var(--e-F4F7F4)', ponto: 'rgba(20,36,32,0.13)', mini: '#FFFFFF', miniRaia: 'var(--e-E6EDE8)', miniTarefa: '#075985', miniEscolha: '#5B21B6', miniParalelo: '#9F1239', miniEvento: 'var(--e-11804F)', mascara: 'rgba(20,36,32,0.08)' },
-  escuro: { fundo: 'var(--e-0C1511)', ponto: 'rgba(255,255,255,0.07)', mini: 'var(--e-0F1914)', miniRaia: 'rgba(255,255,255,0.06)', miniTarefa: '#7DD3FC', miniEscolha: '#C4B5FD', miniParalelo: '#FDA4B8', miniEvento: 'var(--e-C6F24E)', mascara: 'rgba(0,0,0,0.35)' },
+  claro: { fundo: 'var(--e-F4F7F4)', ponto: 'rgba(20,36,32,0.13)' },
+  escuro: { fundo: 'var(--e-0C1511)', ponto: 'rgba(255,255,255,0.07)' },
 }
 
 /* ─── Projeção: grafo + desenho → nós e setas do React Flow ───────────────── */
@@ -487,7 +484,7 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   const vertical = orientacao === 'vertical'
   const { resolvedTheme } = useTheme()
   const escuro = resolvedTheme === 'dark'
-  /* O React Flow (fundo, miniatura) precisa de cor RESOLVIDA: as `var(--e-…)` do tema viram o
+  /* O React Flow (fundo, pontos da grade) precisa de cor RESOLVIDA: as `var(--e-…)` do tema viram o
      valor da hora — e de novo a cada troca de tema. */
   const { tema } = useTema()
   const cor = useMemo(() => {
@@ -1211,19 +1208,6 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
     return () => cancelAnimationFrame(raf)
   }, [enquadrar])
 
-  /* ─── Miniatura: automática (só quando o desenho não cabe na tela) ou a escolha do usuário */
-  const [miniaturaPref, setMiniaturaPref] = useState<boolean | null>(null)
-  const [naoCabe, setNaoCabe] = useState(false)
-  useEffect(() => {
-    try { const v = localStorage.getItem(PREF_MINIATURA); if (v === '1' || v === '0') setMiniaturaPref(v === '1') } catch { /* sem storage */ }
-  }, [])
-  const miniatura = miniaturaPref ?? naoCabe
-  const alternarMiniatura = () => {
-    const v = !miniatura
-    setMiniaturaPref(v)
-    try { localStorage.setItem(PREF_MINIATURA, v ? '1' : '0') } catch { /* sem storage */ }
-  }
-
   /* ─── Edição das raias (só o desenho; nenhuma forma sai do lugar) ──────── */
   const acoesDeRaia = useMemo<AcoesDeRaia>(() => {
     // as funções puras devolvem o mesmo desenho quando nada muda: aí não grava
@@ -1278,13 +1262,6 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
 
   const rotulosDeAcesso = useMemo(() => rotulosAria(somenteLeitura), [somenteLeitura])
 
-  const corNoMini = useCallback((n: NoBpmn) => {
-    if (n.type === 'raia' || n.type === 'piscina' || n.type === 'fase' || n.type === 'externa') return cor.miniRaia
-    if (n.type === 'tarefa') return cor.miniTarefa
-    if (n.type === 'evento') return cor.miniEvento
-    return n.data.tipo === 'paralelo' ? cor.miniParalelo : cor.miniEscolha
-  }, [cor])
-
   const ACAO = 'flex h-7 w-7 items-center justify-center rounded-md border-0 bg-transparent hover:bg-[rgba(20,36,32,0.06)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--e-11804F)] dark:hover:bg-white/5 dark:focus-visible:outline-spark'
 
   return (
@@ -1315,11 +1292,7 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
           edges={setasVistas}
           nodeTypes={tiposDeNo}
           edgeTypes={tiposDeSeta}
-          onInit={(i) => {
-            instancia.current = i
-            // depois do enquadramento inicial: abaixo de 85% o desenho não cabe — a miniatura ajuda
-            requestAnimationFrame(() => setNaoCabe(i.getZoom() < 0.85))
-          }}
+          onInit={(i) => { instancia.current = i }}
           onNodesChange={onNodesChange}
           onNodeDragStart={onNodeDragStart}
           onNodeDrag={onNodeDrag}
@@ -1359,18 +1332,6 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
           <Background variant={BackgroundVariant.Dots} gap={GRADE} size={grade ? 1.2 : 0} color={grade ? cor.ponto : 'transparent'} bgColor={cor.fundo} />
           <SemCaixaDaSelecao />
           <AlcasNaOrientacao orientacao={orientacao} />
-          {miniatura && (
-            <MiniMap<NoBpmn> pannable zoomable nodeColor={corNoMini} nodeStrokeWidth={0} maskColor={cor.mascara} bgColor={cor.mini}
-              style={{ width: 168, height: 108, marginBottom: 44 }}
-              className="!rounded-lg shadow-[0_0_0_1px_rgba(20,36,32,0.12)] dark:shadow-[0_0_0_1px_var(--e-2A3B32)]" />
-          )}
-          <Panel position="bottom-right">
-            <button type="button" onClick={alternarMiniatura} aria-pressed={miniatura}
-              title={miniatura ? 'Esconder a miniatura' : 'Mostrar a miniatura do desenho'}
-              className="flex h-7 items-center gap-1.5 rounded-md bg-white px-2 font-sans text-[11px] font-bold text-[var(--e-2E3E36)] shadow-[0_0_0_1px_rgba(20,36,32,0.12)] hover:bg-[var(--e-F2F6F1)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--e-11804F)] dark:bg-[var(--e-0F1914)] dark:text-[var(--e-C9D6CE)] dark:shadow-[0_0_0_1px_var(--e-2A3B32)] dark:hover:bg-white/5 dark:focus-visible:outline-spark">
-              <MapIcon aria-hidden className="h-3.5 w-3.5" />Miniatura
-            </button>
-          </Panel>
           <Controls showInteractive={false} position="bottom-left" />
           {setaSel && !somenteLeitura && (
             <Panel position="top-left">
