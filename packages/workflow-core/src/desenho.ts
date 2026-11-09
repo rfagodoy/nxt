@@ -54,7 +54,7 @@ export function pontoDaSeta(f: FluxoBlocos, de: string, para: string): PontoDeIn
         for (const c of it.caminhos) lista(c.id, c.itens, it.id, c.fim.tipo === 'segue' ? reencontro : null)
         if (temSenaoAntigo(it)) lista(it.casoContrario.id, it.casoContrario.itens, it.id, it.casoContrario.fim.tipo === 'segue' ? reencontro : null)
       } else if (it.kind === 'paralelo') {
-        for (const c of it.caminhos) lista(c.id, c.itens, it.id, it.id + SUFIXO_REENCONTRO)
+        for (const c of it.caminhos) lista(c.id, c.itens, it.id, c.fim ? null : it.id + SUFIXO_REENCONTRO)
       }
     }
   }
@@ -67,7 +67,7 @@ export function pontoDaSeta(f: FluxoBlocos, de: string, para: string): PontoDeIn
 export type Ligacao = { ok: true; caminhoId: string; fim: FimCaminho } | { ok: false; motivo: string }
 
 export const MSG_LOSANGO = 'Uma volta só pode apontar para uma tarefa — voltar para um losango trava o processo.'
-export const MSG_PARALELO = 'Dentro de “ao mesmo tempo” só dá para voltar para uma tarefa anterior da mesma frente, e não dá para encerrar: as outras frentes continuariam rodando.'
+export const MSG_PARALELO = 'Dentro de “ao mesmo tempo” só dá para voltar para uma tarefa anterior da mesma frente: as outras frentes continuariam rodando.'
 export const MSG_ORDEM = 'As setas seguem a ordem das etapas. Para mudar a ordem, arraste a etapa para cima de outra seta.'
 export const MSG_DESTINO = 'Só dá para voltar para uma tarefa que vem antes desta escolha e fora de “ao mesmo tempo”.'
 
@@ -106,7 +106,7 @@ export function ligacaoPermitida(f: FluxoBlocos, de: string, para: string): Liga
   if (!escolha) return { ok: false, motivo: MSG_ORDEM }
   const { dentroDeParalelo, paralelos } = mapearParalelos(f)
   const naFrente = dentroDeParalelo.has(escolha.id)
-  if (para === f.fimId) return naFrente ? { ok: false, motivo: MSG_PARALELO } : { ok: true, caminhoId, fim: { tipo: 'encerra' } }
+  if (para === f.fimId) return { ok: true, caminhoId, fim: { tipo: 'encerra' } }
   if (destinosDeVolta(f, escolha.id).some((a) => a.id === para)) return { ok: true, caminhoId, fim: { tipo: 'volta', alvoId: para } }
   const ehLosango = para.endsWith(SUFIXO_REENCONTRO) || paralelos.has(para) || listarEscolhas(f).some((e) => e.id === para)
   return { ok: false, motivo: ehLosango ? MSG_LOSANGO : naFrente ? MSG_PARALELO : MSG_DESTINO }

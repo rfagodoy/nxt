@@ -18,6 +18,8 @@ export interface Inst {
   cancelReason?: string | null; cancelledBy?: string | null; cancelledAt?: string | null
   /** PARADO numa escolha sem caminho: alguém tentou concluir e foi recusado (PO, 04/10/2026) */
   bloqueio?: { mensagem: string; escolha: string | null; tarefa: string | null; por: string; em: string } | null
+  /** a linha principal já passou pelo Fim: atividades das linhas paralelas ainda abertas */
+  aguardando?: string[]
 }
 export interface TaskRow {
   id: string; nodeId: string; name?: string | null; role?: string | null; assignee?: string | null

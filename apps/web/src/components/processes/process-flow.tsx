@@ -636,7 +636,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   /* Marca de problema em cada forma: as mesmas pendências da pílula de saúde. */
   const problemasPorNo = useMemo(() => {
     const m = new Map<string, string[]>()
-    for (const p of pendencias) if (p.nodeId) m.set(p.nodeId, [...(m.get(p.nodeId) ?? []), p.mensagem])
+    // o fim de linha paralela tem marca própria na forma: não é pendência
+    for (const p of pendencias) if (p.nodeId && p.tipo !== 'linha-paralela') m.set(p.nodeId, [...(m.get(p.nodeId) ?? []), p.mensagem])
     return m
   }, [pendencias])
   const problemasDe = useCallback((id: string) => problemasPorNo.get(id) ?? [], [problemasPorNo])

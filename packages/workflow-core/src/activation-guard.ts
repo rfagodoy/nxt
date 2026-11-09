@@ -14,6 +14,8 @@ export interface ProblemaAtivacao {
     | 'inicio-desligado' | 'fim-inalcancavel'
     | 'sem-saida' | 'nao-alcanca-fim' | 'gateway-sem-saida' | 'solto' | 'sem-chegada'
     | 'inalcancavel-do-inicio' | 'juncao-travada'
+    /** aviso: atividade sem sucessora dentro de um "ao mesmo tempo" (fim de linha paralela) */
+    | 'linha-paralela'
     | 'decisao-sem-padrao' | 'decisao-multipadrao'
     | 'atividade-incompleta' | 'tela-so-consulta' | 'registro-sem-origem'
     | 'executor-sem-stakeholder' | 'executor-incompativel' | 'executor-sem-contrato'
@@ -131,11 +133,19 @@ export function validarDesenho(nodes: NodeLike[], edges: EdgeLike[]): ProblemaAt
   }
 
   // Executa, mas não termina o processo: IMPEDE ativar (PO, 30/10/2026 — desenho livre:
-  // no desenho, uma etapa que não leva ao Fim costuma ser uma seta esquecida).
+  // no desenho, uma etapa que não leva ao Fim costuma ser uma seta esquecida). Exceção (PO,
+  // 08/11/2026): depois de um "ao mesmo tempo" que chega ao Fim, é uma linha paralela. Fica
+  // como aviso, para a seta esquecida continuar visível.
+  const aberturas = nodes.filter((n) => n.type === 'parallelGateway' && chegamAoFim.has(n.id) && edges.filter((e) => e.from === n.id).length >= 2)
+  const depoisDeAbertura = alcancaveis(aberturas.map((n) => n.id), edges)
   for (const n of nodes) {
     if (n.type === 'start' || n.type === 'end') continue
     if (jaCulpado.has(n.id) || !doInicio.has(n.id) || chegamAoFim.has(n.id)) continue
     const semSaida = !edges.some((e) => e.from === n.id)
+    if (depoisDeAbertura.has(n.id)) {
+      if (semSaida) problemas.push({ tipo: 'linha-paralela', severidade: 'aviso', nodeId: n.id, rotulo: nomeCurto(n), mensagem: `${rotuloLongo(n)} é o fim de uma linha paralela: quando ela terminar, só essa linha acaba, e o processo espera por ela antes de encerrar. Se faltou uma seta, ligue-a ao próximo passo.` })
+      continue
+    }
     problemas.push(semSaida
       ? { tipo: 'sem-saida', nodeId: n.id, rotulo: nomeCurto(n), mensagem: `${rotuloLongo(n)} será executada, mas o processo não termina por ela: ela não leva a lugar nenhum. Se ela deve encerrar o processo, ligue-a ao evento de fim.` }
       : { tipo: 'nao-alcanca-fim', nodeId: n.id, rotulo: nomeCurto(n), mensagem: `${rotuloLongo(n)} será executada, mas nenhum caminho a partir dela chega ao evento de fim — o processo não termina por esse lado.` })
@@ -503,6 +513,8 @@ const AGREGADO: Record<ProblemaAtivacao['tipo'], { plural: string; instrucao: st
   'tela-so-consulta': { plural: 'atividades preenchem uma tela que é somente consulta', instrucao: 'Em cada uma, escolha outra tela — ou tire o "somente consulta" da tela, em Personalização de Telas.' },
   'nao-alcanca-fim': { plural: 'atividades serão executadas sem terminar o processo', instrucao: 'Nenhum caminho a partir delas chega ao evento de fim — ligue-as ao fim se elas devem encerrar o processo.' },
   'inalcancavel-do-inicio': { plural: 'atividades nunca serão executadas (o início não chega até elas)', instrucao: 'Ligue-as ao fluxo que sai do início ou exclua-as.' },
+  // aviso: nunca entra na mensagem de recusa
+  'linha-paralela': null,
   'juncao-travada': { plural: 'junções esperam por caminhos que o início nunca alcança', instrucao: 'O processo travaria nelas: ligue esses trechos ao fluxo ou remova as setas que entram na junção.' },
   // blocos: cada frase já nomeia o bloco e o caminho — agrupar apagaria o "qual"
   'escolha-sem-caminho': null,

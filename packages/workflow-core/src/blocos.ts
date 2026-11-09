@@ -18,8 +18,9 @@
  *      A volta só aponta para ATIVIDADE.
  *   3. Volta saindo de uma frente do paralelo → duplicaria os ramos irmãos. Proibido.
  *      Dentro da mesma frente pode (PO, 08/11/2026): o laço só repete aquela frente.
- *   4. Encerrar dentro de um paralelo → os irmãos seguiriam e o processo terminaria
- *      "sem conclusão". Proibido.
+ *   4. Linha paralela (PO, 08/11/2026): o caminho de um paralelo que não chega ao Fim não se
+ *      junta a nada; ao terminar, só aquela linha acaba. Os caminhos podem ir direto ao Fim
+ *      sem junção: o motor só conclui quando não sobra nada aberto.
  * As proibições vivem em `validarBlocos` (o editor nem oferece a opção nesses lugares).
  */
 import type { WfGraph, WfNodeType } from './types'
@@ -36,7 +37,8 @@ export interface ItemAtividade {
   vinculoDe?: string
 }
 
-export type FimCaminho = { tipo: 'segue' } | { tipo: 'encerra' } | { tipo: 'volta'; alvoId: string }
+/** `termina`: linha paralela, a atividade não tem sucessora e só esta linha acaba. */
+export type FimCaminho = { tipo: 'segue' } | { tipo: 'encerra' } | { tipo: 'volta'; alvoId: string } | { tipo: 'termina' }
 
 export interface CaminhoCondicional {
   id: string
@@ -75,7 +77,9 @@ export interface BlocoEscolha {
   juntaId?: string
 }
 
-export interface CaminhoParalelo { id: string; itens: ItemFluxo[] }
+/** `fim` ausente = a frente chega na junção do bloco. `encerra` = vai direto ao Fim;
+ *  `termina` = linha paralela. */
+export interface CaminhoParalelo { id: string; itens: ItemFluxo[]; fim?: { tipo: 'encerra' } | { tipo: 'termina' } }
 export interface BlocoParalelo { kind: 'paralelo'; id: string; nome?: string; caminhos: CaminhoParalelo[]; juntaId?: string }
 
 export type ItemFluxo = ItemAtividade | BlocoEscolha | BlocoParalelo
@@ -175,7 +179,7 @@ export function blocosParaGrafo(f: FluxoBlocos, opcoes: { juncaoSempre?: boolean
         const saida = sequencia(itens, [{ from: it.id, props }])
         if (fim.tipo === 'segue') seguem.push(...saida)
         else if (fim.tipo === 'encerra') saida.forEach((p) => ligar(p, f.fimId))
-        else saida.forEach((p) => ligar(p, fim.alvoId))
+        else if (fim.tipo === 'volta') saida.forEach((p) => ligar(p, fim.alvoId))
       }
       for (const c of it.caminhos) {
         caminho(c.itens, c.fim, { condition: c.condition, conditionSpec: c.conditionSpec, label: c.rotulo })
@@ -210,9 +214,12 @@ export function blocosParaGrafo(f: FluxoBlocos, opcoes: { juncaoSempre?: boolean
       /* armadilha 1: um caminho entrega UMA chegada à junção, mesmo com escolhas dentro */
       const props: PropsSeta = {}
       ordemDoCaminho.set(props, ordemDoCaminho.size)
-      chegadas.push(...reencontrar(sequencia(c.itens, [{ from: it.id, props }]), c.id + SUFIXO_REENCONTRO))
+      const saida = sequencia(c.itens, [{ from: it.id, props }])
+      if (c.fim?.tipo === 'encerra') saida.forEach((p) => ligar(p, f.fimId))
+      else if (!c.fim) chegadas.push(...reencontrar(saida, c.id + SUFIXO_REENCONTRO))
     }
     escolhas.push(it.id) // as saídas também voltam à ordem dos caminhos (o caminho vazio nasce por último)
+    if (!chegadas.length) return [] // nenhuma frente chega à junção: não há o que juntar
     const juncao = it.juntaId ?? it.id + SUFIXO_REENCONTRO
     nodes.push({ id: juncao, type: 'parallelGateway' })
     chegadas.forEach((p) => ligar(p, juncao))
@@ -339,6 +346,64 @@ export function destinosDeVolta(f: FluxoBlocos, escolhaId: string): ItemAtividad
   return resultado ?? []
 }
 
+/* ─── linhas paralelas ───────────────────────────────────────────────────────── */
+
+const ultimaAtividade = (itens: ItemFluxo[]): string[] => {
+  const u = itens[itens.length - 1]
+  return u?.kind === 'atividade' ? [u.id] : []
+}
+
+/** Como uma sequência termina: `segue` (ainda há por onde continuar depois dela), se algum
+ *  caminho chega ao Fim e quais atividades encerram a linha sem sucessora. */
+function saidasDe(itens: ItemFluxo[]): { segue: boolean; encerra: boolean; terminam: string[] } {
+  const out = { segue: true, encerra: false, terminam: [] as string[] }
+  for (const it of itens) {
+    if (!out.segue || it.kind === 'atividade') continue
+    if (it.kind === 'paralelo') {
+      let junta = false
+      for (const c of it.caminhos) {
+        const r = saidasDe(c.itens)
+        if (r.encerra || (r.segue && c.fim?.tipo === 'encerra')) out.encerra = true
+        if (r.segue && !c.fim) junta = true
+      }
+      out.segue = junta
+      continue
+    }
+    let algum = false
+    for (const c of temSenaoAntigo(it) ? [...it.caminhos, it.casoContrario] : it.caminhos) {
+      const r = saidasDe(c.itens)
+      out.encerra ||= r.encerra
+      out.terminam.push(...r.terminam)
+      if (!r.segue) continue
+      if (c.fim.tipo === 'segue') algum = true
+      else if (c.fim.tipo === 'encerra') out.encerra = true
+      else if (c.fim.tipo === 'termina') out.terminam.push(...ultimaAtividade(c.itens))
+    }
+    out.segue = algum
+  }
+  return out
+}
+
+/** Uma frente de "ao mesmo tempo": as atividades em que ela termina sem sucessora e se ela
+ *  chega ao Fim. Ter as duas coisas é seta esquecida: quem chega ao Fim chega por todos os
+ *  caminhos (PO, 08/11/2026). */
+export function analisarFrente(c: CaminhoParalelo): { terminam: string[]; chegaAoFim: boolean } {
+  const r = saidasDe(c.itens)
+  return {
+    terminam: [...r.terminam, ...(r.segue && c.fim?.tipo === 'termina' ? ultimaAtividade(c.itens) : [])],
+    chegaAoFim: r.encerra || (r.segue && c.fim?.tipo !== 'termina'),
+  }
+}
+
+/** Atividades que encerram uma linha paralela (a marca no desenho). */
+export function atividadesFimDeLinha(f: FluxoBlocos): string[] {
+  return listas(f).flatMap((l) => l.itens.flatMap((it) => {
+    if (it.kind === 'paralelo') return it.caminhos.flatMap((c) => (c.fim?.tipo === 'termina' ? ultimaAtividade(c.itens) : []))
+    if (it.kind === 'escolha') return [...it.caminhos, it.casoContrario].flatMap((c) => (c.fim.tipo === 'termina' ? ultimaAtividade(c.itens) : []))
+    return []
+  }))
+}
+
 /* ─── validar ────────────────────────────────────────────────────────────────── */
 
 export interface ProblemaBloco {
@@ -371,7 +436,7 @@ export function validarBlocos(f: FluxoBlocos): ProblemaBloco[] {
         })
         if (modoDaEscolha(it) === 'todos') {
           it.caminhos.forEach((c, n) => {
-            if (c.fim.tipo !== 'segue') {
+            if (c.fim.tipo !== 'segue' && c.fim.tipo !== 'termina') {
               problemas.push({ tipo: 'todos-com-saida', severidade: 'erro', itemId: it.id, mensagem: `${nome} segue “todos os que servirem”, e o ${n + 1}º caminho ${c.fim.tipo === 'encerra' ? 'encerra o processo' : 'volta para outra atividade'} — ele poderia acontecer junto com outro caminho. Deixe-o seguir, mude a escolha para “o primeiro que servir”, ou use o “Senão”.` })
             }
           })
@@ -381,9 +446,6 @@ export function validarBlocos(f: FluxoBlocos): ProblemaBloco[] {
         }
         const todos = temSenaoAntigo(it) ? [...it.caminhos, it.casoContrario] : [...it.caminhos]
         for (const c of todos) {
-          if (dentroParalelo && c.fim.tipo === 'encerra') {
-            problemas.push({ tipo: 'saida-dentro-de-paralelo', severidade: 'erro', itemId: it.id, mensagem: `${nome} está dentro de um bloco “ao mesmo tempo”: ali um caminho não pode encerrar o processo, porque os caminhos irmãos continuariam rodando.` })
-          }
           if (c.fim.tipo === 'volta') {
             const alvo = c.fim.alvoId
             const validos = new Set(destinosDeVolta(f, it.id).map((a) => a.id))
@@ -433,7 +495,8 @@ export function lerFluxoBlocos(bruto: unknown): FluxoBlocos | null {
     ids.add(x)
     return true
   }
-  const fimOk = (x: unknown): boolean => obj(x) && (x.tipo === 'segue' || x.tipo === 'encerra' || (x.tipo === 'volta' && typeof x.alvoId === 'string'))
+  const fimOk = (x: unknown): boolean => obj(x) && (x.tipo === 'segue' || x.tipo === 'encerra' || x.tipo === 'termina' || (x.tipo === 'volta' && typeof x.alvoId === 'string'))
+  const fimFrenteOk = (x: unknown): boolean => x === undefined || (obj(x) && (x.tipo === 'encerra' || x.tipo === 'termina'))
   const condicaoOk = (x: unknown): boolean => x === undefined || (obj(x) && (x.logic === 'AND' || x.logic === 'OR') && Array.isArray(x.rules)
     && x.rules.every((r) => obj(r) && typeof r.campo === 'string' && typeof r.op === 'string' && typeof r.valor === 'string'))
   const itensOk = (x: unknown): boolean => Array.isArray(x) && x.every(itemOk)
@@ -446,7 +509,7 @@ export function lerFluxoBlocos(bruto: unknown): FluxoBlocos | null {
         && obj(it.casoContrario) && idNovo(it.casoContrario.id) && fimOk(it.casoContrario.fim) && itensOk(it.casoContrario.itens)
     }
     if (it.kind === 'paralelo') {
-      return texto(it.nome) && texto(it.juntaId) && Array.isArray(it.caminhos) && it.caminhos.every((c) => obj(c) && idNovo(c.id) && itensOk(c.itens))
+      return texto(it.nome) && texto(it.juntaId) && Array.isArray(it.caminhos) && it.caminhos.every((c) => obj(c) && idNovo(c.id) && fimFrenteOk(c.fim) && itensOk(c.itens))
     }
     return false
   }

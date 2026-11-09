@@ -97,8 +97,11 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
      esteja atrás de uma ação automática já rodada. A tela avisa isso abaixo. */
   const destinosDevolucao = useMemo(() => {
     const preds = predecessorasDe(edges, node.id)
+    /* linha paralela (não chega ao Fim) só devolve dentro dela: é a mesma regra do motor */
+    const chegamAoFim = new Set(nodes.filter((n) => n.type === 'end').flatMap((n) => [...predecessorasDe(edges, n.id)]))
+    const naLinha = !chegamAoFim.has(node.id)
     return nodes
-      .filter((n) => preds.has(n.id) && n.type === 'userTask')
+      .filter((n) => preds.has(n.id) && n.type === 'userTask' && (!naLinha || !chegamAoFim.has(n.id)))
       .map((n) => ({ id: n.id, nome: n.step?.stepName || 'Etapa sem nome' }))
   }, [edges, nodes, node.id])
 

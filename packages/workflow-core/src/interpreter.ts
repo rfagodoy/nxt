@@ -78,6 +78,23 @@ function pickInclusive(node: WfNode, outs: WfEdge[], vars: Record<string, unknow
 const ehReencontroInclusivo = (graph: WfGraph, id: string): boolean =>
   graph.nodes[id]?.type === 'inclusiveGateway' && id.endsWith(SUFIXO_REENCONTRO)
 
+/** Deste nó dá para chegar a um evento de fim? Quem não chega está numa linha paralela. */
+function alcancaFim(graph: WfGraph, id: string): boolean {
+  for (const n of reachableFrom(graph, id)) if (graph.nodes[n]?.type === 'end') return true
+  return false
+}
+
+/** Sem caminho que sirva, uma escolha que leva ao Fim para o processo e avisa. Numa linha
+ *  paralela (PO, 08/11/2026) só a linha acaba: a resposta "não" nem precisa estar desenhada. */
+function saidasDaEscolha<T>(graph: WfGraph, nodeId: string, escolher: () => T): T | null {
+  try {
+    return escolher()
+  } catch (e) {
+    if (e instanceof WfSemCaminho && !alcancaFim(graph, nodeId)) return null
+    throw e
+  }
+}
+
 /** Propaga tokens a partir de uma lista de nós "recém-alcançados". Muta `state`
  *  e `effects` (ambos locais à operação — o chamador já clonou o estado). */
 function propagate(
@@ -127,8 +144,8 @@ function propagate(
       }
 
       case 'exclusiveGateway': {
-        const chosen = pickExclusive(node, outgoing(graph, nodeId), state.variables)
-        queue.push(chosen.to)
+        const chosen = saidasDaEscolha(graph, nodeId, () => pickExclusive(node, outgoing(graph, nodeId), state.variables))
+        if (chosen) queue.push(chosen.to)
         break
       }
 
@@ -147,7 +164,8 @@ function propagate(
           break
         }
         // SAÍDA: ativa todo caminho que serve e diz ao reencontro quantos esperar
-        const ativas = pickInclusive(node, outgoing(graph, nodeId), state.variables)
+        const ativas = saidasDaEscolha(graph, nodeId, () => pickInclusive(node, outgoing(graph, nodeId), state.variables))
+        if (!ativas) break
         const reencontro = nodeId + SUFIXO_REENCONTRO
         if (graph.nodes[reencontro]) {
           state.inclusiveNeed = { ...(state.inclusiveNeed ?? {}), [reencontro]: ativas.length }
@@ -332,7 +350,10 @@ export function returnTargets(graph: WfGraph, state: WfState, tokenId: string): 
   const out: WfReturnTarget[] = []
   for (const id of clean) if (!blocked.has(id)) out.push({ nodeId: id, name: graph.nodes[id]?.name })
   for (const [id, blocker] of blocked) out.push({ nodeId: id, name: graph.nodes[id]?.name, blockedBy: blocker })
-  return aplicarPolitica(out, graph.nodes[token.nodeId])
+  /* Linha paralela só devolve dentro dela (PO, 08/11/2026): devolver para o que leva ao Fim
+     cancelaria a linha principal. */
+  const naLinha = !alcancaFim(graph, token.nodeId)
+  return aplicarPolitica(naLinha ? out.filter((t) => !alcancaFim(graph, t.nodeId)) : out, graph.nodes[token.nodeId])
 }
 
 /** Aplica a política de devolução configurada na atividade de ORIGEM (de onde se volta).
@@ -416,6 +437,9 @@ export function returnToken(
     if (tipo === 'parallelGateway' || tipo === 'inclusiveGateway') delete state.joinCounts[id]
     if (tipo === 'inclusiveGateway' && state.inclusiveNeed) delete state.inclusiveNeed[id]
   }
+
+  // a marca de "passou pelo Fim" vale de novo só quando o fluxo refizer o caminho até ele
+  if (alcancaFim(graph, targetNodeId)) state.reachedEnd = false
 
   // 3) recoloca o processo no alvo (propagate cria o token + o efeito createTask)
   propagate(graph, state, [targetNodeId], rt, effects)

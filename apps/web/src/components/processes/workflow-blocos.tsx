@@ -69,23 +69,6 @@ export function comNomes(f: FluxoBlocos, steps: Record<string, StepFormSchema>):
   return { ...f, itens: mapa(f.itens) }
 }
 
-/** Escolhas que moram dentro de um "ao mesmo tempo": ali todo caminho só pode seguir. */
-export function escolhasEmParalelo(f: FluxoBlocos): Set<string> {
-  const out = new Set<string>()
-  const visitar = (itens: ItemFluxo[], dentro: boolean) => {
-    for (const it of itens) {
-      if (it.kind === 'escolha') {
-        if (dentro) out.add(it.id)
-        for (const c of [...it.caminhos, it.casoContrario]) visitar(c.itens, dentro)
-      } else if (it.kind === 'paralelo') {
-        for (const c of it.caminhos) visitar(c.itens, true)
-      }
-    }
-  }
-  visitar(f.itens, false)
-  return out
-}
-
 /** Atividades de uma lista de itens, inclusive as de blocos aninhados nela. */
 function atividadesDentro(itens: ItemFluxo[]): ItemAtividade[] {
   return itens.flatMap((it) => (it.kind === 'atividade' ? [it]
@@ -102,6 +85,7 @@ function resumoItens(itens: ItemFluxo[], nomeDe: (id: string) => string): string
 function textoFim(fim: FimCaminho, nomeDe: (id: string) => string): string {
   if (fim.tipo === 'encerra') return 'encerra o processo'
   if (fim.tipo === 'volta') return `volta para ${nomeDe(fim.alvoId)}`
+  if (fim.tipo === 'termina') return 'esta linha acaba'
   return 'segue'
 }
 
@@ -131,7 +115,6 @@ interface BlocoProps {
 }
 interface BlocoCtx extends BlocoProps {
   problemas: Map<string, ProblemaAtivacao[]>
-  emParalelo: Set<string>
   nomeDe: (id: string) => string
 }
 const Ctx = createContext<BlocoCtx | null>(null)
@@ -357,7 +340,6 @@ function PendenciasDoBloco({ id }: { id: string }) {
 function CartaoDoCaminho({ bloco, caminho: c, indice: i }: { bloco: BlocoEscolha; caminho: CaminhoCondicional; indice: number }) {
   const t = useTrilho()
   const todos = modoDaEscolha(bloco) === 'todos'
-  const dentroParalelo = t.emParalelo.has(bloco.id)
   const ordemConta = !todos && bloco.caminhos.length > 1
   const sim = t.simulacao?.blocoId === bloco.id ? t.simulacao : null
   const acesa = !!sim && sim.caminhoIds.includes(c.id)
@@ -385,9 +367,9 @@ function CartaoDoCaminho({ bloco, caminho: c, indice: i }: { bloco: BlocoEscolha
       </div>
       <div className="flex flex-wrap items-center gap-1 pl-7">
         {/* em "todos" um caminho com filtro só segue: o seletor só aparece para trocar um
-            fim que não vale mais. Dentro de um paralelo, volta na frente, mas não encerra */}
+            fim que não vale mais */}
         {(!soSegue || c.fim.tipo !== 'segue') && (
-          <FimSelect fluxo={t.fluxo} escolhaId={bloco.id} caminhoId={c.id} fim={c.fim} nomeDe={t.nomeDe} onFluxo={t.onFluxo} soSegue={soSegue} semEncerrar={dentroParalelo} />
+          <FimSelect fluxo={t.fluxo} escolhaId={bloco.id} caminhoId={c.id} fim={c.fim} nomeDe={t.nomeDe} onFluxo={t.onFluxo} soSegue={soSegue} />
         )}
         <span className="ml-auto flex items-center gap-0.5">
           <EditarCondicao bloco={bloco} caminho={c} indice={i} />
@@ -524,20 +506,18 @@ function PerguntasDoParalelo({ bloco }: { bloco: BlocoParalelo }) {
 /** Como um caminho da escolha termina. "Voltar" só lista atividades que vêm ANTES da
  *  escolha e, dentro de um "ao mesmo tempo", só as da mesma frente — as outras travariam
  *  o motor. */
-export function FimSelect({ fluxo, escolhaId, caminhoId, fim, nomeDe, onFluxo, soSegue, semEncerrar }: {
+export function FimSelect({ fluxo, escolhaId, caminhoId, fim, nomeDe, onFluxo, soSegue }: {
   fluxo: FluxoBlocos; escolhaId: string; caminhoId: string; fim: FimCaminho
   nomeDe: (id: string) => string
   onFluxo: (fn: (f: FluxoBlocos) => FluxoBlocos) => void
   /** só "segue" é válido aqui; o valor atual (inválido) aparece para poder ser trocado */
   soSegue?: boolean
-  /** dentro de um "ao mesmo tempo": pode voltar na frente, mas não encerrar */
-  semEncerrar?: boolean
 }) {
   const destinos = useMemo(() => destinosDeVolta(fluxo, escolhaId), [fluxo, escolhaId])
   const valor = fim.tipo === 'volta' ? `volta:${fim.alvoId}` : fim.tipo
   const alvoInvalido = fim.tipo === 'volta' && !destinos.some((d) => d.id === fim.alvoId) ? fim.alvoId : null
   const mudar = (v: string) => {
-    const novo: FimCaminho = v === 'segue' ? { tipo: 'segue' } : v === 'encerra' ? { tipo: 'encerra' } : { tipo: 'volta', alvoId: v.slice('volta:'.length) }
+    const novo: FimCaminho = v === 'segue' ? { tipo: 'segue' } : v === 'encerra' ? { tipo: 'encerra' } : v === 'termina' ? { tipo: 'termina' } : { tipo: 'volta', alvoId: v.slice('volta:'.length) }
     onFluxo((f) => atualizarCaminho(f, caminhoId, { fim: novo }))
   }
   return (
@@ -547,7 +527,9 @@ export function FimSelect({ fluxo, escolhaId, caminhoId, fim, nomeDe, onFluxo, s
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="segue" className="text-xs">Ao terminar: segue</SelectItem>
-        <SelectItem value="encerra" disabled={soSegue || semEncerrar} className="text-xs">Encerra o processo{soSegue || semEncerrar ? ' (não vale aqui)' : ''}</SelectItem>
+        {/* a linha paralela nasce no desenho, de uma atividade sem seta: aqui só aparece para ser trocada */}
+        {fim.tipo === 'termina' && <SelectItem value="termina" className="text-xs">Ao terminar: esta linha acaba</SelectItem>}
+        <SelectItem value="encerra" disabled={soSegue} className="text-xs">Encerra o processo{soSegue ? ' (não vale aqui)' : ''}</SelectItem>
         {!soSegue && destinos.map((d) => <SelectItem key={d.id} value={`volta:${d.id}`} className="text-xs">Volta para: {nomeDe(d.id)}</SelectItem>)}
         {alvoInvalido && <SelectItem value={valor} className="text-xs">Volta para: {nomeDe(alvoInvalido)} (não vale mais)</SelectItem>}
       </SelectContent>
@@ -577,14 +559,13 @@ export function GavetaDoBloco({ blocoId, anteriores, focarAoAbrir, onCancelar, o
   onCancelar: () => void
   onAplicar: () => void
 }): JSX.Element | null {
-  const emParalelo = useMemo(() => escolhasEmParalelo(props.fluxo), [props.fluxo])
   const vazio = useMemo(() => new Map<string, ProblemaAtivacao[]>(), [])
   useEscCancela(onCancelar)
   const problemas = props.problemas ?? vazio
   const nomeDe = (id: string) => props.steps[id]?.stepName?.trim() || 'Atividade sem nome'
   const b = acharItem(props.fluxo, blocoId)
   if (!b || b.kind === 'atividade') return null
-  const ctx = { ...props, problemas, emParalelo, nomeDe }
+  const ctx = { ...props, problemas, nomeDe }
   if (b.kind === 'escolha') {
     const { pendentes, semCondicao, okPergunta, okCaminhos } = respostasDaEscolha(b)
     const faltam = [...(okPergunta ? [] : ['pergunta']), ...(okCaminhos ? [] : ['caminhos'])]

@@ -49,7 +49,7 @@ const COLS: Col[] = [
   },
   {
     key: 'etapa', label: 'Etapa atual / conclusão',
-    text: (i) => i.status === 'RUNNING' && i.bloqueio ? `parado em ${i.currentStep || '—'}: ${i.bloqueio.mensagem}` : i.status === 'RUNNING' ? (i.currentStep || '—') : i.status === 'ERROR' ? (i.error || i.stepName || 'erro') : i.status === 'COMPLETED' ? `concluído em ${fmt(i.completedAt)}` : i.status === 'ENDED_INCOMPLETE' ? `encerrado sem conclusão em ${fmt(i.completedAt)}` : i.cancelReason ? `cancelado · motivo: ${i.cancelReason}` : '—',
+    text: (i) => i.status === 'RUNNING' && i.bloqueio ? `parado em ${i.currentStep || '—'}: ${i.bloqueio.mensagem}` : i.status === 'RUNNING' && i.aguardando?.length ? `aguardando: ${i.aguardando.join(', ')}` : i.status === 'RUNNING' ? (i.currentStep || '—') : i.status === 'ERROR' ? (i.error || i.stepName || 'erro') : i.status === 'COMPLETED' ? `concluído em ${fmt(i.completedAt)}` : i.status === 'ENDED_INCOMPLETE' ? `encerrado sem conclusão em ${fmt(i.completedAt)}` : i.cancelReason ? `cancelado · motivo: ${i.cancelReason}` : '—',
     node: (i) => i.status === 'RUNNING' && i.bloqueio ? (
       /* parado numa escolha sem caminho: ícone + texto (nunca só a cor) */
       <span className="inline-flex items-start gap-1 text-amber-700 dark:text-amber-300" title={i.bloqueio.mensagem}>

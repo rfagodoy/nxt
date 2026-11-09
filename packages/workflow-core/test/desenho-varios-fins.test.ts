@@ -129,12 +129,12 @@ describe('desenhoParaBlocos — vários Fins', () => {
     })
   })
 
-  it('ramo de Ao mesmo tempo indo a um segundo Fim continua recusado', () => {
+  it('ramos de Ao mesmo tempo podem ir direto ao Fim, ao mesmo ou a Fins diferentes (PO, 08/11/2026)', () => {
     const formas = [F('p', 'parallelGateway'), F('a1'), F('a2')]
-    const umFim = problemas(desenho(formas, [S('start', 'p'), S('p', 'a1'), S('p', 'a2'), S('a1', 'end'), S('a2', 'end')]))
-    const doisFins = problemas(desenho([...formas, F('end2', 'end')], [S('start', 'p'), S('p', 'a1'), S('p', 'a2'), S('a1', 'end'), S('a2', 'end2')]))
-    expect(umFim[0].tipo).toBe('ramos-sem-juncao')
+    const umFim = fluxoDe(desenho(formas, [S('start', 'p'), S('p', 'a1'), S('p', 'a2'), S('a1', 'end'), S('a2', 'end')]))
+    const doisFins = fluxoDe(desenho([...formas, F('end2', 'end')], [S('start', 'p'), S('p', 'a1'), S('p', 'a2'), S('a1', 'end'), S('a2', 'end2')]))
     expect(doisFins).toEqual(umFim)
+    expect(umFim.itens[0]).toMatchObject({ kind: 'paralelo', caminhos: [{ fim: { tipo: 'encerra' } }, { fim: { tipo: 'encerra' } }] })
   })
 
   it('Fim sem seta, com mais de um Fim, vira pendência com a frase e a forma', () => {

@@ -202,7 +202,7 @@ describe('validarBlocos', () => {
     ])
     expect(validarBlocos(f).map((p) => p.tipo)).toEqual(['escolha-sem-caminho', 'caminho-sem-condicao'])
   })
-  it('armadilhas 3 e 4: encerrar ou voltar dentro de um paralelo', () => {
+  it('armadilha 3: voltar para fora da frente é recusado; encerrar dentro dela vale (PO, 08/11/2026)', () => {
     const f = fluxo([
       at('a'),
       {
@@ -212,7 +212,7 @@ describe('validarBlocos', () => {
         ],
       },
     ])
-    expect(validarBlocos(f).filter((p) => p.tipo === 'saida-dentro-de-paralelo')).toHaveLength(2)
+    expect(validarBlocos(f).filter((p) => p.tipo === 'saida-dentro-de-paralelo')).toHaveLength(1)
   })
   it('volta para atividade que vem DEPOIS é recusada', () => {
     const f = fluxo([

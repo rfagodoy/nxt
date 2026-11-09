@@ -36,6 +36,8 @@ export const EVENTO_RECUO = (SIMBOLO - EVENTO_D) / 2
 
 /* ─── Dados de cada forma ─────────────────────────────────────────────────── */
 export type DadosTarefa = { nome: string; automatica: boolean; meta: string; problemas: string[]; largura: number; altura: number
+  /** Atividade sem sucessora dentro de um "ao mesmo tempo": o fim de uma linha paralela. */
+  fimDeLinha?: boolean
   /** Variante da tarefa (usuário, envio, recebimento; a do subprocesso). Sem ela, a de sempre. */
   variante?: VarianteForma
   /** Presente = é um subprocesso: sem ícone, com o quadrinho "+" embaixo; `chamada` tem a borda grossa. */
@@ -82,7 +84,7 @@ export function rotuloDaForma(n: NoBpmn): string {
   switch (n.type) {
     case 'tarefa': {
       const d = n.data
-      return comProblemas(`${tipoDaTarefa(d.automatica, d.variante, d.subprocesso)}: ${d.nome}${d.meta ? ` (${d.meta})` : ''}`, d.problemas)
+      return comProblemas(`${tipoDaTarefa(d.automatica, d.variante, d.subprocesso)}: ${d.nome}${d.meta ? ` (${d.meta})` : ''}${d.fimDeLinha ? '. Fim da linha paralela' : ''}`, d.problemas)
     }
     case 'losango': {
       const d = n.data
@@ -252,6 +254,12 @@ export function FormaTarefa({ id, data, selected, isConnectable }: NodeProps<NoT
           : <span className="truncate text-[10px] text-[var(--e-4F5F57)] dark:text-[var(--e-9DB0A5)]">{data.meta}</span>}
       </div>
       <MarcaDeProblema problemas={data.problemas} className="-right-1 -top-1" />
+      {data.fimDeLinha && (
+        <span title="Fim de uma linha paralela: quando esta atividade terminar, só esta linha acaba. O processo espera por ela antes de encerrar."
+          className="absolute -bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-[#BE123C]/40 bg-[#FFF6F8] px-1.5 py-px text-[9px] font-bold text-[#9F1239] dark:border-[#FDA4B8]/40 dark:bg-[#1E1418] dark:text-[#FDA4B8]">
+          fim da linha paralela
+        </span>
+      )}
       <Alcas conectavel={isConnectable} />
       <BolinhaDeLigar visivel={selected && isConnectable} />
       {/* alça de tamanho no canto de baixo (como no mockup): só com a forma selecionada SOZINHA e o desenho editável */}
