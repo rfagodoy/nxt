@@ -16,7 +16,8 @@
  *      ponto único antes de seguir.
  *   2. Volta apontando para um losango de paralelo → ele viraria junção e travaria.
  *      A volta só aponta para ATIVIDADE.
- *   3. Volta saindo de dentro de um paralelo → duplicaria os ramos irmãos. Proibido.
+ *   3. Volta saindo de uma frente do paralelo → duplicaria os ramos irmãos. Proibido.
+ *      Dentro da mesma frente pode (PO, 08/11/2026): o laço só repete aquela frente.
  *   4. Encerrar dentro de um paralelo → os irmãos seguiriam e o processo terminaria
  *      "sem conclusão". Proibido.
  * As proibições vivem em `validarBlocos` (o editor nem oferece a opção nesses lugares).
@@ -313,27 +314,28 @@ export function listarEscolhas(f: FluxoBlocos): BlocoEscolha[] {
 }
 
 /** Atividades que podem ser DESTINO de uma volta a partir da escolha `escolhaId`: as que
- *  vêm antes dela no fluxo e não moram dentro de um "ao mesmo tempo" (armadilha 3). */
+ *  vêm antes dela no fluxo e não moram dentro de um "ao mesmo tempo" (armadilha 3). Se a
+ *  escolha mora numa frente, só as anteriores da própria frente: cada frente recomeça a lista. */
 export function destinosDeVolta(f: FluxoBlocos, escolhaId: string): ItemAtividade[] {
   let resultado: ItemAtividade[] | null = null
   const ativs = (itens: ItemFluxo[]): ItemAtividade[] => itens.flatMap((it) =>
     it.kind === 'atividade' ? [it]
       : it.kind === 'escolha' ? [...it.caminhos.flatMap((c) => ativs(c.itens)), ...ativs(it.casoContrario.itens)]
         : [])                                     // paralelo: nada de dentro dele
-  const buscar = (itens: ItemFluxo[], antes: ItemAtividade[], dentroParalelo: boolean) => {
+  const buscar = (itens: ItemFluxo[], antes: ItemAtividade[]) => {
     const acumulado = [...antes]
     for (const it of itens) {
       if (resultado) return
-      if (it.id === escolhaId) { resultado = dentroParalelo ? [] : acumulado; return }
+      if (it.id === escolhaId) { resultado = acumulado; return }
       if (it.kind === 'escolha') {
-        for (const c of [...it.caminhos, it.casoContrario]) buscar(c.itens, acumulado, dentroParalelo)
+        for (const c of [...it.caminhos, it.casoContrario]) buscar(c.itens, acumulado)
       } else if (it.kind === 'paralelo') {
-        for (const c of it.caminhos) buscar(c.itens, acumulado, true)
+        for (const c of it.caminhos) buscar(c.itens, [])
       }
       acumulado.push(...ativs([it]))
     }
   }
-  buscar(f.itens, [], false)
+  buscar(f.itens, [])
   return resultado ?? []
 }
 
@@ -379,13 +381,15 @@ export function validarBlocos(f: FluxoBlocos): ProblemaBloco[] {
         }
         const todos = temSenaoAntigo(it) ? [...it.caminhos, it.casoContrario] : [...it.caminhos]
         for (const c of todos) {
-          if (dentroParalelo && c.fim.tipo !== 'segue') {
-            problemas.push({ tipo: 'saida-dentro-de-paralelo', severidade: 'erro', itemId: it.id, mensagem: `${nome} está dentro de um bloco “ao mesmo tempo”: ali um caminho não pode ${c.fim.tipo === 'encerra' ? 'encerrar o processo' : 'voltar para outra atividade'}, porque os caminhos irmãos continuariam rodando.` })
+          if (dentroParalelo && c.fim.tipo === 'encerra') {
+            problemas.push({ tipo: 'saida-dentro-de-paralelo', severidade: 'erro', itemId: it.id, mensagem: `${nome} está dentro de um bloco “ao mesmo tempo”: ali um caminho não pode encerrar o processo, porque os caminhos irmãos continuariam rodando.` })
           }
           if (c.fim.tipo === 'volta') {
             const alvo = c.fim.alvoId
             const validos = new Set(destinosDeVolta(f, it.id).map((a) => a.id))
-            if (!atividadeIds.has(alvo) || (!dentroParalelo && !validos.has(alvo))) {
+            if (dentroParalelo && atividadeIds.has(alvo) && !validos.has(alvo)) {
+              problemas.push({ tipo: 'saida-dentro-de-paralelo', severidade: 'erro', itemId: it.id, mensagem: `${nome} está dentro de um bloco “ao mesmo tempo”: ali um caminho só pode voltar para uma atividade anterior da mesma frente, porque os caminhos irmãos continuariam rodando.` })
+            } else if (!validos.has(alvo)) {
               problemas.push({ tipo: 'volta-invalida', severidade: 'erro', itemId: it.id, mensagem: `${nome}: um caminho volta para uma atividade que não vem antes desta escolha (ou que foi removida). Escolha outra atividade.` })
             }
           }

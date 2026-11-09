@@ -12,6 +12,9 @@ import { CampoPicker } from './campo-picker'
  *  autoria e o rótulo que acompanha a condição. */
 export interface SaidaCondicional { condition?: string; conditionSpec?: EdgeConditionSpec; label?: string }
 
+const CAIXA_DA_COMPARACAO = 'h-9 min-w-0 flex-[1_1_8.25rem] text-xs'
+const CAIXA_DO_VALOR = 'h-9 min-w-0 flex-[1_1_9.375rem] text-xs'
+
 /* ── Construtor de condição de UM caminho: [Campo] [operador] [Valor], com E/OU.
      Gera a expressão do motor a partir do spec — ninguém digita expressão. ── */
 export function CondBuilder({ edge, campos, onSet, semCampos }: {
@@ -84,32 +87,39 @@ export function CondBuilder({ edge, campos, onSet, semCampos }: {
               const c = campoDe(r.campo)
               const ops = OPS_POR_TIPO[c?.tipo ?? 'texto']
               return (
-                <li key={i} className="grid grid-cols-[28px_minmax(0,1fr)_132px_150px_28px] items-center gap-2">
-                  <span className="text-right text-xs font-bold text-violet-700 dark:text-violet-300">{conector(i)}</span>
-                  <CampoPicker campos={campos} value={r.campo} ariaLabel={`Campo da ${i + 1}ª regra`}
-                    onChange={(v) => { const t = campoDe(v)?.tipo ?? 'texto'; setRule(i, { campo: v, op: OPS_POR_TIPO[t][0].value, valor: '' }) }} />
-                  <Select value={r.op} onValueChange={(v) => setRule(i, { ...r, op: v as EdgeConditionRule['op'] })}>
-                    <SelectTrigger className="h-9 text-xs" aria-label={`Comparação da ${i + 1}ª regra`}><SelectValue /></SelectTrigger>
-                    <SelectContent>{ops.map((o) => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
-                  </Select>
-                  {c?.tipo === 'selecao' && c.options?.length ? (
-                    <Select value={r.valor || undefined} onValueChange={(v) => setRule(i, { ...r, valor: v })}>
-                      <SelectTrigger className="h-9 min-w-0 text-xs" aria-label={`Valor da ${i + 1}ª regra`}><SelectValue placeholder="Valor…" /></SelectTrigger>
-                      <SelectContent>{c.options.map((o) => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
+                <li key={i} className="grid grid-cols-[28px_minmax(0,1fr)_28px] items-start gap-2">
+                  <span className="pt-2.5 text-right text-xs font-bold text-violet-700 dark:text-violet-300">{conector(i)}</span>
+                  {/* O construtor abre em lugares de larguras diferentes (balão largo, gaveta estreita).
+                      As três partes quebram linha em vez de espremer o campo: com colunas fixas,
+                      numa gaveta o campo ficava sem largura e o escolhido não aparecia (PO, 08/11/2026). */}
+                  <div className="flex min-w-0 flex-wrap gap-2">
+                    <div className="min-w-0 flex-[1_1_14rem]">
+                      <CampoPicker campos={campos} value={r.campo} ariaLabel={`Campo da ${i + 1}ª regra`}
+                        onChange={(v) => { const t = campoDe(v)?.tipo ?? 'texto'; setRule(i, { campo: v, op: OPS_POR_TIPO[t][0].value, valor: '' }) }} />
+                    </div>
+                    <Select value={r.op} onValueChange={(v) => setRule(i, { ...r, op: v as EdgeConditionRule['op'] })}>
+                      <SelectTrigger className={CAIXA_DA_COMPARACAO} aria-label={`Comparação da ${i + 1}ª regra`}><SelectValue /></SelectTrigger>
+                      <SelectContent>{ops.map((o) => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
                     </Select>
-                  ) : c?.tipo === 'booleano' ? (
-                    <Select value={r.valor || undefined} onValueChange={(v) => setRule(i, { ...r, valor: v })}>
-                      <SelectTrigger className="h-9 text-xs" aria-label={`Valor da ${i + 1}ª regra`}><SelectValue placeholder="Valor…" /></SelectTrigger>
-                      <SelectContent><SelectItem value="true" className="text-xs">Sim</SelectItem><SelectItem value="false" className="text-xs">Não</SelectItem></SelectContent>
-                    </Select>
-                  ) : (
-                    <Input className="h-9 text-xs" type={c?.tipo === 'data' ? 'date' : 'text'} aria-label={`Valor da ${i + 1}ª regra`}
-                      inputMode={c?.tipo === 'numero' ? 'decimal' : undefined} placeholder="Valor"
-                      value={r.valor} onChange={(ev) => setRule(i, { ...r, valor: ev.target.value })} />
-                  )}
+                    {c?.tipo === 'selecao' && c.options?.length ? (
+                      <Select value={r.valor || undefined} onValueChange={(v) => setRule(i, { ...r, valor: v })}>
+                        <SelectTrigger className={CAIXA_DO_VALOR} aria-label={`Valor da ${i + 1}ª regra`}><SelectValue placeholder="Valor…" /></SelectTrigger>
+                        <SelectContent>{c.options.map((o) => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    ) : c?.tipo === 'booleano' ? (
+                      <Select value={r.valor || undefined} onValueChange={(v) => setRule(i, { ...r, valor: v })}>
+                        <SelectTrigger className={CAIXA_DO_VALOR} aria-label={`Valor da ${i + 1}ª regra`}><SelectValue placeholder="Valor…" /></SelectTrigger>
+                        <SelectContent><SelectItem value="true" className="text-xs">Sim</SelectItem><SelectItem value="false" className="text-xs">Não</SelectItem></SelectContent>
+                      </Select>
+                    ) : (
+                      <Input className={CAIXA_DO_VALOR} type={c?.tipo === 'data' ? 'date' : 'text'} aria-label={`Valor da ${i + 1}ª regra`}
+                        inputMode={c?.tipo === 'numero' ? 'decimal' : undefined} placeholder="Valor"
+                        value={r.valor} onChange={(ev) => setRule(i, { ...r, valor: ev.target.value })} />
+                    )}
+                  </div>
                   {rules.length > 1 ? (
                     <button type="button" aria-label={`Remover a ${i + 1}ª regra`} title="Remover esta regra" onClick={() => dropRule(i)}
-                      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><X className="h-3.5 w-3.5" /></button>
+                      className="mt-1 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><X className="h-3.5 w-3.5" /></button>
                   ) : <span />}
                 </li>
               )

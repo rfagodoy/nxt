@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { camposDisponiveis, camposDasTelasDasAtividades } from './flow-conditions'
+import { camposDaEscolha, camposDisponiveis, camposDasTelasDasAtividades } from './flow-conditions'
 
 describe('camposDasTelasDasAtividades — campos do caminho vêm da tela da atividade dele', () => {
   const screens = [
@@ -27,6 +27,43 @@ describe('camposDasTelasDasAtividades — campos do caminho vêm da tela da ativ
   it('atividade sem tela, ou com tela de parceiro → nenhum campo', () => {
     expect(camposDasTelasDasAtividades([{}], screens)).toEqual([])
     expect(camposDasTelasDasAtividades([{ screenRef: 'parceiro', screenSubject: 'FORNECEDOR' }], screens)).toEqual([])
+  })
+})
+
+describe('camposDaEscolha — campos das atividades anteriores e do caminho', () => {
+  const campo = (fieldKey: string, label: string, visible = true) => ({ id: `r_${fieldKey}`, fieldKey, label, type: 'select', source: 'CUSTOM', visible })
+  const screens = [
+    { id: 'analise', name: 'Validação cadastral', subjectType: 'CONTRATO', fields: [campo('sf_erros', 'Possui erros?')] },
+    { id: 'contabil', name: 'Contábil', subjectType: 'CONTRATO', fields: [campo('sf_centro', 'Centro de custo')] },
+    { id: 'irma', name: 'Outro caminho', subjectType: 'CONTRATO', fields: [campo('sf_irma', 'Campo da irmã')] },
+    { id: 'oculta', name: 'Com campo oculto', subjectType: 'CONTRATO', fields: [campo('sf_oculto', 'Oculto', false)] },
+  ]
+  const telaDe = (screenRef: string) => ({ screenRef, screenSubject: 'CONTRATO' })
+  const steps = { analisar: telaDe('analise'), corrigir: telaDe('irma'), oculta: telaDe('oculta') }
+  const edges = [
+    { from: 'oculta', to: 'analisar' }, { from: 'analisar', to: 'erros' }, { from: 'erros', to: 'corrigir' }, { from: 'erros', to: 'contabil' },
+  ]
+  const chaves = (doCaminho: Array<{ screenRef?: string; screenSubject?: string }>, arestas = edges) =>
+    camposDaEscolha(doCaminho, steps, arestas, 'erros', screens).map((c) => c.key).filter((k) => k.includes('.sf_'))
+
+  it('caminho cuja atividade não tem tela lista os campos da atividade anterior', () => {
+    expect(chaves([{}])).toEqual(['contrato.sf_erros'])
+  })
+  it('lista juntos os campos do caminho e os das atividades anteriores', () => {
+    expect(chaves([telaDe('contabil')]).sort()).toEqual(['contrato.sf_centro', 'contrato.sf_erros'])
+  })
+  it('atividade de outro caminho, que vem depois da escolha, não entra', () => {
+    expect(chaves([telaDe('contabil')])).not.toContain('contrato.sf_irma')
+  })
+  it('campo oculto na tela da atividade anterior não entra', () => {
+    expect(chaves([{}])).not.toContain('contrato.sf_oculto')
+  })
+  it('laço de correção: a atividade que volta conta como anterior, sem travar', () => {
+    const comVolta = [...edges, { from: 'corrigir', to: 'analisar' }]
+    expect(chaves([{}], comVolta).sort()).toEqual(['contrato.sf_erros', 'contrato.sf_irma'])
+  })
+  it('sem nenhuma tela antes nem no caminho, não há campos', () => {
+    expect(camposDaEscolha([{}], {}, edges, 'erros', screens)).toEqual([])
   })
 })
 

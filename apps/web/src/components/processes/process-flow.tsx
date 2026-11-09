@@ -34,7 +34,7 @@ import { SairSemSalvarDialog } from './sair-sem-salvar'
 import { ATRIBUTO_GAVETA } from './desenho-bpmn/gaveta'
 import { GavetaDoCaminho, type PatchDaSeta } from './desenho-bpmn/painel-da-seta'
 import { GavetaDoLosango } from './desenho-bpmn/gaveta-losango'
-import { camposDasTelasDasAtividades } from '@/lib/flow-conditions'
+import { camposDaEscolha } from '@/lib/flow-conditions'
 import { CanvasBpmn, modeloDeExportacao, type AlvoDaGaveta } from './desenho-bpmn/canvas-bpmn'
 import { PaletaBpmn, type Conector } from './desenho-bpmn/paleta'
 import { ControlesDoDesenho, MenuMais, NomeNoTopo, tamanhoDoNome, useNivelDoTopo } from './desenho-bpmn/topo'
@@ -476,8 +476,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     if (f?.tipo === 'end') return 'Fim'
     return stepsEfetivos[id]?.stepName?.trim() || f?.nome?.trim() || (f?.tipo === 'exclusiveGateway' || f?.tipo === 'parallelGateway' ? 'outro losango' : 'etapa sem nome')
   }, [formaDoDoc, stepsEfetivos])
-  /** Campos que a condição da seta pode testar: os das telas das etapas logo depois dela (até o
-   *  próximo losango); seta sem etapa testa o mesmo que as irmãs. */
+  /** Campos que a condição da seta pode testar: os das telas das etapas anteriores à escolha e
+   *  os das etapas logo depois dela (até o próximo losango); seta sem etapa testa o mesmo que
+   *  as irmãs. */
   const camposDaSeta = useCallback((seta: { id: string; de: string; para: string }) => {
     const etapasApos = (inicio: string) => {
       const ids: string[] = []
@@ -492,7 +493,8 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     }
     let ids = etapasApos(seta.para)
     if (!ids.length) ids = doc.setas.filter((x) => x.de === seta.de && x.id !== seta.id).flatMap((x) => etapasApos(x.para))
-    return camposDasTelasDasAtividades(ids.map((id) => stepsEfetivos[id]).filter((x): x is StepFormSchema => !!x), screens)
+    const edges = doc.setas.map((x) => ({ from: x.de, to: x.para }))
+    return camposDaEscolha(ids.map((id) => stepsEfetivos[id]).filter((x): x is StepFormSchema => !!x), stepsEfetivos, edges, seta.de, screens)
   }, [doc.setas, formaDoDoc, stepsEfetivos, screens])
   const aoMudarSeta = useCallback((setaId: string, p: PatchDaSeta) => setDoc((d) => atualizarSeta(d, setaId, p)), [])
   const aoMudarLosango = useCallback((id: string, patch: { pergunta?: string; modo?: 'primeiro' | 'todos' }) =>

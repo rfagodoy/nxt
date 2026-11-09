@@ -6,6 +6,8 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ### Alterado
 
+- **Volta dentro de um "ao mesmo tempo":** uma escolha pode voltar para uma atividade anterior da mesma frente, como o laço Corrigir → Analisar. Voltar para fora da frente e encerrar o processo dentro dela continuam proibidos.
+- **Filtro da escolha:** cada caminho lista também os campos das telas das atividades anteriores à escolha, além das telas das atividades do próprio caminho.
 - **Gavetas do editor de workflow no padrão dos cadastros:** atividade, escolha, "ao mesmo tempo", raia, fase, piscinas, mensagem, seta e as demais formas.
   - O resumo virou uma linha discreta embaixo do nome, no lugar do cartão escuro "Em resumo".
   - As perguntas numeradas viraram seções que abrem e fecham. Fechada, cada seção mostra o valor escolhido ou o selo "Falta".
@@ -32,6 +34,8 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 ### Corrigido
 
 - Um usuário recém-cadastrado aparece na hora para ser escolhido como responsável ou parte envolvida, sem precisar recarregar a página.
+- Nomes longos em seletores ficam em uma linha, com reticências, em vez de quebrar por cima do que vem depois. Em "Mais opções da tela", os botões descem quando falta espaço.
+- Na gaveta do caminho, o campo escolhido no filtro volta a aparecer: as partes da condição quebram linha em vez de espremer o campo.
 
 ### Removido
 
