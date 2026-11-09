@@ -42,6 +42,7 @@ export interface ContractNativeCtx {
 export function ContractSectionNative({ section, ctx }: { section: ResolvedContractSection; ctx: ContractNativeCtx }) {
   const { nativeKey, screenVis, screenLock } = section
   const { form } = ctx
+  const screenReq = (key: string) => section.nativosObrigatorios.some(n => n.key === key)
   /* Seção-BLOCO é atômica: não tem campo a campo, então a trava dela chega inteira aqui. */
   const ro = ctx.ro || section.locked
   /* CONSULTA pela tela (seção ou tela travada) ≠ contrato travado pela situação: o contrato
@@ -49,11 +50,11 @@ export function ContractSectionNative({ section, ctx }: { section: ResolvedContr
   const consulta = section.locked
   switch (nativeKey) {
     case 'dados_gerais':
-      return <IdentificacaoFields form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} autoNumero={ctx.autoNumero} numeroPreview={ctx.numeroPreview} />
+      return <IdentificacaoFields form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} isRequired={screenReq} autoNumero={ctx.autoNumero} numeroPreview={ctx.numeroPreview} />
     case 'vigencia':
-      return <VigenciaFields form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} renovar={ctx.renovacaoLiberada ?? true} />
+      return <VigenciaFields form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} isRequired={screenReq} renovar={ctx.renovacaoLiberada ?? true} />
     case 'valor':
-      return <ValoresFields form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} />
+      return <ValoresFields form={form} ro={ro} isVisible={screenVis} isLocked={screenLock} isRequired={screenReq} />
     case 'partes':
       return <PartesFields form={form} ro={ro} contractId={ctx.contractId} onOpenSearch={ctx.onOpenSearch!} onNewPartner={ctx.onNewPartner!} />
     case 'pagamentos':
