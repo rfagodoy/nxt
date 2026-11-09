@@ -39,6 +39,8 @@ export function TaskDocView({ task, onDone, onNotice }: {
   const [error, setError] = useState<string | null>(null)
   /* Escolha sem caminho (PO, 04/10/2026): a conclusão foi RECUSADA — popup, não rodapé */
   const [semCaminho, setSemCaminho] = useState<string | null>(null)
+  /* Campos obrigatórios da tela em branco (PO, 09/11/2026): a conclusão foi recusada */
+  const [faltantes, setFaltantes] = useState<string[] | null>(null)
   const [returnTargets, setReturnTargets] = useState<ReturnTarget[] | null>(null)
   // id da entidade criada/editada por uma tarefa dirigida por Tela (para o "Avançar")
   const [entityId, setEntityId] = useState<string | null>(null)
@@ -93,6 +95,7 @@ export function TaskDocView({ task, onDone, onNotice }: {
       if (!res.ok) {
         const e = await res.json().catch(() => null)
         if (e?.code === 'SEM_CAMINHO') { setSemCaminho(String(e.message)); return }
+        if (e?.code === 'CAMPOS_OBRIGATORIOS') { setFaltantes((e.campos as { campo: string }[]).map((c) => c.campo)); return }
         setError(e?.message || 'Não foi possível avançar a tarefa.')
         return
       }
@@ -231,6 +234,14 @@ export function TaskDocView({ task, onDone, onNotice }: {
         message={<>
           <span className="block">{semCaminho}</span>
           <span className="mt-2 block text-muted-foreground">O processo ficou <span className="font-semibold text-foreground">parado nesta atividade</span> — ela continua com você, e o acompanhamento do processo mostra o problema. Quando o administrador ajustar as condições (ou os dados do contrato forem corrigidos), tente concluir de novo.</span>
+        </>} />
+      <NoticeDialog open={!!faltantes} title="Faltam campos obrigatórios" onClose={() => setFaltantes(null)}
+        message={<>
+          <span className="block">Para concluir esta atividade, preencha:</span>
+          <ul className="mt-2 list-disc pl-5 font-semibold text-foreground">
+            {(faltantes ?? []).map((campo) => <li key={campo}>{campo}</li>)}
+          </ul>
+          <span className="mt-2 block text-muted-foreground">Depois de preencher, salve o contrato e clique em Concluir tarefa de novo.</span>
         </>} />
     </div>
   )

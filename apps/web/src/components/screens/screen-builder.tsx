@@ -19,6 +19,7 @@ import { fieldAppliesTo, fieldVisibleFor, requiredFor } from '@/lib/screen-partn
 import { PARTNER_BLOCK_SECTIONS } from '@/lib/screen-partner-layout'
 import { CONTRACT_BLOCK_SECTIONS } from '@/lib/screen-contract-layout'
 import { pendenciasDeTrava, fraseDaPendencia } from '@/lib/screen-locks'
+import { nativoObrigatorioConfiguravel } from '@/lib/campos-obrigatorios'
 import { ScreenRenderer } from './screen-renderer'
 import { ScreenFieldEditor } from './screen-field-editor'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -213,10 +214,14 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
     return { ...f, required: req.size > 0, requiredCategories: [...req] }
   }) })
 
-  /* Obrigatoriedade da SEÇÃO inteira: age só nos campos PERSONALIZADOS — a de um campo
-     nativo é do sistema. Não é propriedade da seção, é um atalho sobre os campos dela. */
+  /* A marca "Obrigatório" vale para os personalizados e para os nativos do Contrato que a
+     aceitam (regra em obrigatorios.ts). Nos demais nativos, quem define é o sistema. */
+  const aceitaObrigatorio = (f: ScreenField) => f.source === 'CUSTOM' || nativoObrigatorioConfiguravel(screen.subjectType, f.nativeKey ?? '')
+
+  /* Obrigatoriedade da SEÇÃO inteira: não é propriedade da seção, é um atalho sobre os
+     campos dela que aceitam a marca. */
   const setSectionRequired = (sid: string, req: boolean) => patch({ fields: screen.fields.map(f => {
-    if (f.sectionId !== sid || f.source !== 'CUSTOM') return f
+    if (f.sectionId !== sid || !aceitaObrigatorio(f)) return f
     if (!isPartner) return { ...f, required: req }
     if (!fieldAppliesTo(f, cat)) return f
     const set = new Set(f.requiredCategories ?? (f.required ? ALL_CATEGORIES : []))
@@ -486,9 +491,9 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
                     const isColl      = collapsed.has(s.id)
                     const wontShow    = !secHidden && !naNoTipo && !isBlockSec && applicable.length > 0 && visiveis.length === 0
                     // obrigatoriedade em lote: só os personalizados têm essa chave
-                    const customs = applicable.filter(f => f.source === 'CUSTOM')
-                    const allReq  = customs.length > 0 && customs.every(fieldRequired)
-                    const someReq = customs.some(fieldRequired)
+                    const exigiveis = applicable.filter(aceitaObrigatorio)
+                    const allReq  = exigiveis.length > 0 && exigiveis.every(fieldRequired)
+                    const someReq = exigiveis.some(fieldRequired)
 
                     return (
                       <Fragment key={s.id}>
@@ -564,8 +569,8 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
                                              : 'Seção permite alterações — clique para deixá-la só consulta'} />
                           </td>
                           <td className="px-2 py-1.5 text-center">
-                            {customs.length === 0
-                              ? <span className="text-muted-foreground/50" title="Só campos criados por você têm obrigatoriedade configurável">—</span>
+                            {exigiveis.length === 0
+                              ? <span className="text-muted-foreground/50" title="Esta seção não tem campo com obrigatoriedade configurável">—</span>
                               : <Marca on={allReq} half={someReq && !allReq} onClick={() => setSectionRequired(s.id, !allReq)}
                                   title={allReq ? 'Todos os campos desta seção são obrigatórios' : 'Tornar obrigatórios os campos desta seção'} />}
                           </td>
@@ -619,8 +624,8 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
                               <td className="px-2 py-1 text-center">
                                 {!vis
                                   ? <span className="text-muted-foreground/50" title="Campo oculto — não há o que exigir">—</span>
-                                  : native
-                                    ? <span className="text-muted-foreground/50" title="A obrigatoriedade de um campo do sistema é definida por ele">—</span>
+                                  : !aceitaObrigatorio(f)
+                                    ? <span className="text-muted-foreground/50" title="A obrigatoriedade deste campo é definida pelo sistema">—</span>
                                     : <Marca on={fieldRequired(f)} onClick={() => toggleFieldRequired(f.id)}
                                         title={isPartner ? `Obrigatório em ${PARTNER_CATEGORIES.find(c => c.value === cat)?.label}` : 'Obrigatório no cadastro'} />}
                               </td>

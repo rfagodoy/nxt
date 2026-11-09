@@ -9,7 +9,7 @@
  * Aqui só vive OBRIGATORIEDADE (vazio). Regra de negócio (término antes do início,
  * documento inválido, participação dos sócios) continua nas validações próprias. */
 import type { ContractFormValues } from '@nxt/contracts-core'
-import { fieldValueKey, type ScreenField } from './types'
+import { fieldValueKey, type ScreenField, type ScreenSubject } from './types'
 
 /** O que a regra precisa saber do parceiro. O formulário da web (PartnerFormValues) já tem
  *  este formato; a API monta o mesmo a partir do registro gravado + o que chegou. */
@@ -38,6 +38,43 @@ export interface SecaoComCampos {
   customFields: Pick<ScreenField, 'id' | 'fieldKey' | 'label' | 'required' | 'locked'>[]
   /** campos nativos que a tela deixa visíveis nesta seção (ausente = todos) */
   screenVis?: (key: string) => boolean
+  /** campos nativos marcados como obrigatórios na tela, visíveis e não travados */
+  nativosObrigatorios?: { key: string; label: string }[]
+}
+
+/* Onde mora o valor de cada campo nativo do Contrato que aceita a marca "Obrigatório".
+   Ficam de fora os que não fazem sentido marcar: Número e Título o sistema exige em toda
+   gravação; Situação muda sozinha; Prazo indeterminado é uma caixa de marcar. Campo
+   numérico vale 0 quando fica em branco (o payload grava assim), por isso o `|| ''`. */
+const NATIVOS_CONTRATO: Record<string, (v: ContractFormValues) => unknown> = {
+  natureza: v => v.natureza, descricao: v => v.descricao, objeto: v => v.objeto, tipo: v => v.tipo,
+  data_assinatura: v => v.dataAssinatura, mao_de_obra: v => v.maoDeObra,
+  inicio: v => v.inicioVigencia, termino: v => v.terminoVigencia, acao_termino: v => v.acaoTermino,
+  moeda: v => v.moeda, condicao_pagamento: v => v.condicaoPagamento, forma_pagamento: v => v.formaPagamento,
+  valor_total: v => Number(v.valorTotal) || '', valor_parcela: v => Number(v.valorParcela) || '',
+  qtd_parcelas: v => Number(v.qtdParcelas) || '', complemento: v => v.complementoValor,
+}
+
+/** Campos que o formulário esconde quando o contrato tem prazo indeterminado. */
+const SOMEM_NO_PRAZO_INDETERMINADO = new Set(['termino', 'acao_termino', 'qtd_parcelas'])
+
+/** O campo nativo aceita a marca "Obrigatório" na configuração da tela? Só no Contrato:
+ *  no Fornecedor a exigência varia por tipo e boa parte dos campos mora em listas. */
+export const nativoObrigatorioConfiguravel = (subject: ScreenSubject, nativeKey: string): boolean =>
+  subject === 'CONTRATO' && nativeKey in NATIVOS_CONTRATO
+
+const emBranco = (x: unknown) => (Array.isArray(x) ? x.length === 0 : !String(x ?? '').trim())
+
+/** Campos nativos marcados como obrigatórios na tela e ainda vazios. */
+export function nativosFaltantes(secoes: SecaoComCampos[] | null | undefined, v: ContractFormValues): CampoFaltante[] {
+  const out: CampoFaltante[] = []
+  for (const s of secoes ?? [])
+    for (const n of s.nativosObrigatorios ?? []) {
+      if (v.prazoIndeterminado && SOMEM_NO_PRAZO_INDETERMINADO.has(n.key)) continue
+      const valor = NATIVOS_CONTRATO[n.key]
+      if (valor && emBranco(valor(v))) out.push({ secao: s.key, campo: n.label })
+    }
+  return out
 }
 
 export const SECOES_CONTRATO: Record<string, string> = {
@@ -86,6 +123,8 @@ export function faltantesContrato(
       v.documentos.forEach((d, i) => {
         if (!d.nome.trim()) out.push({ secao: 'documentos', campo: v.documentos.length > 1 ? `Nome do documento ${i + 1}` : 'Nome do documento' })
       })
+    /* Tipo, Início e Valor total o sistema já cobra acima: marcados na tela, não repetem */
+    out.push(...nativosFaltantes(o.secoes, v).filter(n => !out.some(x => x.campo === n.campo)))
     out.push(...personalizadosFaltantes(o.secoes, o.valores ?? {}))
   }
   return out

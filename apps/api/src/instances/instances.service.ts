@@ -12,8 +12,9 @@ import { WorkflowRolesService } from '../workflow-roles/workflow-roles.service'
 import { canActOnTask } from './task-access'
 import { formSchemaDaInstancia } from '../processes/definicao-congelada'
 import { ResolvedorDeExecutor, type ExecutorResolvido } from './executor-resolver'
-import { nasceDeContrato, VAR_INICIADO_POR } from '@nxt/types'
-import { screenIdVar } from '@nxt/screens-core'
+import { nasceDeContrato, VAR_INICIADO_POR, type StepFormSchema } from '@nxt/types'
+import { fraseDosFaltantes, screenIdVar } from '@nxt/screens-core'
+import { faltantesAoConcluir } from './obrigatorios-da-tarefa'
 
 /** `WorkflowTask.data` é JSON numa coluna texto (SQL Server): o PrismaService já devolve
  *  objeto, mas o tipo gerado diz string — aceita os dois. */
@@ -393,6 +394,24 @@ export class InstancesService {
         const frase = c && parteForaDaRestricao(r.restricoes, c.partes, r.rotulo)
         if (frase) throw new UnprocessableEntityException({ statusCode: 422, error: 'Unprocessable Entity', code: 'PARTE_RESTRITA', message: frase })
       }
+    }
+
+    /* ── Obrigatórios da tela da atividade (PO, 09/11/2026). O contrato costuma estar em
+       rascunho aqui, e o rascunho só exige Número e Título: sem esta conferência, a escolha
+       logo à frente decidiria o caminho com o campo em branco. A tarefa fica com a pessoa
+       e o vínculo com o contrato já gravado não se perde com a recusa. */
+    const fsDaTarefa = await formSchemaDaInstancia(this.prisma, task.instance)
+    const stepDaTarefa = (fsDaTarefa?.steps ?? []).find((s) => s.stepId === task.nodeId) as StepFormSchema | undefined
+    const faltantes = await faltantesAoConcluir(this.prisma, organizationId, stepDaTarefa, { ...prevState.variables, ...data })
+    if (faltantes.length) {
+      await this.prisma.workflowTask.updateMany({
+        where: { id: task.id, status: 'PENDING' },
+        data: { data: { ...dadosDaTarefa(task.data), ...data } as never },
+      })
+      throw new UnprocessableEntityException({
+        statusCode: 422, error: 'Unprocessable Entity', code: 'CAMPOS_OBRIGATORIOS',
+        message: fraseDosFaltantes(faltantes, 'concluir'), campos: faltantes,
+      })
     }
 
     /* ── Variável `contrato` para as CONDIÇÕES dos losangos (construtor, 2026-08-23).
