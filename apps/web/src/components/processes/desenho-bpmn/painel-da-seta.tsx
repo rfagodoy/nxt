@@ -79,7 +79,7 @@ export function GavetaDoCaminho({ seta, pergunta, para, campos, onPatch, onCamin
             ajuda="Quando o processo segue por este caminho.">
             <CondBuilder edge={{ condition: seta.condition, conditionSpec: seta.conditionSpec as EdgeConditionSpec | undefined, label: seta.rotulo }}
               campos={campos}
-              semCampos={<p role="status" className="text-[11.5px] leading-snug text-muted-foreground">Nenhum campo para filtrar: as etapas depois desta seta ainda não têm tela de contrato.</p>}
+              semCampos={<p role="status" className="text-[11.5px] leading-snug text-muted-foreground">Nenhum campo para filtrar: nem as etapas antes desta escolha nem as depois desta seta têm tela de contrato.</p>}
               onSet={(p) => onPatch({
                 ...('condition' in p ? { condition: p.condition } : {}),
                 ...('conditionSpec' in p ? { conditionSpec: p.conditionSpec } : {}),

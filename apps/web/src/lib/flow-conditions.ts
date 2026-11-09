@@ -161,11 +161,24 @@ export function camposDisponiveis(
 
 /* ── geração da expressão e do rótulo ────────────────────────────────────────── */
 
-/** Campos de um CAMINHO de escolha: os da TELA das atividades que estão dentro dele
- *  (decisão do PO, 13/09/2026 — quem monta o filtro pensa na tela da etapa para onde o
- *  caminho leva). Tela de contrato (e as abas adicionais) → nativos curados + os
- *  personalizados VISÍVEIS nela. O valor testado continua sendo o do contrato do processo
- *  no momento da decisão; a tela é só a lista de campos. */
+/** Campos que o filtro de um caminho oferece: os das telas das atividades do caminho (PO,
+ *  13/09/2026) e também os das atividades ANTERIORES à escolha (PO, 08/11/2026) — a resposta
+ *  costuma vir da etapa que antecede a decisão, e sem isto era preciso pôr na etapa seguinte
+ *  uma aba só para o campo aparecer no filtro. `steps` é o mapa das etapas por id. */
+export function camposDaEscolha(
+  doCaminho: Array<Parameters<typeof camposDasTelasDasAtividades>[0][number]>,
+  steps: Record<string, Parameters<typeof camposDasTelasDasAtividades>[0][number]>,
+  edges: EdgeLike[],
+  escolhaId: string,
+  screens: ScreenLike[],
+): CampoDisponivel[] {
+  const anteriores = [...predecessoras(edges, escolhaId)].flatMap((id) => (steps[id] ? [steps[id]] : []))
+  return camposDasTelasDasAtividades([...doCaminho, ...anteriores], screens)
+}
+
+/** Campos das TELAS das atividades dadas. Tela de contrato (e as abas adicionais) → nativos
+ *  curados + os personalizados VISÍVEIS nela. O valor testado continua sendo o do contrato do
+ *  processo no momento da decisão; a tela é só a lista de campos. */
 export function camposDasTelasDasAtividades(
   steps: Array<{ screenRef?: string; screenSubject?: string; extraScreens?: Array<{ screenRef: string }> }>,
   screens: ScreenLike[],

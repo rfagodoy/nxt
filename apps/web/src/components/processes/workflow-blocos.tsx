@@ -12,12 +12,12 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { AlertTriangle, ArrowDown, ArrowUp, CornerDownRight, GitBranch, HelpCircle, Info, Tag, Pencil, Play, Plus, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import {
-  acharItem, adicionarCaminho, atualizarCaminho, atualizarItem, destinosDeVolta, modoDaEscolha, moverCaminho, senaoParaCaminho, temSenaoAntigo,
+  acharItem, adicionarCaminho, atualizarCaminho, atualizarItem, blocosParaGrafo, destinosDeVolta, modoDaEscolha, moverCaminho, senaoParaCaminho, temSenaoAntigo,
   type BlocoEscolha, type ModoEscolha, type BlocoParalelo, type CaminhoCondicional, type FimCaminho, type FluxoBlocos,
   type ItemAtividade, type ItemFluxo, type ProblemaAtivacao,
 } from '@nxt/workflow-core'
 import type { EdgeConditionSpec, StepFormSchema } from '@nxt/types'
-import { camposDasTelasDasAtividades, decidirSaidas, montarVarsSimulacao, type CampoDisponivel } from '@/lib/flow-conditions'
+import { camposDaEscolha, decidirSaidas, montarVarsSimulacao, type CampoDisponivel } from '@/lib/flow-conditions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -156,16 +156,18 @@ function BotaoIcone({ title, onClick, perigo, disabled, children }: { title: str
    "Se [condição] então [atividades] e depois [segue]". A condição abre num balão
    ancorado nela mesma; a pergunta, o modo e o "se nenhum servir" estão no bloco. */
 
-/** Campos que o filtro de um caminho pode usar: os da TELA das atividades dele. Caminho
- *  SEM atividade ("nenhum parecer → segue", PO 11/10/2026) testa o mesmo que os irmãos —
- *  é o "nenhum dos outros" —, então usa as telas das atividades dos outros caminhos. */
+/** Campos que o filtro de um caminho pode usar: os da TELA das atividades dele e os das
+ *  atividades anteriores à escolha. Caminho SEM atividade ("nenhum parecer → segue", PO
+ *  11/10/2026) testa o mesmo que os irmãos — é o "nenhum dos outros" —, então usa também as
+ *  telas das atividades dos outros caminhos. */
 function useCamposDoCaminho() {
   const t = useTrilho()
+  const setas = useMemo(() => blocosParaGrafo(t.fluxo).edges, [t.fluxo])
   return (c: { id?: string; itens: ItemFluxo[] }, bloco?: BlocoEscolha) => {
     const proprias = atividadesDentro(c.itens)
     const fonte = proprias.length || !bloco ? proprias
       : bloco.caminhos.filter((x) => x.id !== c.id).flatMap((x) => atividadesDentro(x.itens))
-    return camposDasTelasDasAtividades(fonte.map((a) => t.steps[a.id]).filter((s): s is StepFormSchema => !!s), t.screens)
+    return camposDaEscolha(fonte.map((a) => t.steps[a.id]).filter((s): s is StepFormSchema => !!s), t.steps, setas, bloco?.id ?? '', t.screens)
   }
 }
 
@@ -180,10 +182,10 @@ function SemCampos({ caminho }: { caminho: CaminhoCondicional }) {
         <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <span>
           {tarefas.length === 0
-            ? <>Este caminho não tem atividade, então o filtro usa os campos das telas dos <span className="font-semibold">outros caminhos</span> desta escolha — e nenhum deles tem tela de contrato. Insira uma atividade com tela de contrato, pelo <span className="font-semibold">+</span>.</>
+            ? <>Nem as atividades <span className="font-semibold">anteriores a esta escolha</span> nem as dos <span className="font-semibold">outros caminhos</span> têm tela de contrato. Insira uma atividade com tela de contrato, pelo <span className="font-semibold">+</span>.</>
             : semTela.length > 0
-              ? <>O filtro usa os campos da <span className="font-semibold">tela da atividade deste caminho</span>, e {semTela.length === 1 ? 'ela está' : 'elas estão'} <span className="font-semibold">sem tela</span>.</>
-              : <>As atividades deste caminho não usam tela de <span className="font-semibold">contrato</span> — o filtro só testa campos do contrato.</>}
+              ? <>Nenhuma atividade anterior a esta escolha tem tela de contrato, e {semTela.length === 1 ? 'a atividade deste caminho está' : 'as atividades deste caminho estão'} <span className="font-semibold">sem tela</span>.</>
+              : <>Nem as atividades anteriores nem as deste caminho usam tela de <span className="font-semibold">contrato</span> — o filtro só testa campos do contrato.</>}
         </span>
       </p>
       {semTela.length > 0 && t.onConfigurarAtividade && (
@@ -361,7 +363,7 @@ function CartaoDoCaminho({ bloco, caminho: c, indice: i }: { bloco: BlocoEscolha
   const acesa = !!sim && sim.caminhoIds.includes(c.id)
   const apagada = !!sim && !sim.caminhoIds.includes(c.id)
   const temCond = !!c.condition?.trim()
-  const soSegue = todos || dentroParalelo
+  const soSegue = todos
   return (
     <li className={cn('flex min-w-0 flex-col gap-1.5 rounded-lg border bg-card px-3 py-[var(--secao-pad)] transition-opacity',
       acesa && 'border-primary bg-primary/[0.06] ring-1 ring-primary', apagada && 'opacity-45')}>
@@ -382,10 +384,10 @@ function CartaoDoCaminho({ bloco, caminho: c, indice: i }: { bloco: BlocoEscolha
         {acesa && <span className="shrink-0 text-[11px] font-bold text-primary">✓ por aqui</span>}
       </div>
       <div className="flex flex-wrap items-center gap-1 pl-7">
-        {/* em "todos" (e dentro de um paralelo) um caminho com filtro só segue: o seletor só
-            aparece para trocar um fim que não vale mais */}
+        {/* em "todos" um caminho com filtro só segue: o seletor só aparece para trocar um
+            fim que não vale mais. Dentro de um paralelo, volta na frente, mas não encerra */}
         {(!soSegue || c.fim.tipo !== 'segue') && (
-          <FimSelect fluxo={t.fluxo} escolhaId={bloco.id} caminhoId={c.id} fim={c.fim} nomeDe={t.nomeDe} onFluxo={t.onFluxo} soSegue={soSegue} />
+          <FimSelect fluxo={t.fluxo} escolhaId={bloco.id} caminhoId={c.id} fim={c.fim} nomeDe={t.nomeDe} onFluxo={t.onFluxo} soSegue={soSegue} semEncerrar={dentroParalelo} />
         )}
         <span className="ml-auto flex items-center gap-0.5">
           <EditarCondicao bloco={bloco} caminho={c} indice={i} />
@@ -520,13 +522,16 @@ function PerguntasDoParalelo({ bloco }: { bloco: BlocoParalelo }) {
 }
 
 /** Como um caminho da escolha termina. "Voltar" só lista atividades que vêm ANTES da
- *  escolha e fora de um "ao mesmo tempo" — as outras travariam o motor. */
-export function FimSelect({ fluxo, escolhaId, caminhoId, fim, nomeDe, onFluxo, soSegue }: {
+ *  escolha e, dentro de um "ao mesmo tempo", só as da mesma frente — as outras travariam
+ *  o motor. */
+export function FimSelect({ fluxo, escolhaId, caminhoId, fim, nomeDe, onFluxo, soSegue, semEncerrar }: {
   fluxo: FluxoBlocos; escolhaId: string; caminhoId: string; fim: FimCaminho
   nomeDe: (id: string) => string
   onFluxo: (fn: (f: FluxoBlocos) => FluxoBlocos) => void
   /** só "segue" é válido aqui; o valor atual (inválido) aparece para poder ser trocado */
   soSegue?: boolean
+  /** dentro de um "ao mesmo tempo": pode voltar na frente, mas não encerrar */
+  semEncerrar?: boolean
 }) {
   const destinos = useMemo(() => destinosDeVolta(fluxo, escolhaId), [fluxo, escolhaId])
   const valor = fim.tipo === 'volta' ? `volta:${fim.alvoId}` : fim.tipo
@@ -542,7 +547,7 @@ export function FimSelect({ fluxo, escolhaId, caminhoId, fim, nomeDe, onFluxo, s
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="segue" className="text-xs">Ao terminar: segue</SelectItem>
-        <SelectItem value="encerra" disabled={soSegue} className="text-xs">Encerra o processo{soSegue ? ' (não vale aqui)' : ''}</SelectItem>
+        <SelectItem value="encerra" disabled={soSegue || semEncerrar} className="text-xs">Encerra o processo{soSegue || semEncerrar ? ' (não vale aqui)' : ''}</SelectItem>
         {!soSegue && destinos.map((d) => <SelectItem key={d.id} value={`volta:${d.id}`} className="text-xs">Volta para: {nomeDe(d.id)}</SelectItem>)}
         {alvoInvalido && <SelectItem value={valor} className="text-xs">Volta para: {nomeDe(alvoInvalido)} (não vale mais)</SelectItem>}
       </SelectContent>

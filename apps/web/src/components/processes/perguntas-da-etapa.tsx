@@ -516,14 +516,17 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
                             const telaDaAba = entityScreens.find((s) => s.id === e.screenRef)
                             const modoEfetivo = atividadeSoConsulta || telaDaAba?.readOnly ? 'VIEW' : e.mode
                             return (
-                              <div key={`${e.screenRef}-${i}`} className="flex items-center gap-1.5">
-                                <span className="w-5 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">{i + 2}.</span>
+                              <div key={`${e.screenRef}-${i}`} className="flex items-start gap-1.5">
+                                <span className="mt-1.5 w-5 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">{i + 2}.</span>
+                                {/* sem espaço na gaveta, as ações descem e o nome da tela fica com a linha toda */}
+                                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
                                 <Select value={e.screenRef} onValueChange={(v) => setExtra(i, { screenRef: v })}>
-                                  <SelectTrigger className={cn(CAMPO, 'min-w-0 flex-1')}><SelectValue placeholder="Tela removida" /></SelectTrigger>
+                                  <SelectTrigger className={cn(CAMPO, 'min-w-0 flex-[1_1_15rem]')} title={telaDaAba?.name}><SelectValue placeholder="Tela removida" /></SelectTrigger>
                                   <SelectContent>
                                     {opcoes.map((s) => <SelectItem key={s.id} value={s.id} className="text-xs">{s.name}{s.readOnly ? ' · somente consulta' : ''}</SelectItem>)}
                                   </SelectContent>
                                 </Select>
+                                <div className="ml-auto flex shrink-0 items-center gap-1.5">
                                 <div className="flex shrink-0 overflow-hidden rounded-md border text-xs" role="group" aria-label="O que esta aba faz">
                                   {(['EDIT', 'VIEW'] as const).map((m) => (
                                     <button key={m} type="button" aria-pressed={modoEfetivo === m}
@@ -548,6 +551,8 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
                                   className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </button>
+                                </div>
+                                </div>
                               </div>
                             )
                           })}
