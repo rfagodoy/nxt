@@ -9,7 +9,7 @@ import { lerDesenho } from './desenho'
 import { executaHoje, rotuloDaVariante } from './variantes'
 import {
   ID_VALIDO, SUFIXO_REENCONTRO, blocosParaGrafo, lerFluxoBlocos, modoDaEscolha, temSenaoAntigo,
-  type BlocoEscolha, type BlocoParalelo, type CaminhoCondicional, type CaminhoPadrao, type FimCaminho, type FluxoBlocos, type ItemAtividade, type ItemFluxo, type SetaGerada,
+  analisarFrente, type BlocoEscolha, type BlocoParalelo, type CaminhoParalelo, type CaminhoCondicional, type CaminhoPadrao, type FimCaminho, type FluxoBlocos, type ItemAtividade, type ItemFluxo, type SetaGerada,
 } from './blocos'
 
 const TIPOS: readonly TipoForma[] = ['start', 'end', 'userTask', 'serviceTask', 'exclusiveGateway', 'parallelGateway', 'intermediateEvent', 'subProcess', 'eventGateway']
@@ -371,7 +371,11 @@ function manterPassagens(f: FluxoBlocos, antes: DesenhoV2, formas: FormaDesenho[
 
 /** A estrutura dos blocos sem os atributos que moram numa forma ou numa seta. */
 function estruturaDosBlocos(f: FluxoBlocos): string {
-  return JSON.stringify(f, (k, v) => (['nome', 'tipo', 'vinculoDe', 'pergunta', 'modo', 'condition', 'conditionSpec', 'rotulo'].includes(k) ? undefined : v))
+  // `tipo` só é atributo na atividade: no fim de um caminho (segue, encerra…) é estrutura
+  return JSON.stringify(f, function (this: { kind?: string }, k, v) {
+    if (k === 'tipo') return this.kind === 'atividade' ? undefined : v
+    return ['nome', 'vinculoDe', 'pergunta', 'modo', 'condition', 'conditionSpec', 'rotulo'].includes(k) ? undefined : v
+  })
 }
 
 /** Mudança vinda dos blocos (painel do bloco, Roteiro) que só troca ATRIBUTOS — condição e
@@ -444,7 +448,7 @@ interface Trecho { itens: ItemFluxo[]; fim: Fim; /** forma onde o trecho parou (
 
 /** O desenho com um Fim só, o primeiro: as setas que chegam aos outros passam a chegar nele,
  *  com os mesmos ids (os culpados das recusas continuam certos). É assim que os blocos e o
- *  grafo seguem com um Fim, e que um ramo de "Ao mesmo tempo" continua recusado. */
+ *  grafo seguem com um Fim. */
 function comFimUnico(d: DesenhoV2): DesenhoV2 {
   const [principal, ...outros] = d.formas.filter((f) => f.tipo === 'end')
   if (!outros.length) return d
@@ -499,6 +503,7 @@ export function desenhoParaBlocos(desenho: DesenhoV2, opcoes: { nomeDe?: (id: st
     return dentroDeBloco && !(f?.tipo === 'exclusiveGateway' && f.modo)
   }
   const recusar = (tipo: string, mensagem: string, f: string[] = [], s: string[] = []): never => { throw new Recusa({ tipo, mensagem, formas: f, setas: s }) }
+  const semSucessora = (id: string) => `"${nome(id)}" não leva a lugar nenhum: ligue-a ao próximo passo ou ao Fim.`
   const avisos: ProblemaDoDesenho[] = []
   const percorridas = new Set<string>()
   /** Losango de passagem (uma saída, fora de bloco) → a forma depois dele: a volta que chega
@@ -520,8 +525,9 @@ export function desenhoParaBlocos(desenho: DesenhoV2, opcoes: { nomeDe?: (id: st
 
   /** Um trecho a partir de `de`. `outros` = formas que outros caminhos do mesmo bloco
    *  alcançam (encontrar uma delas é o reencontro); `dentroDeBloco` = um losango de uma
-   *  saída é o que junta (fora de bloco, é "sem efeito"). */
-  const trecho = (de: string, rota: Set<string>, outros: Set<string>, dentroDeBloco: boolean): Trecho => {
+   *  uma saída é o que junta (fora de bloco, é "sem efeito"); `naFrente` = o trecho mora num
+   *  "ao mesmo tempo", onde atividade sem sucessora é o fim de uma linha paralela. */
+  const trecho = (de: string, rota: Set<string>, outros: Set<string>, dentroDeBloco: boolean, naFrente: boolean): Trecho => {
     const itens: ItemFluxo[] = []
     let atual = de
     for (let guarda = 0; guarda < 10_000; guarda++) {
@@ -539,7 +545,7 @@ export function desenhoParaBlocos(desenho: DesenhoV2, opcoes: { nomeDe?: (id: st
       const sai = saidas(atual)
       if (!ehLosango(atual)) {
         if (forma.tipo === 'start') recusar('seta-no-inicio', 'Nenhuma seta pode chegar no Início.', [atual])
-        if (sai.length === 0) recusar('sem-saida', `"${nome(atual)}" não leva a lugar nenhum: ligue-a ao próximo passo ou ao Fim.`, [atual])
+        if (sai.length === 0 && !naFrente) recusar('sem-saida', semSucessora(atual), [atual])
         if (sai.length > 1) {
           recusar('saidas-multiplas', `Saem ${sai.length} setas de "${nome(atual)}". Para decidir entre elas, use uma Escolha; para fazer as duas, um Ao mesmo tempo.`, [atual], sai.map((s) => s.id))
         }
@@ -548,6 +554,7 @@ export function desenhoParaBlocos(desenho: DesenhoV2, opcoes: { nomeDe?: (id: st
         if (forma.vinculoDe) it.vinculoDe = forma.vinculoDe
         itens.push(it)
         percorridas.add(atual); rota.add(atual)
+        if (sai.length === 0) return { itens, fim: { tipo: 'termina' } }
         atual = sai[0].para
         continue
       }
@@ -563,7 +570,7 @@ export function desenhoParaBlocos(desenho: DesenhoV2, opcoes: { nomeDe?: (id: st
         atual = sai[0].para
         continue
       }
-      const r = bloco(atual, rota)
+      const r = bloco(atual, rota, naFrente)
       itens.push(r.item)
       if (!r.depois) {
         // todos os caminhos encerram/voltam. Com itens depois (o Roteiro deixa: é a pendência
@@ -582,7 +589,7 @@ export function desenhoParaBlocos(desenho: DesenhoV2, opcoes: { nomeDe?: (id: st
   }
 
   /** Bloco aberto pelo losango `id` (≥2 saídas). Devolve o item e de onde a sequência segue. */
-  const bloco = (id: string, rotaAntes: Set<string>): { item: ItemFluxo; depois?: string } => {
+  const bloco = (id: string, rotaAntes: Set<string>, naFrenteAntes: boolean): { item: ItemFluxo; depois?: string } => {
     const forma = formas.get(id)!
     const ehEscolha = forma.tipo === 'exclusiveGateway'
     percorridas.add(id)
@@ -602,7 +609,7 @@ export function desenhoParaBlocos(desenho: DesenhoV2, opcoes: { nomeDe?: (id: st
       const trechos = sai.map((s, i) => {
         const outros = new Set<string>()
         alcances.forEach((a, j) => { if (j !== i) a.forEach((x) => outros.add(x)) })
-        return trecho(s.para, new Set(rota), outros, true)
+        return trecho(s.para, new Set(rota), outros, true, naFrenteAntes || !ehEscolha)
       })
       // o ponto de encontro: todos os caminhos que seguem têm de chegar no MESMO lugar.
       // Caminho que "segue" sem ponto de parada (o bloco de dentro dele encerra/volta em
@@ -646,16 +653,18 @@ export function desenhoParaBlocos(desenho: DesenhoV2, opcoes: { nomeDe?: (id: st
       }
     }
     if (!ehEscolha) {
-      const ruim = trechos.findIndex((t) => t.fim.tipo !== 'segue')
-      if (ruim >= 0) {
-        const t = trechos[ruim]
-        recusar(t.fim.tipo === 'volta' ? 'volta-sem-decisao' : 'ramos-sem-juncao',
-          t.fim.tipo === 'volta'
-            ? `A volta para "${nome(t.fim.alvoId)}" não depende de decisão: o processo repetiria para sempre.`
-            : 'Junte os ramos com um losango +: todo ramo de um Ao mesmo tempo precisa chegar a ele.',
-          [id], [sai[ruim].id])
+      trechos.forEach((t, i) => {
+        if (t.fim.tipo === 'volta') recusar('volta-sem-decisao', `A volta para "${nome(t.fim.alvoId)}" não depende de decisão: o processo repetiria para sempre.`, [id], [sai[i].id])
+      })
+      const caminhosDaFrente = trechos.map((t, i): CaminhoParalelo => ({
+        id: sai[i].id, itens: t.itens,
+        ...(t.fim.tipo === 'termina' || t.fim.tipo === 'encerra' ? { fim: t.fim } : {}),
+      }))
+      for (const c of caminhosDaFrente) {
+        const { terminam, chegaAoFim } = analisarFrente(c)
+        if (terminam.length && chegaAoFim) recusar('sem-saida', semSucessora(terminam[0]), terminam)
       }
-      const item: BlocoParalelo = { kind: 'paralelo', id, caminhos: trechos.map((t, i) => ({ id: sai[i].id, itens: t.itens })) }
+      const item: BlocoParalelo = { kind: 'paralelo', id, caminhos: caminhosDaFrente }
       if (forma.nome) item.nome = forma.nome
       if (juntaId && juntaId !== id + SUFIXO_REENCONTRO) item.juntaId = juntaId
       return { item, depois }
@@ -711,7 +720,7 @@ export function desenhoParaBlocos(desenho: DesenhoV2, opcoes: { nomeDe?: (id: st
         recusar('saidas-multiplas', `Saem ${sai.length} setas de "${nome(f.id)}". Para decidir entre elas, use uma Escolha; para fazer as duas, um Ao mesmo tempo.`, [f.id], sai.map((s) => s.id))
       }
     }
-    const t = trecho(primeira[0].para, new Set([inicio]), new Set(), false)
+    const t = trecho(primeira[0].para, new Set([inicio]), new Set(), false, false)
     if (t.fim.tipo === 'volta') {
       recusar('volta-sem-decisao', `A volta para "${nome(t.fim.alvoId)}" não depende de decisão: o processo repetiria para sempre.`, [t.fim.alvoId])
     }

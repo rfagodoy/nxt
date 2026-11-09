@@ -6,6 +6,12 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ### Alterado
 
+- **Caminhos paralelos mais simples de desenhar:** dentro de um "ao mesmo tempo", uma atividade sem sucessora é o fim de uma linha paralela, sem losangos para juntar.
+  - O processo encerra quando a linha que chega ao Fim termina e não sobra nada aberto. Depois que a linha principal termina, o acompanhamento mostra "Aguardando" com o nome das atividades abertas.
+  - Numa linha paralela, se nenhum caminho da escolha servir, só aquela linha acaba: a seta "Não" deixa de ser necessária.
+  - Linha paralela só devolve para atividades da própria linha.
+  - Várias linhas podem ligar direto no Fim. O losango + de junção só é necessário quando há atividades em comum depois delas.
+  - A atividade ganha a marca "fim da linha paralela" no desenho e aparece como aviso em "Antes de ativar". Os workflows com junção desenhada continuam valendo.
 - **Volta dentro de um "ao mesmo tempo":** uma escolha pode voltar para uma atividade anterior da mesma frente, como o laço Corrigir → Analisar. Voltar para fora da frente e encerrar o processo dentro dela continuam proibidos.
 - **Filtro da escolha:** cada caminho lista também os campos das telas das atividades anteriores à escolha, além das telas das atividades do próprio caminho.
 - **Gavetas do editor de workflow no padrão dos cadastros:** atividade, escolha, "ao mesmo tempo", raia, fase, piscinas, mensagem, seta e as demais formas.

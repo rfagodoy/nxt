@@ -210,6 +210,13 @@ export function ProcessInstanceDocView({ inst: instAoAbrir }: { inst: Inst }) {
           </div>
         )}
 
+        {inst.status === 'RUNNING' && !inst.bloqueio && !!inst.aguardando?.length && (
+          /* a linha principal já chegou ao Fim: dizer por que o processo ainda não encerrou */
+          <p role="status" className="rounded-lg border bg-muted/40 px-3 py-2 text-[12px] leading-snug text-muted-foreground">
+            <span className="font-semibold text-foreground">Aguardando: {inst.aguardando.join(', ')}.</span> A linha principal já terminou. O processo encerra quando as linhas paralelas forem concluídas.
+          </p>
+        )}
+
         {/* chips de situação — só conclusão/erro (prazo do processo e "reaberta N×"
             foram removidos a pedido; o detalhe de retrocesso vive no Histórico). */}
         {(inst.status === 'COMPLETED' || inst.status === 'ENDED_INCOMPLETE' || (inst.status === 'ERROR' && inst.error) || (inst.status === 'CANCELLED' && inst.cancelReason)) && (

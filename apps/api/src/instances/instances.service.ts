@@ -81,6 +81,11 @@ export const situacaoDaInstancia = (s: ResultadoDoMotor): string =>
  *  os relatórios vivem. */
 export const encerrouAgora = (s: ResultadoDoMotor): boolean => !s.errored && (s.completed || !!s.endedIncomplete)
 
+/** A linha principal já passou pelo Fim e o processo segue em andamento por causa das linhas
+ *  paralelas abertas (PO, 08/11/2026): quais atividades ele está aguardando. */
+export const aguardandoLinhas = (status: string, state: Pick<WfState, 'reachedEnd'> | null | undefined, abertas: string[]): string[] =>
+  status === 'RUNNING' && state?.reachedEnd ? [...new Set(abertas)] : []
+
 /** O que uma ação automática PRODUZIU no domínio. Guardado sempre (não só quando
  *  compensável): é o vínculo entre o processo e o contrato/parceiro que ele criou ou
  *  alterou, e a base do que o cancelamento precisa desfazer. */
@@ -1044,6 +1049,7 @@ export class InstancesService {
         updatedAt: inst.updatedAt,
         // acompanhamento
         currentStep: current?.name ?? current?.nodeId ?? null,
+        aguardando: aguardandoLinhas(inst.status, state, pending.map((t) => t.name ?? t.nodeId)),
         currentDueAt: current?.dueAt ?? null,
         currentOverdue,
         totalSteps: tasks.length,

@@ -83,13 +83,13 @@ describe('ligacaoPermitida', () => {
   it('caso contrário não é origem válida', () => {
     expect(ligacaoPermitida(f, 'W', 'A')).toEqual({ ok: false, motivo: MSG_ORDEM })
   })
-  it('escolha dentro de frente de paralelo -> MSG_PARALELO', () => {
+  it('escolha dentro de frente de paralelo: volta para fora é recusada, ir ao Fim vale', () => {
     const g: FluxoBlocos = {
       versao: 1, inicioId: 'start', fimId: 'end',
       itens: [at('A'), { kind: 'paralelo', id: 'P', caminhos: [{ id: 'f1', itens: [esc()] }, { id: 'f2', itens: [at('Z')] }] }],
     }
     expect(ligacaoPermitida(g, 'X', 'A')).toEqual({ ok: false, motivo: MSG_PARALELO })
-    expect(ligacaoPermitida(g, 'X', 'end')).toEqual({ ok: false, motivo: MSG_PARALELO })
+    expect(ligacaoPermitida(g, 'X', 'end')).toMatchObject({ ok: true, fim: { tipo: 'encerra' } })
   })
 })
 

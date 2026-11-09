@@ -21,6 +21,7 @@
    desenho (Shift + roda, para os lados); zoom no Ctrl + roda, na pinça e nos botões. Shift +
    arrastar no vazio é o laço, que seleciona várias (`onSelecaoMultipla`; com Ctrl, soma); o
    arrasto de formas encaixa na grade (se ligada) e nas guias de centro das outras formas. */
+import { atividadesFimDeLinha } from '@nxt/workflow-core'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type DragEvent, type JSX, type KeyboardEvent as TeclaReact, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { useTheme } from 'next-themes'
 import { useTema } from '@/lib/temas-provider'
@@ -203,6 +204,8 @@ type Projecao = Pick<CanvasBpmnProps, 'grafo' | 'desenho' | 'steps' | 'seleciona
   orientacao: Orientacao
   /** Formas da seleção múltipla (laço). */
   selecionadas: ReadonlySet<string>
+  /** Atividades que encerram uma linha paralela (marca na forma). */
+  fimDeLinha: ReadonlySet<string>
 }
 
 /** Prefixos dos nós de fundo: não são formas (não ligam, não abrem a gaveta de forma). */
@@ -220,7 +223,7 @@ const FUNDO = {
   style: { pointerEvents: 'none' as const },
 }
 
-function projetarNos({ grafo, desenho, steps, selecionado, responsavelDe, rotuloDoExecutorDaRaia, prazoDe, problemasDe, nomeDoProcesso, formas, tamanhos, faixas, orientacao, selecionadas }: Projecao): NoBpmn[] {
+function projetarNos({ grafo, desenho, steps, selecionado, responsavelDe, rotuloDoExecutorDaRaia, prazoDe, problemasDe, nomeDoProcesso, formas, tamanhos, faixas, orientacao, selecionadas, fimDeLinha }: Projecao): NoBpmn[] {
   const pos = (id: string) => desenho.posicoes[id] ?? { x: 0, y: 0 }
   const nos: NoBpmn[] = []
 
@@ -277,7 +280,7 @@ function projetarNos({ grafo, desenho, steps, selecionado, responsavelDe, rotulo
       }
       const nome = n.name?.trim() || steps[n.id]?.stepName?.trim() || (automatica ? 'Ação automática' : 'Tarefa sem nome')
       const meta = [responsavel ?? (automatica ? 'Automática' : 'Sem responsável'), prazoDe(n.id)].filter(Boolean).join(' · ')
-      no = { ...comum, type: 'tarefa', data: { nome, automatica, meta, problemas, largura: w, altura: h, variante } }
+      no = { ...comum, type: 'tarefa', data: { nome, automatica, meta, problemas, largura: w, altura: h, variante, fimDeLinha: fimDeLinha.has(n.id) } }
     } else if (ehLosango(n.type)) {
       no = { ...comum, type: 'losango', data: { tipo: TIPO_LOSANGO[n.type]!, nome: n.name?.trim() || undefined, reencontro: n.id.endsWith(SUFIXO_REENCONTRO), problemas } }
     } else {
@@ -549,11 +552,12 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   avisarMulti.current = onSelecaoMultipla
   useEffect(() => { avisarMulti.current(multi.length >= 2 ? multi : []) }, [multi])
 
+  const fimDeLinha = useMemo(() => new Set(atividadesFimDeLinha(fluxo)), [fluxo])
   const projetados = useMemo(
-    () => projetarNos({ grafo, desenho: desenhoVisto, steps, selecionado, nomeDoProcesso, formas: doc.formas, tamanhos, faixas, orientacao, selecionadas, ...consultas.current }),
+    () => projetarNos({ grafo, desenho: desenhoVisto, steps, selecionado, nomeDoProcesso, formas: doc.formas, tamanhos, faixas, orientacao, selecionadas, fimDeLinha, ...consultas.current }),
     // revisaoDasConsultas não é lida aqui: só sinaliza que as consultas passaram a responder outra coisa
     // eslint-disable-next-line react-hooks/exhaustive-deps -- revisão intencional (ver CanvasBpmnProps)
-    [grafo, desenhoVisto, steps, selecionado, nomeDoProcesso, doc.formas, tamanhos, faixas, orientacao, selecionadas, revisaoDasConsultas],
+    [grafo, desenhoVisto, steps, selecionado, nomeDoProcesso, doc.formas, tamanhos, faixas, orientacao, selecionadas, fimDeLinha, revisaoDasConsultas],
   )
   /** Pontas livres gravadas, por seta (só as que têm alguma). */
   const pontasGravadas = useMemo<PontasGravadas>(

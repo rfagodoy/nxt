@@ -80,8 +80,8 @@ describe('volta dentro de uma frente do "ao mesmo tempo"', () => {
     it('para antes do paralelo é recusada', () => {
       expect(ligacaoPermitida(comVoltaPara('analisar'), 'corrigir', 'preencher')).toEqual({ ok: false, motivo: MSG_PARALELO })
     })
-    it('para o Fim é recusada', () => {
-      expect(ligacaoPermitida(comVoltaPara('analisar'), 'corrigir', 'end')).toEqual({ ok: false, motivo: MSG_PARALELO })
+    it('para o Fim vale: o processo só encerra quando as outras frentes terminarem', () => {
+      expect(ligacaoPermitida(comVoltaPara('analisar'), 'corrigir', 'end')).toEqual({ ok: true, caminhoId: 'sim', fim: { tipo: 'encerra' } })
     })
   })
 })
