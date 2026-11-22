@@ -4,6 +4,15 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ## [Não lançado]
 
+### Alterado
+
+- **Editor de workflow mais fácil de ler (opção A do PO, 22/11/2026):**
+  - O cartão da atividade mostra, logo abaixo do nome, quem faz, o prazo e as telas da tarefa: o nome da primeira e "+N" quando há mais. Ao passar o mouse na linha da tela, aparece a lista na ordem da execução, com editar ou consulta. Atividade sem tela mostra "Sem tela".
+  - A paleta mostra o nome de cada forma, em grupos: Eventos, Atividades, Decisões, Ligações e Organização. O Fim tem a borda mais grossa que o Início. Recolhida, fica só com os ícones.
+  - O nome da raia fica de lado, numa coluna estreita, e o desenho ganha espaço.
+  - O nome das escolhas e dos eventos tem fundo, e a seta que passa por baixo não corta mais o texto. O "Sim"/"Não" de uma seta que sai de lado vai para depois do nome.
+  - O zoom fica no canto, junto, com o nível em % (clicar volta a 100%) e "Ajustar à tela". Saiu a marca "React Flow".
+
 ## [2.2.0] — Boole — 2026-11-22
 
 ### Adicionado

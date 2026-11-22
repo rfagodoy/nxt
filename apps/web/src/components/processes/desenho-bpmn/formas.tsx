@@ -12,7 +12,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { BaseEdge, EdgeLabelRenderer, Handle, NodeResizeControl, Position, getSmoothStepPath, useInternalNode, useReactFlow, type Edge, type EdgeProps, type InternalNode, type Node, type NodeProps, type ResizeParams } from '@xyflow/react'
-import { MoreHorizontal, Plus, Settings, UserSquare } from 'lucide-react'
+import { Clock, LayoutPanelTop, MoreHorizontal, Plus, Settings, User, UserSquare } from 'lucide-react'
 import type { PontaDaSeta, VarianteForma } from '@nxt/types'
 import { GRADE, RAIA_ALTURA_MAXIMA, RAIA_ALTURA_MINIMA, RAIA_ROTULO_W, pontoDoRotuloNaPolilinha } from '@/lib/desenho-bpmn'
 import { FASE_LARGURA_MINIMA, FORMA_MINIMA, PISCINA_LARGURA_MINIMA } from '@/lib/editor-bizagi/layout'
@@ -20,6 +20,7 @@ import { FASE_ALTURA, FAIXA_DO_NOME } from '@/lib/editor-bizagi/faixas'
 import { PISCINA_DO_PROCESSO, type AlvoDeGaveta } from '@/lib/editor-bizagi/gavetas'
 import { iconeDaTarefa, iconeDoEvento, nomeDoEvento, tipoDaTarefa, type IconeDoEvento, type TipoDoEvento } from '@/lib/editor-bizagi/formas-do-canvas'
 import { rotaEntreContornos, type ContornoDaPonta } from '@/lib/editor-bizagi/contorno'
+import type { ResumoDasTelas } from '@/lib/editor-bizagi/telas-do-cartao'
 
 /* ─── Medidas ─────────────────────────────────────────────────────────────── */
 /* A caixa de cada forma é a que o layout (`nodeSize` de flow-layout) reserva: a tarefa
@@ -36,6 +37,10 @@ export const EVENTO_RECUO = (SIMBOLO - EVENTO_D) / 2
 
 /* ─── Dados de cada forma ─────────────────────────────────────────────────── */
 export type DadosTarefa = { nome: string; automatica: boolean; meta: string; problemas: string[]; largura: number; altura: number
+  /** Linhas do cartão (PO, 22/11/2026): quem faz, o prazo e as telas. Sem elas, vale `meta`. */
+  executor?: string
+  prazo?: string | null
+  telas?: ResumoDasTelas | null
   /** Atividade sem sucessora dentro de um "ao mesmo tempo": o fim de uma linha paralela. */
   fimDeLinha?: boolean
   /** Variante da tarefa (usuário, envio, recebimento; a do subprocesso). Sem ela, a de sempre. */
@@ -155,8 +160,11 @@ function MarcaDeProblema({ problemas, className = '' }: { problemas: string[]; c
 function RotuloExterno({ texto }: { texto?: string }) {
   if (!texto) return null
   return (
-    <span className="pointer-events-none absolute left-1/2 top-full mt-1 w-[120px] -translate-x-1/2 text-center text-[10.5px] font-bold leading-tight text-[var(--e-2E3E36)] line-clamp-2 dark:text-[var(--e-C9D6CE)]">
-      {texto}
+    <span className="pointer-events-none absolute left-1/2 top-full mt-1 flex w-[120px] -translate-x-1/2 justify-center">
+      {/* fundo no próprio texto (PO, 22/11/2026): a seta que passa por baixo não corta o nome */}
+      <span className="line-clamp-2 rounded-[5px] bg-white/95 px-1 text-center text-[10.5px] font-bold leading-tight text-[var(--e-2E3E36)] [box-decoration-break:clone] dark:bg-[color-mix(in_srgb,var(--e-0F1914)_92%,transparent)] dark:text-[var(--e-C9D6CE)]">
+        {texto}
+      </span>
     </span>
   )
 }
@@ -209,6 +217,18 @@ export const ContextoFormas = createContext<AcoesDeForma>({ editavel: false, com
 
 /* ─── Tarefa e subprocesso ────────────────────────────────────────────────── */
 const ICONE_TAREFA = 'mt-[1px] h-3.5 w-3.5 shrink-0 text-[#075985] dark:text-[#7DD3FC]'
+const ICONE_LINHA = 'h-3 w-3 shrink-0 text-[var(--e-5B6B63)] dark:text-[var(--e-9DB0A5)]'
+
+/** Uma linha do cartão: ícone e texto numa linha só, com "…" quando não cabe. */
+function LinhaDoCartao({ icone, texto, dica, apagada }: { icone: 'executor' | 'prazo' | 'tela'; texto: string; dica?: string; apagada?: boolean }) {
+  const Icone = icone === 'executor' ? User : icone === 'prazo' ? Clock : LayoutPanelTop
+  return (
+    <span title={dica ?? texto} className={`flex min-w-0 items-center gap-1.5 text-[10.5px] leading-[14px] ${apagada ? 'italic text-[var(--e-5B6B63)] dark:text-[var(--e-9DB0A5)]' : 'text-[var(--e-2E3E36)] dark:text-[var(--e-C9D6CE)]'}`}>
+      <Icone aria-hidden className={ICONE_LINHA} />
+      <span className="truncate">{texto}</span>
+    </span>
+  )
+}
 
 function IconeDaTarefa({ data }: { data: DadosTarefa }) {
   const icone = iconeDaTarefa(data.subprocesso ? 'subProcess' : data.automatica ? 'serviceTask' : 'userTask', data.variante)
@@ -239,7 +259,7 @@ export function FormaTarefa({ id, data, selected, isConnectable }: NodeProps<NoT
   /* a caixa ocupa o nó inteiro: ao arrastar a alça de tamanho, ela acompanha */
   return (
     <div className="group relative h-full w-full">
-      <div className={`flex h-full w-full flex-col justify-between gap-1 overflow-hidden rounded-[10px] px-[9px] py-[7px] font-sans
+      <div className={`flex h-full w-full flex-col ${data.subprocesso || data.executor === undefined ? 'justify-between' : 'justify-center'} gap-1.5 overflow-hidden rounded-[10px] px-[9px] py-[7px] font-sans
         bg-white dark:bg-[linear-gradient(180deg,var(--e-16251E),var(--e-111C17))] ${contorno}`}>
         <span className="flex items-start gap-1.5">
           <IconeDaTarefa data={data} />
@@ -249,6 +269,14 @@ export function FormaTarefa({ id, data, selected, isConnectable }: NodeProps<NoT
           ? (
             <span aria-hidden className="mx-auto flex h-3.5 w-3.5 shrink-0 items-center justify-center border border-[var(--e-9DB0A5)] text-[var(--e-142420)] dark:border-[var(--e-2E4238)] dark:text-white">
               <Plus className="h-2.5 w-2.5" strokeWidth={2.4} />
+            </span>
+          )
+          : data.executor !== undefined ? (
+            /* executor, prazo e telas logo abaixo do nome (PO, 22/11/2026) */
+            <span className="flex min-w-0 flex-col gap-[3px]">
+              <LinhaDoCartao icone="executor" texto={data.executor} />
+              {data.prazo && <LinhaDoCartao icone="prazo" texto={data.prazo} />}
+              {data.telas && <LinhaDoCartao icone="tela" texto={data.telas.texto} dica={data.telas.dica} apagada={data.telas.semTela} />}
             </span>
           )
           : <span className="truncate text-[10px] text-[var(--e-4F5F57)] dark:text-[var(--e-9DB0A5)]">{data.meta}</span>}
@@ -571,8 +599,8 @@ export function FormaRaia({ data }: NodeProps<NoRaia>) {
   const [editando, setEditando] = useState(false)
   const abrirRaia = () => abrir({ k: 'raia', id: data.id })
   const coluna = useRef<HTMLDivElement>(null)
-  // o nome corta nas linhas que cabem na raia (sem invadir a de baixo); na vertical, no rótulo do topo
-  const linhas = vertical ? 4 : Math.max(1, Math.floor((data.altura - LINHA_ROTULO) / LINHA_ROTULO))
+  // na vertical, o nome fica no rótulo do topo (48 px: até 2 linhas); na horizontal, de lado
+  const linhas = 2
   const faixa = data.indice % 2 === 0
     ? 'bg-[rgba(255,255,255,0.75)] dark:bg-[rgba(255,255,255,0.02)]'
     : 'bg-[rgba(242,246,241,0.85)] dark:bg-[rgba(255,255,255,0.045)]'
@@ -597,22 +625,45 @@ export function FormaRaia({ data }: NodeProps<NoRaia>) {
      só o rótulo e a alça de baixo o recebem, e só quando o desenho é editável */
   return (
     <div className={`pointer-events-none relative box-border h-full w-full ${faixa} ${contorno}`}>
-      <div ref={coluna} lang="pt-BR" className={`absolute box-border overflow-hidden px-2.5 py-2 font-sans text-xs font-extrabold text-[var(--e-3E4E46)] dark:text-[var(--e-9DB0A5)]
-        ${vertical ? 'inset-x-0 top-0 border-b border-b-[var(--e-D2DCD5)] dark:border-b-[var(--e-22332A)]' : 'inset-y-0 left-0 border-r border-r-[var(--e-D2DCD5)] dark:border-r-[var(--e-22332A)]'}`}
-        style={vertical ? { height: RAIA_ROTULO_W } : { width: RAIA_ROTULO_W }}>
-        {!editavel ? <span className={`${INTERATIVO} ${cortado}`} style={{ WebkitLineClamp: linhas }} onDoubleClick={abrirRaia}>{nome}</span> : editando ? (
-          <NomeDaRaia id={data.id} nome={data.nome} onFim={(devolverFoco) => {
-            setEditando(false)
-            if (devolverFoco) focarDepois(coluna.current, seletorDoMenu(data.id))
-          }} />
-        ) : (
-          <div className="flex items-start gap-1">
-            <span className={`${INTERATIVO} ${cortado}`} style={{ WebkitLineClamp: linhas }} title="Duplo clique para parametrizar a raia (renomear fica nas opções)"
-              onDoubleClick={abrirRaia}>{nome}</span>
-            <MenuDaRaia id={data.id} nome={data.nome} primeira={data.primeira} ultima={data.ultima} onRenomear={() => setEditando(true)} />
-          </div>
-        )}
-      </div>
+      {vertical ? (
+        <div ref={coluna} lang="pt-BR" className="absolute inset-x-0 top-0 box-border overflow-hidden border-b border-b-[var(--e-D2DCD5)] px-2.5 py-2 font-sans text-xs font-extrabold text-[var(--e-3E4E46)] dark:border-b-[var(--e-22332A)] dark:text-[var(--e-9DB0A5)]"
+          style={{ height: RAIA_ROTULO_W }}>
+          {!editavel ? <span className={`${INTERATIVO} ${cortado}`} style={{ WebkitLineClamp: linhas }} onDoubleClick={abrirRaia}>{nome}</span> : editando ? (
+            <NomeDaRaia id={data.id} nome={data.nome} onFim={(devolverFoco) => {
+              setEditando(false)
+              if (devolverFoco) focarDepois(coluna.current, seletorDoMenu(data.id))
+            }} />
+          ) : (
+            <div className="flex items-start gap-1">
+              <span className={`${INTERATIVO} ${cortado}`} style={{ WebkitLineClamp: linhas }} title="Duplo clique para parametrizar a raia (renomear fica nas opções)"
+                onDoubleClick={abrirRaia}>{nome}</span>
+              <MenuDaRaia id={data.id} nome={data.nome} primeira={data.primeira} ultima={data.ultima} onRenomear={() => setEditando(true)} />
+            </div>
+          )}
+        </div>
+      ) : (
+        /* Coluna estreita (opção A do PO, 22/11/2026): as opções em cima e o nome de lado,
+           lido de baixo para cima; o que não cabe termina em "…" e aparece no title. */
+        <div ref={coluna} lang="pt-BR" className={`absolute inset-y-0 left-0 box-border flex flex-col items-center gap-1 border-r border-r-[var(--e-D2DCD5)] py-1.5 font-sans text-xs font-extrabold text-[var(--e-3E4E46)] dark:border-r-[var(--e-22332A)] dark:text-[var(--e-9DB0A5)] ${editando ? 'z-20 overflow-visible' : 'overflow-hidden'}`}
+          style={{ width: RAIA_ROTULO_W }}>
+          {editavel && editando ? (
+            <div className="absolute left-1 top-1 w-[200px]">
+              <NomeDaRaia id={data.id} nome={data.nome} onFim={(devolverFoco) => {
+                setEditando(false)
+                if (devolverFoco) focarDepois(coluna.current, seletorDoMenu(data.id))
+              }} />
+            </div>
+          ) : (
+            <>
+              {editavel && <MenuDaRaia id={data.id} nome={data.nome} primeira={data.primeira} ultima={data.ultima} onRenomear={() => setEditando(true)} />}
+              <span className={`${INTERATIVO} min-h-0 overflow-hidden text-ellipsis whitespace-nowrap leading-[1.25]`}
+                style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', maxHeight: Math.max(LINHA_ROTULO, data.altura - (editavel ? 44 : 16)) }}
+                title={editavel ? `${data.nome || 'Sem nome'} · duplo clique para parametrizar a raia (renomear fica nas opções)` : data.nome || 'Sem nome'}
+                onDoubleClick={abrirRaia}>{nome}</span>
+            </>
+          )}
+        </div>
+      )}
       {editavel && <AlcaDaRaia id={data.id} nome={data.nome} altura={data.altura} />}
     </div>
   )

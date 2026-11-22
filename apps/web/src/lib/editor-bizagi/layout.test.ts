@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { DesenhoV2, FormaDesenho } from '@nxt/types'
 import { LAYOUT_PADRAO } from '@nxt/workflow-core'
-import { apagarForma } from '@/lib/desenho-bpmn'
+import { RAIA_ROTULO_W, apagarForma } from '@/lib/desenho-bpmn'
 import {
   adicionarFase, adicionarPiscinaExterna, apagarMensagem, atualizarPiscinaExterna, larguraDaPiscina, layoutDe, ligarMensagem,
   mudarOrientacao, podeLigarMensagem, prazoDaFase, redimensionarFase, redimensionarForma, removerFase, removerPiscinaExterna,
@@ -48,14 +48,14 @@ describe('layoutDe e orientação', () => {
 describe('fases', () => {
   it('sem fases cria "Fase 1" ocupando a área das formas (raia menos o rótulo) e a "Nova fase"', () => {
     const d = adicionarFase(doc(), { gerarId: ids })
-    expect(layoutDe(d).fases.map((f) => [f.nome, f.largura])).toEqual([['Fase 1', 1280 - 160], ['Nova fase', 320]])
+    expect(layoutDe(d).fases.map((f) => [f.nome, f.largura])).toEqual([['Fase 1', 1280 - RAIA_ROTULO_W], ['Nova fase', 320]])
     expect(layoutDe(d).larguraPiscina).toBeUndefined()
     const l = larguraDaPiscina(doc(), 1600)
-    expect(layoutDe(adicionarFase(l, { gerarId: ids })).fases[0].largura).toBe(1600 - 160)
+    expect(layoutDe(adicionarFase(l, { gerarId: ids })).fases[0].largura).toBe(1600 - RAIA_ROTULO_W)
   })
   it('com a largura mostrada, a "Fase 1" fica com ela e a piscina é presa nela', () => {
     const d = adicionarFase(doc(), { larguraAtual: 960, gerarId: ids })
-    expect(layoutDe(d).fases[0].largura).toBe(800)
+    expect(layoutDe(d).fases[0].largura).toBe(960 - RAIA_ROTULO_W)
     expect(layoutDe(d).larguraPiscina).toBe(960)
   })
   it('com fases acrescenta "Nova fase" de 320', () => {

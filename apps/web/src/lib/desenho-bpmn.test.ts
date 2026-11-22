@@ -358,6 +358,9 @@ describe('pontoDoRotuloNaPolilinha', () => {
   it('menos de dois pontos: nenhum lugar', () => {
     expect(pontoDoRotuloNaPolilinha([{ x: 5, y: 5 }])).toBeNull()
   })
+  it('saída curta de lado (losango com nome embaixo): a pílula vai 64 px adiante, depois do nome', () => {
+    expect(pontoDoRotuloNaPolilinha([{ x: 0, y: 0 }, { x: -20, y: 0 }, { x: -20, y: 300 }])).toEqual({ x: -20, y: 64 })
+  })
 })
 
 describe('formasDoItem', () => {
