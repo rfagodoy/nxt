@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { derivarLinha, dentroDoPeriodo, filtrar, ordenar, totalizar, type LinhaRelatorio } from './report-core'
+import { partesPorPapel, derivarLinha, dentroDoPeriodo, filtrar, ordenar, totalizar, type LinhaRelatorio } from './report-core'
 
 /* O motivo deste módulo existir: "Vencido" NÃO existe no banco — é derivado. Um
    relatório que filtrasse situacao='VENCIDO' no SQL devolveria zero linhas para sempre,
@@ -20,7 +20,7 @@ const bruto = (over: Record<string, unknown> = {}) => ({
 const linha = (over: Partial<LinhaRelatorio> = {}): LinhaRelatorio => ({
   id: 'x', numero: 'N', titulo: 'T', tipo: '', natureza: '', situacao: 'VIGENTE',
   inicioVigencia: '2024-01-01', terminoVigencia: '2026-12-31', prazoIndeterminado: false,
-  valor: 0, moeda: 'BRL', parceiros: '', diasParaTerminar: null, ...over,
+  valor: 0, moeda: 'BRL', parceiros: '', contratada: '', contratante: '', diasParaTerminar: null, ...over,
 })
 
 describe('derivarLinha', () => {
@@ -163,5 +163,24 @@ describe('ordenar', () => {
   it('sem término fica por último NAS DUAS direções', () => {
     expect(ordenar(linhas, 'terminoVigencia').at(-1)?.numero).toBe('A')
     expect(ordenar(linhas, 'terminoVigencia', true).at(-1)?.numero).toBe('A')
+  })
+})
+
+describe('partesPorPapel', () => {
+  const partes = [
+    { papel: 'Contratante', nome: 'RECORD TV' },
+    { papel: 'Contratada', nome: 'GOLDNET TI S/A' },
+    { papel: 'Unidade contratante', nome: 'TI - Sistemas' },
+    { papel: 'Unidade negociadora', nome: 'TI - Sistemas' },
+    { papel: 'Unidade gestora', nome: 'TI - Sistemas' },
+  ]
+  it('separa contratada e contratante, com a unidade ao lado da contratante', () => {
+    expect(partesPorPapel(partes)).toEqual({ contratada: 'GOLDNET TI S/A', contratante: 'RECORD TV · TI - Sistemas' })
+  })
+  it('lista de nomes não repete a mesma unidade', () => {
+    expect(derivarLinha(bruto({ partes } as never), HOJE).parceiros).toBe('RECORD TV, GOLDNET TI S/A, TI - Sistemas')
+  })
+  it('sem partes, fica vazio', () => {
+    expect(partesPorPapel(undefined)).toEqual({ contratada: '', contratante: '' })
   })
 })
