@@ -8,6 +8,7 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 - **Campos obrigatórios valem dentro do workflow:** "Concluir tarefa" agora cobra os obrigatórios das telas da atividade e lista pelo nome o que falta. Antes, eles só eram cobrados ao ativar o contrato. Campo oculto, travado ou em tela de consulta não é cobrado.
 - **Campos do sistema podem ser obrigatórios nas Telas de Contrato:** a coluna "Obrigatório" passa a valer para campos como "Mão de obra alocada", com asterisco no formulário. Número, Título, Situação e Prazo indeterminado continuam definidos pelo sistema.
+- **Rolagem lateral nas tabelas:** quando as colunas não cabem na tela, as tabelas mostram a barra de rolagem e deslizam para os lados.
 - **Acompanhamento do processo no padrão dos documentos:** cabeçalho em cartão com selo ao lado do título e botão Fechar, abas iguais às de contrato e parceiro e tabelas na densidade escolhida.
 - **Caminhos paralelos mais simples de desenhar:** dentro de um "ao mesmo tempo", uma atividade sem sucessora é o fim de uma linha paralela, sem losangos para juntar.
   - O processo encerra quando a linha que chega ao Fim termina e não sobra nada aberto. Depois que a linha principal termina, o acompanhamento mostra "Aguardando" com o nome das atividades abertas.

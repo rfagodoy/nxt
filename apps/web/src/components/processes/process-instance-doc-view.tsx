@@ -40,7 +40,7 @@ function FilteredTable<T>({ cols, rows, rowKey, emptyText }: {
     <section className="rounded-xl border bg-card p-[var(--secao-pad)] space-y-[var(--form-gap)] shadow-sm">
       <TableToolbar search={search} onSearch={setSearch} columns={cols} filters={filters} onFiltersChange={setFilters}
         logic={logic} onLogicChange={setLogic} filteredCount={filtered.length} totalCount={rows?.length ?? 0} />
-      <div className="rounded-lg border overflow-x-auto">
+      <div className="rounded-lg border overflow-x-auto rolagem-visivel">
         <table className={cn('w-full', DENS_TABELA)}>
           <thead>
             <tr className="border-b bg-[hsl(240_5%_97%)] dark:bg-[hsl(240_21%_15%)]">

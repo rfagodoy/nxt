@@ -80,7 +80,7 @@ export function DynamicTable({
       </div>
 
       <div className="rounded-xl border bg-card overflow-hidden shadow-sm">
-        <div className="overflow-auto max-h-[calc(100vh-13rem)]">
+        <div className="overflow-auto rolagem-visivel max-h-[calc(100vh-13rem)]">
         <table className={cn('w-full', DENS_TABELA)}>
           <thead className="sticky top-0 z-10 [&_th]:bg-muted">
             <tr className="border-b">

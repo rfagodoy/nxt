@@ -165,7 +165,7 @@ export function ContractHistory({ contractId, reloadKey }: { contractId: string;
       )}
 
       {/* tabela */}
-      <div className="rounded-lg border overflow-hidden">
+      <div className="rounded-lg border overflow-auto rolagem-visivel">
         <table className={cn('w-full', DENS_TABELA)}>
           <thead className="sticky top-0 z-10">
             <tr className="border-b bg-[hsl(240_5%_97%)] dark:bg-[hsl(240_21%_15%)]">

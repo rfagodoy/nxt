@@ -629,8 +629,8 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
                 </div>
               )}
 
-              {/* tabela — rola junto com o conteúdo (cabeçalho da tabela fixa no topo da área rolável) */}
-              <div className="rounded-lg border overflow-clip">
+              {/* tabela — rola por dentro nos dois sentidos, com o cabeçalho fixo no topo dela */}
+              <div className="rounded-lg border overflow-auto rolagem-visivel max-h-[calc(100vh-17rem)]">
                 <table className={cn('w-full', DENS_TABELA)}>
                   <thead className="sticky top-0 z-10">
                     <tr className="border-b bg-[hsl(240_5%_97%)] dark:bg-[hsl(240_21%_15%)]">

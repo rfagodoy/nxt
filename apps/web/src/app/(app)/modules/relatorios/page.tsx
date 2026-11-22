@@ -246,7 +246,7 @@ export default function RelatoriosPage() {
         </div>
       )}
 
-      <div className="flex-1 min-h-0 overflow-auto rounded-xl border bg-card shadow-sm">
+      <div className="flex-1 min-h-0 overflow-auto rolagem-visivel rounded-xl border bg-card shadow-sm">
         {carregando && !linhas.length ? (
           <div className="flex items-center justify-center py-16 text-xs text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin mr-2" />Gerando…

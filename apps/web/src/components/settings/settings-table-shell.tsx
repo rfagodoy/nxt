@@ -107,7 +107,7 @@ export function SettingsTableShell({
         </div>
       ) : (
         <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
-          <div className="overflow-y-auto max-h-[calc(100vh-12rem)]">
+          <div className="overflow-auto rolagem-visivel max-h-[calc(100vh-12rem)]">
             <table className={cn('w-full', DENS_TABELA)}>
               {children}
             </table>

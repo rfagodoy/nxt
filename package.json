@@ -31,6 +31,7 @@
     "postcss": "^8.5.19",
     "js-yaml": "^5.2.2",
     "deepmerge-ts": "^8.0.2",
+    "effect": "^3.22.5",
     "exceljs": {
       "archiver": "^8.0.0",
       "unzipper": "^0.12.3",

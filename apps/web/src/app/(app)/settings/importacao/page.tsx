@@ -344,7 +344,7 @@ export default function ImportacaoPage() {
               </div>
 
               {/* linhas com problema primeiro: é o que exige ação */}
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 overflow-auto rolagem-visivel">
                 <table className={cn('w-full', DENS_TABELA)}>
                   <thead className="sticky top-0 bg-card border-b">
                     <tr className="text-left text-muted-foreground">
