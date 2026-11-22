@@ -20,24 +20,34 @@ import { Indicadores } from '@/components/list/indicadores'
 import { useFiltroColuna, BotaoFiltroColuna, LinhaFiltroColuna } from '@/components/list/filtro-coluna'
 import { LoadErrorRow } from '@/components/list/load-error'
 import { type FilterRow, matchOp, norm, colunaContem } from '@/lib/list-filter'
-import { STATUS, fmt, humanDuration, pontualidadeLabel, type Inst } from '@/lib/processos-ui'
+import { STATUS, fmt, humanDuration, pontualidadeLabel, assuntoDoProcesso, comQuem, type Inst } from '@/lib/processos-ui'
 
 interface SortState { col: string; dir: 'asc' | 'desc' }
 
 interface Col { key: string; label: string; align?: 'right'; text: (i: Inst) => string; sortVal?: (i: Inst) => string | number; node: (i: Inst) => ReactNode }
-const COLS: Col[] = [
+const COLUNAS: Col[] = [
   {
     key: 'numero', label: 'Nº', text: (i) => (i.numero != null ? String(i.numero) : ''), sortVal: (i) => i.numero ?? 0,
     node: (i) => <span className="font-mono text-xs tabular-nums text-muted-foreground">{i.numero != null ? `#${i.numero}` : '—'}</span>,
   },
   {
-    key: 'processo', label: 'Processo', text: (i) => `${i.processName} v${i.version}`, sortVal: (i) => norm(i.processName),
-    node: (i) => (
-      <div className="celula-2l">
-        <p className="font-medium">{i.processName} <span className="text-[11px] text-muted-foreground font-normal">v{i.version}</span></p>
-        <p className="text-[11px] text-muted-foreground">{i.doneSteps}/{i.totalSteps} etapa{i.totalSteps !== 1 ? 's' : ''}</p>
-      </div>
-    ),
+    /* De qual contrato é o processo (auditoria de UX, 22/11/2026): o nome do workflow
+       se repetia em todas as linhas e não ajudava a achar nada. */
+    key: 'processo', label: 'Contrato',
+    text: (i) => { const a = assuntoDoProcesso(i); return [a?.titulo, a?.numero, a?.contraparte, i.processName].filter(Boolean).join(' · ') },
+    sortVal: (i) => norm(assuntoDoProcesso(i)?.titulo ?? i.processName),
+    node: (i) => {
+      const a = assuntoDoProcesso(i)
+      return (
+        <div className="celula-2l">
+          <p className="font-medium">{a?.titulo ?? <span className="text-muted-foreground font-normal">Sem contrato ainda</span>}</p>
+          <p className="text-[11px] text-muted-foreground">
+            {[a?.numero && <span key="n" className="font-mono">{a.numero}</span>, a?.contraparte, `${i.processName} v${i.version}`]
+              .filter(Boolean).flatMap((x, k) => (k ? [' · ', x] : [x]))}
+          </p>
+        </div>
+      )
+    },
   },
   { key: 'inicio', label: 'Início', text: (i) => fmt(i.startedAt), sortVal: (i) => new Date(i.startedAt).getTime(), node: (i) => <span className="text-muted-foreground whitespace-nowrap">{fmt(i.startedAt)}</span> },
   {
@@ -48,17 +58,27 @@ const COLS: Col[] = [
     node: (i) => <span className={cn('whitespace-nowrap', i.processOverdue ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground')}>{fmt(i.processDueAt)}</span>,
   },
   {
-    key: 'etapa', label: 'Etapa atual / conclusão',
-    text: (i) => i.status === 'RUNNING' && i.bloqueio ? `parado em ${i.currentStep || '—'}: ${i.bloqueio.mensagem}` : i.status === 'RUNNING' && i.aguardando?.length ? `aguardando: ${i.aguardando.join(', ')}` : i.status === 'RUNNING' ? (i.currentStep || '—') : i.status === 'ERROR' ? (i.error || i.stepName || 'erro') : i.status === 'COMPLETED' ? `concluído em ${fmt(i.completedAt)}` : i.status === 'ENDED_INCOMPLETE' ? `encerrado sem conclusão em ${fmt(i.completedAt)}` : i.cancelReason ? `cancelado · motivo: ${i.cancelReason}` : '—',
+    key: 'etapa', label: 'Agora',
+    text: (i) => i.status === 'RUNNING' && i.bloqueio ? `parado em ${i.currentStep || '—'}: ${i.bloqueio.mensagem}` : i.status === 'RUNNING' && i.aguardando?.length ? `aguardando: ${i.aguardando.join(', ')}` : i.status === 'RUNNING' ? [i.currentStep || '—', comQuem(i.currentWith)].filter(Boolean).join(' ') : i.status === 'ERROR' ? (i.error || i.stepName || 'erro') : i.status === 'COMPLETED' ? `concluído em ${fmt(i.completedAt)}` : i.status === 'ENDED_INCOMPLETE' ? `encerrado sem conclusão em ${fmt(i.completedAt)}` : i.cancelReason ? `cancelado · motivo: ${i.cancelReason}` : '—',
     node: (i) => i.status === 'RUNNING' && i.bloqueio ? (
       /* parado numa escolha sem caminho: ícone + texto (nunca só a cor) */
       <span className="inline-flex items-start gap-1 text-amber-700 dark:text-amber-300" title={i.bloqueio.mensagem}>
         <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
         <span className="max-w-xs"><span className="font-semibold">Parado</span> em {i.currentStep || '—'} <span className="block text-[11px] truncate">nenhum caminho da escolha serviu — procure um administrador</span></span>
       </span>
+    ) : i.status === 'RUNNING' && i.aguardando?.length ? (
+      <span className="celula-2l block">
+        <span className="block font-medium">Aguardando {i.aguardando.length === 1 ? '1 linha paralela' : `${i.aguardando.length} linhas paralelas`}</span>
+        <span className="block text-[11px] text-muted-foreground max-w-xs truncate">{i.aguardando.join(' · ')}</span>
+      </span>
     ) : i.status === 'RUNNING' ? (
-      <div className="flex items-center gap-2">
-        <span>{i.currentStep || '—'}</span>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="celula-2l">
+          <span className="block">{i.currentStep || '—'}</span>
+          <span className="block text-[11px] text-muted-foreground">
+            {comQuem(i.currentWith) || (i.currentRole ? `com o papel ${i.currentRole}` : 'aberta a quem pode executar')} · etapa {Math.min(i.doneSteps + 1, i.totalSteps)} de {i.totalSteps}
+          </span>
+        </span>
         {i.currentDueAt && <span className={cn(SELO, i.currentOverdue ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' : 'text-amber-600')}><Clock className="h-3 w-3" />{i.currentOverdue ? 'atrasada' : `vence ${fmt(i.currentDueAt)}`}</span>}
       </div>
     ) : i.status === 'ERROR' ? (
@@ -106,15 +126,21 @@ const COLS: Col[] = [
     ) })(),
   },
 ]
+/* Ordem da tabela: o que se procura (contrato) e o que está acontecendo (agora) primeiro. */
+const ORDEM = ['numero', 'processo', 'etapa', 'prevista', 'pontualidade', 'situacao', 'inicio', 'iniciadoPor']
+const COLS: Col[] = ORDEM.map((k) => COLUNAS.find((c) => c.key === k)).filter((c): c is Col => !!c)
+
 /* v2: a disposição padrão das colunas mudou (Nº · Processo · Início · Data prevista ·
    Pontualidade · Iniciado por · Situação). A chave é versionada porque a preferência
    antiga guardada no navegador venceria o novo padrão — e o usuário veria a tela
    velha sem saber por quê. */
-const HIDDEN_KEY = 'nxt:cols:processos:hidden:v2'
+const HIDDEN_KEY = 'nxt:cols:processos:hidden:v3'
 /* "Etapa atual / conclusão" sai da visão padrão (ordem de colunas definida pelo PO),
    mas continua disponível em Configurações — é onde aparecem o vencimento da etapa
    corrente, a causa do erro e o motivo do cancelamento. */
-const HIDDEN_DEFAULT = ['etapa']
+/* v3 (auditoria de UX, 22/11/2026): "Agora" (etapa e com quem) volta à visão padrão,
+   e "Início" e "Iniciado por" passam para Configurações da lista. */
+const HIDDEN_DEFAULT = ['inicio', 'iniciadoPor']
 
 export default function ProcessosPage() {
   const ws = useWorkspace()

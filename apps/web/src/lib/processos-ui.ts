@@ -20,6 +20,29 @@ export interface Inst {
   bloqueio?: { mensagem: string; escolha: string | null; tarefa: string | null; por: string; em: string } | null
   /** a linha principal já passou pelo Fim: atividades das linhas paralelas ainda abertas */
   aguardando?: string[]
+  /** sobre o que é o processo (contrato "número — título" ou parceiro) */
+  assunto?: { tipo: 'CONTRATO' | 'PARCEIRO'; titulo: string; contraparte?: string } | null
+  /** quem responde pela etapa atual; vazio = ninguém em particular (vale o papel) */
+  currentWith?: string[]
+  currentRole?: string | null
+}
+
+/** Coluna "Contrato": título do assunto, separado do número ("CCT_1 — Título"). */
+export function assuntoDoProcesso(i: Pick<Inst, 'assunto'>): { titulo: string; numero: string; contraparte: string } | null {
+  const a = i.assunto
+  if (!a) return null
+  if (a.tipo === 'PARCEIRO') return { titulo: a.titulo, numero: '', contraparte: '' }
+  const [numero, ...resto] = a.titulo.split(' — ')
+  return resto.length ? { titulo: resto.join(' — '), numero, contraparte: a.contraparte ?? '' } : { titulo: a.titulo, numero: '', contraparte: a.contraparte ?? '' }
+}
+
+/** "com Laryssa" / "com Ana e Bruno" / "com Ana e mais 2" — vazio quando ninguém em particular. */
+export function comQuem(nomes: string[] | undefined): string {
+  const n = nomes ?? []
+  if (n.length === 0) return ''
+  if (n.length === 1) return `com ${n[0]}`
+  if (n.length === 2) return `com ${n[0]} e ${n[1]}`
+  return `com ${n[0]} e mais ${n.length - 1}`
 }
 export interface TaskRow {
   id: string; nodeId: string; name?: string | null; role?: string | null; assignee?: string | null

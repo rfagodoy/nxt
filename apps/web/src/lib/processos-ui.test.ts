@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildHistory, taskExecutor, pontualidadeLabel, taskPunctuality, type Inst, type TaskRow, type ReturnRow, type EventRow } from './processos-ui'
+import { assuntoDoProcesso, comQuem, buildHistory, taskExecutor, pontualidadeLabel, taskPunctuality, type Inst, type TaskRow, type ReturnRow, type EventRow } from './processos-ui'
 
 const task = (over: Partial<TaskRow> & { id: string }): TaskRow => ({
   nodeId: `n-${over.id}`, status: 'DONE', createdAt: '2026-07-26T10:00:00Z', ...over,
@@ -124,5 +124,25 @@ describe('buildHistory — reabertura', () => {
       ev({ id: 'u1', event: 'REATIVADO', reason: 'engano', createdAt: '2026-07-26T15:00:00Z' }),
     ]
     expect(buildHistory([], [], eventos).map((e) => e.kind)).toEqual(['reopen', 'cancel'])
+  })
+})
+
+describe('assuntoDoProcesso', () => {
+  it('separa número e título do contrato e leva a contraparte', () => {
+    expect(assuntoDoProcesso({ assunto: { tipo: 'CONTRATO', titulo: 'CCT_1 — Serviços de limpeza', contraparte: 'GOLDNET' } }))
+      .toEqual({ titulo: 'Serviços de limpeza', numero: 'CCT_1', contraparte: 'GOLDNET' })
+  })
+  it('parceiro fica só com o nome; sem assunto, nulo', () => {
+    expect(assuntoDoProcesso({ assunto: { tipo: 'PARCEIRO', titulo: 'ACME' } })).toEqual({ titulo: 'ACME', numero: '', contraparte: '' })
+    expect(assuntoDoProcesso({ assunto: null })).toBeNull()
+  })
+})
+
+describe('comQuem', () => {
+  it('um, dois ou mais nomes', () => {
+    expect(comQuem([])).toBe('')
+    expect(comQuem(['Ana'])).toBe('com Ana')
+    expect(comQuem(['Ana', 'Bruno'])).toBe('com Ana e Bruno')
+    expect(comQuem(['Ana', 'Bruno', 'Caio'])).toBe('com Ana e mais 2')
   })
 })

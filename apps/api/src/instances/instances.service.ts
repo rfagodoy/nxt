@@ -1017,7 +1017,27 @@ export class InstancesService {
     const cal = await this.calendar.get(organizationId)
     const now = Date.now()
     const ms = (d: Date | string | null | undefined) => (d ? new Date(d).getTime() : null)
-    return instances.map((inst) => {
+
+    /* "De qual contrato é" e "com quem está" (auditoria de UX, 22/11/2026): sem isto
+       todas as linhas diziam só "Solicitação de contratos #N", e achar o processo de um
+       contrato era abrir um por um. O assunto sai do mesmo resolvedor da caixa de tarefas;
+       os nomes, de uma consulta só sobre quem responde pela etapa atual. */
+    const assuntos = await this.comAssunto(instances.map((i) => ({ instance: { state: i.state } })), organizationId)
+    const idsDaEtapa = (t: { assignee: string | null; assignees: unknown }) => {
+      const pool = Array.isArray(t.assignees) ? (t.assignees as string[]) : []
+      return pool.length ? pool : t.assignee ? [t.assignee] : []
+    }
+    const idsAtuais = [...new Set(instances.flatMap((i) => {
+      const atual = (i.tasks ?? []).find((t) => t.status === 'PENDING')
+      return atual ? idsDaEtapa(atual) : []
+    }))]
+    const nomePorId = new Map(
+      idsAtuais.length
+        ? (await this.prisma.user.findMany({ where: { id: { in: idsAtuais } }, select: { id: true, name: true } })).map((u) => [u.id, u.name])
+        : [],
+    )
+
+    return instances.map((inst, indice) => {
       const state = inst.state as unknown as WfState | null
       const graph = inst.graphSnapshot as unknown as WfGraph | null
       const vars = state?.variables ?? {}
@@ -1109,6 +1129,11 @@ export class InstancesService {
         cancelledAt: inst.status === 'CANCELLED' ? (cancelamento?.createdAt ?? null) : null,
         // parado numa escolha sem caminho (ver completeTask)
         bloqueio,
+        /** sobre o que é o processo: contrato (número — título) ou parceiro */
+        assunto: assuntos[indice]?.assunto ?? null,
+        /** quem responde pela etapa atual (vazio = papel, ninguém em particular) */
+        currentWith: current ? idsDaEtapa(current).map((id) => nomePorId.get(id)).filter((n): n is string => !!n) : [],
+        currentRole: current?.role ?? null,
       }
     })
   }
