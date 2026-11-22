@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { assuntoDoProcesso, comQuem, relativoA, pontualidadeDoProcesso, buildHistory, taskExecutor, pontualidadeLabel, taskPunctuality, type Inst, type TaskRow, type ReturnRow, type EventRow } from './processos-ui'
+import { assuntoDoProcesso, comQuem, relativoA, pontualidadeDoProcesso, encerradoEm, buildHistory, taskExecutor, pontualidadeLabel, taskPunctuality, type Inst, type TaskRow, type ReturnRow, type EventRow } from './processos-ui'
 
 const task = (over: Partial<TaskRow> & { id: string }): TaskRow => ({
   nodeId: `n-${over.id}`, status: 'DONE', createdAt: '2026-07-26T10:00:00Z', ...over,
@@ -178,5 +178,20 @@ describe('pontualidadeDoProcesso', () => {
     expect(pontualidadeDoProcesso({ status: 'COMPLETED', processDueAt: em(-5), processOverdue: false, processOnTime: false }, agora).texto).toBe('concluído com atraso')
     expect(pontualidadeDoProcesso({ status: 'CANCELLED', processDueAt: null, processOverdue: false, processOnTime: null }, agora).texto).toBe('cancelado')
     expect(pontualidadeDoProcesso({ status: 'ENDED_INCOMPLETE', processDueAt: null, processOverdue: false, processOnTime: null }, agora).texto).toBe('sem conclusão')
+  })
+})
+
+describe('encerradoEm', () => {
+  const d = '2026-11-20T10:00:00.000Z'
+  it('em andamento, com erro: sem data', () => {
+    expect(encerradoEm({ status: 'RUNNING', completedAt: null, cancelledAt: null })).toBeNull()
+    expect(encerradoEm({ status: 'ERROR', completedAt: null, cancelledAt: null })).toBeNull()
+  })
+  it('concluído e encerrado sem conclusão: a data de término', () => {
+    expect(encerradoEm({ status: 'COMPLETED', completedAt: d, cancelledAt: null })).toBe(d)
+    expect(encerradoEm({ status: 'ENDED_INCOMPLETE', completedAt: d, cancelledAt: null })).toBe(d)
+  })
+  it('cancelado: a data do cancelamento', () => {
+    expect(encerradoEm({ status: 'CANCELLED', completedAt: null, cancelledAt: d })).toBe(d)
   })
 })

@@ -239,3 +239,11 @@ export function taskPunctuality(t: TaskRow): { label: string; cls: string } {
     : { label: 'atrasada', cls: 'text-red-600 dark:text-red-400' }
   return due < now ? { label: 'atrasada', cls: 'text-red-600 dark:text-red-400' } : { label: 'no prazo', cls: 'text-muted-foreground' }
 }
+
+/** Coluna "Encerrado em" (PO, 22/11/2026): quando o processo acabou, seja concluído,
+ *  encerrado sem conclusão ou cancelado. Em andamento não tem data. */
+export function encerradoEm(i: Pick<Inst, 'status' | 'completedAt' | 'cancelledAt'>): string | null {
+  if (i.status === 'CANCELLED') return i.cancelledAt ?? i.completedAt ?? null
+  if (i.status === 'COMPLETED' || i.status === 'ENDED_INCOMPLETE') return i.completedAt ?? null
+  return null
+}

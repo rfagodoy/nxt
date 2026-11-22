@@ -20,7 +20,7 @@ import { Indicadores } from '@/components/list/indicadores'
 import { useFiltroColuna, BotaoFiltroColuna, LinhaFiltroColuna } from '@/components/list/filtro-coluna'
 import { LoadErrorRow } from '@/components/list/load-error'
 import { type FilterRow, matchOp, norm, colunaContem } from '@/lib/list-filter'
-import { STATUS, fmt, humanDuration, pontualidadeDoProcesso, comQuem, relativoA, type Inst } from '@/lib/processos-ui'
+import { STATUS, fmt, humanDuration, pontualidadeDoProcesso, comQuem, relativoA, encerradoEm, type Inst } from '@/lib/processos-ui'
 import { MenuDeAcoes } from '@/components/list/menu-de-acoes'
 
 interface SortState { col: string; dir: 'asc' | 'desc' }
@@ -45,8 +45,6 @@ const COR_DO_TIPO: Record<string, string> = {
   DISTRATO: 'bg-orange-500/10 text-orange-700 dark:text-orange-300',
 }
 
-const fmtData = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString('pt-BR') : '—')
-
 const TOM_DA_PONTUALIDADE: Record<'ok' | 'atencao' | 'atraso' | 'neutro', string> = {
   ok:      'text-emerald-700 dark:text-emerald-400',
   atencao: 'font-semibold text-amber-700 dark:text-amber-400',
@@ -54,27 +52,36 @@ const TOM_DA_PONTUALIDADE: Record<'ok' | 'atencao' | 'atraso' | 'neutro', string
   neutro:  'text-muted-foreground',
 }
 
-/** Coluna "Agora": sempre duas partes, para a linha não mudar de altura. */
-function agora(i: Inst): { l1: string; l2: string; cls?: string; icone?: ReactNode; dica?: string } {
+/** Coluna "Atividade atual" (PO, 22/11/2026): onde o processo está e com quem. Só
+ *  existe enquanto ele corre; encerrado, devolve null e a célula mostra "—" (o
+ *  desfecho está na Situação, e a data em "Encerrado em"). Sem "etapa N de M": o total
+ *  conta as atividades já criadas, então dava sempre "N de N". */
+function atividadeAtual(i: Inst): { l1: string; l2: string; cls?: string; icone?: ReactNode; dica?: string } | null {
   if (i.status === 'RUNNING' && i.bloqueio) return {
     l1: `Parado em ${i.currentStep || '—'}`, l2: 'nenhum caminho da escolha serviu — procure um administrador',
     cls: 'font-semibold text-amber-700 dark:text-amber-300', icone: <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />, dica: i.bloqueio.mensagem,
   }
   if (i.status === 'RUNNING' && i.aguardando?.length) return {
-    l1: `Aguardando ${i.aguardando.length === 1 ? '1 linha paralela' : `${i.aguardando.length} linhas paralelas`}`, l2: i.aguardando.join(' · '), dica: i.aguardando.join(' · '),
+    l1: i.aguardando.length === 1 ? '1 atividade em paralelo' : `${i.aguardando.length} atividades em paralelo`,
+    l2: i.aguardando.join(' · '), dica: i.aguardando.join(' · '),
   }
   if (i.status === 'RUNNING') return {
     l1: i.currentStep || '—',
-    l2: `${comQuem(i.currentWith) || (i.currentRole ? `com o papel ${i.currentRole}` : 'aberta a quem pode executar')} · etapa ${Math.min(i.doneSteps + 1, i.totalSteps)} de ${i.totalSteps}`,
+    l2: comQuem(i.currentWith) || (i.currentRole ? `com o papel ${i.currentRole}` : 'aberta a quem pode executar'),
   }
   if (i.status === 'ERROR') return {
     l1: 'Erro numa etapa automática', l2: i.error || i.stepName || 'erro',
     cls: 'font-semibold text-red-700 dark:text-red-300', icone: <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />, dica: i.error ?? undefined,
   }
-  if (i.status === 'COMPLETED') return { l1: `Concluído em ${fmtData(i.completedAt)}`, l2: `durou ${humanDuration(i.durationMs)}` }
-  if (i.status === 'ENDED_INCOMPLETE') return { l1: `Encerrado sem conclusão em ${fmtData(i.completedAt)}`, l2: 'as atividades acabaram sem passar pelo Fim', cls: 'text-amber-700 dark:text-amber-400' }
-  // um processo que termina em silêncio é um processo que ninguém sabe explicar
-  return { l1: `Cancelado por ${i.cancelledBy || '—'}`, l2: i.cancelReason ? `motivo: ${i.cancelReason}` : 'sem motivo registrado', dica: i.cancelReason ? `Motivo: ${i.cancelReason}` : undefined }
+  return null
+}
+
+/** Dica do selo da Situação: o motivo do cancelamento mora aqui (e no Histórico). */
+function dicaDaSituacao(i: Inst): string | undefined {
+  if (i.status === 'CANCELLED') return [i.cancelledBy && `Cancelado por ${i.cancelledBy}`, `Motivo: ${i.cancelReason || 'não registrado'}`].filter(Boolean).join(' · ')
+  if (i.status === 'COMPLETED') return `Durou ${humanDuration(i.durationMs)}`
+  if (i.status === 'ENDED_INCOMPLETE') return 'As atividades acabaram sem passar pelo Fim'
+  return undefined
 }
 
 const COLUNAS: Col[] = [
@@ -107,9 +114,20 @@ const COLUNAS: Col[] = [
     node: (i) => <span className="text-muted-foreground whitespace-nowrap">{fmt(i.processDueAt)}</span>,
   },
   {
-    key: 'etapa', label: 'Agora',
-    text: (i) => { const a = agora(i); return `${a.l1} · ${a.l2}` },
-    node: (i) => { const a = agora(i); return <Duas titulo={a.dica} l1={<span className={a.cls}>{a.icone}{a.l1}</span>} l2={a.l2} /> },
+    key: 'etapa', label: 'Atividade atual',
+    text: (i) => { const a = atividadeAtual(i); return a ? `${a.l1} · ${a.l2}` : '' },
+    node: (i) => {
+      const a = atividadeAtual(i)
+      if (!a) return <span className="text-muted-foreground" title="Processo encerrado: não há atividade em andamento">—</span>
+      return <Duas titulo={a.dica} l1={<span className={a.cls}>{a.icone}{a.l1}</span>} l2={a.l2} />
+    },
+  },
+  {
+    // quando acabou: concluído, encerrado sem conclusão ou cancelado
+    key: 'encerrado', label: 'Encerrado em',
+    text: (i) => { const d = encerradoEm(i); return d ? fmt(d) : '' },
+    sortVal: (i) => { const d = encerradoEm(i); return d ? new Date(d).getTime() : 0 },
+    node: (i) => { const d = encerradoEm(i); return <span className="text-muted-foreground whitespace-nowrap">{d ? fmt(d) : '—'}</span> },
   },
   {
     /* Só o estado, sem data (PO, 22/11/2026): a lista responde "está em dia?". A data
@@ -143,24 +161,26 @@ const COLUNAS: Col[] = [
         <AlertTriangle className="h-3 w-3" />Parado
       </span>
     ) : (() => { const st = STATUS[i.status] ?? STATUS.RUNNING; return (
-      <span className={cn(SELO, 'whitespace-nowrap', st.cls)}><st.icon className="h-3 w-3" />{st.label}</span>
+      <span title={dicaDaSituacao(i)} className={cn(SELO, 'whitespace-nowrap', st.cls)}><st.icon className="h-3 w-3" />{st.label}</span>
     ) })(),
   },
 ]
-/* Ordem da tabela: o que se procura (contrato) e o que está acontecendo (agora) primeiro. */
-const ORDEM = ['numero', 'processo', 'etapa', 'pontualidade', 'situacao', 'prevista', 'inicio', 'iniciadoPor']
+/* Ordem da tabela: o que se procura (contrato) e onde está (atividade atual) primeiro.
+   Cada coluna responde uma pergunta: onde está, está em dia, em que estado, quando acabou. */
+const ORDEM = ['numero', 'processo', 'etapa', 'pontualidade', 'situacao', 'encerrado', 'prevista', 'inicio', 'iniciadoPor']
 const COLS: Col[] = ORDEM.map((k) => COLUNAS.find((c) => c.key === k)).filter((c): c is Col => !!c)
 
 /* v2: a disposição padrão das colunas mudou (Nº · Processo · Início · Data prevista ·
    Pontualidade · Iniciado por · Situação). A chave é versionada porque a preferência
    antiga guardada no navegador venceria o novo padrão — e o usuário veria a tela
    velha sem saber por quê. */
-const HIDDEN_KEY = 'nxt:cols:processos:hidden:v5'
+const HIDDEN_KEY = 'nxt:cols:processos:hidden:v6'
 /* "Etapa atual / conclusão" sai da visão padrão (ordem de colunas definida pelo PO),
    mas continua disponível em Configurações — é onde aparecem o vencimento da etapa
    corrente, a causa do erro e o motivo do cancelamento. */
-/* v3 (auditoria de UX, 22/11/2026): "Agora" (etapa e com quem) volta à visão padrão,
-   e "Início" e "Iniciado por" passam para Configurações da lista. */
+/* v3 (auditoria de UX, 22/11/2026): a atividade atual (etapa e com quem) volta à visão
+   padrão, e "Início" e "Iniciado por" passam para Configurações da lista.
+   v6: "Agora" vira "Atividade atual" e entra "Encerrado em", visível por padrão. */
 const HIDDEN_DEFAULT = ['inicio', 'iniciadoPor', 'prevista']
 
 export default function ProcessosPage() {
