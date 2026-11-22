@@ -22,24 +22,34 @@ export interface ItemCarteira {
 export interface MesVencimento { mes: string; qtd: number; valor: number }
 
 export interface Vencimentos {
-  /** 12 meses a partir do mês atual (`YYYY-MM`) */
+  /** do mês atual ao mês de `ate` (`YYYY-MM`): 13 barras, a primeira e a última parciais */
   meses: MesVencimento[]
+  /** último dia da janela: hoje + 365 dias (YYYY-MM-DD) */
+  ate: string
   /** vigentes que vencem de hoje a hoje+90 dias */
   prox90: { qtd: number; valor: number }
   /** término passou e não foi renovado/encerrado (situação derivada VENCIDO) */
   vencidos: { qtd: number; valor: number }
-  /** os próximos a vencer dentro dos 12 meses, por data (lista que leva ao contrato) */
+  /** os próximos a vencer dentro dos 365 dias, por data (lista que leva ao contrato) */
   proximos: Array<{ id: string; numero: string; titulo: string; inicio: string; termino: string; valor: number; contraparte: string | null }>
 }
 
 const chaveMes = (iso: string) => iso.slice(0, 7)
 
-/** Agrupa os VIGENTES pelo mês de término, 12 meses a partir do mês de `hoje`. Indeterminado
+/** Dias da janela de vencimentos. Antes eram 12 meses de calendário (do mês atual ao
+ *  anterior do ano seguinte), e um contrato que vencia no começo do mês do ano seguinte,
+ *  a menos de um ano de hoje, ficava de fora do "Nada vence nos próximos 12 meses". */
+export const JANELA_VENCIMENTOS_DIAS = 365
+
+/** Agrupa os VIGENTES pelo mês de término, de hoje a hoje + 365 dias. Indeterminado
  *  não tem vencimento; VENCIDO vai para o próprio balde; os demais (em cadastro, encerrado,
  *  cancelado) não estão "em mãos". */
 export function vencimentosPorMes(itens: ItemCarteira[], hoje: string, limiteLista = 8): Vencimentos {
   const [a, m] = hoje.split('-').map(Number)
-  const meses: MesVencimento[] = Array.from({ length: 12 }, (_, i) => {
+  const ate = new Date(new Date(hoje + 'T00:00:00Z').getTime() + JANELA_VENCIMENTOS_DIAS * DAY).toISOString().slice(0, 10)
+  const [aa, ma] = ate.split('-').map(Number)
+  const qtdMeses = (aa - a) * 12 + (ma - m) + 1
+  const meses: MesVencimento[] = Array.from({ length: qtdMeses }, (_, i) => {
     const d = new Date(Date.UTC(a, m - 1 + i, 1))
     return { mes: `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`, qtd: 0, valor: 0 }
   })
@@ -50,7 +60,7 @@ export function vencimentosPorMes(itens: ItemCarteira[], hoje: string, limiteLis
   const proximos: Vencimentos['proximos'] = []
   for (const it of itens) {
     if (it.situacao === 'VENCIDO') { vencidos.qtd++; vencidos.valor += it.valor; continue }
-    if (it.situacao !== 'VIGENTE' || !it.termino || it.termino < hoje) continue
+    if (it.situacao !== 'VIGENTE' || !it.termino || it.termino < hoje || it.termino > ate) continue
     const balde = porMes.get(chaveMes(it.termino))
     if (balde) {
       balde.qtd++; balde.valor += it.valor
@@ -59,7 +69,7 @@ export function vencimentosPorMes(itens: ItemCarteira[], hoje: string, limiteLis
     if (it.termino <= limite90) { prox90.qtd++; prox90.valor += it.valor }
   }
   proximos.sort((x, y) => (x.termino < y.termino ? -1 : x.termino > y.termino ? 1 : y.valor - x.valor))
-  return { meses, prox90, vencidos, proximos: proximos.slice(0, limiteLista) }
+  return { meses, ate, prox90, vencidos, proximos: proximos.slice(0, limiteLista) }
 }
 
 export interface Concentracao {
