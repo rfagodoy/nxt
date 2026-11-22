@@ -6,6 +6,7 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ### Alterado
 
+- **Coluna "Concluída em" no acompanhamento do processo:** as abas Andamento e Histórico mostram a data e a hora em que cada atividade foi concluída. Atividade pendente, devolvida ou cancelada fica com "—".
 - **Auditoria de UX (22/11/2026), dez ajustes:**
   - **Processos dizem a que se referem.** A coluna "Relativo a" mostra o tipo do processo (Contrato, Aditivo ou Encerramento) e o contrato, com número e contraparte; antes de o contrato existir, diz "Contrato ainda não cadastrado". A coluna "Agora" mostra a etapa atual, com quem está e "etapa N de M", ou as linhas paralelas que faltam. O prazo ganhou coluna própria. As linhas têm altura fixa: o que não cabe termina em "…" e aparece inteiro ao passar o mouse. "Início", "Iniciado por" e "Pontualidade" passam para Configurações da lista.
   - **Dashboard:** "vence em breve" conta os próximos 365 dias a partir de hoje, com a data final escrita no cartão. Antes, contratos que venciam no começo do mês do ano seguinte ficavam de fora. Com a caixa de tarefas vazia, ela vira uma linha no topo e os gráficos ganham o espaço.
