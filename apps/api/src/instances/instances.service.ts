@@ -14,7 +14,7 @@ import { formSchemaDaInstancia } from '../processes/definicao-congelada'
 import { ResolvedorDeExecutor, type ExecutorResolvido } from './executor-resolver'
 import { nasceDeContrato, VAR_INICIADO_POR, type StepFormSchema } from '@nxt/types'
 import { fraseDosFaltantes, screenIdVar } from '@nxt/screens-core'
-import { faltantesAoConcluir } from './obrigatorios-da-tarefa'
+import { ativacaoAoConcluir, faltantesAoConcluir } from './obrigatorios-da-tarefa'
 
 /** `WorkflowTask.data` é JSON numa coluna texto (SQL Server): o PrismaService já devolve
  *  objeto, mas o tipo gerado diz string — aceita os dois. */
@@ -456,6 +456,23 @@ export class InstancesService {
         })
       }
     }
+
+    /* ── Ativar o contrato ao concluir (PO, 22/11/2026): a etapa marcada leva o contrato a
+       Vigente, com os obrigatórios de ativação conferidos. Fica DEPOIS da simulação do motor
+       (uma escolha sem caminho não deixa o contrato ativado com a tarefa ainda aberta) e
+       ANTES da reivindicação (faltou campo, a tarefa continua com a pessoa). */
+    const ativacao = await ativacaoAoConcluir(this.prisma, organizationId, stepDaTarefa, { ...prevState.variables, ...data })
+    if (ativacao?.faltantes.length) {
+      await this.prisma.workflowTask.updateMany({
+        where: { id: task.id, status: 'PENDING' },
+        data: { data: { ...dadosDaTarefa(task.data), ...data } as never },
+      })
+      throw new UnprocessableEntityException({
+        statusCode: 422, error: 'Unprocessable Entity', code: 'CAMPOS_OBRIGATORIOS',
+        message: fraseDosFaltantes(ativacao.faltantes, 'ativar'), campos: ativacao.faltantes,
+      })
+    }
+    if (ativacao) await this.contracts.update(ativacao.contratoId, { situacao: 'VIGENTE' } as never, organizationId, actor?.name, actor?.sub)
 
     // ── Anti-corrida (1/2): REIVINDICA a tarefa por CAS ANTES de rodar o motor. ──
     // Só um request troca PENDING→DONE; um duplo-submit (2 abas, duplo-clique) perde

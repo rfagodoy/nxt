@@ -44,7 +44,7 @@ describe('screenEntityFromVars', () => {
 
 describe('screenBloqueio', () => {
   it('sem entidade salva: manda salvar antes de concluir', () => {
-    expect(screenBloqueio(step(), null)).toMatch(/Salve o contrato antes de concluir/)
+    expect(screenBloqueio(step(), null)).toMatch(/Preencha o contrato: ele é salvo sozinho/)
     expect(screenBloqueio(step({ screenSubject: 'FORNECEDOR' }), null)).toMatch(/Salve o parceiro/)
   })
   it('na consulta o problema é o desenho, não a pessoa — não manda salvar', () => {

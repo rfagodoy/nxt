@@ -1,10 +1,10 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { FileText, Users, Calendar, Banknote, TrendingUp, TrendingDown, RefreshCw, Paperclip, FilePlus2, Clock, Eye } from 'lucide-react'
+import { FileText, Users, Calendar, Banknote, TrendingUp, TrendingDown, RefreshCw, Paperclip, FilePlus2, Clock, Eye, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiFetch, motivoDoErro, cabecalhosDaTarefa, type OrigemDaTarefa } from '@/lib/http'
-import { faltantesContrato, rotuloDeSecao, SECOES_CONTRATO, type AcaoSalvar } from '@/lib/campos-obrigatorios'
+import { faltantesContrato, nativosFaltantes, personalizadosFaltantes, camposDaSecao, rotuloDeSecao, SECOES_CONTRATO, type AcaoSalvar, type CampoFaltante } from '@/lib/campos-obrigatorios'
 import { AvisoCamposFaltantes } from '@/components/forms/aviso-campos-faltantes'
 import { CONTRACTS_CHANGED_EVENT } from '@/lib/contract-events'
 import { useScreens, getScreenValues } from '@/hooks/use-screens'
@@ -61,8 +61,28 @@ export function DSection({ active, children }: { active: boolean; children: Reac
   return <div className="rounded-xl border bg-card p-[var(--secao-pad)] space-y-[var(--form-gap)] shadow-sm">{children}</div>
 }
 
+/** Estado da gravação automática de uma tela dentro da tarefa. */
+export interface EstadoDaGravacao { salvando: boolean; salvoEm: Date | null; erro: string | null; pendente: boolean }
+
+/**
+ * O contrato DENTRO de uma tarefa de workflow (PO, 22/11/2026): as telas aparecem uma
+ * embaixo da outra, sem cabeçalho próprio, sem abas e sem Salvar/Ativar/Fechar. Grava
+ * sozinho enquanto a pessoa preenche, e cada tela grava SÓ o que mudou nela — por cima do
+ * contrato relido na hora, para não desfazer o que outra tela da mesma tarefa gravou.
+ */
+export interface ContratoNaTarefa {
+  onEstado?: (e: EstadoDaGravacao) => void
+  /** obrigatórios desta tela ainda em branco (a mesma regra do Concluir) */
+  onFaltantes?: (campos: CampoFaltante[]) => void
+  /** registra a função que grava o que estiver pendente — o Concluir chama antes de concluir.
+   *  Devolve a função que desfaz o registro. */
+  registrarGravacao?: (gravar: () => Promise<boolean>) => () => void
+  /** muda quando o Concluir esbarra em obrigatório: abre as seções com pendência */
+  revelar?: number
+}
+
 /* ══════════════════════════════════════════════════════════════ */
-export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, screen, readOnly: readOnlyProp, lockedFields, origem }: { row: Row; onClose: () => void; onSaved?: () => void; onDirtyChange?: (dirty: boolean) => void; screen?: Screen; readOnly?: boolean; /** campos travados pela ATIVIDADE do workflow (só apertam) */ lockedFields?: string[]; /** gravação de dentro de uma tarefa (a API aplica a tela da etapa) */ origem?: OrigemDaTarefa }) {
+export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, screen, readOnly: readOnlyProp, lockedFields, origem, naTarefa }: { row: Row; onClose: () => void; onSaved?: () => void; onDirtyChange?: (dirty: boolean) => void; screen?: Screen; readOnly?: boolean; /** campos travados pela ATIVIDADE do workflow (só apertam) */ lockedFields?: string[]; /** gravação de dentro de uma tarefa (a API aplica a tela da etapa) */ origem?: OrigemDaTarefa; naTarefa?: ContratoNaTarefa }) {
   const form = useContractForm({
     ...emptyContractForm(),
     numero: row.numero, titulo: row.titulo, tipo: row.tipo, situacao: normalizeSituacao(row.situacao),
@@ -239,7 +259,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
   const faltantes   = tentativa ? calcFaltantes(tentativa) : []
   const rotuloSecao = rotuloDeSecao(SECOES_CONTRATO, screenDriven ? screenSections : null)
 
-  const handleSave = async (statusOverride?: string, motivoTexto?: string, aditivosOverride?: CAditivo[]) => {
+  const handleSave = async (statusOverride?: string, motivoTexto?: string, aditivosOverride?: CAditivo[]): Promise<boolean> => {
     /* A obrigatoriedade da data de assinatura é validada na ATIVAÇÃO de cada aditivo
        (validarAtivacao em AditivosFields). Não bloqueamos o save/transição do contrato:
        um rascunho pode ficar incompleto, e um aditivo ATIVO sem data só existe por legado. */
@@ -251,48 +271,97 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
     const acaoObrig: AcaoSalvar | null = isAditivoOp ? null : isActivation ? 'ativar' : (isPlainSave && !locked) ? 'rascunho' : null
     if (acaoObrig) {
       const itens = calcFaltantes(acaoObrig)
-      if (itens.length > 0) { setTentativa(acaoObrig); setSaveError(null); setTab(itens[0].secao); return }
+      if (itens.length > 0) { setTentativa(acaoObrig); setSaveError(null); setTab(itens[0].secao); return false }
     }
     setTentativa(null)
     /* Lançamentos exigem Data/Valor/Forma sempre que persistem — inclusive no save do
        contrato travado, que é justamente quando se registram pagamentos/recebimentos. */
     if (!isAditivoOp && (isPlainSave || isActivation)) {
       const lErr = validateLancamentos(v)
-      if (lErr) { setSaveError(lErr.msg); setTab(lErr.field); return }
+      if (lErr) { setSaveError(lErr.msg); setTab(lErr.field); return false }
     }
     /* Validações de negócio (vigência, reajustes, partes) só ao ativar ou salvar um
        contrato destravado — NÃO em transições (revisão/encerrar) nem em operações de
        aditivo, para não travar a reabertura/correção. */
     if (!isAditivoOp && (isActivation || (isPlainSave && !locked))) {
       const pErr = validatePartes(v.partes, papeis.active)
-      if (pErr) { setSaveError(pErr); setTab('partes'); return }
+      if (pErr) { setSaveError(pErr); setTab('partes'); return false }
       const bizErr = validateContract(v)
-      if (bizErr) { setSaveError(bizErr); return }
+      if (bizErr) { setSaveError(bizErr); return false }
     }
     setSaving(true); setSaveError(null)
     const nextSit = statusOverride ?? v.situacao
     const vals = { ...v, situacao: nextSit, ...(aditivosOverride ? { aditivos: aditivosOverride } : {}) }
+    const customEnviado = screenValues
     try {
+      /* Na tarefa, outra tela pode ter gravado o mesmo contrato há pouco: esta envia SÓ o que
+         mudou nela, por cima do contrato relido agora (a API confere cada tela pelo que muda). */
+      let corpoVals: typeof vals = vals
+      let corpoCustom: Record<string, string> | undefined = screenDriven ? screenValues : undefined
+      if (naTarefa) {
+        const limpo = JSON.parse(cleanRef.current || '{}') as Record<string, unknown>
+        const meu = vals as unknown as Record<string, unknown>
+        const mudou = Object.fromEntries(Object.keys(meu).filter(k => JSON.stringify(meu[k]) !== JSON.stringify(limpo[k])).map(k => [k, meu[k]]))
+        const atual = await apiFetch(`/api/contracts/${row.id}`)
+        if (atual.ok) corpoVals = { ...contractFromApi(await atual.json() as Record<string, unknown>), ...mudou } as typeof vals
+        const customLimpo = JSON.parse(screenClean) as Record<string, string>
+        corpoCustom = Object.fromEntries(Object.entries(screenValues).filter(([k, x]) => customLimpo[k] !== x))
+      }
       const res = await apiFetch(`/api/contracts/${row.id}`, {
         method:  'PATCH',
         headers: cabecalhosDaTarefa(origem),
         /* personalizados vão NO MESMO pedido: a API confere travas e obrigatórios do conjunto
            antes de gravar qualquer coisa — nunca mais "o contrato salvou, os campos não" */
-        body:    JSON.stringify(contractToPayload(vals, {
-          user: getLogUser(), motivo: motivoTexto, ...(screenDriven ? { valoresPersonalizados: screenValues } : {}),
+        body:    JSON.stringify(contractToPayload(corpoVals, {
+          user: getLogUser(), motivo: motivoTexto, ...(corpoCustom ? { valoresPersonalizados: corpoCustom } : {}),
         })),
       })
       if (res.ok) {
-        if (screenDriven) setScreenClean(JSON.stringify(screenValues))
-        if (statusOverride) form.set('situacao', statusOverride); cleanRef.current = JSON.stringify(vals); setDirtyLocal(false); setJustSaved(true); setAuditVersion(x => x + 1); onDirtyChange?.(false); onSaved?.()
+        if (screenDriven) setScreenClean(JSON.stringify(customEnviado))
+        if (statusOverride) form.set('situacao', statusOverride); cleanRef.current = JSON.stringify(vals); setDirtyLocal(false); setJustSaved(true); setSalvoEm(new Date()); setAuditVersion(x => x + 1); onDirtyChange?.(false); onSaved?.()
+        return true
       }
-      else setSaveError(await motivoDoErro(res, 'Não foi possível salvar o contrato'))
+      setSaveError(await motivoDoErro(res, 'Não foi possível salvar o contrato'))
+      return false
     } catch {
       setSaveError('Não foi possível conectar ao servidor.')
+      return false
     } finally {
       setSaving(false)
     }
   }
+
+  /* ── Na tarefa: grava sozinho, conta o que falta e abre a seção pendente ── */
+  const [salvoEm, setSalvoEm] = useState<Date | null>(null)
+  useEffect(() => {
+    if (!naTarefa || readOnly || !dirty || saving || cleanRef.current === '') return
+    const t = setTimeout(() => { void handleSave() }, 1200)
+    return () => clearTimeout(t)
+  }, [naTarefa, readOnly, dirty, saving, v, screenValues]) // eslint-disable-line react-hooks/exhaustive-deps
+  const onEstado = naTarefa?.onEstado
+  useEffect(() => { onEstado?.({ salvando: saving, salvoEm, erro: saveError, pendente: dirty }) }, [onEstado, saving, salvoEm, saveError, dirty])
+  const gravarAgora = useRef<() => Promise<boolean>>(async () => true)
+  gravarAgora.current = async () => (!readOnly && dirty ? handleSave() : !saveError)
+  const registrarGravacao = naTarefa?.registrarGravacao
+  useEffect(() => registrarGravacao?.(() => gravarAgora.current()), [registrarGravacao])
+  const faltantesDaTela: CampoFaltante[] = naTarefa && !readOnly && screenDriven
+    ? [...nativosFaltantes(screenSections, v), ...personalizadosFaltantes(screenSections, screenValues)] : []
+  const chaveFaltantes = JSON.stringify(faltantesDaTela)
+  const onFaltantes = naTarefa?.onFaltantes
+  useEffect(() => { onFaltantes?.(JSON.parse(chaveFaltantes) as CampoFaltante[]) }, [onFaltantes, chaveFaltantes])
+  const [secoesAbertas, setSecoesAbertas] = useState<Set<string> | null>(null)
+  useEffect(() => {
+    if (secoesAbertas || !screenSections.length) return
+    const iniciais = screenSections.filter(s => s.defaultOpen).map(s => s.key)
+    setSecoesAbertas(new Set(iniciais.length ? iniciais : [screenSections[0].key]))
+  }, [secoesAbertas, screenSections])
+  const revelar = naTarefa?.revelar ?? 0
+  useEffect(() => {
+    if (!revelar) return
+    const pendentes = (JSON.parse(chaveFaltantes) as CampoFaltante[]).map(f => f.secao)
+    if (pendentes.length) setSecoesAbertas(prev => new Set([...(prev ?? []), ...pendentes]))
+  }, [revelar]) // eslint-disable-line react-hooks/exhaustive-deps
+  const alternarSecao = (k: string) => setSecoesAbertas(prev => { const n = new Set(prev ?? []); if (n.has(k)) n.delete(k); else n.add(k); return n })
 
   /* ativar/abrir-para-revisão de um aditivo: muda situação e persiste imediatamente (override evita estado obsoleto) */
   const activateAditivo = (id: string) => {
@@ -317,6 +386,85 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
     encerrar:  'Motivo do encerramento',
     rescindir: 'Motivo da rescisão',
   }
+
+  const modais = (
+    <>
+      {searchModal && (
+        <EntitySearchModal
+          origem={searchModal.origem}
+          empresas={empresas}
+          excludeIds={searchModal.excludeIds}
+          onSelect={(e) => { form.setParteEntity(searchModal.parteId, e); setSearchModal(null) }}
+          onClose={() => setSearchModal(null)}
+          onNewPartner={() => { const parteId = searchModal.parteId; setSearchModal(null); setNewPartner({ parteId }) }}
+        />
+      )}
+
+      {newPartner && <NewPartnerPanel onCreated={attachPartner} onClose={() => setNewPartner(null)} />}
+
+      {cessaoSearch && (
+        <EntitySearchModal
+          origem={cessaoSearch.origem}
+          empresas={empresas}
+          onSelect={(e) => { form.patchCessao(cessaoSearch.aditivoId, cessaoSearch.cessaoId, { ref_tipo: e.ref_tipo, ref_id: e.ref_id, nome: e.nome, documento: e.documento }); setCessaoSearch(null) }}
+          onClose={() => setCessaoSearch(null)}
+          onNewPartner={() => { const c = cessaoSearch; setCessaoSearch(null); setNewPartner({ cessao: { aditivoId: c.aditivoId, cessaoId: c.cessaoId } }) }}
+        />
+      )}
+    </>
+  )
+
+  if (naTarefa && screenDriven) return (
+    <div className="space-y-2">
+      {staleAviso && (
+        <div className="flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400">
+          <span>O contrato mudou no servidor enquanto você editava. O que você digitou ainda está aqui e será gravado por cima.</span>
+          <button type="button" onClick={() => void recarregar()} className="shrink-0 rounded border border-amber-300 px-2 py-1 font-medium hover:bg-amber-100 dark:border-amber-700 dark:hover:bg-amber-900/40">
+            Descartar e recarregar
+          </button>
+        </div>
+      )}
+      {saveError && (
+        <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">
+          {saveError}
+        </div>
+      )}
+      <form className="space-y-2" onSubmit={e => e.preventDefault()}>
+        {screenSections.map(s => {
+          const aberta = secoesAbertas?.has(s.key) ?? false
+          const falta = camposDaSecao(faltantesDaTela, s.key)
+          return (
+            <div key={s.id} className={cn('rounded-lg border bg-card', falta.length > 0 && 'border-amber-300 dark:border-amber-800')}>
+              <button type="button" aria-expanded={aberta} onClick={() => alternarSecao(s.key)}
+                className={cn('flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] font-semibold hover:bg-muted/40',
+                  falta.length > 0 && 'bg-amber-50/70 dark:bg-amber-950/30')}>
+                <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', !aberta && '-rotate-90')} />
+                <s.icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate">{s.label}</span>
+                {falta.length > 0 && (
+                  <span className="shrink-0 text-[11.5px] font-semibold text-amber-800 dark:text-amber-300">falta {falta.length}</span>
+                )}
+              </button>
+              {aberta && (
+                <div className="space-y-[var(--form-gap)] border-t p-[var(--secao-pad)]">
+                  <ContractSectionNative section={s} ctx={{
+                    form, ro: locked, moedaCode: v.moeda, contractId: row.id, reloadKey: auditVersion,
+                    onOpenSearch: (parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds }),
+                    onNewPartner: () => setNewPartner({}),
+                    onOpenCessaoSearch: (aditivoId, cessaoId, origem) => setCessaoSearch({ aditivoId, cessaoId, origem }),
+                    onActivate: activateAditivo, onRevise: reviseAditivo,
+                    renovacaoLiberada: renovacaoLiberada(defaultScreen, { stepLocked, screenReadOnly: readOnly || undefined }),
+                  }} />
+                  <ContractCustomFields fields={s.customFields} screenValues={screenValues} onScreenChange={onScreenChange} ro={locked} />
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </form>
+      {modais}
+    </div>
+  )
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -480,28 +628,7 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
       </form>
 
 
-      {searchModal && (
-        <EntitySearchModal
-          origem={searchModal.origem}
-          empresas={empresas}
-          excludeIds={searchModal.excludeIds}
-          onSelect={(e) => { form.setParteEntity(searchModal.parteId, e); setSearchModal(null) }}
-          onClose={() => setSearchModal(null)}
-          onNewPartner={() => { const parteId = searchModal.parteId; setSearchModal(null); setNewPartner({ parteId }) }}
-        />
-      )}
-
-      {newPartner && <NewPartnerPanel onCreated={attachPartner} onClose={() => setNewPartner(null)} />}
-
-      {cessaoSearch && (
-        <EntitySearchModal
-          origem={cessaoSearch.origem}
-          empresas={empresas}
-          onSelect={(e) => { form.patchCessao(cessaoSearch.aditivoId, cessaoSearch.cessaoId, { ref_tipo: e.ref_tipo, ref_id: e.ref_id, nome: e.nome, documento: e.documento }); setCessaoSearch(null) }}
-          onClose={() => setCessaoSearch(null)}
-          onNewPartner={() => { const c = cessaoSearch; setCessaoSearch(null); setNewPartner({ cessao: { aditivoId: c.aditivoId, cessaoId: c.cessaoId } }) }}
-        />
-      )}
+      {modais}
     </div>
   )
 }

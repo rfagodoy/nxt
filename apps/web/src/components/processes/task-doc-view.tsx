@@ -4,11 +4,11 @@
    (MDI) — substitui o antigo drawer lateral de /tarefas. Standalone (o host o
    renderiza) porque Next.js proíbe exportar componentes de um page.tsx de rota. */
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Loader2, ArrowRight, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DynamicForm } from '@/components/modules/dynamic-form'
-import { WorkflowScreenTask } from '@/components/processes/workflow-screen-task'
+import { WorkflowScreenTask, type GravarTelas } from '@/components/processes/workflow-screen-task'
 import { ProcessTrail } from '@/components/processes/process-trail'
 import { ActivityHeader } from '@/components/processes/activity-header'
 import { ReturnTaskButton, type ReturnTarget } from '@/components/processes/return-task-button'
@@ -42,8 +42,18 @@ export function TaskDocView({ task, onDone, onNotice }: {
   /* Campos obrigatórios da tela em branco (PO, 09/11/2026): a conclusão foi recusada */
   const [faltantes, setFaltantes] = useState<string[] | null>(null)
   const [returnTargets, setReturnTargets] = useState<ReturnTarget[] | null>(null)
+  /* a recusa veio da ATIVAÇÃO ao concluir (a etapa ativa o contrato), não da tela */
+  const [ativacao, setAtivacao] = useState(false)
   // id da entidade criada/editada por uma tarefa dirigida por Tela (para o "Avançar")
-  const [entityId, setEntityId] = useState<string | null>(null)
+  const [entityId, setEntityIdState] = useState<string | null>(null)
+  /* o Concluir lê o id logo depois de gravar (a criação pode acontecer nesse instante) */
+  const entityIdRef = useRef<string | null>(null)
+  const setEntityId = (id: string | null) => { entityIdRef.current = id; setEntityIdState(id) }
+  /* As telas gravam sozinhas (PO, 22/11/2026); o Concluir grava o que ainda estiver pendente
+     antes de concluir, e uma recusa por obrigatório abre a tela com pendência. */
+  const gravarTelas = useRef<GravarTelas | null>(null)
+  const registrarGravacao = useCallback((g: GravarTelas) => { gravarTelas.current = g }, [])
+  const [revelar, setRevelar] = useState(0)
 
   const isScreen = !!step?.screenRef
   const idVar = screenIdVar(step ?? {})
@@ -95,7 +105,7 @@ export function TaskDocView({ task, onDone, onNotice }: {
       if (!res.ok) {
         const e = await res.json().catch(() => null)
         if (e?.code === 'SEM_CAMINHO') { setSemCaminho(String(e.message)); return }
-        if (e?.code === 'CAMPOS_OBRIGATORIOS') { setFaltantes((e.campos as { campo: string }[]).map((c) => c.campo)); return }
+        if (e?.code === 'CAMPOS_OBRIGATORIOS') { setFaltantes((e.campos as { campo: string }[]).map((c) => c.campo)); setAtivacao(/ativar/i.test(String(e.message ?? ''))); setRevelar((x) => x + 1); return }
         setError(e?.message || 'Não foi possível avançar a tarefa.')
         return
       }
@@ -123,7 +133,15 @@ export function TaskDocView({ task, onDone, onNotice }: {
 
   // "Avançar" para tarefa dirigida por Tela: leva o id da entidade. Exige a entidade
   // salva (decisão do PO) — sem id, o processo seguiria sem referência à entidade.
-  const advanceScreen = () => { if (entityId) void complete({ [idVar]: entityId }) }
+  const advanceScreen = async () => {
+    setSubmitting(true); setError(null)
+    const gravou = await (gravarTelas.current?.() ?? Promise.resolve(true)).catch(() => false)
+    setSubmitting(false)
+    if (!gravou) { setError(`Não foi possível salvar o ${idVar === 'contratoId' ? 'contrato' : 'parceiro'} antes de concluir. Veja o aviso na tela e tente de novo.`); return }
+    const id = entityIdRef.current
+    if (!id) { setError(screenBloqueio(step, null)); return }
+    void complete({ [idVar]: id })
+  }
 
   /* A Tela gravou o registro: o vínculo vai para a tarefa no servidor na hora, para
      sobreviver a fechar a aba ou a uma conclusão recusada. Falha aqui não trava a
@@ -135,7 +153,8 @@ export function TaskDocView({ task, onDone, onNotice }: {
 
   const km = kindMeta(task.instance?.processDefinition?.kind)
   const hasReturn = (returnTargets?.length ?? 0) > 0
-  const advanceDisabled = submitting || (isScreen && !entityId)
+  /* Na criação o Concluir fica ativo: ele grava (cria) e só então conclui. */
+  const advanceDisabled = submitting || (isScreen && !entityId && step?.entityMode === 'VIEW')
 
   /* Bloqueio EXPLICADO, não só um botão apagado: antes o motivo vivia num `title`,
      invisível no toque e para quem não passa o mouse. (Texto em screen-task.ts.) */
@@ -194,7 +213,8 @@ export function TaskDocView({ task, onDone, onNotice }: {
                 rodapé. Ficou uma só, ao lado do botão que ele desliga: é ali que a
                 pessoa descobre que não dá para concluir, e ali que precisa do motivo. */}
             {isScreen ? (
-              <WorkflowScreenTask key={task.id} taskId={task.id} step={step} entityId={entityId} onEntity={vincularEntidade}onEntityGone={() => setEntityId(null)} onCancel={onDone} />
+              <WorkflowScreenTask key={task.id} taskId={task.id} step={step} entityId={entityId} onEntity={vincularEntidade} onEntityGone={() => setEntityId(null)} onCancel={onDone}
+                registrarGravacao={registrarGravacao} revelar={revelar} grafo={grafo as never} nodeId={task.nodeId} />
             ) : (
               // o botão "Avançar" (topo) submete este form via `form=FORM_ID`
               <DynamicForm key={task.id} step={step} stepIndex={0} totalSteps={1} submitting={submitting} onSubmit={complete} formId={FORM_ID} hideActions />
@@ -222,7 +242,7 @@ export function TaskDocView({ task, onDone, onNotice }: {
         {hasReturn && <ReturnTaskButton taskId={task.id} onReturned={onDone} label="Retroceder" targets={returnTargets ?? undefined} />}
         <Button
           size="sm"
-          onClick={isScreen ? advanceScreen : undefined}
+          onClick={isScreen ? () => void advanceScreen() : undefined}
           {...(!isScreen ? { type: 'submit' as const, form: FORM_ID } : {})}
           disabled={advanceDisabled}
           title={bloqueio ?? 'Concluir a tarefa e avançar o processo'}
@@ -237,11 +257,11 @@ export function TaskDocView({ task, onDone, onNotice }: {
         </>} />
       <NoticeDialog open={!!faltantes} title="Faltam campos obrigatórios" onClose={() => setFaltantes(null)}
         message={<>
-          <span className="block">Para concluir esta atividade, preencha:</span>
+          <span className="block">{ativacao ? 'Esta atividade ativa o contrato ao concluir. Para ativar, preencha:' : 'Para concluir esta atividade, preencha:'}</span>
           <ul className="mt-2 list-disc pl-5 font-semibold text-foreground">
             {(faltantes ?? []).map((campo) => <li key={campo}>{campo}</li>)}
           </ul>
-          <span className="mt-2 block text-muted-foreground">Depois de preencher, salve o contrato e clique em Concluir tarefa de novo.</span>
+          <span className="mt-2 block text-muted-foreground">{ativacao ? 'Preencha na tela do contrato e clique em Concluir tarefa de novo.' : 'As telas com pendência foram abertas. Depois de preencher, clique em Concluir tarefa de novo.'}</span>
         </>} />
     </div>
   )
