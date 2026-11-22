@@ -7,8 +7,9 @@ import {
   compileBpmn, CompileError, type WfGraph, validarDesenho, validarDecisoes, validarAtividades, validarTelasDasAtividades, validarExecutores, validarExecutoresFixos, validarQuemInicia, formatarProblemas, bloqueantes,
   type ProblemaAtivacao, resumoDeInicio, type EtapaPrevia,
   lerFluxoBlocos, blocosParaGrafo, grafoParaBlocos, grafoParaMotor, generateBpmn, pendenciasDosBlocos, SUFIXO_REENCONTRO,
-  CHAVES_SO_VISUAIS, canonico, fluxoQueExecuta, assinaturaDoQueExecuta,
+  CHAVES_SO_VISUAIS, canonico, fluxoQueExecuta, assinaturaDoQueExecuta, validarCamposDosFiltros,
 } from '@nxt/workflow-core'
+import { campoDoFiltroExigivel, camposCobradosAoConcluir, reconcileNative, rotulosDosCamposDoFiltro, type Screen } from '@nxt/screens-core'
 
 /** Desenho livre do editor antigo que não cabe em blocos: pode conter as formas que
  *  travam o motor (junção esperando caminho de decisão, volta entrando num paralelo…). */
@@ -440,6 +441,22 @@ export class ProcessesService {
           select: { id: true, name: true, readOnly: true },
         })
         problemas.push(...validarTelasDasAtividades(stepsDeUsuario, telas))
+      }
+      /* Campo testado no filtro de uma escolha precisa ser cobrado antes dela (PO, 22/11/2026):
+         em branco, a escolha seguiria pelo caso contrário sem avisar. Mesma regra do editor. */
+      if ((editorGraph.edges ?? []).some((e) => e.conditionSpec?.rules?.length)) {
+        const telasDeContrato = ((await this.prisma.screen.findMany({
+          where:   { organizationId, subjectType: 'CONTRATO' },
+          include: { sections: { orderBy: { order: 'asc' } }, fields: { orderBy: { order: 'asc' } } },
+        })) as unknown as Screen[]).map(reconcileNative)
+        const rotulos = rotulosDosCamposDoFiltro(telasDeContrato)
+        problemas.push(...validarCamposDosFiltros({
+          nodes: nosDoEditor.map((n) => ({ ...n, name: nomeDoStep.get(n.id) || n.name })),
+          edges: editorGraph.edges,
+          cobrados: new Map(stepsDeUsuario.map((s) => [s.stepId, camposCobradosAoConcluir(s, telasDeContrato)])),
+          exigivel: campoDoFiltroExigivel,
+          rotuloDoCampo: (c) => rotulos.get(c),
+        }))
       }
       /* Executor "Da variável" pelo contrato do processo: precisa dizer o stakeholder, ele
          tem de combinar com o papel, e o processo tem de ter contrato até ali — na partida

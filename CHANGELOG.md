@@ -6,6 +6,7 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ### Alterado
 
+- **Filtro de escolha só testa campo garantido:** o workflow não ativa se uma escolha testa um campo do contrato que nenhuma atividade antes dela exige, ou que só é exigido em parte dos caminhos até ela. Vale para campos do sistema e personalizados; a mensagem diz o campo, a escolha e onde marcar. Situação, Prazo indeterminado e "Onde a equipe trabalha" ficam de fora.
 - **Campos obrigatórios valem dentro do workflow:** "Concluir tarefa" agora cobra os obrigatórios das telas da atividade e lista pelo nome o que falta. Antes, eles só eram cobrados ao ativar o contrato. Campo oculto, travado ou em tela de consulta não é cobrado.
 - **Campos do sistema podem ser obrigatórios nas Telas de Contrato:** a coluna "Obrigatório" passa a valer para campos como "Mão de obra alocada", com asterisco no formulário. Número, Título, Situação e Prazo indeterminado continuam definidos pelo sistema.
 - **Rolagem lateral nas tabelas:** quando as colunas não cabem na tela, as tabelas mostram a barra de rolagem e deslizam para os lados.
