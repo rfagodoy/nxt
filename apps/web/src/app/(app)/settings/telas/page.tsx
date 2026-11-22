@@ -3,10 +3,12 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Plus, LayoutTemplate, Search, Pencil, Trash2, Check, X, Star, Lock, Copy } from 'lucide-react'
+import { Plus, LayoutTemplate, Search, Star, Lock } from 'lucide-react'
 import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
 import { cn } from '@/lib/utils'
 import { SELO } from '@/components/list/selo'
+import { Indicadores } from '@/components/list/indicadores'
+import { MenuDeAcoes } from '@/components/list/menu-de-acoes'
 import { useScreens, deleteScreen, duplicateScreen, saveScreen } from '@/hooks/use-screens'
 import { buildNativeSeed } from '@/lib/screen-native-structure'
 import { SUBJECT_LABELS, STATUS_LABELS, type Screen, type ScreenSubject, type ScreenStatus } from '@/lib/screen-types'
@@ -33,7 +35,8 @@ export default function TelasPage() {
   const [search, setSearch]     = useState('')
   const [subj,   setSubj]       = useState<'ALL' | ScreenSubject>('ALL')
   const [status, setStatus]     = useState<'ALL' | ScreenStatus>('ALL')
-  const [confirming, setConfirming] = useState<string | null>(null)
+  /* Indicadores no topo, como nas outras listas: o clique filtra. */
+  const [indicador, setIndicador] = useState<string | null>(null)
   const [duplicando, setDuplicando] = useState<string | null>(null)
   const router = useRouter()
 
@@ -60,7 +63,7 @@ export default function TelasPage() {
     })()
   }, [loading, screens, reload])
 
-  const remove = async (id: string) => { await deleteScreen(id); setConfirming(null); void reload() }
+  const remove = async (id: string) => { await deleteScreen(id); void reload() }
   /* Duplicar leva direto para a cópia: quem duplica quer mexer nela agora. */
   const duplicar = async (id: string) => {
     if (duplicando) return
@@ -82,14 +85,15 @@ export default function TelasPage() {
     return screens.filter(s =>
       (subj === 'ALL' || s.subjectType === subj) &&
       (status === 'ALL' || s.status === status) &&
+      (!indicador || (indicador === 'CONSULTA' ? s.readOnly : indicador === 'DRAFT' ? s.status === 'DRAFT' : s.subjectType === indicador)) &&
       (!q || s.name.toLowerCase().includes(q) || (s.description ?? '').toLowerCase().includes(q)),
     )
-  }, [screens, search, subj, status])
+  }, [screens, search, subj, status, indicador])
 
   const selCls = 'h-7 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
 
   return (
-    <div className="max-w-5xl mx-auto space-y-3">
+    <div className="space-y-3">
       {/* cabeçalho */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
@@ -124,6 +128,16 @@ export default function TelasPage() {
         </div>
       )}
 
+      {mounted && !loading && (
+        <Indicadores className="grid-cols-2 sm:grid-cols-5" ativo={indicador} onSelect={setIndicador} itens={[
+          { label: 'Total', valor: screens.length, cls: 'text-foreground', filtro: null },
+          { label: 'Contrato', valor: screens.filter((s) => s.subjectType === 'CONTRATO').length, cls: 'text-purple-600 dark:text-purple-400', filtro: 'CONTRATO' },
+          { label: 'Parceiro', valor: screens.filter((s) => s.subjectType === 'FORNECEDOR').length, cls: 'text-teal-600 dark:text-teal-400', filtro: 'FORNECEDOR' },
+          { label: 'Somente consulta', valor: screens.filter((s) => s.readOnly).length, cls: 'text-amber-600 dark:text-amber-400', filtro: 'CONSULTA' },
+          { label: 'Rascunho', valor: screens.filter((s) => s.status === 'DRAFT').length, cls: 'text-blue-600 dark:text-blue-400', filtro: 'DRAFT' },
+        ]} />
+      )}
+
       {/* tabela */}
       <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
         <div className="overflow-auto rolagem-visivel max-h-[calc(100vh-13rem)]">
@@ -135,7 +149,7 @@ export default function TelasPage() {
                 <th className={'text-left ' + DENS_CAB + ' font-medium text-muted-foreground w-28'}>Situação</th>
                 <th className={'text-center ' + DENS_CAB + ' font-medium text-muted-foreground w-20'}>Padrão</th>
                 <th className={'text-center ' + DENS_CAB + ' font-medium text-muted-foreground w-24'}>Campos</th>
-                <th className="w-20" />
+                <th className={'text-right ' + DENS_CAB + ' font-medium text-muted-foreground w-28'}>Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -167,19 +181,13 @@ export default function TelasPage() {
                   <td className={cn(DENS_CEL, 'text-center text-muted-foreground tabular-nums')}>{custom(s)} pers.</td>
                   <td className={cn(DENS_CEL, 'cursor-default')} onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1">
-                      <Link href={`/settings/telas/${s.id}`} title="Editar" className="h-[var(--lista-acao)] w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted opacity-0 group-hover/row:opacity-100 transition-all"><Pencil className="h-3.5 w-3.5" /></Link>
-                      <button onClick={() => void duplicar(s.id)} disabled={!!duplicando} title="Duplicar — cria um rascunho com as mesmas marcações"
-                        className="h-[var(--lista-acao)] w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted opacity-0 group-hover/row:opacity-100 transition-all disabled:opacity-40"><Copy className="h-3.5 w-3.5" /></button>
-                      {s.isSystem ? (
-                        <span title="Tela do sistema — não pode ser excluída" className="h-[var(--lista-acao)] w-6 inline-flex items-center justify-center text-muted-foreground/40"><Lock className="h-3 w-3" /></span>
-                      ) : confirming === s.id ? (
-                        <>
-                          <button onClick={() => void remove(s.id)} title="Confirmar" className="h-[var(--lista-acao)] w-6 inline-flex items-center justify-center rounded text-destructive hover:bg-destructive/10"><Check className="h-3.5 w-3.5" /></button>
-                          <button onClick={() => setConfirming(null)} title="Cancelar" className="h-[var(--lista-acao)] w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:bg-muted"><X className="h-3.5 w-3.5" /></button>
-                        </>
-                      ) : (
-                        <button onClick={() => setConfirming(s.id)} className="h-[var(--lista-acao)] w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover/row:opacity-100 transition-all"><Trash2 className="h-3.5 w-3.5" /></button>
-                      )}
+                      <Link href={`/settings/telas/${s.id}`} className="inline-flex h-[var(--lista-acao)] items-center rounded-md border px-2 text-[11px] font-medium hover:bg-muted transition-colors">Editar</Link>
+                      <MenuDeAcoes rotulo={`Mais ações da tela ${s.name}`} acoes={[
+                        { rotulo: duplicando === s.id ? 'Duplicando…' : 'Duplicar', onClick: () => void duplicar(s.id), desabilitada: !!duplicando },
+                        s.isSystem
+                          ? { rotulo: 'Excluir', onClick: () => {}, perigo: true, desabilitada: true, motivo: 'tela do sistema' }
+                          : { rotulo: 'Excluir', onClick: () => void remove(s.id), perigo: true, confirmar: 'Confirmar exclusão' },
+                      ]} />
                     </div>
                   </td>
                 </tr>

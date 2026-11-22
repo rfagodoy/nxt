@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  UserPlus, KeyRound, Pencil, Loader2, AlertCircle, ShieldCheck, X, RefreshCw, ArrowRightLeft,
+  UserPlus, Loader2, AlertCircle, ShieldCheck, X, RefreshCw,
   Settings2, ChevronsUpDown, ArrowUp, ArrowDown,
 } from 'lucide-react'
 import { apiFetch } from '@/lib/http'
+import { MenuDeAcoes } from '@/components/list/menu-de-acoes'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -25,7 +26,7 @@ import { Indicadores } from '@/components/list/indicadores'
 import { useFiltroColuna, BotaoFiltroColuna, LinhaFiltroColuna } from '@/components/list/filtro-coluna'
 
 /* botão de ação da linha: cabe na altura da linha da densidade (não a estica) */
-const ACAO = 'h-[var(--lista-acao)] w-7 px-0'
+const ACAO_NOMEADA = 'inline-flex h-[var(--lista-acao)] items-center rounded-md border px-2 text-[11px] font-medium hover:bg-muted transition-colors'
 
 interface UserRow {
   id: string
@@ -273,11 +274,15 @@ export default function UsuariosPage() {
                   ))}
                   <td className={cn(DENS_CEL, 'text-right')} onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="sm" className={ACAO} onClick={() => openEdit(u)} title="Editar"><Pencil className="h-3.5 w-3.5" /></Button>
-                      <Button variant="ghost" size="sm" className={ACAO} onClick={() => openPassword(u)} title="Resetar senha"><KeyRound className="h-3.5 w-3.5" /></Button>
-                      {/* férias/afastamento/desligamento: o trabalho pendente precisa
-                          de dono, senão o processo inteiro para junto com a pessoa */}
-                      <Button variant="ghost" size="sm" className={ACAO} onClick={() => setTransfer(u)} title="Transferir tarefas pendentes"><ArrowRightLeft className="h-3.5 w-3.5" /></Button>
+                      {/* Ações com nome (auditoria de UX, 22/11/2026): eram três ícones sem
+                          texto. Editar fica à vista; o resto, no menu "⋯". */}
+                      <button type="button" onClick={() => openEdit(u)} className={ACAO_NOMEADA}>Editar</button>
+                      <MenuDeAcoes rotulo={`Mais ações de ${u.name}`} acoes={[
+                        { rotulo: 'Redefinir senha', onClick: () => openPassword(u) },
+                        /* férias/afastamento/desligamento: o trabalho pendente precisa
+                           de dono, senão o processo inteiro para junto com a pessoa */
+                        { rotulo: 'Transferir tarefas pendentes', onClick: () => setTransfer(u) },
+                      ]} />
                     </div>
                   </td>
                 </tr>
@@ -429,7 +434,7 @@ function PasswordModal({ user, onClose }: { user: UserRow; onClose: (reload?: bo
   }
 
   return (
-    <Modal title={`Resetar senha — ${user.name}`} onClose={() => onClose()}>
+    <Modal title={`Redefinir senha — ${user.name}`} onClose={() => onClose()}>
       <form onSubmit={save} className="space-y-3">
         {error && <ErrorBox message={error} />}
         <div className="space-y-1.5">
