@@ -4,6 +4,8 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ## [Não lançado]
 
+## [2.2.1] — Boole — 2026-11-22
+
 ### Alterado
 
 - **Editor de workflow mais fácil de ler (opção A do PO, 22/11/2026):**
