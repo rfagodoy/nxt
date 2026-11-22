@@ -42,6 +42,30 @@ export function abasDaAtividade(step: Pick<StepFormSchema, 'screenRef' | 'entity
   return abas
 }
 
+/** Uma tela da tarefa na EXECUÇÃO, na ordem em que aparece (PO, 22/11/2026). */
+export interface TelaDaTarefa extends AbaDaAtividade {
+  /** começa aberta (false = uma linha com o título, que a pessoa abre) */
+  aberta: boolean
+}
+
+/**
+ * As telas da tarefa empilhadas, na ordem configurada na atividade: a principal na
+ * `posicaoDaPrincipal` (padrão: primeira) e as adicionais na ordem da lista ao redor dela.
+ * Sem configuração, é a ordem de antes e todas abertas — workflows antigos não mudam.
+ */
+export function telasDaTarefa(
+  step: Pick<StepFormSchema, 'screenRef' | 'entityMode' | 'extraScreens' | 'posicaoDaPrincipal' | 'principalFechada'>,
+): TelaDaTarefa[] {
+  const abas = abasDaAtividade(step)
+  if (!abas.length) return []
+  const fechadas = new Set((step.extraScreens ?? []).filter(e => e.fechada).map(e => e.screenRef))
+  const [principal, ...extras] = abas.map(a => ({
+    ...a, aberta: a.principal ? !step.principalFechada : !fechadas.has(a.screenRef),
+  }))
+  const pos = Math.max(0, Math.min(extras.length, Math.trunc(step.posicaoDaPrincipal ?? 0)))
+  return [...extras.slice(0, pos), principal, ...extras.slice(pos)]
+}
+
 /**
  * Camadas de trava que a ETAPA impõe numa das suas telas — ou null se a tela não é aba
  * desta etapa (aí a gravação não pode se valer da tarefa). Aba de consulta força a tela

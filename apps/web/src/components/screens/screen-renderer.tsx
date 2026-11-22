@@ -1,10 +1,20 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { createContext, useContext, useState, type ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Screen, ScreenField } from '@/lib/screen-types'
 import { fieldLocked, lockCtx } from '@/lib/screen-locks'
+import { fieldValueKey } from '@/lib/screen-types'
+
+/** Lista com até este número de opções aparece como botões (PO, 22/11/2026). */
+const MAX_OPCOES_EM_BOTOES = 3
+
+/** Quem sabe para onde o processo vai em cada resposta de um campo (só dentro de uma tarefa
+ *  de workflow). Recebe a chave do campo e os valores; devolve valor → nome da etapa. */
+export type DestinosDoCampo = (chave: string, valores: string[]) => Map<string, string> | null
+const DestinosContext = createContext<DestinosDoCampo | null>(null)
+export const DestinosDosCamposProvider = DestinosContext.Provider
 
 const inputCls = 'flex h-[var(--campo-altura)] w-full rounded-md border border-input bg-background px-2.5 text-[length:var(--campo-fonte)] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
 const readCls  = 'text-[length:var(--campo-fonte)] text-foreground/90 py-1'
@@ -93,6 +103,29 @@ function NativeValue({ value }: { value: string }) {
 
 /** Input de um campo CUSTOM (captura persistida), sem rótulo — reutilizado no
  *  cadastro dirigido pela tela (R2), envolto pelo `Field` nativo do parceiro. */
+/** Lista curta como botões: uma resposta à vista, um toque. Se o campo decide a escolha
+ *  logo depois da tarefa, diz para onde o processo vai com a resposta marcada. */
+function SelectEmBotoes({ field, value, onChange }: { field: ScreenField; value: string; onChange: (v: string) => void }) {
+  const destinos = useContext(DestinosContext)?.(`contrato.${fieldValueKey(field)}`, field.options!.map(o => o.value)) ?? null
+  const destino = value ? destinos?.get(value) : undefined
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <div role="radiogroup" aria-label={field.label} className="inline-flex rounded-md border bg-background p-0.5 gap-0.5">
+        {field.options!.map(o => (
+          <button key={o.value} type="button" role="radio" aria-checked={value === o.value} onClick={() => onChange(o.value)}
+            className={cn('min-h-[var(--campo-altura)] min-w-[4.5rem] rounded px-3 text-[length:var(--campo-fonte)] transition-colors',
+              value === o.value ? 'bg-primary font-semibold text-primary-foreground' : 'text-foreground hover:bg-muted')}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+      {destino && (
+        <span className="text-[11.5px] text-muted-foreground">O processo segue para <span className="font-semibold text-foreground">{destino}</span></span>
+      )}
+    </div>
+  )
+}
+
 export function ScreenCustomInput(props: {
   field: ScreenField; value: string; ro?: boolean; onChange: (v: string) => void
 }) {
@@ -137,6 +170,8 @@ function CustomInput({ field, value, ro, onChange }: {
     case 'email':    return <input type="email" value={value} onChange={e => onChange(e.target.value)} placeholder={ph} className={inputCls} />
     case 'phone':    return <input type="tel" value={value} onChange={e => onChange(e.target.value)} placeholder={ph} className={inputCls} />
     case 'select':
+      if ((field.options?.length ?? 0) > 0 && field.options!.length <= MAX_OPCOES_EM_BOTOES)
+        return <SelectEmBotoes field={field} value={value} onChange={onChange} />
       return (
         <select value={value} onChange={e => onChange(e.target.value)} className={inputCls}>
           <option value="">Selecione...</option>

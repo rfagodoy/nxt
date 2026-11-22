@@ -167,8 +167,26 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
     const novo = { ...e, ...patch }
     return entityScreens.find((s) => s.id === novo.screenRef)?.readOnly ? { ...novo, mode: 'VIEW' as const } : novo
   }))
-  const moverExtra = (i: number, d: -1 | 1) => { const l = [...extras]; const [x] = l.splice(i, 1); l.splice(i + d, 0, x); gravarExtras(l) }
-  const removerExtra = (i: number) => gravarExtras(extras.filter((_, j) => j !== i))
+  /* TELAS DA TAREFA (PO, 22/11/2026): na execução elas aparecem uma embaixo da outra, na
+     ordem desta lista, cada uma aberta ou fechada. A principal entra na lista como as outras;
+     a posição dela é `posicaoDaPrincipal` e as adicionais seguem a ordem de `extraScreens`. */
+  type ItemDaLista = { tipo: 'principal' } | { tipo: 'extra'; i: number }
+  const posPrincipal = Math.max(0, Math.min(extras.length, step.posicaoDaPrincipal ?? 0))
+  const itensDaLista: ItemDaLista[] = [
+    ...extras.slice(0, posPrincipal).map((_, i) => ({ tipo: 'extra' as const, i })),
+    { tipo: 'principal' as const },
+    ...extras.slice(posPrincipal).map((_, k) => ({ tipo: 'extra' as const, i: posPrincipal + k })),
+  ]
+  const moverNaLista = (k: number, d: -1 | 1) => {
+    const l = [...itensDaLista]; const [x] = l.splice(k, 1); l.splice(k + d, 0, x)
+    const novas = l.flatMap((it) => (it.tipo === 'extra' ? [extras[it.i]] : []))
+    const pos = l.findIndex((it) => it.tipo === 'principal')
+    onPatchStep({ extraScreens: novas.length ? novas : undefined, posicaoDaPrincipal: pos > 0 ? pos : undefined })
+  }
+  const removerExtra = (i: number) => {
+    const pos = i < posPrincipal ? posPrincipal - 1 : posPrincipal
+    onPatchStep({ extraScreens: extras.length > 1 ? extras.filter((_, j) => j !== i) : undefined, posicaoDaPrincipal: pos > 0 ? pos : undefined })
+  }
 
   /* Campos que a atividade pode travar: os de TODAS as telas que editam (principal +
      abas "Editar"), cada campo listado uma vez — a trava é por chave do tipo. */
@@ -498,6 +516,16 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
                   onMudar={(m) => onPatchStep({ entityMode: m, entityVar: undefined, ...(m === 'CREATE' ? { lockedFields: undefined } : {}) })}
                   opcoes={(['CREATE', 'EDIT', 'VIEW'] as const).map((m) => ({ v: m, titulo: `${ENTITY_MODE_LABEL[m]} ${entityWord}`, descricao: ENTITY_MODE_CURTO[m] }))} />
               )}
+              {step.screenSubject === 'CONTRATO' && (step.entityMode ?? 'CREATE') !== 'VIEW' && (
+                <label className="flex items-start gap-2 text-xs">
+                  <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[hsl(var(--primary))]" checked={!!step.ativaContratoAoConcluir}
+                    onChange={(ev) => onPatchStep({ ativaContratoAoConcluir: ev.target.checked || undefined })} />
+                  <span>
+                    <span className="font-semibold">Ao concluir, ativa o contrato</span>
+                    <span className="block text-muted-foreground">O Concluir confere o que a ativação exige e leva o contrato para Vigente. Sem a marca, ele segue em cadastro.</span>
+                  </span>
+                </label>
+              )}
               {telaSel && (
                 <div className="rounded-lg border bg-muted/20">
                   <button type="button" aria-expanded={maisDaTela} onClick={() => setMaisDaTela((v) => !v)}
@@ -505,56 +533,80 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
                     <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 transition-transform', !maisDaTela && '-rotate-90')} />
                     Mais opções da tela
                     <span className="truncate font-normal text-muted-foreground">
-                      · {extras.length ? `${extras.length} aba${extras.length > 1 ? 's' : ''} a mais` : 'outras abas'}
+                      · {extras.length ? `${extras.length + 1} telas na tarefa` : 'outras telas e ordem'}
                       {step.entityMode === 'EDIT' ? `, ${travados.length} campo${travados.length === 1 ? '' : 's'} travado${travados.length === 1 ? '' : 's'}` : ''}
                     </span>
                   </button>
                   {maisDaTela && (
                     <div className="flex flex-col gap-4 border-t px-3 py-3">
-                      <GField label={`Telas adicionais (o mesmo ${entityWord})`} wide
-                        hint={`Na execução, cada tela vira uma aba depois da principal, mostrando o mesmo ${entityWord}. Serve para separar o que esta etapa altera do que ela só consulta.${(step.entityMode ?? 'CREATE') === 'CREATE' ? ` As abas adicionais liberam depois que o ${entityWord} for salvo na principal.` : ''}${atividadeSoConsulta ? ' Nesta atividade de consulta, todas abrem em leitura.' : ''}`}>
+                      <GField label="Telas da tarefa, nesta ordem" wide
+                        hint={`Na execução, as telas aparecem uma embaixo da outra, nesta ordem, todas mostrando o mesmo ${entityWord}. “Fechada” começa recolhida e a pessoa abre quando quiser; uma tela de editar fechada com obrigatório pendente mostra o que falta e abre sozinha ao concluir.${(step.entityMode ?? 'CREATE') === 'CREATE' ? ` As outras telas liberam depois que o ${entityWord} começar a ser salvo na principal.` : ''}${atividadeSoConsulta ? ' Nesta atividade de consulta, todas abrem em leitura.' : ''}`}>
                         <div className="space-y-1.5">
-                          {extras.map((e, i) => {
-                            const opcoes = telasDoTipo.filter((s) => s.id === e.screenRef || !usadas.has(s.id))
-                            const telaDaAba = entityScreens.find((s) => s.id === e.screenRef)
-                            const modoEfetivo = atividadeSoConsulta || telaDaAba?.readOnly ? 'VIEW' : e.mode
+                          {itensDaLista.map((it, k) => {
+                            const principal = it.tipo === 'principal'
+                            const e = it.tipo === 'extra' ? extras[it.i] : null
+                            const telaDaLinha = e ? entityScreens.find((s) => s.id === e.screenRef) : telaSel
+                            const modoEfetivo = atividadeSoConsulta || telaDaLinha?.readOnly ? 'VIEW' : e ? e.mode : 'EDIT'
+                            const fechada = e ? !!e.fechada : !!step.principalFechada
+                            const opcoes = e ? telasDoTipo.filter((s) => s.id === e.screenRef || !usadas.has(s.id)) : []
                             return (
-                              <div key={`${e.screenRef}-${i}`} className="flex items-start gap-1.5">
-                                <span className="mt-1.5 w-5 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">{i + 2}.</span>
-                                {/* sem espaço na gaveta, as ações descem e o nome da tela fica com a linha toda */}
-                                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-                                <Select value={e.screenRef} onValueChange={(v) => setExtra(i, { screenRef: v })}>
-                                  <SelectTrigger className={cn(CAMPO, 'min-w-0 flex-[1_1_15rem]')} title={telaDaAba?.name}><SelectValue placeholder="Tela removida" /></SelectTrigger>
-                                  <SelectContent>
-                                    {opcoes.map((s) => <SelectItem key={s.id} value={s.id} className="text-xs">{s.name}{s.readOnly ? ' · somente consulta' : ''}</SelectItem>)}
-                                  </SelectContent>
-                                </Select>
-                                <div className="ml-auto flex shrink-0 items-center gap-1.5">
-                                <div className="flex shrink-0 overflow-hidden rounded-md border text-xs" role="group" aria-label="O que esta aba faz">
-                                  {(['EDIT', 'VIEW'] as const).map((m) => (
-                                    <button key={m} type="button" aria-pressed={modoEfetivo === m}
-                                      disabled={atividadeSoConsulta || (m === 'EDIT' && !!telaDaAba?.readOnly)}
-                                      title={m === 'EDIT' && telaDaAba?.readOnly ? 'Esta tela é somente consulta' : undefined}
-                                      onClick={() => setExtra(i, { mode: m })}
-                                      className={cn('px-2 py-1.5 transition-colors disabled:cursor-not-allowed',
-                                        modoEfetivo === m ? 'bg-primary font-semibold text-primary-foreground' : 'text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:hover:bg-transparent')}>
-                                      {m === 'EDIT' ? 'Editar' : 'Consultar'}
-                                    </button>
-                                  ))}
-                                </div>
-                                <button type="button" title="Mostrar esta aba antes" aria-label="Subir aba" disabled={i === 0} onClick={() => moverExtra(i, -1)}
-                                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent">
-                                  <ChevronUp className="h-3.5 w-3.5" />
-                                </button>
-                                <button type="button" title="Mostrar esta aba depois" aria-label="Descer aba" disabled={i === extras.length - 1} onClick={() => moverExtra(i, 1)}
-                                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent">
-                                  <ChevronDown className="h-3.5 w-3.5" />
-                                </button>
-                                <button type="button" title="Remover esta tela" aria-label="Remover tela adicional" onClick={() => removerExtra(i)}
-                                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                                </div>
+                              <div key={e ? `${e.screenRef}-${k}` : 'principal'} className="flex items-start gap-1.5 rounded-md border bg-card px-1.5 py-1.5">
+                                <span className="mt-1.5 w-5 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">{k + 1}.</span>
+                                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                                  {!e ? (
+                                    <p className="min-w-0 truncate pt-1 text-xs font-semibold" title={telaSel.name}>
+                                      {telaSel.name} <span className="font-normal text-muted-foreground">· principal, {ENTITY_MODE_LABEL[step.entityMode ?? 'CREATE'].toLowerCase()}</span>
+                                    </p>
+                                  ) : (
+                                    <Select value={e.screenRef} onValueChange={(v) => it.tipo === 'extra' && setExtra(it.i, { screenRef: v })}>
+                                      <SelectTrigger className={cn(CAMPO, 'min-w-0')} title={telaDaLinha?.name}><SelectValue placeholder="Tela removida" /></SelectTrigger>
+                                      <SelectContent>
+                                        {opcoes.map((s) => <SelectItem key={s.id} value={s.id} className="text-xs">{s.name}{s.readOnly ? ' · somente consulta' : ''}</SelectItem>)}
+                                      </SelectContent>
+                                    </Select>
+                                  )}
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    {it.tipo === 'extra' && (
+                                      <div className="flex shrink-0 overflow-hidden rounded-md border text-xs" role="group" aria-label="O que esta tela faz">
+                                        {(['EDIT', 'VIEW'] as const).map((m) => (
+                                          <button key={m} type="button" aria-pressed={modoEfetivo === m}
+                                            disabled={atividadeSoConsulta || (m === 'EDIT' && !!telaDaLinha?.readOnly)}
+                                            title={m === 'EDIT' && telaDaLinha?.readOnly ? 'Esta tela é somente consulta' : undefined}
+                                            onClick={() => setExtra(it.i, { mode: m })}
+                                            className={cn('px-2 py-1.5 transition-colors disabled:cursor-not-allowed',
+                                              modoEfetivo === m ? 'bg-primary font-semibold text-primary-foreground' : 'text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:hover:bg-transparent')}>
+                                            {m === 'EDIT' ? 'Editar' : 'Consultar'}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
+                                    <div className="flex shrink-0 overflow-hidden rounded-md border text-xs" role="group" aria-label="Como esta tela começa na tarefa">
+                                      {([false, true] as const).map((f) => (
+                                        <button key={String(f)} type="button" aria-pressed={fechada === f}
+                                          onClick={() => (it.tipo === 'extra' ? setExtra(it.i, { fechada: f || undefined }) : onPatchStep({ principalFechada: f || undefined }))}
+                                          className={cn('px-2 py-1.5 transition-colors',
+                                            fechada === f ? 'bg-secondary font-semibold text-foreground ring-1 ring-inset ring-border' : 'text-muted-foreground hover:bg-muted')}>
+                                          {f ? 'Fechada' : 'Aberta'}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <div className="ml-auto flex shrink-0 items-center">
+                                      <button type="button" title="Mostrar esta tela antes" aria-label="Subir tela" disabled={k === 0} onClick={() => moverNaLista(k, -1)}
+                                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent">
+                                        <ChevronUp className="h-3.5 w-3.5" />
+                                      </button>
+                                      <button type="button" title="Mostrar esta tela depois" aria-label="Descer tela" disabled={k === itensDaLista.length - 1} onClick={() => moverNaLista(k, 1)}
+                                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent">
+                                        <ChevronDown className="h-3.5 w-3.5" />
+                                      </button>
+                                      {it.tipo === 'extra' && (
+                                        <button type="button" title="Remover esta tela" aria-label="Remover tela adicional" onClick={() => removerExtra(it.i)}
+                                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
                             )

@@ -6,6 +6,11 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ### Alterado
 
+- **Tarefa sem abas: telas uma embaixo da outra.** As telas da atividade aparecem empilhadas, na ordem definida no editor, cada uma aberta ou fechada. As de consulta têm aparência de leitura, e um atalho "Ir para" no topo leva a cada tela e mostra quantos obrigatórios faltam. Tela fechada com pendência mostra "falta N" e abre sozinha quando o Concluir esbarra nela.
+  - No editor, "Telas da tarefa, nesta ordem" inclui a tela principal, com subir/descer e Aberta/Fechada em cada uma. Workflows existentes continuam na ordem de antes, com tudo aberto.
+- **O contrato grava sozinho dentro da tarefa.** Saem Salvar, Ativar, Fechar e o aviso "Contrato aberto para edição"; o topo diz "Salvo às HH:MM". Na criação, o contrato começa a ser salvo assim que Número e Título estão preenchidos. O Concluir grava o que estiver pendente antes de concluir.
+- **"Ao concluir, ativa o contrato":** nova marca na atividade. O Concluir confere o que a ativação exige e leva o contrato para Vigente; sem a marca, ele segue em cadastro.
+- **Listas curtas viram botões:** campo de lista com até 3 opções aparece como botões em qualquer tela. Dentro de uma tarefa, se o campo decide a escolha logo à frente, a resposta marcada mostra para onde o processo segue.
 - **Filtro de escolha só testa campo garantido:** o workflow não ativa se uma escolha testa um campo do contrato que nenhuma atividade antes dela exige, ou que só é exigido em parte dos caminhos até ela. Vale para campos do sistema e personalizados; a mensagem diz o campo, a escolha e onde marcar. Situação, Prazo indeterminado e "Onde a equipe trabalha" ficam de fora.
 - **Campos obrigatórios valem dentro do workflow:** "Concluir tarefa" agora cobra os obrigatórios das telas da atividade e lista pelo nome o que falta. Antes, eles só eram cobrados ao ativar o contrato. Campo oculto, travado ou em tela de consulta não é cobrado.
 - **Campos do sistema podem ser obrigatórios nas Telas de Contrato:** a coluna "Obrigatório" passa a valer para campos como "Mão de obra alocada", com asterisco no formulário. Número, Título, Situação e Prazo indeterminado continuam definidos pelo sistema.

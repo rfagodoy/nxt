@@ -19,5 +19,8 @@ export function screenBloqueio(step: StepFormSchema | null | undefined, entityId
   const entidade = screenIdVar(step) === 'contratoId' ? 'contrato' : 'parceiro'
   return step.entityMode === 'VIEW'
     ? `Esta etapa consulta um ${entidade} que o processo ainda não tem: nenhuma etapa anterior o criou. Avise quem desenhou o workflow.`
-    : `Salve o ${entidade} antes de concluir — o processo precisa da referência para seguir.`
+    : entidade === 'contrato'
+      /* na tarefa o contrato é salvo sozinho (PO, 22/11/2026): o que falta é preenchê-lo */
+      ? 'Preencha o contrato: ele é salvo sozinho e, depois de salvo, a tarefa pode ser concluída.'
+      : `Salve o ${entidade} antes de concluir — o processo precisa da referência para seguir.`
 }

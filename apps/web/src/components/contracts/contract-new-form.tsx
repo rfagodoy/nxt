@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, FileText, Calendar, DollarSign, RefreshCw, Users, Paperclip, ChevronDown, TrendingDown, TrendingUp, Eye } from 'lucide-react'
@@ -14,6 +14,7 @@ import type { Screen } from '@/lib/screen-types'
 import { ContractSectionNative, ContractCustomFields } from './contract-screen-body'
 import { EntitySearchModal, type EntityRef } from './entity-search-modal'
 import { NewPartnerPanel } from './new-partner-panel'
+import type { ContratoNaTarefa } from './contract-detail-view'
 import {
   useContractForm, IdentificacaoFields, VigenciaFields, ValoresFields,
   ReajustesFields, PartesFields, DocumentosFields, LancamentosFields,
@@ -59,9 +60,11 @@ interface ContractNewFormProps {
   lockedFields?: string[]
   /** gravação de dentro de uma tarefa (a API aplica a tela da etapa) */
   origem?: OrigemDaTarefa
+  /** dentro de uma tarefa de workflow: grava sozinho e esconde os botões (PO, 22/11/2026) */
+  naTarefa?: ContratoNaTarefa
 }
 
-export default function ContractNewForm({ embedded = false, onSaved, onCancel, screen, lockedFields, origem }: ContractNewFormProps) {
+export default function ContractNewForm({ embedded = false, onSaved, onCancel, screen, lockedFields, origem, naTarefa }: ContractNewFormProps) {
   const form = useContractForm({ ...emptyContractForm(), partes: [newCParte('')] })
   const v = form.values
   const router = useRouter()
@@ -164,29 +167,29 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
   }
 
   /* salva o contrato. 'EM_CADASTRO' = rascunho (validação leve); 'VIGENTE' = ativar (validação completa) */
-  const submit = async (status: 'EM_CADASTRO' | 'VIGENTE') => {
+  const submit = async (status: 'EM_CADASTRO' | 'VIGENTE'): Promise<boolean> => {
     // tela em somente consulta não grava — o rodapé já não oferece a ação; aqui é a rede
-    if (screenReadOnly) return
+    if (screenReadOnly) return false
     const acao: AcaoSalvar = status === 'VIGENTE' ? 'ativar' : 'rascunho'
     const itens = calcFaltantes(acao)
     if (itens.length > 0) {
       setTentativa(acao); setSaveError(null)
       setOpen(prev => new Set([...prev, ...itens.map(i => i.secao)]))
-      return
+      return false
     }
     setTentativa(null)
 
     /* lançamentos: Data/Valor/Forma obrigatórios em cada pagamento/recebimento */
     const lErr = validateLancamentos(v)
-    if (lErr) { setSaveError(lErr.msg); setOpen(prev => new Set([...prev, lErr.field])); return }
+    if (lErr) { setSaveError(lErr.msg); setOpen(prev => new Set([...prev, lErr.field])); return false }
 
     /* partes: sem entidade repetida no mesmo papel, nem a mesma como contratante e contratada */
     const pErr = validatePartes(v.partes, papeis.active)
-    if (pErr) { setSaveError(pErr); setOpen(prev => new Set([...prev, 'partes'])); return }
+    if (pErr) { setSaveError(pErr); setOpen(prev => new Set([...prev, 'partes'])); return false }
 
     /* validações de negócio (vigência início≤término, reajuste com índice → data+periodicidade) */
     const bizErr = validateContract(v)
-    if (bizErr) { setSaveError(bizErr); return }
+    if (bizErr) { setSaveError(bizErr); return false }
 
     setSaveError(null)
     setSaving(status === 'VIGENTE' ? 'active' : 'draft')
@@ -203,17 +206,46 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
       if (res.ok) {
         let result: { id?: string } | undefined
         try { result = await res.json() as { id?: string } } catch { /* sem corpo */ }
+        criadoRef.current = true
         if (onSaved) onSaved(result)
         else router.push('/modules/contratos')
-        return
+        return true
       }
       setSaveError(await motivoDoErro(res, 'Não foi possível salvar o contrato'))
+      return false
     } catch {
       setSaveError('Não foi possível conectar ao servidor.')
+      return false
     } finally {
       setSaving(null)
     }
   }
+
+  /* ── Na tarefa (PO, 22/11/2026): sem botões; o contrato é criado sozinho assim que tem o
+     mínimo de um rascunho (Número e Título). Antes disso, nada é gravado e a tarefa diz o
+     que falta para começar. Criado, a tarefa passa a mostrá-lo em edição. */
+  const criadoRef = useRef(false)
+  const inicialRef = useRef<string | null>(null)
+  const retrato = JSON.stringify({ v, screenValues })
+  if (inicialRef.current === null) inicialRef.current = retrato
+  const mexeu = retrato !== inicialRef.current
+  const faltaParaRascunho = naTarefa ? calcFaltantes('rascunho') : []
+  const aguardando = naTarefa && faltaParaRascunho.length
+    ? `O contrato começa a ser salvo quando ${faltaParaRascunho.map(f => `“${f.campo}”`).join(' e ')} estiver${faltaParaRascunho.length > 1 ? 'em' : ''} preenchido${faltaParaRascunho.length > 1 ? 's' : ''}.`
+    : null
+  useEffect(() => {
+    if (!naTarefa || screenReadOnly || !mexeu || saving || criadoRef.current || faltaParaRascunho.length) return
+    const t = setTimeout(() => { void submit('EM_CADASTRO') }, 1200)
+    return () => clearTimeout(t)
+  }, [naTarefa, screenReadOnly, mexeu, saving, retrato, faltaParaRascunho.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  const onEstado = naTarefa?.onEstado
+  useEffect(() => {
+    onEstado?.({ salvando: saving !== null, salvoEm: null, erro: saveError ?? aguardando, pendente: mexeu && !criadoRef.current })
+  }, [onEstado, saving, saveError, aguardando, mexeu])
+  const gravarAgora = useRef<() => Promise<boolean>>(async () => true)
+  gravarAgora.current = async () => (criadoRef.current ? true : submit('EM_CADASTRO'))
+  const registrarGravacao = naTarefa?.registrarGravacao
+  useEffect(() => registrarGravacao?.(() => gravarAgora.current()), [registrarGravacao])
 
   return (
     <div className={cn('space-y-4', !embedded && 'max-w-3xl mx-auto')}>
@@ -281,14 +313,14 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
         </Section>
         </>)}
 
-        {tentativa && (
+        {tentativa && !naTarefa && (
           <AvisoCamposFaltantes itens={faltantes} acao={tentativa} rotuloSecao={rotuloSecao} onIrParaSecao={irParaSecao} />
         )}
         {saveError && (
           <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">{saveError}</div>
         )}
 
-        <div className="flex items-center justify-between pt-1 pb-6">
+        {!naTarefa && <div className="flex items-center justify-between pt-1 pb-6">
           {onCancel ? (
             <button type="button" onClick={onCancel} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Cancelar</button>
           ) : (
@@ -317,7 +349,7 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
             </button>
           </div>
           )}
-        </div>
+        </div>}
       </form>
 
       {searchModal && (

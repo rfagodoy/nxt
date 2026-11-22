@@ -118,11 +118,21 @@ export interface StepFormSchema {
    *  daqui nunca destrava nada. É como o solicitante edita o valor e o aprovador só o vê,
    *  sem duplicar a tela (a mesma tela = os mesmos valores gravados). */
   lockedFields?: string[]
-  /** Telas ADICIONAIS do mesmo registro, mostradas em ABAS depois da principal
-   *  (`screenRef`) na execução da tarefa. Mesmo assunto da principal; cada aba edita ou
-   *  só consulta. Numa atividade de CONSULTA (entityMode VIEW) todas abrem em leitura.
-   *  Os `lockedFields` valem para todas as abas (são chaves de campo do tipo). */
-  extraScreens?: Array<{ screenRef: string; mode: 'EDIT' | 'VIEW' }>
+  /** Telas ADICIONAIS do mesmo registro, mostradas na execução da tarefa junto com a
+   *  principal (`screenRef`), uma embaixo da outra (PO, 22/11/2026). Mesmo assunto da
+   *  principal; cada uma edita ou só consulta. Numa atividade de CONSULTA (entityMode VIEW)
+   *  todas abrem em leitura. Os `lockedFields` valem para todas (são chaves de campo do tipo).
+   *  `fechada`: a tela começa recolhida na execução (uma linha com o título). */
+  extraScreens?: Array<{ screenRef: string; mode: 'EDIT' | 'VIEW'; fechada?: boolean }>
+  /** Posição da tela principal entre as telas da tarefa (0 = primeira, o padrão). As
+   *  adicionais seguem a ordem de `extraScreens` ao redor dela. */
+  posicaoDaPrincipal?: number
+  /** A tela principal começa recolhida na execução. */
+  principalFechada?: boolean
+  /** Ao concluir a tarefa, o contrato do processo é ATIVADO (vai para Vigente), depois de
+   *  conferidos os obrigatórios de ativação (PO, 22/11/2026). Só vale em etapa que cria ou
+   *  edita contrato. Sem a marca, o contrato segue como está. */
+  ativaContratoAoConcluir?: boolean
 }
 
 // ─── Manifesto dos conectores de domínio (F5) ────────────────────────────────
