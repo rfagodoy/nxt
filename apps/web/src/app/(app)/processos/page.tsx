@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from 'react'
-import { Loader2, RefreshCw, CheckCircle2, AlertTriangle, Clock, Settings2, ChevronsUpDown, ArrowUp, ArrowDown, Undo2, Ban, CircleSlash } from 'lucide-react'
+import { Loader2, RefreshCw, CheckCircle2, AlertTriangle, Settings2, ChevronsUpDown, ArrowUp, ArrowDown, Undo2, Ban, CircleSlash } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StartProcessButton } from '@/components/processes/start-process-button'
 import { CancelInstanceButton } from '@/components/processes/cancel-instance-button'
@@ -20,79 +20,111 @@ import { Indicadores } from '@/components/list/indicadores'
 import { useFiltroColuna, BotaoFiltroColuna, LinhaFiltroColuna } from '@/components/list/filtro-coluna'
 import { LoadErrorRow } from '@/components/list/load-error'
 import { type FilterRow, matchOp, norm, colunaContem } from '@/lib/list-filter'
-import { STATUS, fmt, humanDuration, pontualidadeLabel, assuntoDoProcesso, comQuem, type Inst } from '@/lib/processos-ui'
+import { STATUS, fmt, humanDuration, pontualidadeLabel, comQuem, relativoA, type Inst } from '@/lib/processos-ui'
 
 interface SortState { col: string; dir: 'asc' | 'desc' }
 
 interface Col { key: string; label: string; align?: 'right'; text: (i: Inst) => string; sortVal?: (i: Inst) => string | number; node: (i: Inst) => ReactNode }
+/* Linhas de altura fixa (PO, 22/11/2026): toda célula de duas partes usa o mesmo
+   molde, sem quebra de texto. Na densidade alta são duas linhas; nas outras, uma só,
+   com a segunda parte depois de um "·". O que não cabe termina em "…" e aparece
+   inteiro ao passar o mouse. */
+function Duas({ l1, l2, titulo }: { l1: ReactNode; l2: ReactNode; titulo?: string }) {
+  return (
+    <div className="celula-2l celula-fixa max-w-[28rem]" title={titulo}>
+      <p className="truncate">{l1}</p>
+      <p className="truncate text-[11px] text-muted-foreground">{l2}</p>
+    </div>
+  )
+}
+
+const COR_DO_TIPO: Record<string, string> = {
+  CONTRATO: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+  ADITIVO:  'bg-violet-500/10 text-violet-700 dark:text-violet-300',
+  DISTRATO: 'bg-orange-500/10 text-orange-700 dark:text-orange-300',
+}
+
+const fmtData = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString('pt-BR') : '—')
+
+function prazoDaEtapa(i: Inst): { texto: string; cls: string } {
+  if (i.status === 'CANCELLED') return { texto: 'cancelado', cls: 'text-muted-foreground' }
+  if (i.status === 'ENDED_INCOMPLETE') return { texto: 'sem conclusão', cls: 'text-muted-foreground' }
+  if ((i.status === 'RUNNING' || i.status === 'ERROR') && i.currentDueAt) {
+    if (i.currentOverdue) {
+      const dias = Math.max(1, Math.floor((Date.now() - new Date(i.currentDueAt).getTime()) / 86_400_000))
+      return { texto: `etapa atrasada ${dias} dia${dias === 1 ? '' : 's'}`, cls: 'font-semibold text-red-600 dark:text-red-400' }
+    }
+    const dia = new Date(i.currentDueAt).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' }).replace('.', '')
+    return { texto: `etapa vence ${dia}`, cls: 'font-semibold text-amber-700 dark:text-amber-400' }
+  }
+  if (i.processOnTime == null) return { texto: 'sem prazo', cls: 'text-muted-foreground' }
+  return i.processOnTime
+    ? { texto: 'no prazo', cls: 'font-semibold text-emerald-700 dark:text-emerald-400' }
+    : { texto: 'atrasado', cls: 'font-semibold text-red-600 dark:text-red-400' }
+}
+
+/** Coluna "Agora": sempre duas partes, para a linha não mudar de altura. */
+function agora(i: Inst): { l1: string; l2: string; cls?: string; icone?: ReactNode; dica?: string } {
+  if (i.status === 'RUNNING' && i.bloqueio) return {
+    l1: `Parado em ${i.currentStep || '—'}`, l2: 'nenhum caminho da escolha serviu — procure um administrador',
+    cls: 'font-semibold text-amber-700 dark:text-amber-300', icone: <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />, dica: i.bloqueio.mensagem,
+  }
+  if (i.status === 'RUNNING' && i.aguardando?.length) return {
+    l1: `Aguardando ${i.aguardando.length === 1 ? '1 linha paralela' : `${i.aguardando.length} linhas paralelas`}`, l2: i.aguardando.join(' · '), dica: i.aguardando.join(' · '),
+  }
+  if (i.status === 'RUNNING') return {
+    l1: i.currentStep || '—',
+    l2: `${comQuem(i.currentWith) || (i.currentRole ? `com o papel ${i.currentRole}` : 'aberta a quem pode executar')} · etapa ${Math.min(i.doneSteps + 1, i.totalSteps)} de ${i.totalSteps}`,
+  }
+  if (i.status === 'ERROR') return {
+    l1: 'Erro numa etapa automática', l2: i.error || i.stepName || 'erro',
+    cls: 'font-semibold text-red-700 dark:text-red-300', icone: <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />, dica: i.error ?? undefined,
+  }
+  if (i.status === 'COMPLETED') return { l1: `Concluído em ${fmtData(i.completedAt)}`, l2: `durou ${humanDuration(i.durationMs)}` }
+  if (i.status === 'ENDED_INCOMPLETE') return { l1: `Encerrado sem conclusão em ${fmtData(i.completedAt)}`, l2: 'as atividades acabaram sem passar pelo Fim', cls: 'text-amber-700 dark:text-amber-400' }
+  // um processo que termina em silêncio é um processo que ninguém sabe explicar
+  return { l1: `Cancelado por ${i.cancelledBy || '—'}`, l2: i.cancelReason ? `motivo: ${i.cancelReason}` : 'sem motivo registrado', dica: i.cancelReason ? `Motivo: ${i.cancelReason}` : undefined }
+}
+
 const COLUNAS: Col[] = [
   {
     key: 'numero', label: 'Nº', text: (i) => (i.numero != null ? String(i.numero) : ''), sortVal: (i) => i.numero ?? 0,
     node: (i) => <span className="font-mono text-xs tabular-nums text-muted-foreground">{i.numero != null ? `#${i.numero}` : '—'}</span>,
   },
   {
-    /* De qual contrato é o processo (auditoria de UX, 22/11/2026): o nome do workflow
-       se repetia em todas as linhas e não ajudava a achar nada. */
-    key: 'processo', label: 'Contrato',
-    text: (i) => { const a = assuntoDoProcesso(i); return [a?.titulo, a?.numero, a?.contraparte, i.processName].filter(Boolean).join(' · ') },
-    sortVal: (i) => norm(assuntoDoProcesso(i)?.titulo ?? i.processName),
+    /* "Relativo a" (PO, 22/11/2026): o tipo do processo (Contrato, Aditivo,
+       Encerramento) e o contrato. O tipo entra no texto da coluna, então o filtro da
+       coluna também filtra por ele. */
+    key: 'processo', label: 'Relativo a',
+    text: (i) => { const r = relativoA(i); return [r.tipo, r.titulo, r.detalhe, i.processName].join(' · ') },
+    sortVal: (i) => norm(relativoA(i).titulo),
     node: (i) => {
-      const a = assuntoDoProcesso(i)
+      const r = relativoA(i)
       return (
-        <div className="celula-2l">
-          <p className="font-medium">{a?.titulo ?? <span className="text-muted-foreground font-normal">Sem contrato ainda</span>}</p>
-          <p className="text-[11px] text-muted-foreground">
-            {[a?.numero && <span key="n" className="font-mono">{a.numero}</span>, a?.contraparte, `${i.processName} v${i.version}`]
-              .filter(Boolean).flatMap((x, k) => (k ? [' · ', x] : [x]))}
-          </p>
-        </div>
+        <Duas titulo={`${r.tipo}: ${r.titulo} · ${r.detalhe}`}
+          l1={<><span className={cn('mr-1.5 rounded px-1.5 py-px text-[10.5px] font-bold', COR_DO_TIPO[i.kind ?? 'CONTRATO'] ?? COR_DO_TIPO.CONTRATO)}>{r.tipo}</span>
+            <span className={r.semContrato ? 'text-muted-foreground' : 'font-medium'}>{r.titulo}</span></>}
+          l2={r.detalhe} />
       )
     },
   },
   { key: 'inicio', label: 'Início', text: (i) => fmt(i.startedAt), sortVal: (i) => new Date(i.startedAt).getTime(), node: (i) => <span className="text-muted-foreground whitespace-nowrap">{fmt(i.startedAt)}</span> },
   {
-    // prazo do PROCESSO (derivado da soma das atividades) — não confundir com o
-    // vencimento da etapa atual, que vive na coluna "Etapa atual / conclusão".
-    key: 'prevista', label: 'Data prevista para término',
-    text: (i) => fmt(i.processDueAt), sortVal: (i) => (i.processDueAt ? new Date(i.processDueAt).getTime() : 0),
-    node: (i) => <span className={cn('whitespace-nowrap', i.processOverdue ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground')}>{fmt(i.processDueAt)}</span>,
+    /* Prazo em coluna própria (PO, 22/11/2026): antes o selo de vencimento da etapa
+       morava no "Agora" e quebrava a linha quando faltava espaço. Em cima, o que pede
+       atenção agora (a etapa); embaixo, o prazo do processo inteiro. */
+    key: 'prevista', label: 'Prazo',
+    text: (i) => [prazoDaEtapa(i).texto, i.processDueAt ? `processo até ${fmtData(i.processDueAt)}` : ''].filter(Boolean).join(' · '),
+    sortVal: (i) => (i.currentDueAt ? new Date(i.currentDueAt).getTime() : i.processDueAt ? new Date(i.processDueAt).getTime() : 0),
+    node: (i) => {
+      const p = prazoDaEtapa(i)
+      return <Duas l1={<span className={p.cls}>{p.texto}</span>} l2={i.processDueAt ? `${i.status === 'RUNNING' || i.status === 'ERROR' ? 'processo até' : 'previsto'} ${fmtData(i.processDueAt)}` : 'processo sem prazo'} />
+    },
   },
   {
     key: 'etapa', label: 'Agora',
-    text: (i) => i.status === 'RUNNING' && i.bloqueio ? `parado em ${i.currentStep || '—'}: ${i.bloqueio.mensagem}` : i.status === 'RUNNING' && i.aguardando?.length ? `aguardando: ${i.aguardando.join(', ')}` : i.status === 'RUNNING' ? [i.currentStep || '—', comQuem(i.currentWith)].filter(Boolean).join(' ') : i.status === 'ERROR' ? (i.error || i.stepName || 'erro') : i.status === 'COMPLETED' ? `concluído em ${fmt(i.completedAt)}` : i.status === 'ENDED_INCOMPLETE' ? `encerrado sem conclusão em ${fmt(i.completedAt)}` : i.cancelReason ? `cancelado · motivo: ${i.cancelReason}` : '—',
-    node: (i) => i.status === 'RUNNING' && i.bloqueio ? (
-      /* parado numa escolha sem caminho: ícone + texto (nunca só a cor) */
-      <span className="inline-flex items-start gap-1 text-amber-700 dark:text-amber-300" title={i.bloqueio.mensagem}>
-        <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-        <span className="max-w-xs"><span className="font-semibold">Parado</span> em {i.currentStep || '—'} <span className="block text-[11px] truncate">nenhum caminho da escolha serviu — procure um administrador</span></span>
-      </span>
-    ) : i.status === 'RUNNING' && i.aguardando?.length ? (
-      <span className="celula-2l block">
-        <span className="block font-medium">Aguardando {i.aguardando.length === 1 ? '1 linha paralela' : `${i.aguardando.length} linhas paralelas`}</span>
-        <span className="block text-[11px] text-muted-foreground max-w-xs truncate">{i.aguardando.join(' · ')}</span>
-      </span>
-    ) : i.status === 'RUNNING' ? (
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="celula-2l">
-          <span className="block">{i.currentStep || '—'}</span>
-          <span className="block text-[11px] text-muted-foreground">
-            {comQuem(i.currentWith) || (i.currentRole ? `com o papel ${i.currentRole}` : 'aberta a quem pode executar')} · etapa {Math.min(i.doneSteps + 1, i.totalSteps)} de {i.totalSteps}
-          </span>
-        </span>
-        {i.currentDueAt && <span className={cn(SELO, i.currentOverdue ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' : 'text-amber-600')}><Clock className="h-3 w-3" />{i.currentOverdue ? 'atrasada' : `vence ${fmt(i.currentDueAt)}`}</span>}
-      </div>
-    ) : i.status === 'ERROR' ? (
-      <span className="inline-flex items-start gap-1 text-red-700 dark:text-red-300"><AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" /><span className="max-w-xs truncate">{i.error || i.stepName || 'erro'}</span></span>
-    ) : i.status === 'COMPLETED' ? (
-      <span className="text-muted-foreground">em {fmt(i.completedAt)} · durou {humanDuration(i.durationMs)}</span>
-    ) : i.status === 'ENDED_INCOMPLETE' ? (
-      /* Terminou o que havia para fazer sem passar pelo evento de fim: não é conclusão
-         e não pode parecer uma. */
-      <span className="text-amber-600 dark:text-amber-400">encerrado sem conclusão em {fmt(i.completedAt)}</span>
-    ) : i.cancelReason ? (
-      // um processo que termina em silêncio é um processo que ninguém sabe explicar
-      <span className="text-muted-foreground">cancelado por {i.cancelledBy || '—'} <span className="block text-[11px] italic max-w-xs truncate">motivo: {i.cancelReason}</span></span>
-    ) : <span className="text-muted-foreground">—</span>,
+    text: (i) => { const a = agora(i); return `${a.l1} · ${a.l2}` },
+    node: (i) => { const a = agora(i); return <Duas titulo={a.dica} l1={<span className={a.cls}>{a.icone}{a.l1}</span>} l2={a.l2} /> },
   },
   {
     key: 'pontualidade', label: 'Pontualidade', text: (i) => pontualidadeLabel(i) + (i.returnCount > 0 ? ` · reaberta ${i.returnCount}×` : ''),
@@ -118,29 +150,29 @@ const COLUNAS: Col[] = [
        parado numa escolha sem caminho ficava igual a um "Em andamento" qualquer. */
     key: 'situacao', label: 'Situação', text: (i) => i.status === 'RUNNING' && i.bloqueio ? 'Parado' : STATUS[i.status]?.label ?? i.status,
     node: (i) => i.status === 'RUNNING' && i.bloqueio ? (
-      <span title={i.bloqueio.mensagem} className={cn(SELO, 'bg-amber-500/10 text-amber-700 dark:text-amber-300')}>
+      <span title={i.bloqueio.mensagem} className={cn(SELO, 'whitespace-nowrap bg-amber-500/10 text-amber-700 dark:text-amber-300')}>
         <AlertTriangle className="h-3 w-3" />Parado
       </span>
     ) : (() => { const st = STATUS[i.status] ?? STATUS.RUNNING; return (
-      <span className={cn(SELO, st.cls)}><st.icon className="h-3 w-3" />{st.label}</span>
+      <span className={cn(SELO, 'whitespace-nowrap', st.cls)}><st.icon className="h-3 w-3" />{st.label}</span>
     ) })(),
   },
 ]
 /* Ordem da tabela: o que se procura (contrato) e o que está acontecendo (agora) primeiro. */
-const ORDEM = ['numero', 'processo', 'etapa', 'prevista', 'pontualidade', 'situacao', 'inicio', 'iniciadoPor']
+const ORDEM = ['numero', 'processo', 'etapa', 'prevista', 'situacao', 'pontualidade', 'inicio', 'iniciadoPor']
 const COLS: Col[] = ORDEM.map((k) => COLUNAS.find((c) => c.key === k)).filter((c): c is Col => !!c)
 
 /* v2: a disposição padrão das colunas mudou (Nº · Processo · Início · Data prevista ·
    Pontualidade · Iniciado por · Situação). A chave é versionada porque a preferência
    antiga guardada no navegador venceria o novo padrão — e o usuário veria a tela
    velha sem saber por quê. */
-const HIDDEN_KEY = 'nxt:cols:processos:hidden:v3'
+const HIDDEN_KEY = 'nxt:cols:processos:hidden:v4'
 /* "Etapa atual / conclusão" sai da visão padrão (ordem de colunas definida pelo PO),
    mas continua disponível em Configurações — é onde aparecem o vencimento da etapa
    corrente, a causa do erro e o motivo do cancelamento. */
 /* v3 (auditoria de UX, 22/11/2026): "Agora" (etapa e com quem) volta à visão padrão,
    e "Início" e "Iniciado por" passam para Configurações da lista. */
-const HIDDEN_DEFAULT = ['inicio', 'iniciadoPor']
+const HIDDEN_DEFAULT = ['inicio', 'iniciadoPor', 'pontualidade']
 
 export default function ProcessosPage() {
   const ws = useWorkspace()

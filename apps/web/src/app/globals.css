@@ -75,6 +75,9 @@
 :root:not([data-densidade="alta"]) .celula-2l > * { margin: 0; flex-shrink: 0; }
 :root:not([data-densidade="alta"]) .celula-2l > :nth-child(2) { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 :root:not([data-densidade="alta"]) .celula-2l > :nth-child(2)::before { content: "· "; }
+/* Célula de altura fixa (lista de Processos): na densidade alta, duas linhas que
+   nunca quebram; o resto termina em "…". */
+.celula-fixa > * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 @layer base {
   :root {

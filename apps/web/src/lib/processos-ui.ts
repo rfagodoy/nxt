@@ -25,6 +25,26 @@ export interface Inst {
   /** quem responde pela etapa atual; vazio = ninguém em particular (vale o papel) */
   currentWith?: string[]
   currentRole?: string | null
+  /** tipo do workflow: CONTRATO | ADITIVO | DISTRATO (DISTRATO aparece como "Encerramento") */
+  kind?: string | null
+}
+
+/** Rótulo do tipo do workflow no selo de "Relativo a". */
+export const ROTULO_DO_TIPO: Record<string, string> = { CONTRATO: 'Contrato', ADITIVO: 'Aditivo', DISTRATO: 'Encerramento' }
+
+/** Coluna "Relativo a" (PO, 22/11/2026): o tipo do processo e o contrato. Sem contrato
+ *  ainda (o processo que cria o contrato, no começo), diz isso e mostra o workflow. */
+export function relativoA(i: Pick<Inst, 'assunto' | 'kind' | 'processName' | 'startedBy' | 'startedAt'>): {
+  tipo: string; titulo: string; detalhe: string; semContrato: boolean
+} {
+  const tipo = ROTULO_DO_TIPO[i.kind ?? ''] ?? 'Contrato'
+  const a = assuntoDoProcesso(i)
+  if (!a) {
+    const quando = i.startedAt ? new Date(i.startedAt).toLocaleDateString('pt-BR') : ''
+    const quem = [i.startedBy && `iniciado por ${i.startedBy}`, quando && `em ${quando}`].filter(Boolean).join(' ')
+    return { tipo, titulo: 'Contrato ainda não cadastrado', detalhe: [i.processName, quem].filter(Boolean).join(' · '), semContrato: true }
+  }
+  return { tipo, titulo: a.titulo, detalhe: [a.numero, a.contraparte].filter(Boolean).join(' · ') || i.processName, semContrato: false }
 }
 
 /** Coluna "Contrato": título do assunto, separado do número ("CCT_1 — Título"). */

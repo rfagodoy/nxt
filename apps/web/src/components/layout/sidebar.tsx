@@ -220,13 +220,12 @@ export function Sidebar() {
                   className={cn(TITULO_SECAO, 'group/sec flex w-full items-center gap-1 rounded-md hover:text-sidebar-foreground transition-colors')}
                 >
                   <span className="truncate">{section.label}</span>
-                  {!aberta && <span className="ml-auto shrink-0 tabular-nums tracking-normal" aria-label={`${section.items.length} itens`}>{section.items.length}</span>}
-                  {/* Seta sempre visível e, recolhido, quantos itens o grupo guarda
-                      (PO, 22/11/2026 — substitui a decisão de 28/07 de esconder a seta no
-                      repouso: o grupo "Instalação" parecia vazio). */}
+                  {/* Seta sempre visível (PO, 22/11/2026 — substitui a decisão de 28/07 de
+                      esconder a seta no repouso: o grupo "Instalação" parecia vazio). Sem
+                      contagem: número no menu é só o de Tarefas, que é trabalho esperando. */}
                   <ChevronRight className={cn(
                     'h-3 w-3 shrink-0 transition-transform',
-                    aberta ? 'ml-auto rotate-90' : 'ml-1',
+                    'ml-auto', aberta && 'rotate-90',
                   )} />
                 </button>
               ) : (

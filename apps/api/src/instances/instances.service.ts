@@ -1005,7 +1005,7 @@ export class InstancesService {
     const instances = await this.prisma.processInstance.findMany({
       where,
       include: {
-        processDefinition: { select: { name: true } },
+        processDefinition: { select: { name: true, kind: true } },
         tasks: { orderBy: { createdAt: 'asc' } },
         // último cancelamento e bloqueios de escolha: a lista precisa dizer POR QUE parou
         events: { where: { event: { in: ['CANCELADO', 'SEM_CAMINHO'] } }, orderBy: { createdAt: 'desc' }, take: 20 },
@@ -1095,6 +1095,8 @@ export class InstancesService {
         id: inst.id,
         numero: inst.numero ?? null,
         processName: inst.processDefinition?.name ?? 'Processo',
+        /** tipo do workflow (CONTRATO | ADITIVO | DISTRATO): o "Relativo a" da lista */
+        kind: inst.processDefinition?.kind ?? null,
         version: inst.definitionVersion,
         status: inst.status,
         error: error ?? null,

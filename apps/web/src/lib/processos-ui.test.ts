@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { assuntoDoProcesso, comQuem, buildHistory, taskExecutor, pontualidadeLabel, taskPunctuality, type Inst, type TaskRow, type ReturnRow, type EventRow } from './processos-ui'
+import { assuntoDoProcesso, comQuem, relativoA, buildHistory, taskExecutor, pontualidadeLabel, taskPunctuality, type Inst, type TaskRow, type ReturnRow, type EventRow } from './processos-ui'
 
 const task = (over: Partial<TaskRow> & { id: string }): TaskRow => ({
   nodeId: `n-${over.id}`, status: 'DONE', createdAt: '2026-07-26T10:00:00Z', ...over,
@@ -144,5 +144,20 @@ describe('comQuem', () => {
     expect(comQuem(['Ana'])).toBe('com Ana')
     expect(comQuem(['Ana', 'Bruno'])).toBe('com Ana e Bruno')
     expect(comQuem(['Ana', 'Bruno', 'Caio'])).toBe('com Ana e mais 2')
+  })
+})
+
+describe('relativoA', () => {
+  const base = { processName: 'Solicitação de contratos', startedBy: 'Laryssa', startedAt: '2026-11-22T12:00:00' }
+  it('tipo do workflow e o contrato', () => {
+    expect(relativoA({ ...base, kind: 'DISTRATO', assunto: { tipo: 'CONTRATO', titulo: 'CCT_1 — Limpeza', contraparte: 'GOLDNET' } }))
+      .toEqual({ tipo: 'Encerramento', titulo: 'Limpeza', detalhe: 'CCT_1 · GOLDNET', semContrato: false })
+    expect(relativoA({ ...base, kind: 'ADITIVO', assunto: { tipo: 'CONTRATO', titulo: 'CCT_1 — Limpeza' } }).tipo).toBe('Aditivo')
+  })
+  it('sem contrato ainda: diz isso, com o workflow e quem iniciou', () => {
+    const r = relativoA({ ...base, kind: 'CONTRATO', assunto: null })
+    expect(r.semContrato).toBe(true)
+    expect(r.titulo).toBe('Contrato ainda não cadastrado')
+    expect(r.detalhe).toBe('Solicitação de contratos · iniciado por Laryssa em 22/11/2026')
   })
 })
