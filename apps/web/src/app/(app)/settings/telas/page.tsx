@@ -37,7 +37,7 @@ export default function TelasPage() {
   const [duplicando, setDuplicando] = useState<string | null>(null)
   const router = useRouter()
 
-  /* Garante as telas padrão do SISTEMA (Fornecedor + Contrato), pré-carregadas com toda a
+  /* Garante as telas padrão do SISTEMA (Parceiro + Contrato), pré-carregadas com toda a
      estrutura nativa. Criadas uma única vez se ainda não existirem. */
   const ensuredRef = useRef(false)
   useEffect(() => {
@@ -146,7 +146,7 @@ export default function TelasPage() {
                   {screens.length === 0 ? 'Nenhuma tela criada. Clique em "Nova tela".' : 'Nenhuma tela para o filtro.'}
                 </td></tr>
               ) : shown.map(s => (
-                <tr key={s.id} onClick={() => router.push(`/settings/telas/${s.id}`)} title="Abrir a tela"
+                <tr key={s.id} onClick={() => router.push(`/settings/telas/${s.id}`)} title="Abrir a tela"
                   className="border-b last:border-0 hover:bg-muted/30 transition-colors group/row cursor-pointer">
                   <td className={DENS_CEL}>
                     {/* Fluxo de texto, não flex: a etiqueta é parte da frase e tem de seguir a

@@ -246,7 +246,7 @@ export const ACOES_TERMINO = [
    do core. A COBERTURA é garantida por teste — contract-options.test.ts falha se uma
    situação nova entrar no core e não aparecer aqui. */
 export const SITUACOES = [
-  { value: 'EM_CADASTRO', label: 'Em cadastro/revisão' },
+  { value: 'EM_CADASTRO', label: 'Em cadastro' },
   { value: 'VIGENTE',     label: 'Vigente'             },
   { value: 'VENCIDO',     label: 'Vencido'             },  // derivado — nunca gravado (ver effectiveSituacao)
   { value: 'ENCERRADO',   label: 'Encerrado'           },
@@ -468,4 +468,4 @@ export function objetoVigenteAntes(v: ContractFormValues, index: number): string
     if (aditivoAtivo(a) && a.alteraObjeto) o = a.novoObjeto
   }
   return o
-}
+}

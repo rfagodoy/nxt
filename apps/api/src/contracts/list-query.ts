@@ -44,7 +44,7 @@ export interface SortSpec { col: string; dir: 'asc' | 'desc' }
 /* Rótulos das situações — vocabulário estável do produto (espelha SITUACOES do web).
    Busca/filtro casam TANTO o código quanto o rótulo: quem digita "vencido" encontra. */
 const SIT_LABEL: Record<string, string> = {
-  EM_CADASTRO: 'Em cadastro/revisão',
+  EM_CADASTRO: 'Em cadastro',
   VIGENTE: 'Vigente',
   VENCIDO: 'Vencido',
   ENCERRADO: 'Encerrado',

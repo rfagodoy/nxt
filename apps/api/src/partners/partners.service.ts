@@ -32,7 +32,7 @@ const CAT_LABEL: Record<string, string> = {
 }
 
 const STATUS_LABEL: Record<string, string> = {
-  ATIVO: 'Ativo', INATIVO: 'Inativo', EM_CADASTRAMENTO: 'Em cadastramento',
+  ATIVO: 'Ativo', INATIVO: 'Inativo', EM_CADASTRAMENTO: 'Em cadastro',
 }
 
 /* ─── motor de diff (auditoria de campos) ─────────────────── */

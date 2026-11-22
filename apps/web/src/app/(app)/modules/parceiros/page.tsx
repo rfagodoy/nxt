@@ -33,7 +33,7 @@ const STATUS_CLS: Record<string, string> = {
 }
 const STATUS_LABEL: Record<string, string> = {
   ATIVO:            'Ativo',
-  EM_CADASTRAMENTO: 'Em cadastramento',
+  EM_CADASTRAMENTO: 'Em cadastro',
   INATIVO:          'Inativo',
 }
 const TIPO_CLS: Record<string, string> = {
@@ -503,7 +503,7 @@ export default function ParceirosPage() {
       {/* cards */}
       <Indicadores className="grid-cols-4" ativo={statusFiltro} onSelect={setStatusFiltro} itens={[
         { label: 'Total',            valor: serverStats.total,           cls: 'text-foreground', filtro: null },
-        { label: 'Em cadastramento', valor: serverStats.emCadastramento, cls: 'text-blue-600 dark:text-blue-400', filtro: 'EM_CADASTRAMENTO' },
+        { label: 'Em cadastro', valor: serverStats.emCadastramento, cls: 'text-blue-600 dark:text-blue-400', filtro: 'EM_CADASTRAMENTO' },
         { label: 'Ativos',           valor: serverStats.ativo,           cls: 'text-emerald-600 dark:text-emerald-400', filtro: 'ATIVO' },
         { label: 'Inativos',         valor: serverStats.inativo,         cls: 'text-muted-foreground', filtro: 'INATIVO' },
       ]} />

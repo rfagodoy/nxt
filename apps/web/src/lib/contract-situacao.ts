@@ -22,7 +22,7 @@ export const SIT_CLS: Record<string, string> = {
 }
 
 export const SIT_LABEL: Record<string, string> = {
-  EM_CADASTRO: 'Em cadastro/revisão', VIGENTE: 'Vigente', VENCIDO: 'Vencido',
+  EM_CADASTRO: 'Em cadastro', VIGENTE: 'Vigente', VENCIDO: 'Vencido',
   ENCERRADO: 'Encerrado', RESCINDIDO: 'Rescindido', CANCELADO: 'Cancelado',
 }
 

@@ -57,7 +57,7 @@ interface DSoc  { id: string; nome: string; documento: string; participacao: str
 
 const STATUS_LABEL: Record<string, string> = {
   ATIVO:            'Ativo',
-  EM_CADASTRAMENTO: 'Em cadastramento',
+  EM_CADASTRAMENTO: 'Em cadastro',
   INATIVO:          'Inativo',
 }
 
@@ -139,7 +139,7 @@ function DSection({ active, children }: { active: boolean; children: React.React
   return <div className="rounded-xl border bg-card p-[var(--secao-pad)] space-y-[var(--form-gap)] shadow-sm">{children}</div>
 }
 
-export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, screen, readOnly: readOnlyProp, lockedFields, origem }: {
+export function PartnerDetailView({ partner, onSaved, onDirtyChange, screen, readOnly: readOnlyProp, lockedFields, origem }: {
   partner: PartnerAPI
   onClose: () => void
   onSaved: () => void
@@ -440,7 +440,6 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
               <Eye className="h-3 w-3" />Somente consulta
             </span>
           )}
-          <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Fechar</button>
           {!readOnly && situacao === 'EM_CADASTRAMENTO' && (
             <>
               <button type="button" onClick={() => { void handleSave() }} disabled={saving}
@@ -457,7 +456,7 @@ export function PartnerDetailView({ partner, onClose, onSaved, onDirtyChange, sc
             <>
               <button type="button" onClick={() => { setMotivoAction('habilitar'); setShowMotivo(true) }}
                 className="inline-flex items-center h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors">
-                Habilitar para alteração
+                Abrir para revisão
               </button>
               <button type="button" onClick={() => { setMotivoAction('inativar'); setShowMotivo(true) }}
                 className="inline-flex items-center h-7 rounded-md border border-red-200 text-red-600 px-3 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors">

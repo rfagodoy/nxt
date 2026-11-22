@@ -82,7 +82,7 @@ export interface ContratoNaTarefa {
 }
 
 /* ══════════════════════════════════════════════════════════════ */
-export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, screen, readOnly: readOnlyProp, lockedFields, origem, naTarefa }: { row: Row; onClose: () => void; onSaved?: () => void; onDirtyChange?: (dirty: boolean) => void; screen?: Screen; readOnly?: boolean; /** campos travados pela ATIVIDADE do workflow (só apertam) */ lockedFields?: string[]; /** gravação de dentro de uma tarefa (a API aplica a tela da etapa) */ origem?: OrigemDaTarefa; naTarefa?: ContratoNaTarefa }) {
+export function ContractDetailView({ row, onSaved, onDirtyChange, screen, readOnly: readOnlyProp, lockedFields, origem, naTarefa }: { row: Row; onClose: () => void; onSaved?: () => void; onDirtyChange?: (dirty: boolean) => void; screen?: Screen; readOnly?: boolean; /** campos travados pela ATIVIDADE do workflow (só apertam) */ lockedFields?: string[]; /** gravação de dentro de uma tarefa (a API aplica a tela da etapa) */ origem?: OrigemDaTarefa; naTarefa?: ContratoNaTarefa }) {
   const form = useContractForm({
     ...emptyContractForm(),
     numero: row.numero, titulo: row.titulo, tipo: row.tipo, situacao: normalizeSituacao(row.situacao),
@@ -495,7 +495,6 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
               <Eye className="h-3 w-3" />Somente consulta
             </span>
           )}
-          <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Fechar</button>
 
           {/* Aditivo/Encerramento a partir DESTE contrato — fora de tarefa (lá o processo já existe) */}
           {!readOnly && !origem && stored === 'VIGENTE' && !showMotivo && <IniciarDoContrato contratoId={row.id} />}

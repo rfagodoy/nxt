@@ -293,13 +293,13 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
         </Section>
 
         {temPagamentos(v.natureza) && (
-          <Section secao="pagamentos" icon={TrendingDown} title="Pagamentos realizados" isOpen={open.has('pagamentos')} onToggle={() => toggleSection('pagamentos')}>
+          <Section secao="pagamentos" icon={TrendingDown} title="Pagamentos" isOpen={open.has('pagamentos')} onToggle={() => toggleSection('pagamentos')}>
             <LancamentosFields form={form} field="pagamentos" moedaCode={v.moeda} dualView />
           </Section>
         )}
 
         {temRecebimentos(v.natureza) && (
-          <Section secao="recebimentos" icon={TrendingUp} title="Recebimentos realizados" isOpen={open.has('recebimentos')} onToggle={() => toggleSection('recebimentos')}>
+          <Section secao="recebimentos" icon={TrendingUp} title="Recebimentos" isOpen={open.has('recebimentos')} onToggle={() => toggleSection('recebimentos')}>
             <LancamentosFields form={form} field="recebimentos" moedaCode={v.moeda} dualView />
           </Section>
         )}

@@ -64,7 +64,7 @@ function FilteredTable<T>({ cols, rows, rowKey, emptyText }: {
   )
 }
 
-export function ProcessInstanceDocView({ inst: instAoAbrir, onClose }: { inst: Inst; onClose?: () => void }) {
+export function ProcessInstanceDocView({ inst: instAoAbrir }: { inst: Inst; onClose?: () => void }) {
   /** a linha da instância RELIDA (a da aba é a foto do momento em que ela abriu) */
   const [instViva, setInstViva] = useState<Inst | null>(null)
   const inst = instViva?.id === instAoAbrir.id ? instViva : instAoAbrir
@@ -216,9 +216,6 @@ export function ProcessInstanceDocView({ inst: instAoAbrir, onClose }: { inst: I
               </p>
             )}
           </div>
-          {onClose && (
-            <button type="button" onClick={onClose} className="shrink-0 text-xs text-muted-foreground hover:text-foreground transition-colors">Fechar</button>
-          )}
         </div>
         {inst.bloqueio && (
           /* PARADO numa escolha sem caminho: dizer onde, por quê e o que fazer */

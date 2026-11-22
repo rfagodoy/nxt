@@ -10,7 +10,7 @@ export type LogEvent =
   | 'CAMPO_ALTERADO'
 
 export const LOG_EVENT_LABEL: Record<LogEvent, string> = {
-  EM_CADASTRAMENTO: 'Em cadastramento',
+  EM_CADASTRAMENTO: 'Em cadastro',
   ATIVADO:          'Ativado',
   INATIVADO:        'Inativado',
   REATIVADO:        'Reativado',
