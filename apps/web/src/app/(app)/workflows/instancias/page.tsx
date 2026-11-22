@@ -95,7 +95,7 @@ export default function InstanciasErroPage() {
         </div>
       )}
 
-      <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+      <div className="rounded-xl border bg-card shadow-sm overflow-auto rolagem-visivel">
         {rows === null ? (
           <div className="flex items-center justify-center py-12 text-xs text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin mr-2" /> Carregando…

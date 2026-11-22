@@ -269,7 +269,7 @@ export default function WorkflowsPage() {
       />
 
       <div className="rounded-xl border bg-card shadow-sm overflow-clip">
-        <div className="overflow-auto max-h-[calc(100vh-19rem)]">
+        <div className="overflow-auto rolagem-visivel max-h-[calc(100vh-19rem)]">
           <table className={cn('min-w-full', DENS_TABELA)}>
             <thead className="sticky top-0 z-20">
               <tr className="border-b">
