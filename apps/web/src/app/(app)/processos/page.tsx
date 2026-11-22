@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from 'react'
-import { Loader2, RefreshCw, CheckCircle2, AlertTriangle, Settings2, ChevronsUpDown, ArrowUp, ArrowDown, Undo2, Ban, CircleSlash } from 'lucide-react'
+import { Loader2, RefreshCw, CheckCircle2, AlertTriangle, Clock, Settings2, ChevronsUpDown, ArrowUp, ArrowDown, Undo2, Ban, CircleSlash } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StartProcessButton } from '@/components/processes/start-process-button'
 import { CancelInstanceButton } from '@/components/processes/cancel-instance-button'
@@ -20,7 +20,8 @@ import { Indicadores } from '@/components/list/indicadores'
 import { useFiltroColuna, BotaoFiltroColuna, LinhaFiltroColuna } from '@/components/list/filtro-coluna'
 import { LoadErrorRow } from '@/components/list/load-error'
 import { type FilterRow, matchOp, norm, colunaContem } from '@/lib/list-filter'
-import { STATUS, fmt, humanDuration, pontualidadeLabel, comQuem, relativoA, type Inst } from '@/lib/processos-ui'
+import { STATUS, fmt, humanDuration, pontualidadeDoProcesso, comQuem, relativoA, type Inst } from '@/lib/processos-ui'
+import { MenuDeAcoes } from '@/components/list/menu-de-acoes'
 
 interface SortState { col: string; dir: 'asc' | 'desc' }
 
@@ -46,21 +47,11 @@ const COR_DO_TIPO: Record<string, string> = {
 
 const fmtData = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString('pt-BR') : '—')
 
-function prazoDaEtapa(i: Inst): { texto: string; cls: string } {
-  if (i.status === 'CANCELLED') return { texto: 'cancelado', cls: 'text-muted-foreground' }
-  if (i.status === 'ENDED_INCOMPLETE') return { texto: 'sem conclusão', cls: 'text-muted-foreground' }
-  if ((i.status === 'RUNNING' || i.status === 'ERROR') && i.currentDueAt) {
-    if (i.currentOverdue) {
-      const dias = Math.max(1, Math.floor((Date.now() - new Date(i.currentDueAt).getTime()) / 86_400_000))
-      return { texto: `etapa atrasada ${dias} dia${dias === 1 ? '' : 's'}`, cls: 'font-semibold text-red-600 dark:text-red-400' }
-    }
-    const dia = new Date(i.currentDueAt).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' }).replace('.', '')
-    return { texto: `etapa vence ${dia}`, cls: 'font-semibold text-amber-700 dark:text-amber-400' }
-  }
-  if (i.processOnTime == null) return { texto: 'sem prazo', cls: 'text-muted-foreground' }
-  return i.processOnTime
-    ? { texto: 'no prazo', cls: 'font-semibold text-emerald-700 dark:text-emerald-400' }
-    : { texto: 'atrasado', cls: 'font-semibold text-red-600 dark:text-red-400' }
+const TOM_DA_PONTUALIDADE: Record<'ok' | 'atencao' | 'atraso' | 'neutro', string> = {
+  ok:      'text-emerald-700 dark:text-emerald-400',
+  atencao: 'font-semibold text-amber-700 dark:text-amber-400',
+  atraso:  'font-semibold text-red-600 dark:text-red-400',
+  neutro:  'text-muted-foreground',
 }
 
 /** Coluna "Agora": sempre duas partes, para a linha não mudar de altura. */
@@ -110,16 +101,10 @@ const COLUNAS: Col[] = [
   },
   { key: 'inicio', label: 'Início', text: (i) => fmt(i.startedAt), sortVal: (i) => new Date(i.startedAt).getTime(), node: (i) => <span className="text-muted-foreground whitespace-nowrap">{fmt(i.startedAt)}</span> },
   {
-    /* Prazo em coluna própria (PO, 22/11/2026): antes o selo de vencimento da etapa
-       morava no "Agora" e quebrava a linha quando faltava espaço. Em cima, o que pede
-       atenção agora (a etapa); embaixo, o prazo do processo inteiro. */
-    key: 'prevista', label: 'Prazo',
-    text: (i) => [prazoDaEtapa(i).texto, i.processDueAt ? `processo até ${fmtData(i.processDueAt)}` : ''].filter(Boolean).join(' · '),
-    sortVal: (i) => (i.currentDueAt ? new Date(i.currentDueAt).getTime() : i.processDueAt ? new Date(i.processDueAt).getTime() : 0),
-    node: (i) => {
-      const p = prazoDaEtapa(i)
-      return <Duas l1={<span className={p.cls}>{p.texto}</span>} l2={i.processDueAt ? `${i.status === 'RUNNING' || i.status === 'ERROR' ? 'processo até' : 'previsto'} ${fmtData(i.processDueAt)}` : 'processo sem prazo'} />
-    },
+    // prazo do PROCESSO (soma das atividades). Opcional: a Pontualidade já diz se está em dia.
+    key: 'prevista', label: 'Data prevista',
+    text: (i) => fmt(i.processDueAt), sortVal: (i) => (i.processDueAt ? new Date(i.processDueAt).getTime() : 0),
+    node: (i) => <span className="text-muted-foreground whitespace-nowrap">{fmt(i.processDueAt)}</span>,
   },
   {
     key: 'etapa', label: 'Agora',
@@ -127,22 +112,26 @@ const COLUNAS: Col[] = [
     node: (i) => { const a = agora(i); return <Duas titulo={a.dica} l1={<span className={a.cls}>{a.icone}{a.l1}</span>} l2={a.l2} /> },
   },
   {
-    key: 'pontualidade', label: 'Pontualidade', text: (i) => pontualidadeLabel(i) + (i.returnCount > 0 ? ` · reaberta ${i.returnCount}×` : ''),
-    node: (i) => (
-      <span className="inline-flex items-center gap-1.5">
-        {i.status === 'CANCELLED' ? <span className="inline-flex items-center gap-1 text-muted-foreground"><Ban className="h-3 w-3" />cancelado</span>
-          : i.status === 'ENDED_INCOMPLETE' ? <span className="inline-flex items-center gap-1 text-muted-foreground"><CircleSlash className="h-3 w-3" />sem conclusão</span>
-          : i.processOnTime == null ? <span className="text-muted-foreground">sem prazo</span>
-          : i.processOnTime ? <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="h-3 w-3" />no prazo</span>
-          : <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400"><AlertTriangle className="h-3 w-3" />atrasado</span>}
-        {/* prazo derivado NÃO conta reaberturas → é otimista; o badge ressalva o número */}
-        {i.returnCount > 0 && (
-          <span title="Processo devolvido — o prazo derivado não conta as reaberturas" className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300">
-            <Undo2 className="h-2.5 w-2.5" />{i.returnCount}×
-          </span>
-        )}
-      </span>
-    ),
+    /* Só o estado, sem data (PO, 22/11/2026): a lista responde "está em dia?". A data
+       fica na coluna opcional "Data prevista"; o vencimento da etapa, na caixa de Tarefas. */
+    key: 'pontualidade', label: 'Pontualidade',
+    text: (i) => pontualidadeDoProcesso(i).texto + (i.returnCount > 0 ? ` · devolvido ${i.returnCount}×` : ''),
+    sortVal: (i) => (i.processDueAt ? new Date(i.processDueAt).getTime() : Number.MAX_SAFE_INTEGER),
+    node: (i) => {
+      const p = pontualidadeDoProcesso(i)
+      const Icone = p.tom === 'ok' ? CheckCircle2 : p.tom === 'atraso' ? AlertTriangle : p.tom === 'atencao' ? Clock : i.status === 'CANCELLED' ? Ban : CircleSlash
+      return (
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+          <span className={cn('inline-flex items-center gap-1', TOM_DA_PONTUALIDADE[p.tom])}><Icone className="h-3 w-3" aria-hidden />{p.texto}</span>
+          {/* prazo derivado NÃO conta devoluções → é otimista; o selo ressalva o número */}
+          {i.returnCount > 0 && (
+            <span title="Processo devolvido — o prazo derivado não conta as reaberturas" className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300">
+              <Undo2 className="h-2.5 w-2.5" />{i.returnCount}×
+            </span>
+          )}
+        </span>
+      )
+    },
   },
   { key: 'iniciadoPor', label: 'Iniciado por', text: (i) => i.startedBy || '—', node: (i) => <span className="text-muted-foreground">{i.startedBy || '—'}</span> },
   {
@@ -159,20 +148,20 @@ const COLUNAS: Col[] = [
   },
 ]
 /* Ordem da tabela: o que se procura (contrato) e o que está acontecendo (agora) primeiro. */
-const ORDEM = ['numero', 'processo', 'etapa', 'prevista', 'situacao', 'pontualidade', 'inicio', 'iniciadoPor']
+const ORDEM = ['numero', 'processo', 'etapa', 'pontualidade', 'situacao', 'prevista', 'inicio', 'iniciadoPor']
 const COLS: Col[] = ORDEM.map((k) => COLUNAS.find((c) => c.key === k)).filter((c): c is Col => !!c)
 
 /* v2: a disposição padrão das colunas mudou (Nº · Processo · Início · Data prevista ·
    Pontualidade · Iniciado por · Situação). A chave é versionada porque a preferência
    antiga guardada no navegador venceria o novo padrão — e o usuário veria a tela
    velha sem saber por quê. */
-const HIDDEN_KEY = 'nxt:cols:processos:hidden:v4'
+const HIDDEN_KEY = 'nxt:cols:processos:hidden:v5'
 /* "Etapa atual / conclusão" sai da visão padrão (ordem de colunas definida pelo PO),
    mas continua disponível em Configurações — é onde aparecem o vencimento da etapa
    corrente, a causa do erro e o motivo do cancelamento. */
 /* v3 (auditoria de UX, 22/11/2026): "Agora" (etapa e com quem) volta à visão padrão,
    e "Início" e "Iniciado por" passam para Configurações da lista. */
-const HIDDEN_DEFAULT = ['inicio', 'iniciadoPor', 'pontualidade']
+const HIDDEN_DEFAULT = ['inicio', 'iniciadoPor', 'prevista']
 
 export default function ProcessosPage() {
   const ws = useWorkspace()
@@ -194,6 +183,8 @@ export default function ProcessosPage() {
   /* Falha de carga ≠ lista vazia (ver components/list/load-error.tsx). Num refresh
      que falha, as linhas já carregadas ficam de pé — dado velho é melhor que sumiço. */
   const [erroCarga, setErroCarga] = useState(false)
+  /** janela de cancelar/reabrir aberta pelo menu "⋯" de uma linha */
+  const [dialogo, setDialogo] = useState<{ tipo: 'cancelar' | 'reabrir'; inst: Inst } | null>(null)
   const load = useCallback(async () => {
     const insts = await apiJson<Inst[]>('/api/instances')
     if (insts) { setRows(insts); setErroCarga(false) }
@@ -359,7 +350,7 @@ export default function ProcessosPage() {
                 ))}
                 {/* Ações fica FORA do sistema de colunas: não é dado (não filtra, não
                     ordena, não exporta) e não deve aparecer em "Colunas visíveis". */}
-                <th className="w-0 px-3 py-1.5 bg-muted" />
+                <th className="sticky right-0 z-10 w-0 px-3 py-1.5 bg-muted text-right font-medium text-muted-foreground"><span className="sr-only">Ações</span></th>
               </tr>
               {filtroCol.ligado && (
                 <LinhaFiltroColuna colunas={visibleCols} valores={filtroCol.valores} onChange={filtroCol.mudar} sobra={1} />
@@ -381,13 +372,15 @@ export default function ProcessosPage() {
                   {visibleCols.map((col) => (
                     <td key={col.key} className={cn(DENS_CEL, 'align-middle', col.align === 'right' && 'text-right')}>{col.node(i)}</td>
                   ))}
-                  <td className={cn(DENS_CEL, 'align-middle whitespace-nowrap')}>
-                    {(i.status === 'RUNNING' || i.status === 'ERROR') && (
-                      <CancelInstanceButton instanceId={i.id} processName={i.processName} onCancelled={load} compact />
-                    )}
-                    {/* cancelar por engano acontece; sem isto, a saída seria recomeçar o processo do zero */}
-                    {i.status === 'CANCELLED' && (
-                      <UncancelInstanceButton instanceId={i.id} processName={i.processName} onDone={load} compact />
+                  {/* Ações fixas à direita (PO, 22/11/2026): a tabela rola por baixo e o menu
+                      continua à vista em qualquer largura, com ou sem o menu lateral. */}
+                  <td className={cn(DENS_CEL, 'sticky right-0 z-10 align-middle whitespace-nowrap bg-card text-right shadow-[-6px_0_8px_-6px_rgb(0_0_0/0.15)]')}
+                    onClick={(e) => e.stopPropagation()}>
+                    {(i.status === 'RUNNING' || i.status === 'ERROR' || i.status === 'CANCELLED') && (
+                      <MenuDeAcoes rotulo={`Ações do processo #${i.numero ?? ''}`} acoes={i.status === 'CANCELLED'
+                        /* cancelar por engano acontece; sem isto, a saída seria recomeçar o processo do zero */
+                        ? [{ rotulo: 'Desfazer cancelamento…', onClick: () => setDialogo({ tipo: 'reabrir', inst: i }) }]
+                        : [{ rotulo: 'Cancelar processo…', onClick: () => setDialogo({ tipo: 'cancelar', inst: i }), perigo: true }]} />
                     )}
                   </td>
                 </tr>
@@ -396,6 +389,14 @@ export default function ProcessosPage() {
           </table>
         </div>
         <TablePagination page={page} pageSize={pageSize} total={sorted.length} onPage={setPage} onPageSize={setPageSize} rotulo={['processo', 'processos']} />
+        {dialogo?.tipo === 'cancelar' && (
+          <CancelInstanceButton instanceId={dialogo.inst.id} processName={dialogo.inst.processName}
+            onCancelled={() => { setDialogo(null); void load() }} controle={{ aberto: true, fechar: () => setDialogo(null) }} />
+        )}
+        {dialogo?.tipo === 'reabrir' && (
+          <UncancelInstanceButton instanceId={dialogo.inst.id} processName={dialogo.inst.processName}
+            onDone={() => { setDialogo(null); void load() }} controle={{ aberto: true, fechar: () => setDialogo(null) }} />
+        )}
       </div>
     </div>
   )

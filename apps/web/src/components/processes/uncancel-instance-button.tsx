@@ -9,13 +9,17 @@ import { apiFetch } from '@/lib/http'
 /** Desfaz o cancelamento de um processo: ele volta de onde parou e as tarefas
  *  retornam para quem as tinha. O prazo volta como era — se o processo ficou dias
  *  cancelado, a tarefa reaparece atrasada, porque foi isso que aconteceu. */
-export function UncancelInstanceButton({ instanceId, processName, onDone, compact }: {
+export function UncancelInstanceButton({ instanceId, processName, onDone, compact, controle }: {
   instanceId: string
   processName?: string
   onDone: (reabertas: number) => void
   compact?: boolean
+  /** aberto de fora (menu "⋯" da lista): sem botão próprio, a janela abre e fecha por aqui */
+  controle?: { aberto: boolean; fechar: () => void }
 }) {
-  const [open, setOpen] = useState(false)
+  const [openInterno, setOpenInterno] = useState(false)
+  const open = controle ? controle.aberto : openInterno
+  const setOpen = (v: boolean) => { if (controle) { if (!v) controle.fechar() } else setOpenInterno(v) }
   const [submitting, setSubmitting] = useState(false)
   const [reason, setReason] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -37,9 +41,15 @@ export function UncancelInstanceButton({ instanceId, processName, onDone, compac
     } finally { setSubmitting(false) }
   }
 
+  const abertoDeFora = !!controle?.aberto
+  useEffect(() => {
+    if (!abertoDeFora) return
+    setReason(''); setError(null)
+  }, [abertoDeFora])
+
   return (
     <>
-      <button
+      {!controle && <button
         type="button"
         onClick={(e) => { e.stopPropagation(); setOpen(true); setReason(''); setError(null) }}
         title="Desfazer o cancelamento deste processo"
@@ -48,7 +58,7 @@ export function UncancelInstanceButton({ instanceId, processName, onDone, compac
           : 'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors'}
       >
         <RotateCcw className="h-3.5 w-3.5" />Reabrir
-      </button>
+      </button>}
 
       {open && mounted && createPortal(
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" onClick={(e) => e.stopPropagation()}>

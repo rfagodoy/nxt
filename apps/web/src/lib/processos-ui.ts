@@ -134,6 +134,32 @@ export function humanDuration(ms: number | null): string {
  *  mesmo texto cobria também cancelado e em erro — a linha exibia "Data prevista"
  *  preenchida e "sem prazo" ao lado, contradizendo a si mesma.
  *  Cancelado tem rótulo próprio: não houve entrega para julgar pontualidade. */
+/** Pontualidade do PROCESSO na lista (PO, 22/11/2026): só o estado, sem data. O mesmo
+ *  critério do indicador "Atrasados" do topo (prazo do processo, não da etapa), mais
+ *  o aviso de véspera para não chegar ao atraso sem ver. */
+export function pontualidadeDoProcesso(
+  i: Pick<Inst, 'status' | 'processDueAt' | 'processOverdue' | 'processOnTime'>,
+  agora: Date = new Date(),
+): { texto: string; tom: 'ok' | 'atencao' | 'atraso' | 'neutro' } {
+  if (i.status === 'CANCELLED') return { texto: 'cancelado', tom: 'neutro' }
+  if (i.status === 'ENDED_INCOMPLETE') return { texto: 'sem conclusão', tom: 'neutro' }
+  if (i.status === 'COMPLETED') {
+    if (i.processOnTime == null) return { texto: 'sem prazo', tom: 'neutro' }
+    return i.processOnTime ? { texto: 'no prazo', tom: 'ok' } : { texto: 'concluído com atraso', tom: 'atraso' }
+  }
+  if (!i.processDueAt) return { texto: 'sem prazo', tom: 'neutro' }
+  const diaLocal = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const prazo = new Date(i.processDueAt)
+  const dias = Math.round((diaLocal(prazo) - diaLocal(agora)) / 86_400_000)
+  if (i.processOverdue || prazo.getTime() < agora.getTime()) {
+    const atraso = Math.max(1, -dias)
+    return { texto: `atrasado ${atraso} dia${atraso === 1 ? '' : 's'}`, tom: 'atraso' }
+  }
+  if (dias <= 0) return { texto: 'vence hoje', tom: 'atencao' }
+  if (dias === 1) return { texto: 'vence amanhã', tom: 'atencao' }
+  return { texto: 'no prazo', tom: 'ok' }
+}
+
 export function pontualidadeLabel(i: Inst): string {
   if (i.status === 'CANCELLED') return 'cancelado'
   // Encerrado sem conclusão: o processo parou sem passar pelo fim — não houve entrega
