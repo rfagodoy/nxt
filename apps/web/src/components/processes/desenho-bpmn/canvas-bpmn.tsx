@@ -26,13 +26,14 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type DragEven
 import { useTheme } from 'next-themes'
 import { useTema } from '@/lib/temas-provider'
 import {
-  ReactFlow, Background, BackgroundVariant, Controls, NodeToolbar, Panel, Position, ViewportPortal, applyNodeChanges,
+  ReactFlow, Background, BackgroundVariant, NodeToolbar, Panel, Position, ViewportPortal, applyNodeChanges,
   useStore, useStoreApi, useUpdateNodeInternals,
-  useReactFlow,
+  useReactFlow, useViewport,
   type AriaLabelConfig, type Connection, type Edge, type NodeChange, type NodePositionChange, type NodeSelectionChange, type OnConnectEnd,
   type OnNodeDrag, type ReactFlowInstance,
 } from '@xyflow/react'
-import { ArrowRight, Link2, Route, Settings, Trash2 } from 'lucide-react'
+import { ArrowRight, Link2, Maximize, Minus, Plus, Route, Settings, Trash2 } from 'lucide-react'
+import type { ResumoDasTelas } from '@/lib/editor-bizagi/telas-do-cartao'
 import '@xyflow/react/dist/style.css'
 import type { DesenhoBpmn, DesenhoV2, FormaDesenho, LayoutDesenho, PontaDaSeta, SetaDesenho, StepFormSchema, TipoForma } from '@nxt/types'
 import {
@@ -81,6 +82,8 @@ export interface CanvasBpmnProps {
   /** O mesmo texto, para o executor padrão de uma raia (o aviso de raia o usa). */
   rotuloDoExecutorDaRaia: (ex: StepFormSchema['executor']) => string | undefined
   prazoDe: (id: string) => string | null               // dueText
+  /** Telas que a atividade abre, para a linha do cartão (sem a função, o cartão não mostra). */
+  telasDe?: (id: string) => ResumoDasTelas | null
   problemasDe: (id: string) => string[]                // mensagens de validação do nó
   /** Clique na forma (ou no vazio, `null`): só seleciona. */
   onSelecionar: (id: string | null) => void
@@ -195,7 +198,7 @@ const CORES = {
 }
 
 /* ─── Projeção: grafo + desenho → nós e setas do React Flow ───────────────── */
-type Projecao = Pick<CanvasBpmnProps, 'grafo' | 'desenho' | 'steps' | 'selecionado' | 'responsavelDe' | 'rotuloDoExecutorDaRaia' | 'prazoDe' | 'problemasDe' | 'nomeDoProcesso'> & {
+type Projecao = Pick<CanvasBpmnProps, 'grafo' | 'desenho' | 'steps' | 'selecionado' | 'responsavelDe' | 'rotuloDoExecutorDaRaia' | 'prazoDe' | 'telasDe' | 'problemasDe' | 'nomeDoProcesso'> & {
   /** As formas do desenho livre (variante e nome de cada uma). */
   formas: readonly FormaDesenho[]
   tamanhos: Tamanhos
@@ -223,7 +226,7 @@ const FUNDO = {
   style: { pointerEvents: 'none' as const },
 }
 
-function projetarNos({ grafo, desenho, steps, selecionado, responsavelDe, rotuloDoExecutorDaRaia, prazoDe, problemasDe, nomeDoProcesso, formas, tamanhos, faixas, orientacao, selecionadas, fimDeLinha }: Projecao): NoBpmn[] {
+function projetarNos({ grafo, desenho, steps, selecionado, responsavelDe, rotuloDoExecutorDaRaia, prazoDe, telasDe, problemasDe, nomeDoProcesso, formas, tamanhos, faixas, orientacao, selecionadas, fimDeLinha }: Projecao): NoBpmn[] {
   const pos = (id: string) => desenho.posicoes[id] ?? { x: 0, y: 0 }
   const nos: NoBpmn[] = []
 
@@ -279,8 +282,11 @@ function projetarNos({ grafo, desenho, steps, selecionado, responsavelDe, rotulo
         if (aviso) problemas.push(aviso)
       }
       const nome = n.name?.trim() || steps[n.id]?.stepName?.trim() || (automatica ? 'Ação automática' : 'Tarefa sem nome')
-      const meta = [responsavel ?? (automatica ? 'Automática' : 'Sem responsável'), prazoDe(n.id)].filter(Boolean).join(' · ')
-      no = { ...comum, type: 'tarefa', data: { nome, automatica, meta, problemas, largura: w, altura: h, variante, fimDeLinha: fimDeLinha.has(n.id) } }
+      const executor = responsavel ?? (automatica ? 'Automática' : 'Sem responsável')
+      const prazo = prazoDe(n.id)
+      const telas = !automatica && telasDe ? telasDe(n.id) : null
+      const meta = [executor, prazo, telas && !telas.semTela ? `telas: ${telas.texto}` : null].filter(Boolean).join(' · ')
+      no = { ...comum, type: 'tarefa', data: { nome, automatica, meta, executor, prazo, telas, problemas, largura: w, altura: h, variante, fimDeLinha: fimDeLinha.has(n.id) } }
     } else if (ehLosango(n.type)) {
       no = { ...comum, type: 'losango', data: { tipo: TIPO_LOSANGO[n.type]!, nome: n.name?.trim() || undefined, reencontro: n.id.endsWith(SUFIXO_REENCONTRO), problemas } }
     } else {
@@ -507,8 +513,8 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
   /* As funções de consulta costumam nascer a cada render do pai: ficam numa ref (sempre a
      mais nova, atribuída no render para a projeção nunca ler uma antiga) e a projeção só
      refaz quando os DADOS mudam (grafo deriva do fluxo) ou quando `revisaoDasConsultas` muda. */
-  const consultas = useRef({ responsavelDe: props.responsavelDe, rotuloDoExecutorDaRaia: props.rotuloDoExecutorDaRaia, prazoDe: props.prazoDe, problemasDe: props.problemasDe })
-  consultas.current = { responsavelDe: props.responsavelDe, rotuloDoExecutorDaRaia: props.rotuloDoExecutorDaRaia, prazoDe: props.prazoDe, problemasDe: props.problemasDe }
+  const consultas = useRef({ responsavelDe: props.responsavelDe, rotuloDoExecutorDaRaia: props.rotuloDoExecutorDaRaia, prazoDe: props.prazoDe, telasDe: props.telasDe, problemasDe: props.problemasDe })
+  consultas.current = { responsavelDe: props.responsavelDe, rotuloDoExecutorDaRaia: props.rotuloDoExecutorDaRaia, prazoDe: props.prazoDe, telasDe: props.telasDe, problemasDe: props.problemasDe }
   /** Altura provisória da raia enquanto a alça é arrastada (só na tela; grava ao soltar). */
   const [previa, setPrevia] = useState<{ id: string; altura: number } | null>(null)
   // a raia da prévia sumiu ou o desenho virou só leitura: descarta (ajuste durante o render)
@@ -1331,12 +1337,13 @@ export function CanvasBpmn(props: CanvasBpmnProps): JSX.Element {
           maxZoom={ZOOM_MAX}
           colorMode={escuro ? 'dark' : 'light'}
           ariaLabelConfig={rotulosDeAcesso}
+          proOptions={{ hideAttribution: true }}
         >
           {/* sem grade, só o fundo (os pontos somem) */}
           <Background variant={BackgroundVariant.Dots} gap={GRADE} size={grade ? 1.2 : 0} color={grade ? cor.ponto : 'transparent'} bgColor={cor.fundo} />
           <SemCaixaDaSelecao />
           <AlcasNaOrientacao orientacao={orientacao} />
-          <Controls showInteractive={false} position="bottom-left" />
+          <BarraDeZoom />
           {setaSel && !somenteLeitura && (
             <Panel position="top-left">
               <div role="toolbar" aria-label="Seta selecionada"
@@ -1542,6 +1549,27 @@ function PontasDaSeta({ source, target, pontas, alcas, extremos, arrastando, onM
           }} />
       ))}
     </ViewportPortal>
+  )
+}
+
+/** Zoom agrupado no canto (PO, 22/11/2026): − nível + e "Ajustar à tela". O nível em % é
+ *  também um botão: volta a 100%. */
+const BOTAO_ZOOM = 'flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md border-0 bg-transparent px-1.5 font-sans text-xs font-semibold text-[var(--e-2E3E36)] hover:bg-[rgba(20,36,32,0.06)] disabled:opacity-35 disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--e-11804F)] dark:text-[var(--e-C9D6CE)] dark:hover:bg-white/5 dark:focus-visible:outline-spark'
+function BarraDeZoom(): JSX.Element {
+  const { zoomIn, zoomOut, zoomTo, fitView } = useReactFlow()
+  const { zoom } = useViewport()
+  const nivel = Math.round(zoom * 100)
+  return (
+    <Panel position="bottom-right">
+      <div role="toolbar" aria-label="Zoom"
+        className="flex items-center gap-0.5 rounded-[10px] bg-white p-1 shadow-[0_0_0_1px_rgba(20,36,32,0.12),0_8px_20px_-12px_rgba(12,20,16,0.45)] dark:bg-[var(--e-0F1914)] dark:shadow-[0_0_0_1px_var(--e-2A3B32)]">
+        <button type="button" className={BOTAO_ZOOM} aria-label="Diminuir o zoom" title="Diminuir o zoom" disabled={zoom <= ZOOM_MIN + 0.001} onClick={() => void zoomOut({ duration: 150 })}><Minus aria-hidden className="h-3.5 w-3.5" /></button>
+        <button type="button" className={`${BOTAO_ZOOM} w-12 tabular-nums`} aria-label={`Zoom em ${nivel}%. Voltar para 100%`} title="Voltar para 100%" onClick={() => void zoomTo(1, { duration: 150 })}>{nivel}%</button>
+        <button type="button" className={BOTAO_ZOOM} aria-label="Aumentar o zoom" title="Aumentar o zoom" disabled={zoom >= ZOOM_MAX - 0.001} onClick={() => void zoomIn({ duration: 150 })}><Plus aria-hidden className="h-3.5 w-3.5" /></button>
+        <span aria-hidden className="mx-1 h-5 w-px bg-[rgba(20,36,32,0.12)] dark:bg-white/10" />
+        <button type="button" className={BOTAO_ZOOM} onClick={() => void fitView({ ...ENQUADRAR, duration: 300 })}><Maximize aria-hidden className="h-3.5 w-3.5" />Ajustar à tela</button>
+      </div>
+    </Panel>
   )
 }
 

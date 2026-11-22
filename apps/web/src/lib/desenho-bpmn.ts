@@ -8,7 +8,8 @@ import { layoutGraph, nodeSize, LANE_SEM_RESPONSAVEL, type FlowGraph, type FlowN
 
 export const GRADE = 16
 export const RAIA_ALTURA_PADRAO = 144
-export const RAIA_ROTULO_W = 160
+/** Coluna do nome da raia (opção A do PO, 22/11/2026: nome de lado, coluna estreita). */
+export const RAIA_ROTULO_W = 48
 /** Menor altura a que a alça deixa encolher uma raia. Alturas sempre múltiplas da GRADE. */
 export const RAIA_ALTURA_MINIMA = 64
 /** Maior altura que a alça aceita (o separador anuncia mínimo e máximo). */
@@ -163,8 +164,10 @@ export function pontoDoRotuloNaPolilinha(pontos: ReadonlyArray<{ x: number; y: n
   }
   // seta reta (ou quase): a 34 px da saída
   if (pts.length === 2) return passo(pts[0], pts[1], 34)
-  // depois da 1ª dobra: 30 px adiante (no meio do trecho, se ele for curto)
-  return passo(pts[1], pts[2], 30)
+  // depois da 1ª dobra: 30 px adiante (no meio do trecho, se ele for curto). Saída curta de
+  // lado (de um losango, que tem o nome embaixo): 64 px, para a pílula passar do nome.
+  const saidaCurta = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y) < 40
+  return passo(pts[1], pts[2], saidaCurta ? 64 : 30)
 }
 
 /** Reordenar arrastando (PO, 30/10/2026): a forma — ou o bloco inteiro, `ids` — sai de

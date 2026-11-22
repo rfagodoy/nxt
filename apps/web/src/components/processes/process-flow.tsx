@@ -19,6 +19,7 @@ import { findConnector } from '@nxt/types'
 import { Button } from '@/components/ui/button'
 import { useEntityLabels, type EntityKind } from '@/components/ui/entity-select'
 import { useScreens } from '@/hooks/use-screens'
+import { resumoDasTelas } from '@/lib/editor-bizagi/telas-do-cartao'
 import { useLookupTable } from '@/hooks/use-lookup-table'
 import { PAPEIS_KEY, INIT_PAPEIS, referenciaDoPapelEntry } from '@/lib/contract-roles'
 import { layoutGraph, nodeSize, LANE_SEM_RESPONSAVEL, type FlowNode as LNode, type FlowNodeType } from '@/lib/flow-layout'
@@ -566,6 +567,16 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     return { nome: raia.nome, executor: raia.executor, rotuloExecutor: rotuloDoExecutor(raia.executor) }
   }, [configId, desenhoVisto, doc, alturaDe, rotuloDoExecutor])
   const prazoDe = useCallback((id: string) => dueText(nodeById[id]?.step), [nodeById])
+  /** Linha "tela" do cartão (PO, 22/11/2026): a primeira tela da tarefa e "+N". */
+  const nomeDaTela = useMemo(() => {
+    const porId = new Map(screens.map((t) => [t.id, t.name]))
+    return (id: string) => porId.get(id)
+  }, [screens])
+  const telasDe = useCallback((id: string) => {
+    const n = nodeEfetivoById[id]
+    if (!n || n.type !== 'userTask' || carregandoTelas) return null
+    return resumoDasTelas(n.step, nomeDaTela)
+  }, [nodeEfetivoById, nomeDaTela, carregandoTelas])
   /** Os nomes que `responsavelDe` usa já chegaram? (papéis e entidades vêm da rede) */
   const consultasProntas = useMemo(() => nodesEfetivos.every((n) => {
     const ex = n.type === 'userTask' ? n.step?.executor : undefined
@@ -667,7 +678,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
     return m
   }, [pendencias])
   /* O canvas só refaz cartões e marcas quando isto muda (ver CanvasBpmnProps). */
-  const revisaoDasConsultas = useMemo(() => ({}), [papeis.entries, resolveEntidade, pendencias]) // eslint-disable-line react-hooks/exhaustive-deps
+  const revisaoDasConsultas = useMemo(() => ({}), [papeis.entries, resolveEntidade, pendencias, telasDe]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ─── Desenho: grafo, posições que faltam e abertura ──────────────────────────
      O grafo do desenho é o MESMO gerado dos blocos, com os nomes dos passos (o tamanho
@@ -1695,7 +1706,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
           {grafo && desenhoVisto ? (
             <CanvasBpmn fluxo={fluxo ?? FLUXO_VAZIO} grafo={grafo} desenho={desenhoVisto} steps={stepsEfetivos} selecionado={selectedId}
               nomeDoProcesso={name} revisaoDasConsultas={revisaoDasConsultas} somenteLeitura={somenteLeitura}
-              responsavelDe={responsavelDe} rotuloDoExecutorDaRaia={rotuloDoExecutor} prazoDe={prazoDe} problemasDe={problemasDe}
+              responsavelDe={responsavelDe} rotuloDoExecutorDaRaia={rotuloDoExecutor} prazoDe={prazoDe} telasDe={telasDe} problemasDe={problemasDe}
               onSelecionar={somenteLeitura ? aoSelecionarNaLeitura : aoSelecionarNoDesenho} onAbrir={aoAbrir} onProximo={aoProximo} gavetaAberta={gavetaAberta}
               orientacao={orientacao} grade={grade} conector={conector} onSelecaoMultipla={setSelecaoMultipla} onLayout={aoLayout}
               onDesenho={aoMudarDesenho} onSoltar={aoSoltar} onMoverItem={aoMoverItem}

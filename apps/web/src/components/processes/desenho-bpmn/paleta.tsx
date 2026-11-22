@@ -1,11 +1,11 @@
 'use client'
 
 /* ─── Paleta de formas do desenho BPMN (estilo Bizagi) ─────────────────────────
-   Coluna à esquerda do canvas, recolhível (112 px ↔ 30 px; a preferência fica no
-   navegador). Em cima, a grade de 2 colunas com os grupos do catálogo (Início, Tarefa, Escolha,
-   Ao mesmo tempo, Fim): só entra o que o motor executa. Cada botão mostra só o desenho da variação
-   escolhida, e o ▾ ao lado (hoje só na Tarefa, o único grupo com mais de uma variação) abre a lista
-   de variações, com o ícone e o nome de cada uma. O botão é arrastado para o desenho (`{ grupo, indice }` no
+   Coluna à esquerda do canvas, recolhível (176 px com os nomes ↔ 52 px só com os ícones; a
+   preferência fica no navegador). Opção A do PO (22/11/2026): cada forma com o nome, em grupos
+   (Eventos, Atividades, Decisões, Ligações, Organização). Só entra o que o motor executa. O ▾
+   ao lado (só nos grupos com mais de uma variação) abre a lista de variações, com o ícone e o
+   nome de cada uma. O botão é arrastado para o desenho (`{ grupo, indice }` no
    `dataTransfer`, em `TIPO_ARRASTO_FORMA`) ou escolhido por clique/Enter (`onEscolher`;
    a página põe a forma depois da selecionada). Embaixo, os conectores (Sequência / Fluxo
    de mensagem: o ativo vale para as setas novas) e Piscina, Raia e Fase. */
@@ -18,11 +18,16 @@ export const TIPO_ARRASTO_FORMA = 'application/nxt-forma'
 
 export type Conector = 'sequencia' | 'mensagem'
 
-const GRUPOS: GrupoPaleta[] = ['inicio', 'tarefa', 'escolha', 'paralelo', 'fim']
 const CHAVE_PREFERENCIA = 'nxt:desenho-bpmn:paleta'
 const NOME_DO_GRUPO: Record<GrupoPaleta, string> = {
-  inicio: 'Início', tarefa: 'Tarefa', escolha: 'Escolha', paralelo: 'Ao mesmo tempo', fim: 'Fim',
+  inicio: 'Início', tarefa: 'Atividade', escolha: 'Escolha', paralelo: 'Ao mesmo tempo', fim: 'Fim',
 }
+/** Seções de formas da paleta, de cima para baixo. */
+const SECOES_DE_FORMAS: Array<{ titulo: string; grupos: GrupoPaleta[] }> = [
+  { titulo: 'Eventos', grupos: ['inicio', 'fim'] },
+  { titulo: 'Atividades', grupos: ['tarefa'] },
+  { titulo: 'Decisões', grupos: ['escolha', 'paralelo'] },
+]
 
 /* ─── desenhos (viewBox 32 × 32, centrados em 16,16) ───────────────────────── */
 
@@ -105,7 +110,7 @@ export function IconeDoItem({ item, tamanho = 32 }: { item: ItemCatalogo; tamanh
     case 'inicio': case 'intermediario': case 'fim':
       corpo = (
         <>
-          <circle className={EVENTO} cx={16} cy={16} r={13} strokeWidth={item.grupo === 'fim' ? 3.4 : 1.8} />
+          <circle className={EVENTO} cx={16} cy={16} r={13} strokeWidth={item.grupo === 'fim' ? 5 : 1.8} />
           {item.grupo === 'intermediario' && <circle className="stroke-[var(--e-11804F)] dark:stroke-spark" cx={16} cy={16} r={10.5} fill="none" strokeWidth={1.2} />}
           <MarcaDoEvento item={item} />
         </>
@@ -166,18 +171,17 @@ const ICONE_FERRAMENTA: Record<'sequencia' | 'mensagem' | 'piscina' | 'raia' | '
 /* ─── botões ───────────────────────────────────────────────────────────────── */
 
 const FOCO = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--e-11804F)] dark:focus-visible:outline-spark'
-const BOTAO = `grid h-10 w-10 shrink-0 place-items-center rounded-[7px] border border-transparent bg-transparent p-0 hover:bg-[rgba(17,128,79,0.08)] dark:hover:bg-[rgba(198,242,78,0.12)]
-  aria-pressed:border-[var(--e-11804F)] aria-pressed:bg-[rgba(17,128,79,0.08)] dark:aria-pressed:border-spark dark:aria-pressed:bg-[rgba(198,242,78,0.12)]
+/** Uma linha da paleta: o desenho e, com a paleta aberta, o nome. */
+const LINHA = `flex h-9 min-w-0 flex-1 items-center gap-2 rounded-[7px] border border-transparent bg-transparent px-1.5 text-left font-sans text-[12.5px] font-semibold text-[var(--e-142420)]
+  hover:bg-[rgba(17,128,79,0.08)] aria-pressed:border-[var(--e-11804F)] aria-pressed:bg-[rgba(17,128,79,0.08)]
+  dark:text-[var(--e-E3ECE6)] dark:hover:bg-[rgba(198,242,78,0.12)] dark:aria-pressed:border-spark dark:aria-pressed:bg-[rgba(198,242,78,0.12)]
   disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent ${FOCO}`
-/* O ▾ tem 8 px de largura (dois pares botão + ▾ cabem nos 100 px da paleta sem invadir o
-   vizinho), mas a área de clique é a altura inteira da linha: o `after` invisível estica
-   para cima e para baixo, sem cobrir botão nenhum. */
-const SETA = `relative h-6 w-2 shrink-0 rounded-[3px] border-0 bg-transparent p-0 text-[9px] leading-none text-[var(--e-5B6B63)] hover:bg-[rgba(17,128,79,0.08)] hover:text-[var(--e-142420)]
+/* O ▾ das variações: a área de clique é a altura inteira da linha (o `after` invisível estica). */
+const SETA = `relative h-6 w-3 shrink-0 rounded-[3px] border-0 bg-transparent p-0 text-[9px] leading-none text-[var(--e-5B6B63)] hover:bg-[rgba(17,128,79,0.08)] hover:text-[var(--e-142420)]
   after:absolute after:inset-x-0 after:-inset-y-2 after:content-['']
   dark:text-[var(--e-9DB0A5)] dark:hover:bg-[rgba(198,242,78,0.12)] dark:hover:text-white disabled:cursor-not-allowed disabled:opacity-40 ${FOCO}`
-const GRADE_CLS = 'grid grid-cols-2 gap-0.5 border-b border-b-[var(--e-DCE4DE)] px-1.5 py-2 dark:border-b-[var(--e-22332A)]'
-/** As formas: cada célula é botão + ▾ (48 px); as colunas se ajustam ao conteúdo e se afastam. */
-const GRADE_FORMAS = 'grid grid-cols-[repeat(2,auto)] justify-between gap-y-0.5 border-b border-b-[var(--e-DCE4DE)] px-1.5 py-2 dark:border-b-[var(--e-22332A)]'
+const SECAO = 'flex flex-col gap-0.5 px-1.5 py-1'
+const TITULO_SECAO = 'px-1.5 pb-0.5 pt-1.5 font-sans text-[10px] font-extrabold uppercase tracking-[0.08em] text-[var(--e-5B6B63)] dark:text-[var(--e-9DB0A5)]'
 const ITEM_MENU = `grid w-full grid-cols-[30px_1fr] items-center gap-2 rounded-[7px] border-0 bg-transparent px-2 py-[5px] text-left font-sans text-xs font-semibold
   text-[var(--e-142420)] hover:bg-[rgba(17,128,79,0.08)] aria-checked:bg-[rgba(17,128,79,0.08)] dark:text-[var(--e-E3ECE6)] dark:hover:bg-[rgba(198,242,78,0.12)]
   dark:aria-checked:bg-[rgba(198,242,78,0.12)] ${FOCO}`
@@ -238,62 +242,70 @@ export function PaletaBpmn({
 
   return (
     <nav aria-label="Paleta de formas"
-      className={`flex shrink-0 flex-col overflow-y-auto border-r border-r-[rgba(20,36,32,0.08)] bg-[var(--e-F7FAF7)] transition-[width] duration-150 dark:border-r-[var(--e-1C2A23)] dark:bg-white/[0.02] ${aberta ? 'w-[112px]' : 'w-[30px]'}`}>
+      className={`flex shrink-0 flex-col overflow-y-auto overflow-x-hidden border-r border-r-[rgba(20,36,32,0.08)] bg-[var(--e-F7FAF7)] pb-2 transition-[width] duration-150 dark:border-r-[var(--e-1C2A23)] dark:bg-white/[0.02] ${aberta ? 'w-[176px]' : 'w-[52px]'}`}>
       <div className="flex justify-end border-b border-b-[var(--e-DCE4DE)] p-1 dark:border-b-[var(--e-22332A)]">
         <button type="button" onClick={alternar} aria-expanded={aberta} aria-label={aberta ? 'Recolher a paleta' : 'Abrir a paleta'} title={aberta ? 'Recolher a paleta' : 'Abrir a paleta'}
           className={`rounded-[5px] border-0 bg-transparent px-1.5 py-0.5 text-[var(--e-5B6B63)] hover:bg-[rgba(17,128,79,0.08)] dark:text-[var(--e-9DB0A5)] dark:hover:bg-[rgba(198,242,78,0.12)] ${FOCO}`}>
           {aberta ? '‹' : '›'}
         </button>
       </div>
-      {aberta && (
-        <>
-          <div role="group" aria-label="Formas" className={GRADE_FORMAS}>
-            {GRUPOS.map((g) => {
-              const indice = Math.min(escolhidas[g] ?? 0, CATALOGO[g].length - 1)
-              const item = CATALOGO[g][indice]
-              return (
-                <div key={g} className="flex items-center">
-                  <button type="button" disabled={desabilitada} draggable={!desabilitada} onDragStart={aoArrastar(g, indice)} onClick={() => onEscolher(item)}
-                    aria-label={rotulo(item)} title={`${rotulo(item)}. Arraste para o desenho ou pressione Enter.`} className={`${BOTAO} cursor-grab`}>
-                    <IconeDoItem item={item} />
-                  </button>
-                  {CATALOGO[g].length > 1 && (
+      {SECOES_DE_FORMAS.map((secao) => (
+        <div key={secao.titulo} role="group" aria-label={secao.titulo} className={SECAO}>
+          {aberta && <span aria-hidden className={TITULO_SECAO}>{secao.titulo}</span>}
+          {secao.grupos.map((g) => {
+            const indice = Math.min(escolhidas[g] ?? 0, CATALOGO[g].length - 1)
+            const item = CATALOGO[g][indice]
+            const nome = indice === 0 ? NOME_DO_GRUPO[g] : rotulo(item)
+            return (
+              <div key={g} className="flex items-center">
+                <button type="button" disabled={desabilitada} draggable={!desabilitada} onDragStart={aoArrastar(g, indice)} onClick={() => onEscolher(item)}
+                  aria-label={nome} title={`${nome}. Arraste para o desenho ou pressione Enter.`} className={`${LINHA} cursor-grab`}>
+                  <IconeDoItem item={item} tamanho={24} />
+                  {aberta && <span className="truncate">{nome}</span>}
+                </button>
+                {aberta && CATALOGO[g].length > 1 && (
                   <button type="button" disabled={desabilitada} aria-label={`Variações de ${item.nome}`} aria-haspopup="menu" aria-expanded={menu === g}
                     title={`Variações de ${item.nome}`} className={SETA}
                     onClick={(e) => { ancora.current = e.currentTarget; setMenu((m) => (m === g ? null : g)) }}>
                     ▾
                   </button>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-          <div role="group" aria-label="Conectores" className={GRADE_CLS}>
-            <button type="button" aria-pressed={conector === 'sequencia'} disabled={desabilitada} onClick={() => onConector('sequencia')} className={BOTAO}
-              aria-label="Sequência" title="Sequência. Arraste a bolinha de uma forma até outra para ligar.">
-              <svg aria-hidden width={32} height={32} viewBox="0 0 32 32" overflow="visible">{ICONE_FERRAMENTA.sequencia}</svg>
-            </button>
-            <button type="button" aria-pressed={conector === 'mensagem'} disabled={desabilitada} onClick={() => onConector('mensagem')} className={BOTAO}
-              aria-label="Fluxo de mensagem" title="Fluxo de mensagem · Só documenta. Liga uma forma a outra piscina.">
-              <svg aria-hidden width={32} height={32} viewBox="0 0 32 32" overflow="visible">{ICONE_FERRAMENTA.mensagem}</svg>
-            </button>
-          </div>
-          <div role="group" aria-label="Piscina, raia e fase" className={GRADE_CLS}>
-            <button type="button" disabled={desabilitada} onClick={onAdicionarPiscina} className={BOTAO}
-              aria-label="Nova piscina" title="Nova piscina (participante externo) · Só documenta. Entra embaixo do desenho.">
-              <svg aria-hidden width={32} height={32} viewBox="0 0 32 32" overflow="visible">{ICONE_FERRAMENTA.piscina}</svg>
-            </button>
-            <button type="button" disabled={desabilitada} onClick={onAdicionarRaia} className={BOTAO}
-              aria-label="Nova raia" title="Nova raia. Entra no fim da piscina.">
-              <svg aria-hidden width={32} height={32} viewBox="0 0 32 32" overflow="visible">{ICONE_FERRAMENTA.raia}</svg>
-            </button>
-            <button type="button" disabled={desabilitada} onClick={onAdicionarFase} className={BOTAO}
-              aria-label="Nova fase" title="Nova fase · Só documenta. Entra no fim e alonga a piscina.">
-              <svg aria-hidden width={32} height={32} viewBox="0 0 32 32" overflow="visible">{ICONE_FERRAMENTA.fase}</svg>
-            </button>
-          </div>
-        </>
-      )}
+                )}
+              </div>
+            )
+          })}
+        </div>
+      ))}
+      <div role="group" aria-label="Ligações" className={SECAO}>
+        {aberta && <span aria-hidden className={TITULO_SECAO}>Ligações</span>}
+        <button type="button" aria-pressed={conector === 'sequencia'} disabled={desabilitada} onClick={() => onConector('sequencia')} className={LINHA}
+          aria-label="Sequência" title="Sequência. Arraste a bolinha de uma forma até outra para ligar.">
+          <svg aria-hidden width={24} height={24} viewBox="0 0 32 32" overflow="visible">{ICONE_FERRAMENTA.sequencia}</svg>
+          {aberta && <span className="truncate">Sequência</span>}
+        </button>
+        <button type="button" aria-pressed={conector === 'mensagem'} disabled={desabilitada} onClick={() => onConector('mensagem')} className={LINHA}
+          aria-label="Fluxo de mensagem" title="Fluxo de mensagem · Só documenta. Liga uma forma a outra piscina.">
+          <svg aria-hidden width={24} height={24} viewBox="0 0 32 32" overflow="visible">{ICONE_FERRAMENTA.mensagem}</svg>
+          {aberta && <span className="truncate">Mensagem</span>}
+        </button>
+      </div>
+      <div role="group" aria-label="Organização" className={SECAO}>
+        {aberta && <span aria-hidden className={TITULO_SECAO}>Organização</span>}
+        <button type="button" disabled={desabilitada} onClick={onAdicionarRaia} className={LINHA}
+          aria-label="Nova raia" title="Nova raia. Entra no fim da piscina.">
+          <svg aria-hidden width={24} height={24} viewBox="0 0 32 32" overflow="visible">{ICONE_FERRAMENTA.raia}</svg>
+          {aberta && <span className="truncate">Raia</span>}
+        </button>
+        <button type="button" disabled={desabilitada} onClick={onAdicionarFase} className={LINHA}
+          aria-label="Nova fase" title="Nova fase · Só documenta. Entra no fim e alonga a piscina.">
+          <svg aria-hidden width={24} height={24} viewBox="0 0 32 32" overflow="visible">{ICONE_FERRAMENTA.fase}</svg>
+          {aberta && <span className="truncate">Fase</span>}
+        </button>
+        <button type="button" disabled={desabilitada} onClick={onAdicionarPiscina} className={LINHA}
+          aria-label="Nova piscina" title="Nova piscina (participante externo) · Só documenta. Entra embaixo do desenho.">
+          <svg aria-hidden width={24} height={24} viewBox="0 0 32 32" overflow="visible">{ICONE_FERRAMENTA.piscina}</svg>
+          {aberta && <span className="truncate">Piscina</span>}
+        </button>
+      </div>
       {menu && aberta && (
         <FloatingMenu anchor={ancora} onClose={() => fecharMenu(false)} role="menu" aria-label={`Variações: ${NOME_DO_GRUPO[menu]}`}
           onKeyDown={teclasDoMenu}
