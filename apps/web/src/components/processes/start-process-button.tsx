@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, ChevronRight, X, Workflow, Loader2, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -52,13 +52,28 @@ export function StartProcessButton({ variant = 'outline', className, kinds }: {
   /** Aditivo/Encerramento: o workflow escolhido espera o "Qual contrato?" antes de iniciar. */
   const [pedeContrato, setPedeContrato] = useState<ProcRow | null>(null)
 
+  /* só o que ESTA pessoa pode iniciar — regra "Quem inicia" do workflow (API) */
+  /* A chave em texto: quem usa o botão passa `kinds` como array literal, novo a cada
+     renderização — como dependência, ele faria o efeito buscar sem parar. */
+  const chaveKinds = kinds?.join(',') ?? ''
+  const carregar = useCallback(async () => {
+    const filtro = chaveKinds ? chaveKinds.split(',') : null
+    const all = await apiJson<ProcRow[]>('/api/processes/iniciaveis')
+    const lista = (all ?? []).filter((p) => !filtro || (!!p.kind && filtro.includes(p.kind)))
+    setProcs(lista)
+    return lista
+  }, [chaveKinds])
+  /* Carrega já ao aparecer: com UM workflow só, o botão diz qual é e inicia direto
+     (auditoria de UX, 22/11/2026). Antes abria uma janela com uma opção só. */
+  useEffect(() => { void carregar() }, [carregar])
+  const unico = procs?.length === 1 ? procs[0] : null
+
   const openModal = async () => {
     setOpen(true)
-    if (procs === null) {
-      /* só o que ESTA pessoa pode iniciar — regra "Quem inicia" do workflow (API) */
-      const all = await apiJson<ProcRow[]>('/api/processes/iniciaveis')
-      setProcs((all ?? []).filter((p) => !kinds || (!!p.kind && kinds.includes(p.kind))))
-    }
+    const lista = procs ?? await carregar()
+    /* Um workflow só: inicia na hora. A janela fica aberta enquanto isso, porque é
+       nela que aparece o "Qual contrato?" (aditivo, encerramento) ou um aviso de erro. */
+    if (lista.length === 1) void start(lista[0])
   }
   const fechar = () => { setOpen(false); setAviso(null); setIniciando(null); setPedeContrato(null) }
 
@@ -84,7 +99,7 @@ export function StartProcessButton({ variant = 'outline', className, kinds }: {
     <>
       <button type="button" onClick={openModal} className={cn(triggerCls, className)}>
         <Plus className="h-3.5 w-3.5" />
-        Novo processo
+        {unico ? unico.name : 'Novo processo'}
       </button>
 
       {open && (
