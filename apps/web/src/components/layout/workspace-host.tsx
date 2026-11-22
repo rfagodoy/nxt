@@ -61,7 +61,7 @@ function Document({ tab }: { tab: WorkspaceTab }) {
   }
 
   if (tab.kind === 'process-instance') {
-    return <ProcessInstanceDocView inst={tab.data as Inst} />
+    return <ProcessInstanceDocView inst={tab.data as Inst} onClose={() => close(tab.id)} />
   }
 
   if (tab.kind === 'unit') {

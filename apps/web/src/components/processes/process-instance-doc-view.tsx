@@ -21,7 +21,7 @@ import {
 
 const execOf = (t: TaskRow) => taskExecutor(t)
 
-interface Col<T> { key: string; label: string; get: (r: T) => string; cell: (r: T) => ReactNode; vcenter?: boolean }
+interface Col<T> { key: string; label: string; get: (r: T) => string; cell: (r: T) => ReactNode }
 
 /** Tabela de seção com busca + filtros (E/OU), no padrão do sistema. Sem título
  *  próprio — o rótulo é a sub-aba que a contém (padrão de contrato/parceiro). */
@@ -37,16 +37,14 @@ function FilteredTable<T>({ cols, rows, rowKey, emptyText }: {
   const filtered = rows ? filterRows(rows, cols, search, filters, logic) : []
 
   return (
-    <section className="rounded-xl border bg-card shadow-sm">
-      <div className="px-3 pt-2.5">
-        <TableToolbar search={search} onSearch={setSearch} columns={cols} filters={filters} onFiltersChange={setFilters}
-          logic={logic} onLogicChange={setLogic} filteredCount={filtered.length} totalCount={rows?.length ?? 0} />
-      </div>
-      <div className="overflow-x-auto mt-2">
-        <table className={cn('min-w-full', DENS_TABELA)}>
-          <thead className="sticky top-0 z-10">
-            <tr className="border-b">
-              {cols.map((c) => <th key={c.key} className="text-left px-3 py-1.5 font-medium text-muted-foreground whitespace-nowrap bg-muted">{c.label}</th>)}
+    <section className="rounded-xl border bg-card p-[var(--secao-pad)] space-y-[var(--form-gap)] shadow-sm">
+      <TableToolbar search={search} onSearch={setSearch} columns={cols} filters={filters} onFiltersChange={setFilters}
+        logic={logic} onLogicChange={setLogic} filteredCount={filtered.length} totalCount={rows?.length ?? 0} />
+      <div className="rounded-lg border overflow-x-auto">
+        <table className={cn('w-full', DENS_TABELA)}>
+          <thead>
+            <tr className="border-b bg-[hsl(240_5%_97%)] dark:bg-[hsl(240_21%_15%)]">
+              {cols.map((c) => <th key={c.key} className={cn('text-left font-medium text-muted-foreground whitespace-nowrap', DENS_CAB)}>{c.label}</th>)}
             </tr>
           </thead>
           <tbody>
@@ -56,7 +54,7 @@ function FilteredTable<T>({ cols, rows, rowKey, emptyText }: {
               <tr><td colSpan={cols.length} className="px-3 py-6 text-center text-xs text-muted-foreground">{rows.length === 0 ? emptyText : 'Nenhum registro com os filtros aplicados.'}</td></tr>
             ) : filtered.map((r) => (
               <tr key={rowKey(r)} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
-                {cols.map((c) => <td key={c.key} className={cn('px-3 py-2', c.vcenter ? 'align-middle' : 'align-top')}>{c.cell(r)}</td>)}
+                {cols.map((c) => <td key={c.key} className={cn(DENS_CEL, 'align-middle')}>{c.cell(r)}</td>)}
               </tr>
             ))}
           </tbody>
@@ -66,7 +64,7 @@ function FilteredTable<T>({ cols, rows, rowKey, emptyText }: {
   )
 }
 
-export function ProcessInstanceDocView({ inst: instAoAbrir }: { inst: Inst }) {
+export function ProcessInstanceDocView({ inst: instAoAbrir, onClose }: { inst: Inst; onClose?: () => void }) {
   /** a linha da instância RELIDA (a da aba é a foto do momento em que ela abriu) */
   const [instViva, setInstViva] = useState<Inst | null>(null)
   const inst = instViva?.id === instAoAbrir.id ? instViva : instAoAbrir
@@ -136,18 +134,18 @@ export function ProcessInstanceDocView({ inst: instAoAbrir }: { inst: Inst }) {
     : e.kind === 'blocked'  ? `${e.by || '—'} tentou concluir · ${e.reason ?? ''}`
     : '—'
   const histCols: Col<HistoryEvent>[] = [
-    { key: 'atividade', label: 'Atividade', vcenter: true, get: activityOf, cell: (e) => <span className="font-medium">{activityOf(e)}</span> },
-    { key: 'inicio', label: 'Início', vcenter: true, get: (e) => fmt(e.task?.createdAt), cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{fmt(e.task?.createdAt)}</span> },
-    { key: 'prazo', label: 'Prazo', vcenter: true, get: (e) => e.task ? formatSla(e.task) : '—', cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{e.task ? formatSla(e.task) : '—'}</span> },
-    { key: 'prevista', label: 'Data prevista', vcenter: true, get: (e) => fmt(e.task?.dueAt), cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{fmt(e.task?.dueAt)}</span> },
-    { key: 'pontualidade', label: 'Pontualidade', vcenter: true, get: (e) => e.task ? taskPunctuality(e.task).label : '—',
+    { key: 'atividade', label: 'Atividade', get: activityOf, cell: (e) => <span className="font-medium">{activityOf(e)}</span> },
+    { key: 'inicio', label: 'Início', get: (e) => fmt(e.task?.createdAt), cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{fmt(e.task?.createdAt)}</span> },
+    { key: 'prazo', label: 'Prazo', get: (e) => e.task ? formatSla(e.task) : '—', cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{e.task ? formatSla(e.task) : '—'}</span> },
+    { key: 'prevista', label: 'Data prevista', get: (e) => fmt(e.task?.dueAt), cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{fmt(e.task?.dueAt)}</span> },
+    { key: 'pontualidade', label: 'Pontualidade', get: (e) => e.task ? taskPunctuality(e.task).label : '—',
       cell: (e) => e.task ? <span className={cn('whitespace-nowrap', taskPunctuality(e.task).cls)}>{taskPunctuality(e.task).label}</span> : <span className="text-muted-foreground">—</span> },
-    { key: 'executor', label: 'Executor', vcenter: true, get: (e) => e.task ? execOf(e.task) : (e.by || '—'),
+    { key: 'executor', label: 'Executor', get: (e) => e.task ? execOf(e.task) : (e.by || '—'),
       cell: (e) => {
         const who = e.task ? execOf(e.task) : (e.by || '—')
         return who !== '—' ? <span className="inline-flex items-center gap-1 text-muted-foreground"><User className="h-3 w-3 shrink-0" />{who}</span> : <span className="text-muted-foreground">—</span>
       } },
-    { key: 'situacao', label: 'Situação', vcenter: true, get: (e) => EVENT_META[e.kind].label,
+    { key: 'situacao', label: 'Situação', get: (e) => EVENT_META[e.kind].label,
       cell: (e) => {
         const m = EVENT_META[e.kind]
         return <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10.5px] font-medium whitespace-nowrap', m.cls)}>
@@ -174,28 +172,52 @@ export function ProcessInstanceDocView({ inst: instAoAbrir }: { inst: Inst }) {
   const hasReturn = inst.returnCount > 0
 
   return (
-    <div className="mx-auto h-full max-w-[1200px] flex flex-col">
-      {/* cabeçalho FIXO: identidade + situação + sub-abas (não rola) */}
-      <div className="flex flex-col gap-3 shrink-0">
+    <div className="flex flex-col h-full min-h-0">
+      {/* cabeçalho fixo: identidade + avisos + sub-abas (padrão de contrato/parceiro) */}
+      <div className="shrink-0 space-y-3">
         {/* identidade */}
-        <div className="flex items-start gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-xl shrink-0 bg-primary/10 text-primary"><GitBranch className="h-5 w-5" /></span>
-          <div className="flex-1 min-w-0">
-            <h2 className="text-base font-semibold tracking-tight leading-snug">
-              {inst.numero != null && <span className="font-mono text-muted-foreground">#{inst.numero} </span>}
-              {inst.processName} <span className="text-[11px] text-muted-foreground font-normal">v{inst.version}</span>
-            </h2>
-            <p className="text-[11.5px] text-muted-foreground mt-0.5">Iniciado por {inst.startedBy || '—'} em {fmt(inst.startedAt)}</p>
+        <div className="rounded-xl border bg-card px-4 py-3 flex items-start justify-between gap-4 shadow-sm">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-sm font-semibold truncate max-w-[460px]">{inst.processName}</h2>
+              {/* o selo não pode dizer "Em andamento" ao lado da faixa "Processo parado" */}
+              <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium',
+                inst.status === 'RUNNING' && inst.bloqueio ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300' : st.cls)}>
+                <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                {inst.status === 'RUNNING' && inst.bloqueio ? 'Parado' : st.label}
+              </span>
+            </div>
+            <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground flex-wrap">
+              {inst.numero != null && <>
+                <span className="font-mono">#{inst.numero}</span>
+                <span className="text-muted-foreground/40">·</span>
+              </>}
+              <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground/70">v{inst.version}</span>
+              <span className="text-muted-foreground/40">·</span>
+              <span>Iniciado por {inst.startedBy || '—'} em {fmt(inst.startedAt)}</span>
+            </div>
+            {/* como terminou — só conclusão/erro (prazo do processo e "reaberta N×" foram
+                removidos a pedido; o detalhe de retrocesso vive no Histórico). */}
+            {(inst.status === 'COMPLETED' || inst.status === 'ENDED_INCOMPLETE' || (inst.status === 'ERROR' && inst.error) || (inst.status === 'CANCELLED' && inst.cancelReason)) && (
+              <p className="mt-1 text-[11px]">
+                {inst.status === 'COMPLETED' && <span className="text-muted-foreground">Concluído em {fmt(inst.completedAt)} · durou {humanDuration(inst.durationMs)}</span>}
+                {/* Acabou o que havia para fazer sem passar pelo evento de fim: quem consulta
+                    precisa ler isso na cara do documento, não deduzir do silêncio. */}
+                {inst.status === 'ENDED_INCOMPLETE' && (
+                  <span className="text-amber-600 dark:text-amber-400">
+                    Encerrado sem conclusão em {fmt(inst.completedAt)} · durou {humanDuration(inst.durationMs)} — nenhum caminho passou pelo fim do processo
+                  </span>
+                )}
+                {inst.status === 'ERROR' && inst.error && <span className="text-red-600 dark:text-red-400">{inst.error}</span>}
+                {/* cancelamento sem motivo à vista é um fim de linha inexplicável */}
+                {inst.status === 'CANCELLED' && inst.cancelReason && (
+                  <span className="text-muted-foreground">Cancelado por {inst.cancelledBy || '—'} em {fmt(inst.cancelledAt)} · motivo: <span className="italic">{inst.cancelReason}</span></span>
+                )}
+              </p>
+            )}
           </div>
-          {/* o selo não pode dizer "Em andamento" ao lado da faixa "Processo parado" */}
-          {inst.status === 'RUNNING' && inst.bloqueio ? (
-            <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium shrink-0 bg-amber-500/15 text-amber-700 dark:text-amber-300">
-              <AlertTriangle className="h-3 w-3" />Parado
-            </span>
-          ) : (
-            <span className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium shrink-0', st.cls)}>
-              <st.icon className="h-3 w-3" />{st.label}
-            </span>
+          {onClose && (
+            <button type="button" onClick={onClose} className="shrink-0 text-xs text-muted-foreground hover:text-foreground transition-colors">Fechar</button>
           )}
         </div>
         {inst.bloqueio && (
@@ -217,26 +239,6 @@ export function ProcessInstanceDocView({ inst: instAoAbrir }: { inst: Inst }) {
           </p>
         )}
 
-        {/* chips de situação — só conclusão/erro (prazo do processo e "reaberta N×"
-            foram removidos a pedido; o detalhe de retrocesso vive no Histórico). */}
-        {(inst.status === 'COMPLETED' || inst.status === 'ENDED_INCOMPLETE' || (inst.status === 'ERROR' && inst.error) || (inst.status === 'CANCELLED' && inst.cancelReason)) && (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px]">
-            {inst.status === 'COMPLETED' && <span className="text-muted-foreground">Concluído em {fmt(inst.completedAt)} · durou {humanDuration(inst.durationMs)}</span>}
-            {/* Acabou o que havia para fazer sem passar pelo evento de fim: quem consulta
-                precisa ler isso na cara do documento, não deduzir do silêncio. */}
-            {inst.status === 'ENDED_INCOMPLETE' && (
-              <span className="text-amber-600 dark:text-amber-400">
-                Encerrado sem conclusão em {fmt(inst.completedAt)} · durou {humanDuration(inst.durationMs)} — nenhum caminho passou pelo fim do processo
-              </span>
-            )}
-            {inst.status === 'ERROR' && inst.error && <span className="text-red-600 dark:text-red-400">{inst.error}</span>}
-            {/* cancelamento sem motivo à vista é um fim de linha inexplicável */}
-            {inst.status === 'CANCELLED' && inst.cancelReason && (
-              <span className="text-muted-foreground">Cancelado por {inst.cancelledBy || '—'} em {fmt(inst.cancelledAt)} · motivo: <span className="italic">{inst.cancelReason}</span></span>
-            )}
-          </div>
-        )}
-
         {/* sub-abas: Andamento (estado atual) | Histórico (trilha de auditoria). O
             Histórico ganha um contador; quando houve retrocesso o badge fica âmbar
             para sinalizar "aqui há o que consultar" sem trocar de aba automaticamente. */}
@@ -248,11 +250,12 @@ export function ProcessInstanceDocView({ inst: instAoAbrir }: { inst: Inst }) {
           </button>
           <button type="button" onClick={() => setTab('historico')}
             className={cn('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-              tab === 'historico' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-muted')}>
+              tab === 'historico' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-muted',
+              history?.length === 0 && tab !== 'historico' && 'opacity-55')}>
             <Clock className="h-3.5 w-3.5" />Histórico
             {history && history.length > 0 && (
-              <span className={cn('ml-0.5 inline-flex items-center justify-center rounded-full px-1.5 h-4 min-w-4 text-[10px] font-semibold tabular-nums',
-                hasReturn ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300' : 'bg-muted-foreground/15 text-muted-foreground')}>
+              <span className={cn('ml-0.5 rounded px-1 text-[10px] font-bold tabular-nums',
+                hasReturn ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300' : 'bg-muted text-foreground/70')}>
                 {history.length}
               </span>
             )}
@@ -261,7 +264,7 @@ export function ProcessInstanceDocView({ inst: instAoAbrir }: { inst: Inst }) {
       </div>
 
       {/* corpo ROLÁVEL — só a sub-aba ativa */}
-      <div className="flex-1 min-h-0 overflow-y-auto pt-3 pb-6">
+      <div className="flex-1 min-h-0 overflow-y-auto pt-3">
         {tab === 'andamento' ? (
           <FilteredTable cols={timelineCols} rows={tasks} rowKey={(t) => t.id} emptyText="Nenhuma atividade registrada ainda." />
         ) : (

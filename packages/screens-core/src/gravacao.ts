@@ -11,10 +11,12 @@
  *    situação cobra "rascunho"; inativar e habilitar para alteração não cobram.
  */
 import { contractFromApi, normalizeSituacao } from '@nxt/contracts-core'
-import { faltantesContrato, faltantesParceiro, type AcaoSalvar, type CampoFaltante } from './obrigatorios'
+import type { StepFormSchema } from '@nxt/types'
+import { faltantesContrato, faltantesParceiro, nativosFaltantes, personalizadosFaltantes, type AcaoSalvar, type CampoFaltante } from './obrigatorios'
 import { resolveContractSections } from './layout-contract'
 import { resolvePartnerSections } from './layout-partner'
 import type { LockContext } from './locks'
+import { abasDaAtividade, travasDaEtapa } from './tarefa'
 import type { PartnerCategory, Screen, ScreenSubject } from './types'
 
 type Obj = Record<string, unknown>
@@ -73,9 +75,35 @@ export function faltantesDaGravacao(e: EntradaObrigatorios): CampoFaltante[] {
   }, { acao, secoes, valores })
 }
 
+/**
+ * Obrigatórios cobrados ao CONCLUIR uma atividade de Contrato (PO, 09/11/2026): o que as
+ * abas editáveis da atividade marcam como obrigatório, com o contrato ainda em rascunho.
+ * Só vale para o que a pessoa consegue preencher nesta atividade: campo oculto, travado
+ * ou em aba de consulta não é cobrado. `telas` já vêm reconciliadas.
+ */
+export function faltantesDaTarefa(e: {
+  step: Pick<StepFormSchema, 'screenRef' | 'screenSubject' | 'entityMode' | 'extraScreens' | 'lockedFields'>
+  telas: Screen[]
+  registro: Obj
+  valores: Record<string, string>
+}): CampoFaltante[] {
+  if (e.step.screenSubject !== 'CONTRATO') return []
+  const v = contractFromApi(e.registro)
+  const out: CampoFaltante[] = []
+  for (const aba of abasDaAtividade(e.step)) {
+    const tela = e.telas.find(t => t.id === aba.screenRef)
+    const lock = travasDaEtapa(e.step, aba.screenRef)
+    if (!aba.editavel || !tela || !lock) continue
+    for (const s of resolveContractSections(tela, v.natureza, 'detail', lock))
+      for (const f of [...nativosFaltantes([s], v), ...personalizadosFaltantes([s], e.valores)])
+        if (!out.some(x => x.campo === f.campo)) out.push(f)
+  }
+  return out
+}
+
 /** Mensagem única, em português, com os campos que faltam (agrupados pela regra da tela). */
-export function fraseDosFaltantes(itens: CampoFaltante[], acao: AcaoSalvar | null): string {
+export function fraseDosFaltantes(itens: CampoFaltante[], acao: AcaoSalvar | 'concluir' | null): string {
   const campos = [...new Set(itens.map(i => `“${i.campo}”`))]
-  const verbo = acao === 'ativar' ? 'Para ativar, preencha' : 'Para salvar, preencha'
+  const verbo = acao === 'ativar' ? 'Para ativar, preencha' : acao === 'concluir' ? 'Para concluir, preencha' : 'Para salvar, preencha'
   return campos.length === 1 ? `${verbo} ${campos[0]}.` : `${verbo}: ${campos.join(', ')}.`
 }

@@ -11,6 +11,7 @@
 import type { Screen, ScreenField } from './types'
 import { temPagamentos, temRecebimentos } from '@nxt/contracts-core'
 import { nativeLockFn, fieldLocked, lockCtx, sectionIsLocked, type LockContext } from './locks'
+import { nativoObrigatorioConfiguravel } from './obrigatorios'
 
 export type ContractVisFn = (key: string) => boolean
 
@@ -37,6 +38,8 @@ export interface ResolvedContractSection {
    *  que a trava chega nelas. */
   locked:       boolean
   customFields: ScreenField[] // campos personalizados desta seção (persistidos)
+  /** campos nativos desta seção que a tela exige: marcados, visíveis e não travados */
+  nativosObrigatorios: { key: string; label: string }[]
 }
 
 /**
@@ -106,6 +109,10 @@ export function resolveContractSections(
       screenLock:  nativeLock,
       locked:      sectionIsLocked(s, ctx),
       customFields: custom,
+      nativosObrigatorios: screen.fields
+        .filter(f => f.source === 'NATIVE' && f.sectionId === s.id && f.required && f.visible !== false
+          && nativoObrigatorioConfiguravel('CONTRATO', f.nativeKey ?? '') && !fieldLocked(f, ctx))
+        .map(f => ({ key: f.nativeKey!, label: f.label })),
     })
   }
   return out
