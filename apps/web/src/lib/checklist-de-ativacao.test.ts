@@ -43,6 +43,15 @@ describe('checklist de ativação (opção C, PO 07/11/2026)', () => {
     expect(c.grupos.map((g) => g.titulo)).toEqual(['Formas sem ligação', 'Outros ajustes no desenho'])
   })
 
+  it('campo do filtro sem obrigatório tem assunto próprio (PO, 22/11/2026)', () => {
+    const c = montarChecklist([p('filtro-sem-obrigatorio', { nodeId: 'g' }), p('tela-so-consulta', { nodeId: 'a' })])
+    expect(c.grupos.map((g) => [g.titulo, g.itens.length])).toEqual([
+      ['Telas das tarefas', 1],
+      ['Campos dos filtros sem obrigatório', 1],
+    ])
+    expect(c.faltam).toBe(2)
+  })
+
   it('sem pendências: nada falta e quem inicia está ok', () => {
     const c = montarChecklist([])
     expect(c).toMatchObject({ faltam: 0, quemIniciaOk: true, grupos: [], avisos: [] })

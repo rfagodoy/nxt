@@ -18,6 +18,8 @@ export interface ProblemaAtivacao {
     | 'linha-paralela'
     | 'decisao-sem-padrao' | 'decisao-multipadrao'
     | 'atividade-incompleta' | 'tela-so-consulta' | 'registro-sem-origem'
+    /** campo testado no filtro de uma escolha que nenhuma atividade antes dela exige */
+    | 'filtro-sem-obrigatorio'
     | 'executor-sem-stakeholder' | 'executor-incompativel' | 'executor-sem-contrato'
     | 'executor-sem-entidade' | 'executor-vago'
     | 'quem-inicia-vazio' | 'quem-inicia-invalido' | 'iniciador-sem-regra'
@@ -538,6 +540,8 @@ const AGREGADO: Record<ProblemaAtivacao['tipo'], { plural: string; instrucao: st
   'iniciador-sem-regra': null,
   // cada frase nomeia a forma e o que ela é
   'ainda-nao-executa': null,
+  // cada frase diz o campo E a escolha — agrupar apagaria qual campo marcar
+  'filtro-sem-obrigatorio': null,
 }
 
 /** `"A", "B" (3) e "C"` — repetições ganham contagem em vez de repetir a linha. */

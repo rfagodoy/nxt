@@ -11,7 +11,9 @@ import {
   type ProblemaAtivacao, type WfGraph, type WfNode, type WfEdge, type FluxoBlocos,
   type GrafoGerado, type PontoDeInsercao,
   gruposDeVinculo, religarVinculos, listarAtividades as listarAtivs, type ItemAtividade,
+  blocosParaGrafo, validarCamposDosFiltros,
 } from '@nxt/workflow-core'
+import { campoDoFiltroExigivel, camposCobradosAoConcluir, reconcileNative, rotulosDosCamposDoFiltro, type Screen } from '@nxt/screens-core'
 import type { StepFormSchema, ProcessFormSchema, DesenhoBpmn, DesenhoV2, FormaDesenho, PontaDaSeta } from '@nxt/types'
 import { findConnector } from '@nxt/types'
 import { Button } from '@/components/ui/button'
@@ -161,6 +163,22 @@ const FIM_ID = 'End_1'
 /** Fluxo vazio para quem precisa de um enquanto o desenho não cabe em blocos (o canvas). */
 const FLUXO_VAZIO = novoFluxo(INICIO_ID, FIM_ID)
 /** Recusas do conversor que são "falta desenhar" (o resto é "o motor não executa"). */
+/** Campo testado no filtro de uma escolha precisa ser cobrado antes dela (PO, 22/11/2026) —
+ *  a MESMA conta da API na ativação, sobre o grafo gerado dos blocos. */
+function camposDosFiltros(fluxo: FluxoBlocos, steps: Record<string, StepFormSchema>, screens: Screen[]): ProblemaAtivacao[] {
+  const g = blocosParaGrafo(fluxo)
+  if (!g.edges.some((e) => e.conditionSpec?.rules?.length)) return []
+  const telas = screens.filter((t) => t.subjectType === 'CONTRATO').map(reconcileNative)
+  const rotulos = rotulosDosCamposDoFiltro(telas)
+  return validarCamposDosFiltros({
+    nodes: g.nodes.map((n) => ({ ...n, name: steps[n.id]?.stepName?.trim() || n.name })),
+    edges: g.edges,
+    cobrados: new Map(g.nodes.filter((n) => n.type === 'userTask' && steps[n.id]).map((n) => [n.id, camposCobradosAoConcluir(steps[n.id], telas)])),
+    exigivel: campoDoFiltroExigivel,
+    rotuloDoCampo: (c) => rotulos.get(c),
+  })
+}
+
 const TIPOS_DESENHO_INCOMPLETO = new Set(['fora-do-fluxo', 'sem-saida', 'inicio-desligado', 'inicio-fim', 'fim-sem-seta'])
 
 
@@ -384,7 +402,7 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   const aplicandoHistorico = useRef(false)
 
   const papeis = useLookupTable(PAPEIS_KEY, INIT_PAPEIS)
-  const { screens } = useScreens()
+  const { screens, loading: carregandoTelas } = useScreens()
   const resolvePapel = useCallback((id: string) => id === EXECUTOR_QUEM_INICIOU
     ? 'Quem iniciou o processo'
     : papeis.entries.find((p) => p.id === id)?.label, [papeis.entries])
@@ -630,8 +648,9 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
       ...pendenciasDosBlocos(fluxo),
       ...incompleto(validarDesenho(vnodes, vedges).filter((p) => !p.nodeId?.endsWith(SUFIXO_REENCONTRO))),
       ...dasAtividades,
+      ...(carregandoTelas ? [] : camposDosFiltros(fluxo, stepsEfetivos, screens)),
     ]
-  }, [conversao, fluxo, nodes, nodesEfetivos, edges, screens, kind, papeis.entries, quemInicia])
+  }, [conversao, fluxo, nodes, nodesEfetivos, edges, screens, carregandoTelas, stepsEfetivos, kind, papeis.entries, quemInicia])
 
   /* Marca de problema em cada forma: as mesmas pendências da pílula de saúde. */
   const problemasPorNo = useMemo(() => {

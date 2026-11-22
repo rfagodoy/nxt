@@ -36,6 +36,7 @@ const GRUPOS: ReadonlyArray<{ chave: string; titulo: string; tipos: readonly str
     'saidas-multiplas', 'juncao-de-escolha', 'junta-e-divide', 'ramos-sem-juncao', 'salto-do-encontro', 'senao-repetido', 'volta-sem-decisao', 'ciclo'] },
   { chave: 'tarefas', titulo: 'Tarefas sem quem faz, prazo ou nome', tipos: ['atividade-incompleta', 'executor-sem-stakeholder', 'executor-incompativel', 'executor-sem-contrato', 'executor-sem-entidade', 'executor-vago'] },
   { chave: 'telas', titulo: 'Telas das tarefas', tipos: ['tela-so-consulta', 'registro-sem-origem'] },
+  { chave: 'filtros', titulo: 'Campos dos filtros sem obrigatório', tipos: ['filtro-sem-obrigatorio'] },
   { chave: 'nao-executa', titulo: 'Formas que o sistema não executa', tipos: ['ainda-nao-executa'] },
 ]
 const OUTROS = { chave: 'outros', titulo: 'Outros ajustes no desenho' }
