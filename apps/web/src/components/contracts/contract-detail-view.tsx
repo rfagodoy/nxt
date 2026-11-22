@@ -23,6 +23,9 @@ import { NewPartnerPanel } from '@/components/contracts/new-partner-panel'
 import { ContractHistory } from '@/components/contracts/contract-history'
 import { getLogUser } from '@/hooks/use-partner-logs'
 import { SaveStatus } from '@/components/save-status'
+import { FloatingMenu } from '@/components/ui/floating-menu'
+import { resumoDoContrato } from '@/lib/resumo-do-contrato'
+import { todayISO } from '@nxt/contracts-core'
 
 /* ─── linha da listagem (espelha o toRow() do backend) — compartilhada com a página ─── */
 export interface Row {
@@ -220,6 +223,9 @@ export function ContractDetailView({ row, onSaved, onDirtyChange, screen, readOn
   const tipos     = useLookupTable(TIPOS_KEY, INIT_TIPOS)
   const tipoLabel = tipos.entries.find(t => t.id === v.tipo)?.label ?? v.tipo
   const papeis    = useLookupTable(PAPEIS_KEY, INIT_PAPEIS)
+  const resumo    = useMemo(() => resumoDoContrato(v, papeis.entries, todayISO()), [v, papeis.entries])
+  const [maisAberto, setMaisAberto] = useState(false)
+  const maisRef = useRef<HTMLButtonElement>(null)
 
   /* Contagem por aba. São dez abas — bem acima do que a memória de trabalho segura —
      e sem o número a única forma de saber se este contrato TEM aditivo é abrir a aba
@@ -499,36 +505,23 @@ export function ContractDetailView({ row, onSaved, onDirtyChange, screen, readOn
           {/* Aditivo/Encerramento a partir DESTE contrato — fora de tarefa (lá o processo já existe) */}
           {!readOnly && !origem && stored === 'VIGENTE' && !showMotivo && <IniciarDoContrato contratoId={row.id} />}
 
-          {/* Salvar sempre disponível: permite registrar pagamentos/recebimentos mesmo com o contrato travado */}
-          {!readOnly && !showMotivo && (
+          {/* Salvar só quando há o que salvar: o selo ao lado já diz "Salvo". Continua
+              valendo com o contrato travado, para baixar pagamentos e recebimentos. */}
+          {!readOnly && !showMotivo && (dirty || saving) && (
             <button type="button" onClick={() => { void handleSave() }} disabled={saving}
               className="inline-flex items-center h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted disabled:opacity-40 transition-colors">
               {saving ? 'Salvando...' : 'Salvar'}
             </button>
           )}
 
+          {/* Uma ação principal por situação (auditoria de UX, 22/11/2026): em cadastro,
+              Ativar; vigente, Iniciar processo; encerrado ou rescindido, Abrir para revisão.
+              O resto vai para "Mais ações", com Encerrar e Rescindir num grupo à parte. */}
           {!readOnly && stored === 'EM_CADASTRO' && !showMotivo && (
             <button type="button" onClick={() => { void handleSave('VIGENTE') }} disabled={saving}
               className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors">
               {saving ? 'Salvando...' : 'Ativar'}
             </button>
-          )}
-
-          {!readOnly && stored === 'VIGENTE' && !showMotivo && (
-            <>
-              <button type="button" onClick={() => { setMotivoAction('revisao'); setShowMotivo(true) }}
-                className="inline-flex items-center h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors">
-                Abrir para revisão
-              </button>
-              <button type="button" onClick={() => { setMotivoAction('encerrar'); setShowMotivo(true) }}
-                className="inline-flex items-center h-7 rounded-md border border-gray-300 text-gray-600 px-3 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-900/40 transition-colors">
-                Encerrar
-              </button>
-              <button type="button" onClick={() => { setMotivoAction('rescindir'); setShowMotivo(true) }}
-                className="inline-flex items-center h-7 rounded-md border border-red-200 text-red-600 px-3 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors">
-                Rescindir
-              </button>
-            </>
           )}
 
           {!readOnly && (stored === 'ENCERRADO' || stored === 'RESCINDIDO') && !showMotivo && (
@@ -537,8 +530,47 @@ export function ContractDetailView({ row, onSaved, onDirtyChange, screen, readOn
               Abrir para revisão
             </button>
           )}
+
+          {!readOnly && stored === 'VIGENTE' && !showMotivo && (
+            <>
+              <button ref={maisRef} type="button" onClick={() => setMaisAberto((a) => !a)} aria-haspopup="menu" aria-expanded={maisAberto}
+                className="inline-flex items-center gap-1 h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors">
+                Mais ações<ChevronDown className="h-3.5 w-3.5" aria-hidden />
+              </button>
+              {maisAberto && (
+                <FloatingMenu anchor={maisRef} onClose={() => setMaisAberto(false)} align="end" role="menu" aria-label="Mais ações do contrato"
+                  className="glass z-50 min-w-[13rem] rounded-xl p-1 text-popover-foreground text-xs">
+                  <button type="button" role="menuitem" onClick={() => { setMaisAberto(false); setMotivoAction('revisao'); setShowMotivo(true) }}
+                    className="flex w-full items-center rounded-md px-2.5 py-2 text-left hover:bg-muted">Abrir para revisão</button>
+                  <div className="my-1 border-t" role="separator" />
+                  <p className="px-2.5 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Encerrar o contrato</p>
+                  <button type="button" role="menuitem" onClick={() => { setMaisAberto(false); setMotivoAction('encerrar'); setShowMotivo(true) }}
+                    className="flex w-full items-center rounded-md px-2.5 py-2 text-left hover:bg-muted">Encerrar… <span className="ml-auto pl-3 text-[10px] text-muted-foreground">pede o motivo</span></button>
+                  <button type="button" role="menuitem" onClick={() => { setMaisAberto(false); setMotivoAction('rescindir'); setShowMotivo(true) }}
+                    className="flex w-full items-center rounded-md px-2.5 py-2 text-left text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40">Rescindir… <span className="ml-auto pl-3 text-[10px] text-muted-foreground">pede o motivo</span></button>
+                </FloatingMenu>
+              )}
+            </>
+          )}
         </div>
       </div>
+
+      {resumo && (resumo.contratada || resumo.vigencia || resumo.valor) && (
+        <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border shadow-sm lg:grid-cols-4">
+          {[
+            { rotulo: 'Contratada', valor: resumo.contratada || '—', extra: '' },
+            { rotulo: 'Vigência', valor: resumo.vigencia || '—', extra: '' },
+            { rotulo: 'Valor total', valor: resumo.valor || '—', extra: resumo.parcelas },
+            { rotulo: 'Saldo', valor: resumo.saldo || '—', extra: resumo.vencido },
+          ].map((c) => (
+            <div key={c.rotulo} className="min-w-0 bg-card px-3 py-2">
+              <dt className="text-[10.5px] text-muted-foreground">{c.rotulo}</dt>
+              <dd className="truncate text-xs font-semibold tabular-nums" title={c.valor}>{c.valor}</dd>
+              {c.extra && <dd className={cn('truncate text-[10.5px] tabular-nums', c.rotulo === 'Saldo' ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground')}>{c.extra}</dd>}
+            </div>
+          ))}
+        </dl>
+      )}
 
       {staleAviso && (
         <div className="flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400">
