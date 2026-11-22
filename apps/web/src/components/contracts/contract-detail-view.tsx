@@ -124,7 +124,9 @@ export function ContractDetailView({ row, onSaved, onDirtyChange, screen, readOn
     })()
   }, [])
 
-  const [tab,          setTab]          = useState<string>('dados_gerais')
+  /* Seção que a última ação pediu para mostrar ("Ir para", aviso de campo faltando):
+     é aberta e rolada até a vista. Não há mais aba ativa — as seções ficam empilhadas. */
+  const [foco,         setFoco]         = useState<{ chave: string; vez: number } | null>(null)
   const [showMotivo,   setShowMotivo]   = useState(false)
   const [motivoAction, setMotivoAction] = useState('')
   const [motivo,       setMotivo]       = useState('')
@@ -200,10 +202,6 @@ export function ContractDetailView({ row, onSaved, onDirtyChange, screen, readOn
     setDirtyLocal(d)
     onDirtyChange?.(d)
   }, [v, onDirtyChange, screenDirty])
-  /* aba ativa sempre aponta para uma seção existente da tela (evita aba "morta") */
-  useEffect(() => {
-    if (screenDriven && screenSections.length && !screenSections.some(s => s.key === tab)) setTab(screenSections[0].key)
-  }, [screenDriven, screenSections, tab])
   useEffect(() => {
     if (!justSaved) return
     const t = setTimeout(() => setJustSaved(false), 2000)
@@ -357,10 +355,23 @@ export function ContractDetailView({ row, onSaved, onDirtyChange, screen, readOn
   useEffect(() => { onFaltantes?.(JSON.parse(chaveFaltantes) as CampoFaltante[]) }, [onFaltantes, chaveFaltantes])
   const [secoesAbertas, setSecoesAbertas] = useState<Set<string> | null>(null)
   useEffect(() => {
-    if (secoesAbertas || !screenSections.length) return
-    const iniciais = screenSections.filter(s => s.defaultOpen).map(s => s.key)
-    setSecoesAbertas(new Set(iniciais.length ? iniciais : [screenSections[0].key]))
-  }, [secoesAbertas, screenSections])
+    if (secoesAbertas) return
+    if (screenDriven) {
+      if (!screenSections.length) return
+      const iniciais = screenSections.filter(s => s.defaultOpen).map(s => s.key)
+      setSecoesAbertas(new Set(iniciais.length ? iniciais : [screenSections[0].key]))
+    } else setSecoesAbertas(new Set(['dados_gerais']))
+  }, [secoesAbertas, screenSections, screenDriven])
+  /** Abre a seção e a traz para a vista (o efeito abaixo rola depois de ela renderizar). */
+  const setTab = (k: string) => {
+    setSecoesAbertas(prev => new Set([...(prev ?? []), k]))
+    setFoco(f => ({ chave: k, vez: (f?.vez ?? 0) + 1 }))
+  }
+  useEffect(() => {
+    if (!foco) return
+    const el = document.getElementById(`secao-contrato-${row.id}-${foco.chave}`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [foco, row.id])
   const revelar = naTarefa?.revelar ?? 0
   useEffect(() => {
     if (!revelar) return
@@ -391,6 +402,27 @@ export function ContractDetailView({ row, onSaved, onDirtyChange, screen, readOn
     revisao:   'Motivo da abertura para revisão',
     encerrar:  'Motivo do encerramento',
     rescindir: 'Motivo da rescisão',
+  }
+
+  /* Corpo de cada seção quando não há tela configurada (as seções nativas de sempre). */
+  const secaoNativa = (k: string): React.ReactNode => {
+    switch (k) {
+      case 'dados_gerais': return <IdentificacaoFields form={form} ro={locked} />
+      case 'partes': return (
+        <PartesFields form={form} ro={locked} contractId={row.id}
+          onOpenSearch={(parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds })}
+          onNewPartner={() => setNewPartner({})} />
+      )
+      case 'vigencia': return <VigenciaFields form={form} ro={locked} />
+      case 'valor': return <ValoresFields form={form} ro={locked} />
+      case 'pagamentos': return <LancamentosFields form={form} field="pagamentos" moedaCode={v.moeda} travado={locked} />
+      case 'recebimentos': return <LancamentosFields form={form} field="recebimentos" moedaCode={v.moeda} travado={locked} />
+      case 'reajuste': return <ReajustesFields form={form} ro={locked} />
+      case 'aditivos': return <AditivosFields form={form} onOpenCessaoSearch={(aditivoId, cessaoId, origem) => setCessaoSearch({ aditivoId, cessaoId, origem })} onActivate={activateAditivo} onRevise={reviseAditivo} />
+      case 'documentos': return <DocumentosFields form={form} ro={locked} />
+      case 'historico': return <ContractHistory contractId={row.id} reloadKey={auditVersion} />
+      default: return null
+    }
   }
 
   const modais = (
@@ -605,57 +637,62 @@ export function ContractDetailView({ row, onSaved, onDirtyChange, screen, readOn
         </div>
       )}
 
-      <div className="flex items-center gap-1 flex-wrap border-b pb-2">
+      {/* "Ir para" no lugar das abas (auditoria de UX, 22/11/2026): o detalhe usa o mesmo
+          corpo do cadastro e da tarefa — seções em sanfona, uma embaixo da outra. */}
+      <nav aria-label="Ir para a seção" className="flex items-center gap-1 flex-wrap border-b pb-2">
+        <span className="mr-1 text-[11px] text-muted-foreground">Ir para:</span>
         {tabs.map(t => {
           const n = contagem[t.id]
-          const vazia = n === 0            // tem contagem e está zerada
+          const falta = camposDaSecao(faltantes, t.id).length
           return (
             <button key={t.id} type="button" onClick={() => setTab(t.id)}
-              className={cn('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-                tab === t.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-muted',
-                vazia && tab !== t.id && 'opacity-55')}>
+              className={cn('inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors text-muted-foreground hover:text-foreground hover:bg-muted',
+                n === 0 && 'opacity-55', falta > 0 && 'text-amber-800 dark:text-amber-300 opacity-100')}>
               <t.icon className="h-3.5 w-3.5" />{t.label}
-              {n != null && n > 0 && (
-                <span className="ml-0.5 rounded bg-muted px-1 text-[10px] font-bold tabular-nums text-foreground/70">{n}</span>
-              )}
+              {falta > 0 ? <span className="text-[10.5px] font-semibold">· falta {falta}</span>
+                : n != null && n > 0 && <span className="ml-0.5 rounded bg-muted px-1 text-[10px] font-bold tabular-nums text-foreground/70">{n}</span>}
             </button>
           )
         })}
-      </div>
+      </nav>
 
       </div>{/* fim do cabeçalho fixo */}
 
       <form className="flex-1 min-h-0 overflow-y-auto space-y-2 pt-3" onSubmit={e => e.preventDefault()}>
-        {screenDriven ? (
-          screenSections.map(s => (
-            <DSection key={s.id} active={tab === s.key}>
-              <ContractSectionNative section={s} ctx={{
-                form, ro: locked, moedaCode: v.moeda, contractId: row.id, reloadKey: auditVersion,
-                onOpenSearch: (parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds }),
-                onNewPartner: () => setNewPartner({}),
-                onOpenCessaoSearch: (aditivoId, cessaoId, origem) => setCessaoSearch({ aditivoId, cessaoId, origem }),
-                onActivate: activateAditivo, onRevise: reviseAditivo,
-                renovacaoLiberada: renovacaoLiberada(defaultScreen, { stepLocked, screenReadOnly: readOnly || undefined }),
-              }} />
-              <ContractCustomFields fields={s.customFields} screenValues={screenValues} onScreenChange={onScreenChange} ro={locked} />
-            </DSection>
-          ))
-        ) : (<>
-        <DSection active={tab === 'dados_gerais'}><IdentificacaoFields form={form} ro={locked} /></DSection>
-        <DSection active={tab === 'partes'}>
-          <PartesFields form={form} ro={locked} contractId={row.id}
-            onOpenSearch={(parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds })}
-            onNewPartner={() => setNewPartner({})} />
-        </DSection>
-        <DSection active={tab === 'vigencia'}><VigenciaFields form={form} ro={locked} /></DSection>
-        <DSection active={tab === 'valor'}><ValoresFields form={form} ro={locked} /></DSection>
-        {temPagamentos(v.natureza)   && <DSection active={tab === 'pagamentos'}><LancamentosFields form={form} field="pagamentos" moedaCode={v.moeda} travado={locked} /></DSection>}
-        {temRecebimentos(v.natureza) && <DSection active={tab === 'recebimentos'}><LancamentosFields form={form} field="recebimentos" moedaCode={v.moeda} travado={locked} /></DSection>}
-        <DSection active={tab === 'reajuste'}><ReajustesFields form={form} ro={locked} /></DSection>
-        <DSection active={tab === 'aditivos'}><AditivosFields form={form} onOpenCessaoSearch={(aditivoId, cessaoId, origem) => setCessaoSearch({ aditivoId, cessaoId, origem })} onActivate={activateAditivo} onRevise={reviseAditivo} /></DSection>
-        <DSection active={tab === 'documentos'}><DocumentosFields form={form} ro={locked} /></DSection>
-        <DSection active={tab === 'historico'}><ContractHistory contractId={row.id} reloadKey={auditVersion} /></DSection>
-        </>)}
+        {tabs.map(t => {
+          const aberta = secoesAbertas?.has(t.id) ?? false
+          const falta = camposDaSecao(faltantes, t.id).length
+          const n = contagem[t.id]
+          const sec = screenDriven ? screenSections.find(x => x.key === t.id) : undefined
+          return (
+            <div key={t.id} id={`secao-contrato-${row.id}-${t.id}`} className={cn('scroll-mt-2 rounded-xl border bg-card shadow-sm', falta > 0 && 'border-amber-300 dark:border-amber-800')}>
+              <button type="button" aria-expanded={aberta} onClick={() => alternarSecao(t.id)}
+                className={cn('flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-[13px] font-semibold hover:bg-muted/40',
+                  falta > 0 && 'bg-amber-50/70 dark:bg-amber-950/30')}>
+                <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', !aberta && '-rotate-90')} />
+                <t.icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate">{t.label}</span>
+                {falta > 0 ? <span className="shrink-0 text-[11.5px] font-semibold text-amber-800 dark:text-amber-300">falta {falta}</span>
+                  : n != null && n > 0 && <span className="shrink-0 rounded bg-muted px-1.5 text-[10.5px] font-bold tabular-nums text-foreground/70">{n}</span>}
+              </button>
+              {aberta && (
+                <div className="space-y-[var(--form-gap)] border-t p-[var(--secao-pad)]">
+                  {sec ? (<>
+                    <ContractSectionNative section={sec} ctx={{
+                      form, ro: locked, moedaCode: v.moeda, contractId: row.id, reloadKey: auditVersion,
+                      onOpenSearch: (parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds }),
+                      onNewPartner: () => setNewPartner({}),
+                      onOpenCessaoSearch: (aditivoId, cessaoId, origem) => setCessaoSearch({ aditivoId, cessaoId, origem }),
+                      onActivate: activateAditivo, onRevise: reviseAditivo,
+                      renovacaoLiberada: renovacaoLiberada(defaultScreen, { stepLocked, screenReadOnly: readOnly || undefined }),
+                    }} />
+                    <ContractCustomFields fields={sec.customFields} screenValues={screenValues} onScreenChange={onScreenChange} ro={locked} />
+                  </>) : secaoNativa(t.id)}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </form>
 
 
