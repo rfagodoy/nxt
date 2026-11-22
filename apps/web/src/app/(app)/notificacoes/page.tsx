@@ -39,7 +39,7 @@ const SEV_CLS: Record<string, string> = {
   INFO:    'bg-blue-500/10 text-blue-600 dark:text-blue-400',
 }
 const fmt = (iso: string) => new Date(iso).toLocaleString('pt-BR', {
-  day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit',
+  day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
 })
 
 export default function NotificacoesHistoricoPage() {

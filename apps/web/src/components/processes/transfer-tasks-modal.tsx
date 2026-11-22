@@ -13,7 +13,7 @@ interface Preview {
 }
 
 const fmt = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'sem prazo'
+  iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'sem prazo'
 
 /** Transfere TODAS as tarefas pendentes de um usuário para outro (férias, afastamento,
  *  desligamento). Mostra ANTES o que será movido: uma ação que mexe no trabalho de duas

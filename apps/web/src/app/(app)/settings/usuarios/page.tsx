@@ -44,7 +44,7 @@ const ROLE_LABEL: Record<string, string> = { admin: 'Administrador', user: 'UsuÃ
 
 function fmtDate(iso: string | null): string {
   if (!iso) return 'â€”'
-  return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
+  return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 interface Col { key: string; label: string; align?: 'right'; text: (u: UserRow) => string; sortVal?: (u: UserRow) => string | number; node: (u: UserRow) => ReactNode }

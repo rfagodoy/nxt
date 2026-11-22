@@ -369,14 +369,14 @@ function CartaoContratos({ className, dados, vencimentos, onAbrir, onNovo, onImp
               ))}
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="font-mono text-[34px] font-bold leading-none tabular-nums"><CountUp value={total} /></span>
+              <span className="text-[34px] font-bold leading-none tabular-nums"><CountUp value={total} /></span>
               <span className="mt-1 text-[10px] font-bold tracking-[0.1em] text-muted-foreground">CONTRATOS</span>
             </div>
           </div>
           <div className="flex min-w-[170px] flex-1 flex-col gap-3">
             <div>
               <p className="text-xs text-muted-foreground" title="Vigentes e vencidos ainda não renovados — o que a organização tem em mãos.">Valor vigente</p>
-              <p className="mt-0.5 whitespace-nowrap font-mono text-[26px] font-bold leading-tight tracking-tight">
+              <p className="mt-0.5 whitespace-nowrap text-[26px] font-bold leading-tight tracking-tight">
                 <CountUp value={dados?.valorAtivos ?? 0} format={(n) => BRL_CURTO.format(n)} />
               </p>
               {vencidos && vencidos.qtd > 0 ? (
@@ -394,7 +394,7 @@ function CartaoContratos({ className, dados, vencimentos, onAbrir, onNovo, onImp
                 <li key={f.chave} className="flex items-center gap-2">
                   <span className={cn('h-2.5 w-2.5 shrink-0 rounded-[3px]', f.ponto)} />
                   <span className="flex-1">{f.nome}</span>
-                  <b className="font-mono tabular-nums">{NUM.format(f.valor)}</b>
+                  <b className="tabular-nums">{NUM.format(f.valor)}</b>
                 </li>
               ))}
             </ul>
@@ -427,7 +427,7 @@ function CartaoValorPorMes({ className, dados, onAbrirContratos }: { className?:
         {dados?.ate && <span className="text-[12px] text-muted-foreground">de hoje até {DATA_BR(dados.ate)}</span>}
         {dados && dados.prox90.valor > 0 && (
           <span className="text-[12.5px] text-muted-foreground">
-            <b className="font-mono text-foreground">{BRL_CURTO.format(dados.prox90.valor)}</b> em 90 dias
+            <b className="text-foreground">{BRL_CURTO.format(dados.prox90.valor)}</b> em 90 dias
           </span>
         )}
       </CabecalhoCartao>
@@ -447,7 +447,7 @@ function CartaoValorPorMes({ className, dados, onAbrirContratos }: { className?:
                 <div key={m.mes} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1"
                   title={`${rotuloDoMes(m.mes)}: ${m.qtd} contrato${m.qtd === 1 ? '' : 's'} · ${BRL_CURTO.format(m.valor)}`}>
                   {rotulo && (
-                    <span className={cn('whitespace-nowrap font-mono text-[10px] font-bold tabular-nums',
+                    <span className={cn('whitespace-nowrap text-[10px] font-bold tabular-nums',
                       perto ? 'text-[var(--marca-texto)]' : 'rounded bg-[var(--e-142420)] px-1 text-white dark:bg-[var(--e-F1F5F2)] dark:text-[var(--e-0E1210)]')}>
                       {BRL_CURTO.format(m.valor).replace('R$', '').trim()}
                     </span>
@@ -496,7 +496,7 @@ function CartaoCaixa({ className, tarefas, onAbrirTarefa, onAbrirCaixa }: {
       ) : (
         <>
           <div className="flex items-baseline gap-2.5">
-            <span className="rounded-lg bg-[var(--destaque)] px-1.5 font-mono text-[56px] font-bold leading-none tracking-tighter text-[var(--destaque-tinta)] tabular-nums"><CountUp value={tarefas.length} /></span>
+            <span className="rounded-lg bg-[var(--destaque)] px-1.5 text-[56px] font-bold leading-none tracking-tighter text-[var(--destaque-tinta)] tabular-nums"><CountUp value={tarefas.length} /></span>
             <span className="text-sm font-bold leading-snug">{tarefas.length === 1 ? 'tarefa espera' : 'tarefas esperam'}<br />por você</span>
           </div>
           <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
@@ -583,7 +583,7 @@ function CartaoVencemEmBreve({ className, dados, onAbrirContrato, onVerTodos }: 
                   <span className={cn('w-[54px] shrink-0 text-right text-xs font-extrabold', u.texto)}>
                     {dias === 0 ? 'hoje' : `${dias} dia${dias === 1 ? '' : 's'}`}
                   </span>
-                  <span className="w-[74px] shrink-0 text-right font-mono text-xs tabular-nums">{BRL_CURTO.format(e.valor)}</span>
+                  <span className="w-[74px] shrink-0 text-right text-xs tabular-nums">{BRL_CURTO.format(e.valor)}</span>
                 </button>
               </li>
             )
@@ -616,7 +616,7 @@ function CartaoConcentracao({ className, dados, onAbrirParceiros }: { className?
         {!vazio && (
           <span className="text-[12.5px] text-muted-foreground"
             title={dados.semParceiro > 0 ? `${dados.semParceiro} contrato${dados.semParceiro === 1 ? '' : 's'} sem parceiro externo ${dados.semParceiro === 1 ? 'fica' : 'ficam'} fora desta conta.` : undefined}>
-            {n === 1 ? 'maior' : `top ${n}`} = <b className="font-mono text-foreground">{pctFmt(dados.top3Pct)}</b>
+            {n === 1 ? 'maior' : `top ${n}`} = <b className="text-foreground">{pctFmt(dados.top3Pct)}</b>
           </span>
         )}
       </CabecalhoCartao>
@@ -636,7 +636,7 @@ function CartaoConcentracao({ className, dados, onAbrirParceiros }: { className?
               <li key={p.id} className="flex items-center gap-2">
                 <span className={cn('h-2.5 w-2.5 shrink-0 rounded-[3px]', COR_PARCEIRO[i])} />
                 <span className="min-w-0 flex-1 truncate" title={p.nome}>{p.nome}</span>
-                <span className="font-mono text-[11.5px] text-muted-foreground tabular-nums">{BRL_CURTO.format(p.valor)}</span>
+                <span className="text-[11.5px] text-muted-foreground tabular-nums">{BRL_CURTO.format(p.valor)}</span>
                 <b className="w-10 text-right tabular-nums">{pctFmt(p.pct)}</b>
               </li>
             ))}
@@ -644,7 +644,7 @@ function CartaoConcentracao({ className, dados, onAbrirParceiros }: { className?
               <li className="flex items-center gap-2 text-muted-foreground">
                 <span className={cn('h-2.5 w-2.5 shrink-0 rounded-[3px]', TEXTURA_OUTROS)} />
                 <span className="min-w-0 flex-1 truncate">Outros {dados.outros.qtd} parceiro{dados.outros.qtd === 1 ? '' : 's'}</span>
-                <span className="font-mono text-[11.5px] tabular-nums">{BRL_CURTO.format(dados.outros.valor)}</span>
+                <span className="text-[11.5px] tabular-nums">{BRL_CURTO.format(dados.outros.valor)}</span>
                 <b className="w-10 text-right tabular-nums text-foreground">{pctFmt(dados.outros.pct)}</b>
               </li>
             )}

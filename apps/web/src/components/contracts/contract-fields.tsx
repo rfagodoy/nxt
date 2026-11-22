@@ -19,7 +19,7 @@ import { useIndiceValores } from '@/hooks/use-indice-valores'
 import { INIT_PAPEIS, PAPEIS_KEY, ORIGEM, REFERENCIA, origemDoPapel, ladoDoPapel, referenciaDoPapelEntry } from '@/lib/contract-roles'
 import {
   TIPOS_KEY, OBJETOS_KEY, MOEDAS_KEY, CONDICOES_KEY, INDICES_KEY, TIPOS_ADITIVO_KEY, FORMAS_PGTO_KEY,
-  INIT_TIPOS, INIT_OBJETOS, INIT_MOEDAS, INIT_CONDICOES, INIT_INDICES, INIT_TIPOS_ADITIVO, INIT_FORMAS_PGTO,
+  simboloDaMoeda, INIT_TIPOS, INIT_OBJETOS, INIT_MOEDAS, INIT_CONDICOES, INIT_INDICES, INIT_TIPOS_ADITIVO, INIT_FORMAS_PGTO,
   SITUACOES, PERIODICIDADES, TIPOS_DOCUMENTO, effectiveSituacao, APLICACOES_REAJUSTE,
   NATUREZAS, ACOES_TERMINO, temPagamentos, temRecebimentos, somaLancamentos, somaLancamentosPagos, somaDesvios,
   lancPago, lancPrevisto, lancDesvio,
@@ -210,7 +210,7 @@ function MoneyField({ value, moedaCode, onChange, ro, bare, vazio }: { value: st
   const display = value ? num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''
   const [draft, setDraft] = useState<string | null>(null)   // texto da fórmula em edição (null = máscara normal)
   const [erroCalc, setErroCalc] = useState(false)
-  if (ro) return <span className={readCls}>{value ? (bare ? display : `${moedaCode} ${display}`) : '—'}</span>
+  if (ro) return <span className={readCls}>{value ? (bare ? display : `${simboloDaMoeda(moedaCode)} ${display}`) : '—'}</span>
 
   const emFormula = draft !== null
   const shown = emFormula ? (draft as string) : display
@@ -250,7 +250,7 @@ function MoneyField({ value, moedaCode, onChange, ro, bare, vazio }: { value: st
   )
   return (
     <div className="relative">
-      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-muted-foreground pointer-events-none select-none">{moedaCode}</span>
+      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-muted-foreground pointer-events-none select-none">{simboloDaMoeda(moedaCode)}</span>
       <input inputMode={emFormula ? 'text' : 'numeric'} value={shown} onChange={onInput} onKeyDown={onKeyDown} onBlur={() => aplicar(true)}
              title={dica} placeholder="0,00" className={cn(inputCls, 'pl-11 tabular-nums', anel, emFormula && 'text-left')} />
     </div>
@@ -309,7 +309,7 @@ export function IdentificacaoFields({ form, ro, autoNumero = false, numeroPrevie
           <p className="mt-0.5 text-[10px] text-muted-foreground normal-case">Gerado automaticamente ao salvar (Parâmetros gerais)</p>
         </Field>
       ) : (
-        <Field label="Número" required><Txt value={v.numero} onChange={x => form.set('numero', x)} ro={lk('numero')} placeholder="CTR-2026-001" /></Field>
+        <Field label="Número" required><Txt value={v.numero} onChange={x => form.set('numero', x)} ro={lk('numero')} placeholder="Número do contrato assinado" /></Field>
       ))}
       {/* situação usa o término VIGENTE (com aditivos) — prorrogou, não fica "Vencido" */}
       {isVisible('situacao') && <Field label="Situação"><span className={readCls}>{SITUACOES.find(s => s.value === effectiveSituacao(v.situacao, v.prazoIndeterminado ? '' : terminoVigente(v)))?.label ?? '—'}</span></Field>}
@@ -650,7 +650,7 @@ function MoneyRead({ label, value, moedaCode, strong }: { label: string; value: 
   return (
     <Field label={label}>
       <span className={cn('flex min-h-[1.25rem] items-center px-0 text-[length:var(--destaque-fonte)] tabular-nums', strong ? 'font-semibold text-foreground' : 'font-medium text-foreground', value < 0 && 'text-red-600 dark:text-red-400')}>
-        {moedaCode ? `${moedaCode} ` : ''}{display}
+        {simboloDaMoeda(moedaCode)} {display}
       </span>
     </Field>
   )
@@ -782,7 +782,7 @@ export function LancamentosFields({ form, field, moedaCode, travado, consulta = 
   const valorContrato = valorVigente(v)
   const pct   = valorContrato > 0 ? Math.round((totalPago / valorContrato) * 100) : 0
   const saldo = valorContrato - totalPago
-  const money = (n: number) => `${moedaCode ? moedaCode + ' ' : ''}${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const money = (n: number) => `${simboloDaMoeda(moedaCode)} ${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
   /* status por parcela: pago / a vencer / vencido (vencido é derivado: previsto + vencimento < hoje) */
   const hoje = todayISO()
