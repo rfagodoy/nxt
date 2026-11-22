@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { SITUACOES_EXIBIVEIS } from '@nxt/contracts-core'
-import { SITUACOES } from './contract-options'
+import { SITUACOES, simboloDaMoeda } from './contract-options'
 import { SIT_LABEL, SIT_CLS } from './contract-situacao'
 
 /* Este teste existe por causa de um bug real: `CANCELADO` nasceu no motor de
@@ -31,5 +31,13 @@ describe('cobertura das situações de contrato', () => {
     const conhecidas = new Set<string>(SITUACOES_EXIBIVEIS)
     const intrusas = SITUACOES.map((s) => s.value).filter((v) => !conhecidas.has(v))
     expect(intrusas, `situações que não existem no core: ${intrusas.join(', ')}`).toEqual([])
+  })
+})
+
+describe('simboloDaMoeda', () => {
+  it('real é R$, as outras pelo código, vazio vale real', () => {
+    expect(simboloDaMoeda('BRL')).toBe('R$')
+    expect(simboloDaMoeda('USD')).toBe('USD')
+    expect(simboloDaMoeda('')).toBe('R$')
   })
 })

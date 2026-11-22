@@ -5,9 +5,20 @@ const it_ = (o: Partial<ItemCarteira>): ItemCarteira => ({ situacao: 'VIGENTE', 
 const HOJE = '2026-10-11'
 
 describe('vencimentosPorMes', () => {
-  it('12 meses a partir do mês atual, atravessando o ano', () => {
+  it('365 dias a partir de hoje, do mês atual ao mês do limite, atravessando o ano', () => {
     const v = vencimentosPorMes([], HOJE)
-    expect(v.meses.map((m) => m.mes)).toEqual(['2026-10', '2026-11', '2026-12', '2027-01', '2027-02', '2027-03', '2027-04', '2027-05', '2027-06', '2027-07', '2027-08', '2027-09'])
+    expect(v.ate).toBe('2027-10-11')
+    expect(v.meses.map((m) => m.mes)).toEqual(['2026-10', '2026-11', '2026-12', '2027-01', '2027-02', '2027-03', '2027-04', '2027-05', '2027-06', '2027-07', '2027-08', '2027-09', '2027-10'])
+  })
+  it('contrato que vence no começo do mês do ano seguinte, a menos de 365 dias, entra', () => {
+    const v = vencimentosPorMes([it_({ id: 'a', termino: '2027-11-01', valor: 9 })], '2026-11-22')
+    expect(v.ate).toBe('2027-11-22')
+    expect(v.meses.at(-1)).toEqual({ mes: '2027-11', qtd: 1, valor: 9 })
+    expect(v.proximos.map((x) => x.id)).toEqual(['a'])
+  })
+  it('depois de hoje + 365 dias não entra, mesmo no último mês', () => {
+    const v = vencimentosPorMes([it_({ termino: '2027-11-23', valor: 1 })], '2026-11-22')
+    expect(v.meses.every((m) => m.qtd === 0)).toBe(true)
   })
   it('agrupa vigentes pelo mês de término, somando quantidade e valor', () => {
     const v = vencimentosPorMes([

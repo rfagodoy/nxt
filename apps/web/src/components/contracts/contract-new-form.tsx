@@ -161,6 +161,18 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
   /* sem tela, os títulos do cadastro novo diferem das abas do detalhe em duas seções */
   const rotuloSecao = rotuloDeSecao(SECOES_CONTRATO, screenDriven ? screenSections
     : [{ key: 'valor', label: 'Valores' }, { key: 'documentos', label: 'Documentos do contrato' }])
+  /* "Ir para" e rodapé fixo (auditoria de UX, 22/11/2026): o mesmo formato do detalhe e
+     da tarefa. O que falta para ATIVAR é calculado ao vivo, sem esperar o clique. */
+  const secoesDoAtalho: Array<{ key: string; label: string }> = screenDriven
+    ? screenSections.map(s => ({ key: s.key, label: s.label }))
+    : [
+        { key: 'dados_gerais', label: 'Dados Gerais' }, { key: 'partes', label: 'Partes' },
+        { key: 'vigencia', label: 'Vigência' }, { key: 'valor', label: 'Valores' },
+        ...(temPagamentos(v.natureza) ? [{ key: 'pagamentos', label: 'Pagamentos' }] : []),
+        ...(temRecebimentos(v.natureza) ? [{ key: 'recebimentos', label: 'Recebimentos' }] : []),
+        { key: 'reajuste', label: 'Reajuste' }, { key: 'documentos', label: 'Documentos' },
+      ]
+  const faltaParaAtivar = naTarefa || screenReadOnly ? [] : calcFaltantes('ativar')
   const irParaSecao = (key: string) => {
     setOpen(prev => new Set([...prev, key]))
     requestAnimationFrame(() => document.getElementById(`secao-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
@@ -260,6 +272,22 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
         </div>
       )}
 
+      {!naTarefa && secoesDoAtalho.length > 1 && (
+        <nav aria-label="Ir para a seção" className="flex flex-wrap items-center gap-1">
+          <span className="mr-1 text-[11px] text-muted-foreground">Ir para:</span>
+          {secoesDoAtalho.map(sec => {
+            const falta = camposDaSecao(faltaParaAtivar, sec.key).length
+            return (
+              <button key={sec.key} type="button" onClick={() => irParaSecao(sec.key)}
+                className={cn('rounded-md border px-2.5 py-1 text-xs transition-colors hover:bg-muted',
+                  falta > 0 ? 'border-amber-300 text-amber-800 dark:border-amber-800 dark:text-amber-300' : 'text-muted-foreground')}>
+                {sec.label}{falta > 0 && <span className="font-semibold"> · falta {falta}</span>}
+              </button>
+            )
+          })}
+        </nav>
+      )}
+
       <form className="space-y-2" onSubmit={e => e.preventDefault()}>
         {screenDriven ? (
           screenSections.map(s => (
@@ -293,13 +321,13 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
         </Section>
 
         {temPagamentos(v.natureza) && (
-          <Section secao="pagamentos" icon={TrendingDown} title="Pagamentos realizados" isOpen={open.has('pagamentos')} onToggle={() => toggleSection('pagamentos')}>
+          <Section secao="pagamentos" icon={TrendingDown} title="Pagamentos" isOpen={open.has('pagamentos')} onToggle={() => toggleSection('pagamentos')}>
             <LancamentosFields form={form} field="pagamentos" moedaCode={v.moeda} dualView />
           </Section>
         )}
 
         {temRecebimentos(v.natureza) && (
-          <Section secao="recebimentos" icon={TrendingUp} title="Recebimentos realizados" isOpen={open.has('recebimentos')} onToggle={() => toggleSection('recebimentos')}>
+          <Section secao="recebimentos" icon={TrendingUp} title="Recebimentos" isOpen={open.has('recebimentos')} onToggle={() => toggleSection('recebimentos')}>
             <LancamentosFields form={form} field="recebimentos" moedaCode={v.moeda} dualView />
           </Section>
         )}
@@ -320,11 +348,18 @@ export default function ContractNewForm({ embedded = false, onSaved, onCancel, s
           <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">{saveError}</div>
         )}
 
-        {!naTarefa && <div className="flex items-center justify-between pt-1 pb-6">
+        {!naTarefa && <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-card/95 px-3 py-2 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/80">
           {onCancel ? (
             <button type="button" onClick={onCancel} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Cancelar</button>
           ) : (
             <Link href="/modules/contratos" className="text-xs text-muted-foreground hover:text-foreground transition-colors">Cancelar</Link>
+          )}
+          {!screenReadOnly && (
+            <span className={cn('text-[11px]', faltaParaAtivar.length ? 'text-amber-800 dark:text-amber-300' : 'text-muted-foreground')}>
+              {faltaParaAtivar.length
+                ? `Para ativar ${faltaParaAtivar.length === 1 ? 'falta 1 campo' : `faltam ${faltaParaAtivar.length} campos`}`
+                : 'Tudo pronto para ativar'}
+            </span>
           )}
           {screenReadOnly ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">

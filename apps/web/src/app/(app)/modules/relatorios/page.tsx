@@ -10,8 +10,8 @@
  * de quem gere contrato é "o que esteve valendo neste intervalo".
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { FileBarChart, Loader2, Filter, Download, RotateCcw, ArrowUpDown } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { FileBarChart, Loader2, Download, RotateCcw, ArrowUpDown } from 'lucide-react'
 import { apiFetch, apiJson } from '@/lib/http'
 import { cn } from '@/lib/utils'
 import { DENS_CEL, DENS_CAB, DENS_TABELA } from '@/lib/densidade'
@@ -23,6 +23,7 @@ type Linha = {
   id: string; numero: string; titulo: string; tipo: string; natureza: string
   situacao: string; inicioVigencia: string | null; terminoVigencia: string | null
   prazoIndeterminado: boolean; valor: number; moeda: string; parceiros: string
+  contratada: string; contratante: string
   diasParaTerminar: number | null
 }
 type Totais = {
@@ -34,7 +35,7 @@ type Resposta =
   | { excedeu: true; total: number; limite: number; mensagem: string }
   | { excedeu: false; geradoEm: string; totalNaBase: number; linhas: Linha[]; totais: Totais; duracaoMs: number }
 type Opcoes = { tipos: string[]; naturezas: string[]; parceiros: Array<{ id: string; razaoSocial: string }> }
-type Campo = 'numero' | 'titulo' | 'situacao' | 'terminoVigencia' | 'valor' | 'parceiros'
+type Campo = 'numero' | 'titulo' | 'situacao' | 'terminoVigencia' | 'valor' | 'contratada' | 'contratante'
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 const fmtData = (d: string | null) => (d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-BR') : '—')
@@ -61,21 +62,29 @@ export default function RelatoriosPage() {
       .catch(() => null)
   }, [])
 
+  /* Com os filtros valendo na hora, dois pedidos podem se cruzar: só o último conta. */
+  const ultimoPedido = useRef(0)
   const gerar = useCallback(async () => {
+    const pedido = ++ultimoPedido.current
     setCarregando(true)
     try {
       const res = await apiFetch('/api/reports/contratos', {
         method: 'POST',
         body: JSON.stringify({ de: de || undefined, ate: ate || undefined, situacoes, naturezas, tipos, parceiroIds, busca: busca || undefined, ordenarPor, desc }),
       })
-      setDados(await res.json().catch(() => null))
+      const json = await res.json().catch(() => null)
+      if (pedido === ultimoPedido.current) setDados(json)
     } finally {
-      setCarregando(false)
+      if (pedido === ultimoPedido.current) setCarregando(false)
     }
   }, [de, ate, situacoes, naturezas, tipos, parceiroIds, busca, ordenarPor, desc])
 
-  // primeira carga: mostra a base inteira, para a tela não nascer vazia
-  useEffect(() => { void gerar() }, [ordenarPor, desc]) // eslint-disable-line react-hooks/exhaustive-deps
+  /* Os filtros valem na hora: não há botão "Aplicar". A busca e as datas esperam a
+     pessoa parar de digitar; a primeira carga mostra a base inteira. */
+  useEffect(() => {
+    const t = setTimeout(() => { void gerar() }, 350)
+    return () => clearTimeout(t)
+  }, [gerar])
 
   const alternar = (lista: string[], set: (v: string[]) => void, valor: string) =>
     set(lista.includes(valor) ? lista.filter((v) => v !== valor) : [...lista, valor])
@@ -95,16 +104,16 @@ export default function RelatoriosPage() {
       title: 'Relatório de contratos',
       subtitle: `${linhas.length} contrato(s) · ${BRL.format(totais?.valorTotal ?? 0)}${de || ate ? ` · vigência entre ${fmtData(de || null)} e ${fmtData(ate || null)}` : ''}`,
       columns: [
-        { header: 'Número', width: 18 }, { header: 'Título', width: 34 }, { header: 'Parceiro(s)', width: 30 },
+        { header: 'Número', width: 18 }, { header: 'Título', width: 34 }, { header: 'Contratada', width: 30 }, { header: 'Contratante', width: 30 },
         { header: 'Tipo', width: 20 }, { header: 'Natureza', width: 12 }, { header: 'Situação', width: 14 },
         { header: 'Início', width: 12 }, { header: 'Término', width: 12 }, { header: 'Valor', width: 16, align: 'right' },
       ],
       rows: linhas.map((l) => [
-        l.numero, l.titulo, l.parceiros, l.tipo, NAT_LABEL[l.natureza] ?? l.natureza,
+        l.numero, l.titulo, l.contratada, l.contratante, l.tipo, NAT_LABEL[l.natureza] ?? l.natureza,
         SIT_LABEL[l.situacao] ?? l.situacao, fmtData(l.inicioVigencia),
         l.prazoIndeterminado ? 'Indeterminado' : fmtData(l.terminoVigencia), l.valor,
       ]),
-      footer: ['Total', '', '', '', '', '', '', '', totais?.valorTotal ?? 0],
+      footer: ['Total', '', '', '', '', '', '', '', '', totais?.valorTotal ?? 0],
     })
   }
 
@@ -131,18 +140,14 @@ export default function RelatoriosPage() {
         <div>
           <h1 className="text-base font-semibold tracking-tight">Relatório de contratos</h1>
           <p className="text-[11px] text-muted-foreground">
-            Situação calculada na hora — inclusive <strong>Vencido</strong>, que não é gravado no banco.
+            A situação considera a data de hoje: um contrato vigente com término passado aparece como <strong>Vencido</strong>.
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {carregando && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" aria-label="Atualizando" />}
           <button type="button" onClick={exportar} disabled={!linhas.length}
             className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs hover:bg-muted disabled:opacity-50">
             <Download className="h-3.5 w-3.5" />Exportar
-          </button>
-          <button type="button" onClick={gerar} disabled={carregando}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
-            {carregando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Filter className="h-3.5 w-3.5" />}
-            Aplicar filtros
           </button>
         </div>
       </div>
@@ -162,7 +167,7 @@ export default function RelatoriosPage() {
           </label>
           <label className="space-y-1">
             <span className="text-[11px] font-medium">Buscar</span>
-            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="número, título ou parceiro"
+            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="número, título ou parte"
               className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs" />
           </label>
         </div>
@@ -260,9 +265,9 @@ export default function RelatoriosPage() {
           <table className={cn('w-full', DENS_TABELA)}>
             <thead className="sticky top-0 bg-card border-b text-left text-muted-foreground">
               <tr>
-                {th('numero', 'Número')}
-                {th('titulo', 'Título')}
-                {th('parceiros', 'Parceiro(s)')}
+                {th('titulo', 'Contrato')}
+                {th('contratada', 'Contratada')}
+                {th('contratante', 'Contratante')}
                 {th('situacao', 'Situação')}
                 {th('terminoVigencia', 'Término')}
                 {th('valor', 'Valor', 'text-right')}
@@ -271,9 +276,19 @@ export default function RelatoriosPage() {
             <tbody>
               {linhas.map((l) => (
                 <tr key={l.id} className="border-b last:border-0 hover:bg-muted/40">
-                  <td className={cn(DENS_CEL, 'whitespace-nowrap font-medium')}>{l.numero}</td>
-                  <td className={DENS_CEL}>{l.titulo}</td>
-                  <td className={cn(DENS_CEL, 'text-muted-foreground')}>{l.parceiros || '—'}</td>
+                  <td className={DENS_CEL}>
+                    <div className="font-medium">{l.titulo}</div>
+                    <div className="font-mono text-[10.5px] text-muted-foreground">{l.numero}</div>
+                  </td>
+                  <td className={DENS_CEL}>{l.contratada || '—'}</td>
+                  <td className={DENS_CEL}>
+                    {l.contratante ? (
+                      <>
+                        {l.contratante.split(' · ')[0]}
+                        {l.contratante.includes(' · ') && <span className="text-muted-foreground"> · {l.contratante.split(' · ').slice(1).join(' · ')}</span>}
+                      </>
+                    ) : '—'}
+                  </td>
                   <td className={cn(DENS_CEL, 'whitespace-nowrap')}>
                     <span className={`inline-flex rounded px-1.5 py-0.5 text-[11px] font-medium ${SIT_CLS[l.situacao] ?? ''}`}>
                       {SIT_LABEL[l.situacao] ?? l.situacao}

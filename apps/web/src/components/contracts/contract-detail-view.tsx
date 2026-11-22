@@ -23,6 +23,9 @@ import { NewPartnerPanel } from '@/components/contracts/new-partner-panel'
 import { ContractHistory } from '@/components/contracts/contract-history'
 import { getLogUser } from '@/hooks/use-partner-logs'
 import { SaveStatus } from '@/components/save-status'
+import { FloatingMenu } from '@/components/ui/floating-menu'
+import { resumoDoContrato } from '@/lib/resumo-do-contrato'
+import { todayISO } from '@nxt/contracts-core'
 
 /* ─── linha da listagem (espelha o toRow() do backend) — compartilhada com a página ─── */
 export interface Row {
@@ -82,7 +85,7 @@ export interface ContratoNaTarefa {
 }
 
 /* ══════════════════════════════════════════════════════════════ */
-export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, screen, readOnly: readOnlyProp, lockedFields, origem, naTarefa }: { row: Row; onClose: () => void; onSaved?: () => void; onDirtyChange?: (dirty: boolean) => void; screen?: Screen; readOnly?: boolean; /** campos travados pela ATIVIDADE do workflow (só apertam) */ lockedFields?: string[]; /** gravação de dentro de uma tarefa (a API aplica a tela da etapa) */ origem?: OrigemDaTarefa; naTarefa?: ContratoNaTarefa }) {
+export function ContractDetailView({ row, onSaved, onDirtyChange, screen, readOnly: readOnlyProp, lockedFields, origem, naTarefa }: { row: Row; onClose: () => void; onSaved?: () => void; onDirtyChange?: (dirty: boolean) => void; screen?: Screen; readOnly?: boolean; /** campos travados pela ATIVIDADE do workflow (só apertam) */ lockedFields?: string[]; /** gravação de dentro de uma tarefa (a API aplica a tela da etapa) */ origem?: OrigemDaTarefa; naTarefa?: ContratoNaTarefa }) {
   const form = useContractForm({
     ...emptyContractForm(),
     numero: row.numero, titulo: row.titulo, tipo: row.tipo, situacao: normalizeSituacao(row.situacao),
@@ -121,7 +124,9 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
     })()
   }, [])
 
-  const [tab,          setTab]          = useState<string>('dados_gerais')
+  /* Seção que a última ação pediu para mostrar ("Ir para", aviso de campo faltando):
+     é aberta e rolada até a vista. Não há mais aba ativa — as seções ficam empilhadas. */
+  const [foco,         setFoco]         = useState<{ chave: string; vez: number } | null>(null)
   const [showMotivo,   setShowMotivo]   = useState(false)
   const [motivoAction, setMotivoAction] = useState('')
   const [motivo,       setMotivo]       = useState('')
@@ -197,10 +202,6 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
     setDirtyLocal(d)
     onDirtyChange?.(d)
   }, [v, onDirtyChange, screenDirty])
-  /* aba ativa sempre aponta para uma seção existente da tela (evita aba "morta") */
-  useEffect(() => {
-    if (screenDriven && screenSections.length && !screenSections.some(s => s.key === tab)) setTab(screenSections[0].key)
-  }, [screenDriven, screenSections, tab])
   useEffect(() => {
     if (!justSaved) return
     const t = setTimeout(() => setJustSaved(false), 2000)
@@ -220,6 +221,9 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
   const tipos     = useLookupTable(TIPOS_KEY, INIT_TIPOS)
   const tipoLabel = tipos.entries.find(t => t.id === v.tipo)?.label ?? v.tipo
   const papeis    = useLookupTable(PAPEIS_KEY, INIT_PAPEIS)
+  const resumo    = useMemo(() => resumoDoContrato(v, papeis.entries, todayISO()), [v, papeis.entries])
+  const [maisAberto, setMaisAberto] = useState(false)
+  const maisRef = useRef<HTMLButtonElement>(null)
 
   /* Contagem por aba. São dez abas — bem acima do que a memória de trabalho segura —
      e sem o número a única forma de saber se este contrato TEM aditivo é abrir a aba
@@ -351,10 +355,23 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
   useEffect(() => { onFaltantes?.(JSON.parse(chaveFaltantes) as CampoFaltante[]) }, [onFaltantes, chaveFaltantes])
   const [secoesAbertas, setSecoesAbertas] = useState<Set<string> | null>(null)
   useEffect(() => {
-    if (secoesAbertas || !screenSections.length) return
-    const iniciais = screenSections.filter(s => s.defaultOpen).map(s => s.key)
-    setSecoesAbertas(new Set(iniciais.length ? iniciais : [screenSections[0].key]))
-  }, [secoesAbertas, screenSections])
+    if (secoesAbertas) return
+    if (screenDriven) {
+      if (!screenSections.length) return
+      const iniciais = screenSections.filter(s => s.defaultOpen).map(s => s.key)
+      setSecoesAbertas(new Set(iniciais.length ? iniciais : [screenSections[0].key]))
+    } else setSecoesAbertas(new Set(['dados_gerais']))
+  }, [secoesAbertas, screenSections, screenDriven])
+  /** Abre a seção e a traz para a vista (o efeito abaixo rola depois de ela renderizar). */
+  const setTab = (k: string) => {
+    setSecoesAbertas(prev => new Set([...(prev ?? []), k]))
+    setFoco(f => ({ chave: k, vez: (f?.vez ?? 0) + 1 }))
+  }
+  useEffect(() => {
+    if (!foco) return
+    const el = document.getElementById(`secao-contrato-${row.id}-${foco.chave}`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [foco, row.id])
   const revelar = naTarefa?.revelar ?? 0
   useEffect(() => {
     if (!revelar) return
@@ -385,6 +402,27 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
     revisao:   'Motivo da abertura para revisão',
     encerrar:  'Motivo do encerramento',
     rescindir: 'Motivo da rescisão',
+  }
+
+  /* Corpo de cada seção quando não há tela configurada (as seções nativas de sempre). */
+  const secaoNativa = (k: string): React.ReactNode => {
+    switch (k) {
+      case 'dados_gerais': return <IdentificacaoFields form={form} ro={locked} />
+      case 'partes': return (
+        <PartesFields form={form} ro={locked} contractId={row.id}
+          onOpenSearch={(parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds })}
+          onNewPartner={() => setNewPartner({})} />
+      )
+      case 'vigencia': return <VigenciaFields form={form} ro={locked} />
+      case 'valor': return <ValoresFields form={form} ro={locked} />
+      case 'pagamentos': return <LancamentosFields form={form} field="pagamentos" moedaCode={v.moeda} travado={locked} />
+      case 'recebimentos': return <LancamentosFields form={form} field="recebimentos" moedaCode={v.moeda} travado={locked} />
+      case 'reajuste': return <ReajustesFields form={form} ro={locked} />
+      case 'aditivos': return <AditivosFields form={form} onOpenCessaoSearch={(aditivoId, cessaoId, origem) => setCessaoSearch({ aditivoId, cessaoId, origem })} onActivate={activateAditivo} onRevise={reviseAditivo} />
+      case 'documentos': return <DocumentosFields form={form} ro={locked} />
+      case 'historico': return <ContractHistory contractId={row.id} reloadKey={auditVersion} />
+      default: return null
+    }
   }
 
   const modais = (
@@ -495,41 +533,27 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
               <Eye className="h-3 w-3" />Somente consulta
             </span>
           )}
-          <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Fechar</button>
 
           {/* Aditivo/Encerramento a partir DESTE contrato — fora de tarefa (lá o processo já existe) */}
           {!readOnly && !origem && stored === 'VIGENTE' && !showMotivo && <IniciarDoContrato contratoId={row.id} />}
 
-          {/* Salvar sempre disponível: permite registrar pagamentos/recebimentos mesmo com o contrato travado */}
-          {!readOnly && !showMotivo && (
+          {/* Salvar só quando há o que salvar: o selo ao lado já diz "Salvo". Continua
+              valendo com o contrato travado, para baixar pagamentos e recebimentos. */}
+          {!readOnly && !showMotivo && (dirty || saving) && (
             <button type="button" onClick={() => { void handleSave() }} disabled={saving}
               className="inline-flex items-center h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted disabled:opacity-40 transition-colors">
               {saving ? 'Salvando...' : 'Salvar'}
             </button>
           )}
 
+          {/* Uma ação principal por situação (auditoria de UX, 22/11/2026): em cadastro,
+              Ativar; vigente, Iniciar processo; encerrado ou rescindido, Abrir para revisão.
+              O resto vai para "Mais ações", com Encerrar e Rescindir num grupo à parte. */}
           {!readOnly && stored === 'EM_CADASTRO' && !showMotivo && (
             <button type="button" onClick={() => { void handleSave('VIGENTE') }} disabled={saving}
               className="inline-flex items-center h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors">
               {saving ? 'Salvando...' : 'Ativar'}
             </button>
-          )}
-
-          {!readOnly && stored === 'VIGENTE' && !showMotivo && (
-            <>
-              <button type="button" onClick={() => { setMotivoAction('revisao'); setShowMotivo(true) }}
-                className="inline-flex items-center h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors">
-                Abrir para revisão
-              </button>
-              <button type="button" onClick={() => { setMotivoAction('encerrar'); setShowMotivo(true) }}
-                className="inline-flex items-center h-7 rounded-md border border-gray-300 text-gray-600 px-3 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-900/40 transition-colors">
-                Encerrar
-              </button>
-              <button type="button" onClick={() => { setMotivoAction('rescindir'); setShowMotivo(true) }}
-                className="inline-flex items-center h-7 rounded-md border border-red-200 text-red-600 px-3 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors">
-                Rescindir
-              </button>
-            </>
           )}
 
           {!readOnly && (stored === 'ENCERRADO' || stored === 'RESCINDIDO') && !showMotivo && (
@@ -538,8 +562,47 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
               Abrir para revisão
             </button>
           )}
+
+          {!readOnly && stored === 'VIGENTE' && !showMotivo && (
+            <>
+              <button ref={maisRef} type="button" onClick={() => setMaisAberto((a) => !a)} aria-haspopup="menu" aria-expanded={maisAberto}
+                className="inline-flex items-center gap-1 h-7 rounded-md border px-3 text-xs font-medium hover:bg-muted transition-colors">
+                Mais ações<ChevronDown className="h-3.5 w-3.5" aria-hidden />
+              </button>
+              {maisAberto && (
+                <FloatingMenu anchor={maisRef} onClose={() => setMaisAberto(false)} align="end" role="menu" aria-label="Mais ações do contrato"
+                  className="glass z-50 min-w-[13rem] rounded-xl p-1 text-popover-foreground text-xs">
+                  <button type="button" role="menuitem" onClick={() => { setMaisAberto(false); setMotivoAction('revisao'); setShowMotivo(true) }}
+                    className="flex w-full items-center rounded-md px-2.5 py-2 text-left hover:bg-muted">Abrir para revisão</button>
+                  <div className="my-1 border-t" role="separator" />
+                  <p className="px-2.5 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Encerrar o contrato</p>
+                  <button type="button" role="menuitem" onClick={() => { setMaisAberto(false); setMotivoAction('encerrar'); setShowMotivo(true) }}
+                    className="flex w-full items-center rounded-md px-2.5 py-2 text-left hover:bg-muted">Encerrar… <span className="ml-auto pl-3 text-[10px] text-muted-foreground">pede o motivo</span></button>
+                  <button type="button" role="menuitem" onClick={() => { setMaisAberto(false); setMotivoAction('rescindir'); setShowMotivo(true) }}
+                    className="flex w-full items-center rounded-md px-2.5 py-2 text-left text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40">Rescindir… <span className="ml-auto pl-3 text-[10px] text-muted-foreground">pede o motivo</span></button>
+                </FloatingMenu>
+              )}
+            </>
+          )}
         </div>
       </div>
+
+      {resumo && (resumo.contratada || resumo.vigencia || resumo.valor) && (
+        <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border shadow-sm lg:grid-cols-4">
+          {[
+            { rotulo: 'Contratada', valor: resumo.contratada || '—', extra: '' },
+            { rotulo: 'Vigência', valor: resumo.vigencia || '—', extra: '' },
+            { rotulo: 'Valor total', valor: resumo.valor || '—', extra: resumo.parcelas },
+            { rotulo: 'Saldo', valor: resumo.saldo || '—', extra: resumo.vencido },
+          ].map((c) => (
+            <div key={c.rotulo} className="min-w-0 bg-card px-3 py-2">
+              <dt className="text-[10.5px] text-muted-foreground">{c.rotulo}</dt>
+              <dd className="truncate text-xs font-semibold tabular-nums" title={c.valor}>{c.valor}</dd>
+              {c.extra && <dd className={cn('truncate text-[10.5px] tabular-nums', c.rotulo === 'Saldo' ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground')}>{c.extra}</dd>}
+            </div>
+          ))}
+        </dl>
+      )}
 
       {staleAviso && (
         <div className="flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400">
@@ -574,57 +637,62 @@ export function ContractDetailView({ row, onClose, onSaved, onDirtyChange, scree
         </div>
       )}
 
-      <div className="flex items-center gap-1 flex-wrap border-b pb-2">
+      {/* "Ir para" no lugar das abas (auditoria de UX, 22/11/2026): o detalhe usa o mesmo
+          corpo do cadastro e da tarefa — seções em sanfona, uma embaixo da outra. */}
+      <nav aria-label="Ir para a seção" className="flex items-center gap-1 flex-wrap border-b pb-2">
+        <span className="mr-1 text-[11px] text-muted-foreground">Ir para:</span>
         {tabs.map(t => {
           const n = contagem[t.id]
-          const vazia = n === 0            // tem contagem e está zerada
+          const falta = camposDaSecao(faltantes, t.id).length
           return (
             <button key={t.id} type="button" onClick={() => setTab(t.id)}
-              className={cn('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-                tab === t.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-muted',
-                vazia && tab !== t.id && 'opacity-55')}>
+              className={cn('inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors text-muted-foreground hover:text-foreground hover:bg-muted',
+                n === 0 && 'opacity-55', falta > 0 && 'text-amber-800 dark:text-amber-300 opacity-100')}>
               <t.icon className="h-3.5 w-3.5" />{t.label}
-              {n != null && n > 0 && (
-                <span className="ml-0.5 rounded bg-muted px-1 text-[10px] font-bold tabular-nums text-foreground/70">{n}</span>
-              )}
+              {falta > 0 ? <span className="text-[10.5px] font-semibold">· falta {falta}</span>
+                : n != null && n > 0 && <span className="ml-0.5 rounded bg-muted px-1 text-[10px] font-bold tabular-nums text-foreground/70">{n}</span>}
             </button>
           )
         })}
-      </div>
+      </nav>
 
       </div>{/* fim do cabeçalho fixo */}
 
       <form className="flex-1 min-h-0 overflow-y-auto space-y-2 pt-3" onSubmit={e => e.preventDefault()}>
-        {screenDriven ? (
-          screenSections.map(s => (
-            <DSection key={s.id} active={tab === s.key}>
-              <ContractSectionNative section={s} ctx={{
-                form, ro: locked, moedaCode: v.moeda, contractId: row.id, reloadKey: auditVersion,
-                onOpenSearch: (parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds }),
-                onNewPartner: () => setNewPartner({}),
-                onOpenCessaoSearch: (aditivoId, cessaoId, origem) => setCessaoSearch({ aditivoId, cessaoId, origem }),
-                onActivate: activateAditivo, onRevise: reviseAditivo,
-                renovacaoLiberada: renovacaoLiberada(defaultScreen, { stepLocked, screenReadOnly: readOnly || undefined }),
-              }} />
-              <ContractCustomFields fields={s.customFields} screenValues={screenValues} onScreenChange={onScreenChange} ro={locked} />
-            </DSection>
-          ))
-        ) : (<>
-        <DSection active={tab === 'dados_gerais'}><IdentificacaoFields form={form} ro={locked} /></DSection>
-        <DSection active={tab === 'partes'}>
-          <PartesFields form={form} ro={locked} contractId={row.id}
-            onOpenSearch={(parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds })}
-            onNewPartner={() => setNewPartner({})} />
-        </DSection>
-        <DSection active={tab === 'vigencia'}><VigenciaFields form={form} ro={locked} /></DSection>
-        <DSection active={tab === 'valor'}><ValoresFields form={form} ro={locked} /></DSection>
-        {temPagamentos(v.natureza)   && <DSection active={tab === 'pagamentos'}><LancamentosFields form={form} field="pagamentos" moedaCode={v.moeda} travado={locked} /></DSection>}
-        {temRecebimentos(v.natureza) && <DSection active={tab === 'recebimentos'}><LancamentosFields form={form} field="recebimentos" moedaCode={v.moeda} travado={locked} /></DSection>}
-        <DSection active={tab === 'reajuste'}><ReajustesFields form={form} ro={locked} /></DSection>
-        <DSection active={tab === 'aditivos'}><AditivosFields form={form} onOpenCessaoSearch={(aditivoId, cessaoId, origem) => setCessaoSearch({ aditivoId, cessaoId, origem })} onActivate={activateAditivo} onRevise={reviseAditivo} /></DSection>
-        <DSection active={tab === 'documentos'}><DocumentosFields form={form} ro={locked} /></DSection>
-        <DSection active={tab === 'historico'}><ContractHistory contractId={row.id} reloadKey={auditVersion} /></DSection>
-        </>)}
+        {tabs.map(t => {
+          const aberta = secoesAbertas?.has(t.id) ?? false
+          const falta = camposDaSecao(faltantes, t.id).length
+          const n = contagem[t.id]
+          const sec = screenDriven ? screenSections.find(x => x.key === t.id) : undefined
+          return (
+            <div key={t.id} id={`secao-contrato-${row.id}-${t.id}`} className={cn('scroll-mt-2 rounded-xl border bg-card shadow-sm', falta > 0 && 'border-amber-300 dark:border-amber-800')}>
+              <button type="button" aria-expanded={aberta} onClick={() => alternarSecao(t.id)}
+                className={cn('flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-[13px] font-semibold hover:bg-muted/40',
+                  falta > 0 && 'bg-amber-50/70 dark:bg-amber-950/30')}>
+                <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', !aberta && '-rotate-90')} />
+                <t.icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate">{t.label}</span>
+                {falta > 0 ? <span className="shrink-0 text-[11.5px] font-semibold text-amber-800 dark:text-amber-300">falta {falta}</span>
+                  : n != null && n > 0 && <span className="shrink-0 rounded bg-muted px-1.5 text-[10.5px] font-bold tabular-nums text-foreground/70">{n}</span>}
+              </button>
+              {aberta && (
+                <div className="space-y-[var(--form-gap)] border-t p-[var(--secao-pad)]">
+                  {sec ? (<>
+                    <ContractSectionNative section={sec} ctx={{
+                      form, ro: locked, moedaCode: v.moeda, contractId: row.id, reloadKey: auditVersion,
+                      onOpenSearch: (parteId, origem, excludeIds) => setSearchModal({ parteId, origem, excludeIds }),
+                      onNewPartner: () => setNewPartner({}),
+                      onOpenCessaoSearch: (aditivoId, cessaoId, origem) => setCessaoSearch({ aditivoId, cessaoId, origem }),
+                      onActivate: activateAditivo, onRevise: reviseAditivo,
+                      renovacaoLiberada: renovacaoLiberada(defaultScreen, { stepLocked, screenReadOnly: readOnly || undefined }),
+                    }} />
+                    <ContractCustomFields fields={sec.customFields} screenValues={screenValues} onScreenChange={onScreenChange} ro={locked} />
+                  </>) : secaoNativa(t.id)}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </form>
 
 

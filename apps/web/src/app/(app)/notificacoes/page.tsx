@@ -39,7 +39,7 @@ const SEV_CLS: Record<string, string> = {
   INFO:    'bg-blue-500/10 text-blue-600 dark:text-blue-400',
 }
 const fmt = (iso: string) => new Date(iso).toLocaleString('pt-BR', {
-  day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit',
+  day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
 })
 
 export default function NotificacoesHistoricoPage() {
@@ -80,7 +80,9 @@ export default function NotificacoesHistoricoPage() {
           <p className="text-[11px] text-muted-foreground">Tudo o que você foi avisado — o sininho mostra só o que ainda pede ação</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={markAll}><CheckCheck className="h-3.5 w-3.5" />Marcar todas como lidas</Button>
+          {/* Desligado quando não há o que marcar (auditoria de UX, 22/11/2026). */}
+          <Button variant="outline" size="sm" onClick={markAll} disabled={!rows.some((n) => !n.read)}
+            title={rows.some((n) => !n.read) ? undefined : 'Nenhum aviso por ler nesta página'}><CheckCheck className="h-3.5 w-3.5" />Marcar todas como lidas</Button>
           <Button variant="outline" size="sm" onClick={load} title="Recarregar"><RefreshCw className="h-3.5 w-3.5" /></Button>
         </div>
       </div>
@@ -106,7 +108,7 @@ export default function NotificacoesHistoricoPage() {
           {data === null ? (
             <div className="flex items-center justify-center py-12 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin mr-2" />Carregando…</div>
           ) : rows.length === 0 ? (
-            <EmptyState icon={Bell} title="Nenhuma notificação" description={tipo || unread ? 'Nenhuma notificação com os filtros aplicados.' : 'Você ainda não recebeu avisos.'} />
+            <EmptyState icon={Bell} title={tipo || unread ? 'Nenhuma notificação' : 'Nenhum aviso por enquanto'} description={tipo || unread ? 'Nenhuma notificação com os filtros aplicados.' : 'Quando uma tarefa chegar para você ou um prazo apertar, o aviso aparece aqui e no sino.'} />
           ) : (
             <table className={cn('min-w-full', DENS_TABELA)}>
               <thead className="sticky top-0 z-10">
@@ -149,7 +151,7 @@ export default function NotificacoesHistoricoPage() {
             </table>
           )}
         </div>
-        <TablePagination page={page} pageSize={pageSize} total={data?.total ?? 0} onPage={setPage} onPageSize={setPageSize} rotulo={['notificação', 'notificações']} />
+        {(data?.total ?? 0) > 0 && <TablePagination page={page} pageSize={pageSize} total={data?.total ?? 0} onPage={setPage} onPageSize={setPageSize} rotulo={['notificação', 'notificações']} />}
       </div>
     </div>
   )

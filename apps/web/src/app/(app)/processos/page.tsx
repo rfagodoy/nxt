@@ -20,77 +20,136 @@ import { Indicadores } from '@/components/list/indicadores'
 import { useFiltroColuna, BotaoFiltroColuna, LinhaFiltroColuna } from '@/components/list/filtro-coluna'
 import { LoadErrorRow } from '@/components/list/load-error'
 import { type FilterRow, matchOp, norm, colunaContem } from '@/lib/list-filter'
-import { STATUS, fmt, humanDuration, pontualidadeLabel, type Inst } from '@/lib/processos-ui'
+import { STATUS, fmt, humanDuration, pontualidadeDoProcesso, comQuem, relativoA, encerradoEm, type Inst } from '@/lib/processos-ui'
+import { MenuDeAcoes } from '@/components/list/menu-de-acoes'
 
 interface SortState { col: string; dir: 'asc' | 'desc' }
 
 interface Col { key: string; label: string; align?: 'right'; text: (i: Inst) => string; sortVal?: (i: Inst) => string | number; node: (i: Inst) => ReactNode }
-const COLS: Col[] = [
+/* Linhas de altura fixa (PO, 22/11/2026): toda célula de duas partes usa o mesmo
+   molde, sem quebra de texto. Na densidade alta são duas linhas; nas outras, uma só,
+   com a segunda parte depois de um "·". O que não cabe termina em "…" e aparece
+   inteiro ao passar o mouse. */
+function Duas({ l1, l2, titulo }: { l1: ReactNode; l2: ReactNode; titulo?: string }) {
+  return (
+    <div className="celula-2l celula-fixa max-w-[28rem]" title={titulo}>
+      <p className="truncate">{l1}</p>
+      <p className="truncate text-[11px] text-muted-foreground">{l2}</p>
+    </div>
+  )
+}
+
+const COR_DO_TIPO: Record<string, string> = {
+  CONTRATO: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+  ADITIVO:  'bg-violet-500/10 text-violet-700 dark:text-violet-300',
+  DISTRATO: 'bg-orange-500/10 text-orange-700 dark:text-orange-300',
+}
+
+const TOM_DA_PONTUALIDADE: Record<'ok' | 'atencao' | 'atraso' | 'neutro', string> = {
+  ok:      'text-emerald-700 dark:text-emerald-400',
+  atencao: 'font-semibold text-amber-700 dark:text-amber-400',
+  atraso:  'font-semibold text-red-600 dark:text-red-400',
+  neutro:  'text-muted-foreground',
+}
+
+/** Coluna "Atividade atual" (PO, 22/11/2026): onde o processo está e com quem. Só
+ *  existe enquanto ele corre; encerrado, devolve null e a célula mostra "—" (o
+ *  desfecho está na Situação, e a data em "Encerrado em"). Sem "etapa N de M": o total
+ *  conta as atividades já criadas, então dava sempre "N de N". */
+function atividadeAtual(i: Inst): { l1: string; l2: string; cls?: string; icone?: ReactNode; dica?: string } | null {
+  if (i.status === 'RUNNING' && i.bloqueio) return {
+    l1: `Parado em ${i.currentStep || '—'}`, l2: 'nenhum caminho da escolha serviu — procure um administrador',
+    cls: 'font-semibold text-amber-700 dark:text-amber-300', icone: <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />, dica: i.bloqueio.mensagem,
+  }
+  if (i.status === 'RUNNING' && i.aguardando?.length) return {
+    l1: i.aguardando.length === 1 ? '1 atividade em paralelo' : `${i.aguardando.length} atividades em paralelo`,
+    l2: i.aguardando.join(' · '), dica: i.aguardando.join(' · '),
+  }
+  if (i.status === 'RUNNING') return {
+    l1: i.currentStep || '—',
+    l2: comQuem(i.currentWith) || (i.currentRole ? `com o papel ${i.currentRole}` : 'aberta a quem pode executar'),
+  }
+  if (i.status === 'ERROR') return {
+    l1: 'Erro numa etapa automática', l2: i.error || i.stepName || 'erro',
+    cls: 'font-semibold text-red-700 dark:text-red-300', icone: <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />, dica: i.error ?? undefined,
+  }
+  return null
+}
+
+/** Dica do selo da Situação: o motivo do cancelamento mora aqui (e no Histórico). */
+function dicaDaSituacao(i: Inst): string | undefined {
+  if (i.status === 'CANCELLED') return [i.cancelledBy && `Cancelado por ${i.cancelledBy}`, `Motivo: ${i.cancelReason || 'não registrado'}`].filter(Boolean).join(' · ')
+  if (i.status === 'COMPLETED') return `Durou ${humanDuration(i.durationMs)}`
+  if (i.status === 'ENDED_INCOMPLETE') return 'As atividades acabaram sem passar pelo Fim'
+  return undefined
+}
+
+const COLUNAS: Col[] = [
   {
     key: 'numero', label: 'Nº', text: (i) => (i.numero != null ? String(i.numero) : ''), sortVal: (i) => i.numero ?? 0,
     node: (i) => <span className="font-mono text-xs tabular-nums text-muted-foreground">{i.numero != null ? `#${i.numero}` : '—'}</span>,
   },
   {
-    key: 'processo', label: 'Processo', text: (i) => `${i.processName} v${i.version}`, sortVal: (i) => norm(i.processName),
-    node: (i) => (
-      <div className="celula-2l">
-        <p className="font-medium">{i.processName} <span className="text-[11px] text-muted-foreground font-normal">v{i.version}</span></p>
-        <p className="text-[11px] text-muted-foreground">{i.doneSteps}/{i.totalSteps} etapa{i.totalSteps !== 1 ? 's' : ''}</p>
-      </div>
-    ),
+    /* "Relativo a" (PO, 22/11/2026): o tipo do processo (Contrato, Aditivo,
+       Encerramento) e o contrato. O tipo entra no texto da coluna, então o filtro da
+       coluna também filtra por ele. */
+    key: 'processo', label: 'Relativo a',
+    text: (i) => { const r = relativoA(i); return [r.tipo, r.titulo, r.detalhe, i.processName].join(' · ') },
+    sortVal: (i) => norm(relativoA(i).titulo),
+    node: (i) => {
+      const r = relativoA(i)
+      return (
+        <Duas titulo={`${r.tipo}: ${r.titulo} · ${r.detalhe}`}
+          l1={<><span className={cn('mr-1.5 rounded px-1.5 py-px text-[10.5px] font-bold', COR_DO_TIPO[i.kind ?? 'CONTRATO'] ?? COR_DO_TIPO.CONTRATO)}>{r.tipo}</span>
+            <span className={r.semContrato ? 'text-muted-foreground' : 'font-medium'}>{r.titulo}</span></>}
+          l2={r.detalhe} />
+      )
+    },
   },
   { key: 'inicio', label: 'Início', text: (i) => fmt(i.startedAt), sortVal: (i) => new Date(i.startedAt).getTime(), node: (i) => <span className="text-muted-foreground whitespace-nowrap">{fmt(i.startedAt)}</span> },
   {
-    // prazo do PROCESSO (derivado da soma das atividades) — não confundir com o
-    // vencimento da etapa atual, que vive na coluna "Etapa atual / conclusão".
-    key: 'prevista', label: 'Data prevista para término',
+    // prazo do PROCESSO (soma das atividades). Opcional: a Pontualidade já diz se está em dia.
+    key: 'prevista', label: 'Data prevista',
     text: (i) => fmt(i.processDueAt), sortVal: (i) => (i.processDueAt ? new Date(i.processDueAt).getTime() : 0),
-    node: (i) => <span className={cn('whitespace-nowrap', i.processOverdue ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground')}>{fmt(i.processDueAt)}</span>,
+    node: (i) => <span className="text-muted-foreground whitespace-nowrap">{fmt(i.processDueAt)}</span>,
   },
   {
-    key: 'etapa', label: 'Etapa atual / conclusão',
-    text: (i) => i.status === 'RUNNING' && i.bloqueio ? `parado em ${i.currentStep || '—'}: ${i.bloqueio.mensagem}` : i.status === 'RUNNING' && i.aguardando?.length ? `aguardando: ${i.aguardando.join(', ')}` : i.status === 'RUNNING' ? (i.currentStep || '—') : i.status === 'ERROR' ? (i.error || i.stepName || 'erro') : i.status === 'COMPLETED' ? `concluído em ${fmt(i.completedAt)}` : i.status === 'ENDED_INCOMPLETE' ? `encerrado sem conclusão em ${fmt(i.completedAt)}` : i.cancelReason ? `cancelado · motivo: ${i.cancelReason}` : '—',
-    node: (i) => i.status === 'RUNNING' && i.bloqueio ? (
-      /* parado numa escolha sem caminho: ícone + texto (nunca só a cor) */
-      <span className="inline-flex items-start gap-1 text-amber-700 dark:text-amber-300" title={i.bloqueio.mensagem}>
-        <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-        <span className="max-w-xs"><span className="font-semibold">Parado</span> em {i.currentStep || '—'} <span className="block text-[11px] truncate">nenhum caminho da escolha serviu — procure um administrador</span></span>
-      </span>
-    ) : i.status === 'RUNNING' ? (
-      <div className="flex items-center gap-2">
-        <span>{i.currentStep || '—'}</span>
-        {i.currentDueAt && <span className={cn(SELO, i.currentOverdue ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' : 'text-amber-600')}><Clock className="h-3 w-3" />{i.currentOverdue ? 'atrasada' : `vence ${fmt(i.currentDueAt)}`}</span>}
-      </div>
-    ) : i.status === 'ERROR' ? (
-      <span className="inline-flex items-start gap-1 text-red-700 dark:text-red-300"><AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" /><span className="max-w-xs truncate">{i.error || i.stepName || 'erro'}</span></span>
-    ) : i.status === 'COMPLETED' ? (
-      <span className="text-muted-foreground">em {fmt(i.completedAt)} · durou {humanDuration(i.durationMs)}</span>
-    ) : i.status === 'ENDED_INCOMPLETE' ? (
-      /* Terminou o que havia para fazer sem passar pelo evento de fim: não é conclusão
-         e não pode parecer uma. */
-      <span className="text-amber-600 dark:text-amber-400">encerrado sem conclusão em {fmt(i.completedAt)}</span>
-    ) : i.cancelReason ? (
-      // um processo que termina em silêncio é um processo que ninguém sabe explicar
-      <span className="text-muted-foreground">cancelado por {i.cancelledBy || '—'} <span className="block text-[11px] italic max-w-xs truncate">motivo: {i.cancelReason}</span></span>
-    ) : <span className="text-muted-foreground">—</span>,
+    key: 'etapa', label: 'Atividade atual',
+    text: (i) => { const a = atividadeAtual(i); return a ? `${a.l1} · ${a.l2}` : '' },
+    node: (i) => {
+      const a = atividadeAtual(i)
+      if (!a) return <span className="text-muted-foreground" title="Processo encerrado: não há atividade em andamento">—</span>
+      return <Duas titulo={a.dica} l1={<span className={a.cls}>{a.icone}{a.l1}</span>} l2={a.l2} />
+    },
   },
   {
-    key: 'pontualidade', label: 'Pontualidade', text: (i) => pontualidadeLabel(i) + (i.returnCount > 0 ? ` · reaberta ${i.returnCount}×` : ''),
-    node: (i) => (
-      <span className="inline-flex items-center gap-1.5">
-        {i.status === 'CANCELLED' ? <span className="inline-flex items-center gap-1 text-muted-foreground"><Ban className="h-3 w-3" />cancelado</span>
-          : i.status === 'ENDED_INCOMPLETE' ? <span className="inline-flex items-center gap-1 text-muted-foreground"><CircleSlash className="h-3 w-3" />sem conclusão</span>
-          : i.processOnTime == null ? <span className="text-muted-foreground">sem prazo</span>
-          : i.processOnTime ? <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="h-3 w-3" />no prazo</span>
-          : <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400"><AlertTriangle className="h-3 w-3" />atrasado</span>}
-        {/* prazo derivado NÃO conta reaberturas → é otimista; o badge ressalva o número */}
-        {i.returnCount > 0 && (
-          <span title="Processo devolvido — o prazo derivado não conta as reaberturas" className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300">
-            <Undo2 className="h-2.5 w-2.5" />{i.returnCount}×
-          </span>
-        )}
-      </span>
-    ),
+    // quando acabou: concluído, encerrado sem conclusão ou cancelado
+    key: 'encerrado', label: 'Encerrado em',
+    text: (i) => { const d = encerradoEm(i); return d ? fmt(d) : '' },
+    sortVal: (i) => { const d = encerradoEm(i); return d ? new Date(d).getTime() : 0 },
+    node: (i) => { const d = encerradoEm(i); return <span className="text-muted-foreground whitespace-nowrap">{d ? fmt(d) : '—'}</span> },
+  },
+  {
+    /* Só o estado, sem data (PO, 22/11/2026): a lista responde "está em dia?". A data
+       fica na coluna opcional "Data prevista"; o vencimento da etapa, na caixa de Tarefas. */
+    key: 'pontualidade', label: 'Pontualidade',
+    text: (i) => pontualidadeDoProcesso(i).texto + (i.returnCount > 0 ? ` · devolvido ${i.returnCount}×` : ''),
+    sortVal: (i) => (i.processDueAt ? new Date(i.processDueAt).getTime() : Number.MAX_SAFE_INTEGER),
+    node: (i) => {
+      const p = pontualidadeDoProcesso(i)
+      const Icone = p.tom === 'ok' ? CheckCircle2 : p.tom === 'atraso' ? AlertTriangle : p.tom === 'atencao' ? Clock : i.status === 'CANCELLED' ? Ban : CircleSlash
+      return (
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+          <span className={cn('inline-flex items-center gap-1', TOM_DA_PONTUALIDADE[p.tom])}><Icone className="h-3 w-3" aria-hidden />{p.texto}</span>
+          {/* prazo derivado NÃO conta devoluções → é otimista; o selo ressalva o número */}
+          {i.returnCount > 0 && (
+            <span title="Processo devolvido — o prazo derivado não conta as reaberturas" className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300">
+              <Undo2 className="h-2.5 w-2.5" />{i.returnCount}×
+            </span>
+          )}
+        </span>
+      )
+    },
   },
   { key: 'iniciadoPor', label: 'Iniciado por', text: (i) => i.startedBy || '—', node: (i) => <span className="text-muted-foreground">{i.startedBy || '—'}</span> },
   {
@@ -98,23 +157,31 @@ const COLS: Col[] = [
        parado numa escolha sem caminho ficava igual a um "Em andamento" qualquer. */
     key: 'situacao', label: 'Situação', text: (i) => i.status === 'RUNNING' && i.bloqueio ? 'Parado' : STATUS[i.status]?.label ?? i.status,
     node: (i) => i.status === 'RUNNING' && i.bloqueio ? (
-      <span title={i.bloqueio.mensagem} className={cn(SELO, 'bg-amber-500/10 text-amber-700 dark:text-amber-300')}>
+      <span title={i.bloqueio.mensagem} className={cn(SELO, 'whitespace-nowrap bg-amber-500/10 text-amber-700 dark:text-amber-300')}>
         <AlertTriangle className="h-3 w-3" />Parado
       </span>
     ) : (() => { const st = STATUS[i.status] ?? STATUS.RUNNING; return (
-      <span className={cn(SELO, st.cls)}><st.icon className="h-3 w-3" />{st.label}</span>
+      <span title={dicaDaSituacao(i)} className={cn(SELO, 'whitespace-nowrap', st.cls)}><st.icon className="h-3 w-3" />{st.label}</span>
     ) })(),
   },
 ]
+/* Ordem da tabela: o que se procura (contrato) e onde está (atividade atual) primeiro.
+   Cada coluna responde uma pergunta: onde está, está em dia, em que estado, quando acabou. */
+const ORDEM = ['numero', 'processo', 'etapa', 'pontualidade', 'situacao', 'encerrado', 'prevista', 'inicio', 'iniciadoPor']
+const COLS: Col[] = ORDEM.map((k) => COLUNAS.find((c) => c.key === k)).filter((c): c is Col => !!c)
+
 /* v2: a disposição padrão das colunas mudou (Nº · Processo · Início · Data prevista ·
    Pontualidade · Iniciado por · Situação). A chave é versionada porque a preferência
    antiga guardada no navegador venceria o novo padrão — e o usuário veria a tela
    velha sem saber por quê. */
-const HIDDEN_KEY = 'nxt:cols:processos:hidden:v2'
+const HIDDEN_KEY = 'nxt:cols:processos:hidden:v6'
 /* "Etapa atual / conclusão" sai da visão padrão (ordem de colunas definida pelo PO),
    mas continua disponível em Configurações — é onde aparecem o vencimento da etapa
    corrente, a causa do erro e o motivo do cancelamento. */
-const HIDDEN_DEFAULT = ['etapa']
+/* v3 (auditoria de UX, 22/11/2026): a atividade atual (etapa e com quem) volta à visão
+   padrão, e "Início" e "Iniciado por" passam para Configurações da lista.
+   v6: "Agora" vira "Atividade atual" e entra "Encerrado em", visível por padrão. */
+const HIDDEN_DEFAULT = ['inicio', 'iniciadoPor', 'prevista']
 
 export default function ProcessosPage() {
   const ws = useWorkspace()
@@ -136,6 +203,8 @@ export default function ProcessosPage() {
   /* Falha de carga ≠ lista vazia (ver components/list/load-error.tsx). Num refresh
      que falha, as linhas já carregadas ficam de pé — dado velho é melhor que sumiço. */
   const [erroCarga, setErroCarga] = useState(false)
+  /** janela de cancelar/reabrir aberta pelo menu "⋯" de uma linha */
+  const [dialogo, setDialogo] = useState<{ tipo: 'cancelar' | 'reabrir'; inst: Inst } | null>(null)
   const load = useCallback(async () => {
     const insts = await apiJson<Inst[]>('/api/instances')
     if (insts) { setRows(insts); setErroCarga(false) }
@@ -301,7 +370,7 @@ export default function ProcessosPage() {
                 ))}
                 {/* Ações fica FORA do sistema de colunas: não é dado (não filtra, não
                     ordena, não exporta) e não deve aparecer em "Colunas visíveis". */}
-                <th className="w-0 px-3 py-1.5 bg-muted" />
+                <th className="sticky right-0 z-10 w-0 px-3 py-1.5 bg-muted text-right font-medium text-muted-foreground"><span className="sr-only">Ações</span></th>
               </tr>
               {filtroCol.ligado && (
                 <LinhaFiltroColuna colunas={visibleCols} valores={filtroCol.valores} onChange={filtroCol.mudar} sobra={1} />
@@ -323,13 +392,15 @@ export default function ProcessosPage() {
                   {visibleCols.map((col) => (
                     <td key={col.key} className={cn(DENS_CEL, 'align-middle', col.align === 'right' && 'text-right')}>{col.node(i)}</td>
                   ))}
-                  <td className={cn(DENS_CEL, 'align-middle whitespace-nowrap')}>
-                    {(i.status === 'RUNNING' || i.status === 'ERROR') && (
-                      <CancelInstanceButton instanceId={i.id} processName={i.processName} onCancelled={load} compact />
-                    )}
-                    {/* cancelar por engano acontece; sem isto, a saída seria recomeçar o processo do zero */}
-                    {i.status === 'CANCELLED' && (
-                      <UncancelInstanceButton instanceId={i.id} processName={i.processName} onDone={load} compact />
+                  {/* Ações fixas à direita (PO, 22/11/2026): a tabela rola por baixo e o menu
+                      continua à vista em qualquer largura, com ou sem o menu lateral. */}
+                  <td className={cn(DENS_CEL, 'sticky right-0 z-10 align-middle whitespace-nowrap bg-card text-right shadow-[-6px_0_8px_-6px_rgb(0_0_0/0.15)]')}
+                    onClick={(e) => e.stopPropagation()}>
+                    {(i.status === 'RUNNING' || i.status === 'ERROR' || i.status === 'CANCELLED') && (
+                      <MenuDeAcoes rotulo={`Ações do processo #${i.numero ?? ''}`} acoes={i.status === 'CANCELLED'
+                        /* cancelar por engano acontece; sem isto, a saída seria recomeçar o processo do zero */
+                        ? [{ rotulo: 'Desfazer cancelamento…', onClick: () => setDialogo({ tipo: 'reabrir', inst: i }) }]
+                        : [{ rotulo: 'Cancelar processo…', onClick: () => setDialogo({ tipo: 'cancelar', inst: i }), perigo: true }]} />
                     )}
                   </td>
                 </tr>
@@ -338,6 +409,14 @@ export default function ProcessosPage() {
           </table>
         </div>
         <TablePagination page={page} pageSize={pageSize} total={sorted.length} onPage={setPage} onPageSize={setPageSize} rotulo={['processo', 'processos']} />
+        {dialogo?.tipo === 'cancelar' && (
+          <CancelInstanceButton instanceId={dialogo.inst.id} processName={dialogo.inst.processName}
+            onCancelled={() => { setDialogo(null); void load() }} controle={{ aberto: true, fechar: () => setDialogo(null) }} />
+        )}
+        {dialogo?.tipo === 'reabrir' && (
+          <UncancelInstanceButton instanceId={dialogo.inst.id} processName={dialogo.inst.processName}
+            onDone={() => { setDialogo(null); void load() }} controle={{ aberto: true, fechar: () => setDialogo(null) }} />
+        )}
       </div>
     </div>
   )

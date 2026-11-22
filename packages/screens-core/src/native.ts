@@ -101,8 +101,8 @@ const CONTR_SECTIONS: NativeSectionDef[] = [
   { key: 'partes',       label: 'Partes Envolvidas' }, // logo após Dados Gerais (decisão do PO, só no Contrato)
   { key: 'vigencia',     label: 'Vigência' },
   { key: 'valor',        label: 'Valor e Pagamento' },
-  { key: 'pagamentos',   label: 'Pagamentos realizados' },
-  { key: 'recebimentos', label: 'Recebimentos realizados' },
+  { key: 'pagamentos',   label: 'Pagamentos' },
+  { key: 'recebimentos', label: 'Recebimentos' },
   { key: 'reajuste',     label: 'Reajuste' },
   { key: 'aditivos',     label: 'Aditivos' },
   { key: 'documentos',   label: 'Documentos do contrato' },

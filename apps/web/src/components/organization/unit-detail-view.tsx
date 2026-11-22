@@ -49,7 +49,7 @@ function Section({ icon: Icon, title, isOpen, onToggle, hasError, children }: {
 /* Detalhe/edição da unidade. Segue o padrão do sistema: INCLUSÃO = seções accordion
  * (como o cadastro NOVO de Parceiro/Empresa); EDIÇÃO = sub-abas (como o detalhe do
  * Parceiro). O conteúdo das seções é o mesmo nos dois modos. */
-export function UnitDetailView({ mode, unit, companyId, parentId, parentName, onClose, onSaved, onDirtyChange }: {
+export function UnitDetailView({ mode, unit, companyId, parentId, parentName, onSaved, onDirtyChange }: {
   mode: 'detail' | 'new'
   unit?: Unit
   companyId?: string
@@ -156,7 +156,6 @@ export function UnitDetailView({ mode, unit, companyId, parentId, parentName, on
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <button type="button" onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Fechar</button>
           <button type="button" onClick={() => void handleSave()} disabled={saving}
             className="inline-flex items-center h-[var(--campo-altura)] rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors">
             {saving ? 'Salvando...' : mode === 'new' ? 'Criar unidade' : 'Salvar'}

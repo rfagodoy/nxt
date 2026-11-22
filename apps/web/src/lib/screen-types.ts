@@ -4,7 +4,7 @@ export * from '@nxt/screens-core'
 import type { ScreenSubject, ScreenStatus, ScreenFieldType } from '@nxt/screens-core'
 
 export const SUBJECT_LABELS: Record<ScreenSubject, string> = {
-  FORNECEDOR: 'Fornecedor',
+  FORNECEDOR: 'Parceiro',
   CONTRATO:   'Contrato',
   GENERICA:   'Genérica',
 }

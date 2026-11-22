@@ -3,12 +3,13 @@
 import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import Link from 'next/link'
 import {
-  Plus, Zap, Pencil, Trash2, Loader2, RefreshCw, AlertTriangle, Power, PowerOff,
+  Plus, Zap, Pencil, Loader2, RefreshCw, AlertTriangle,
   Settings2, ChevronsUpDown, ArrowUp, ArrowDown,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { SELO } from '@/components/list/selo'
+import { MenuDeAcoes } from '@/components/list/menu-de-acoes'
 import { apiFetch, apiJson } from '@/lib/http'
 import { useViews } from '@/hooks/use-views'
 import { exportExcel } from '@/lib/export-excel'
@@ -308,22 +309,19 @@ export default function WorkflowsPage() {
                           {busy === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}Ativar
                         </Button>
                       )}
-                      {p.status === 'ACTIVE' && (
-                        <button onClick={() => setStatus(p.id, 'inactivate')} disabled={busy === p.id} className="inline-flex items-center gap-1 rounded-md border px-2.5 h-[var(--lista-acao)] text-xs hover:bg-muted transition-colors disabled:opacity-50" title="Inativar — deixa de aparecer em Novo processo">
-                          <PowerOff className="h-3.5 w-3.5" />Inativar
-                        </button>
-                      )}
-                      {p.status === 'INACTIVE' && (
-                        <button onClick={() => setStatus(p.id, 'reactivate')} disabled={busy === p.id} className="inline-flex items-center gap-1 rounded-md border px-2.5 h-[var(--lista-acao)] text-xs text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 transition-colors disabled:opacity-50" title="Reativar">
-                          <Power className="h-3.5 w-3.5" />Reativar
-                        </button>
-                      )}
                       <Link href={`/workflows/${p.id}/edit`} className="inline-flex items-center gap-1 rounded-md border px-2.5 h-[var(--lista-acao)] text-xs hover:bg-muted transition-colors" title="Abrir no editor">
                         <Pencil className="h-3.5 w-3.5" />Editar
                       </Link>
-                      <button onClick={() => remove(p)} disabled={busy === p.id} className="inline-flex items-center gap-1 rounded-md border px-2.5 h-[var(--lista-acao)] text-xs text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50" title="Excluir (ou arquivar se houver execuções)">
-                        <Trash2 className="h-3.5 w-3.5" />Excluir
-                      </button>
+                      {/* Inativar, Reativar e Excluir no menu "⋯" (auditoria de UX, 22/11/2026).
+                          Excluir não existe para workflow ativo: ele
+                          primeiro sai de "Novo processo" (Inativar). A confirmação segue no diálogo. */}
+                      <MenuDeAcoes rotulo={`Mais ações de ${p.name}`} acoes={[
+                        ...(p.status === 'ACTIVE' ? [{ rotulo: 'Inativar (sai de Novo processo)', onClick: () => void setStatus(p.id, 'inactivate'), desabilitada: busy === p.id }] : []),
+                        ...(p.status === 'INACTIVE' ? [{ rotulo: 'Reativar', onClick: () => void setStatus(p.id, 'reactivate'), desabilitada: busy === p.id }] : []),
+                        ...(p.status !== 'ACTIVE'
+                          ? [{ rotulo: 'Excluir…', onClick: () => remove(p), perigo: true, desabilitada: busy === p.id }]
+                          : [{ rotulo: 'Excluir…', onClick: () => {}, perigo: true, desabilitada: true, motivo: 'inative antes' }]),
+                      ]} />
                     </div>
                   </td>
                 </tr>

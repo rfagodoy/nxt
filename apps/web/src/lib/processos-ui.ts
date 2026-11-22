@@ -20,6 +20,49 @@ export interface Inst {
   bloqueio?: { mensagem: string; escolha: string | null; tarefa: string | null; por: string; em: string } | null
   /** a linha principal já passou pelo Fim: atividades das linhas paralelas ainda abertas */
   aguardando?: string[]
+  /** sobre o que é o processo (contrato "número — título" ou parceiro) */
+  assunto?: { tipo: 'CONTRATO' | 'PARCEIRO'; titulo: string; contraparte?: string } | null
+  /** quem responde pela etapa atual; vazio = ninguém em particular (vale o papel) */
+  currentWith?: string[]
+  currentRole?: string | null
+  /** tipo do workflow: CONTRATO | ADITIVO | DISTRATO (DISTRATO aparece como "Encerramento") */
+  kind?: string | null
+}
+
+/** Rótulo do tipo do workflow no selo de "Relativo a". */
+export const ROTULO_DO_TIPO: Record<string, string> = { CONTRATO: 'Contrato', ADITIVO: 'Aditivo', DISTRATO: 'Encerramento' }
+
+/** Coluna "Relativo a" (PO, 22/11/2026): o tipo do processo e o contrato. Sem contrato
+ *  ainda (o processo que cria o contrato, no começo), diz isso e mostra o workflow. */
+export function relativoA(i: Pick<Inst, 'assunto' | 'kind' | 'processName' | 'startedBy' | 'startedAt'>): {
+  tipo: string; titulo: string; detalhe: string; semContrato: boolean
+} {
+  const tipo = ROTULO_DO_TIPO[i.kind ?? ''] ?? 'Contrato'
+  const a = assuntoDoProcesso(i)
+  if (!a) {
+    const quando = i.startedAt ? new Date(i.startedAt).toLocaleDateString('pt-BR') : ''
+    const quem = [i.startedBy && `iniciado por ${i.startedBy}`, quando && `em ${quando}`].filter(Boolean).join(' ')
+    return { tipo, titulo: 'Contrato ainda não cadastrado', detalhe: [i.processName, quem].filter(Boolean).join(' · '), semContrato: true }
+  }
+  return { tipo, titulo: a.titulo, detalhe: [a.numero, a.contraparte].filter(Boolean).join(' · ') || i.processName, semContrato: false }
+}
+
+/** Coluna "Contrato": título do assunto, separado do número ("CCT_1 — Título"). */
+export function assuntoDoProcesso(i: Pick<Inst, 'assunto'>): { titulo: string; numero: string; contraparte: string } | null {
+  const a = i.assunto
+  if (!a) return null
+  if (a.tipo === 'PARCEIRO') return { titulo: a.titulo, numero: '', contraparte: '' }
+  const [numero, ...resto] = a.titulo.split(' — ')
+  return resto.length ? { titulo: resto.join(' — '), numero, contraparte: a.contraparte ?? '' } : { titulo: a.titulo, numero: '', contraparte: a.contraparte ?? '' }
+}
+
+/** "com Laryssa" / "com Ana e Bruno" / "com Ana e mais 2" — vazio quando ninguém em particular. */
+export function comQuem(nomes: string[] | undefined): string {
+  const n = nomes ?? []
+  if (n.length === 0) return ''
+  if (n.length === 1) return `com ${n[0]}`
+  if (n.length === 2) return `com ${n[0]} e ${n[1]}`
+  return `com ${n[0]} e mais ${n.length - 1}`
 }
 export interface TaskRow {
   id: string; nodeId: string; name?: string | null; role?: string | null; assignee?: string | null
@@ -74,7 +117,7 @@ export const STATUS_FALLBACK_ICON = Activity
 export const TASK_STATUS: Record<string, string> = { PENDING: 'Pendente', DONE: 'Concluída', CANCELED: 'Cancelada', RETURNED: 'Retrocedida' }
 
 export const fmt = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
+  iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
 
 export function humanDuration(ms: number | null): string {
   if (ms == null) return '—'
@@ -91,6 +134,32 @@ export function humanDuration(ms: number | null): string {
  *  mesmo texto cobria também cancelado e em erro — a linha exibia "Data prevista"
  *  preenchida e "sem prazo" ao lado, contradizendo a si mesma.
  *  Cancelado tem rótulo próprio: não houve entrega para julgar pontualidade. */
+/** Pontualidade do PROCESSO na lista (PO, 22/11/2026): só o estado, sem data. O mesmo
+ *  critério do indicador "Atrasados" do topo (prazo do processo, não da etapa), mais
+ *  o aviso de véspera para não chegar ao atraso sem ver. */
+export function pontualidadeDoProcesso(
+  i: Pick<Inst, 'status' | 'processDueAt' | 'processOverdue' | 'processOnTime'>,
+  agora: Date = new Date(),
+): { texto: string; tom: 'ok' | 'atencao' | 'atraso' | 'neutro' } {
+  if (i.status === 'CANCELLED') return { texto: 'cancelado', tom: 'neutro' }
+  if (i.status === 'ENDED_INCOMPLETE') return { texto: 'sem conclusão', tom: 'neutro' }
+  if (i.status === 'COMPLETED') {
+    if (i.processOnTime == null) return { texto: 'sem prazo', tom: 'neutro' }
+    return i.processOnTime ? { texto: 'no prazo', tom: 'ok' } : { texto: 'concluído com atraso', tom: 'atraso' }
+  }
+  if (!i.processDueAt) return { texto: 'sem prazo', tom: 'neutro' }
+  const diaLocal = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const prazo = new Date(i.processDueAt)
+  const dias = Math.round((diaLocal(prazo) - diaLocal(agora)) / 86_400_000)
+  if (i.processOverdue || prazo.getTime() < agora.getTime()) {
+    const atraso = Math.max(1, -dias)
+    return { texto: `atrasado ${atraso} dia${atraso === 1 ? '' : 's'}`, tom: 'atraso' }
+  }
+  if (dias <= 0) return { texto: 'vence hoje', tom: 'atencao' }
+  if (dias === 1) return { texto: 'vence amanhã', tom: 'atencao' }
+  return { texto: 'no prazo', tom: 'ok' }
+}
+
 export function pontualidadeLabel(i: Inst): string {
   if (i.status === 'CANCELLED') return 'cancelado'
   // Encerrado sem conclusão: o processo parou sem passar pelo fim — não houve entrega
@@ -169,4 +238,12 @@ export function taskPunctuality(t: TaskRow): { label: string; cls: string } {
     ? { label: 'no prazo', cls: 'text-emerald-600 dark:text-emerald-400' }
     : { label: 'atrasada', cls: 'text-red-600 dark:text-red-400' }
   return due < now ? { label: 'atrasada', cls: 'text-red-600 dark:text-red-400' } : { label: 'no prazo', cls: 'text-muted-foreground' }
+}
+
+/** Coluna "Encerrado em" (PO, 22/11/2026): quando o processo acabou, seja concluído,
+ *  encerrado sem conclusão ou cancelado. Em andamento não tem data. */
+export function encerradoEm(i: Pick<Inst, 'status' | 'completedAt' | 'cancelledAt'>): string | null {
+  if (i.status === 'CANCELLED') return i.cancelledAt ?? i.completedAt ?? null
+  if (i.status === 'COMPLETED' || i.status === 'ENDED_INCOMPLETE') return i.completedAt ?? null
+  return null
 }

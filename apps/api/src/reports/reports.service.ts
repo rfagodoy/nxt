@@ -31,6 +31,9 @@ import {
  *  para filtrar, que é o que a pessoa faria de qualquer forma com tanta linha. */
 export const MAX_CONTRATOS_RELATORIO = 20_000
 
+const CHAVE_TIPOS = 'nxt:settings:contratos:tipos'
+const CHAVE_PAPEIS = 'nxt:settings:contratos:papeis:v2'
+
 export interface ParametrosRelatorio extends FiltroRelatorio {
   ordenarPor?: CampoOrdenacao
   desc?: boolean
@@ -66,8 +69,18 @@ export class ReportsService {
       },
     })
 
+    /* Tipo e papel são gravados pelo id da tabela auxiliar ("1", "5"). O relatório
+       mostra e filtra pelo nome; registro antigo, gravado já com o rótulo, passa direto. */
+    const [tipos, papeis] = await Promise.all([this.tabela(organizationId, CHAVE_TIPOS), this.tabela(organizationId, CHAVE_PAPEIS)])
+    const comNomes = brutos.map((c) => ({
+      ...c,
+      tipo: c.tipo ? (tipos.get(c.tipo) ?? c.tipo) : c.tipo,
+      partes: (Array.isArray(c.partes) ? c.partes : []).map((x) =>
+        x && typeof x === 'object' ? { ...(x as object), papel: papeis.get(String((x as { papel?: string }).papel ?? '')) ?? (x as { papel?: string }).papel } : x),
+    }))
+
     const hoje = new Date().toISOString().slice(0, 10)
-    const linhas: LinhaRelatorio[] = brutos.map((c) => derivarLinha(c as never, hoje))
+    const linhas: LinhaRelatorio[] = comNomes.map((c) => derivarLinha(c as never, hoje))
 
     /* Mapa contrato → ids de parceiro, para o filtro por parceiro. Sai das `partes`
        (JSON), então é montado aqui e não no core, que não conhece o formato do banco. */
@@ -98,13 +111,22 @@ export class ReportsService {
     }
   }
 
+  /** Tabela auxiliar (id → rótulo) gravada nas configurações da organização. */
+  private async tabela(organizationId: string, key: string): Promise<Map<string, string>> {
+    const row = await this.prisma.appSetting.findUnique({ where: { organizationId_userId_key: { organizationId, userId: '', key } } })
+    const v = row?.value as unknown
+    const lista = (typeof v === 'string' ? JSON.parse(v) : v) as Array<{ id: string; label: string }> | null
+    return new Map((Array.isArray(lista) ? lista : []).map((e) => [String(e.id), e.label]))
+  }
+
   /** Valores existentes hoje, para montar os filtros da tela sem chutar opção. */
   async opcoes(organizationId: string) {
-    const [contratos, parceiros] = await Promise.all([
+    const [contratos, parceiros, nomesDosTipos] = await Promise.all([
       this.prisma.contract.findMany({ where: { organizationId }, select: { tipo: true, natureza: true } }),
       this.prisma.partner.findMany({ where: { organizationId }, select: { id: true, razaoSocial: true }, orderBy: { razaoSocial: 'asc' } }),
+      this.tabela(organizationId, CHAVE_TIPOS),
     ])
-    const tipos = [...new Set(contratos.map((c) => c.tipo).filter((t): t is string => !!t))].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+    const tipos = [...new Set(contratos.map((c) => (c.tipo ? (nomesDosTipos.get(c.tipo) ?? c.tipo) : '')).filter((t): t is string => !!t))].sort((a, b) => a.localeCompare(b, 'pt-BR'))
     const naturezas = [...new Set(contratos.map((c) => c.natureza).filter((n): n is string => !!n))].sort()
     return { tipos, naturezas, parceiros }
   }

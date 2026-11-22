@@ -2,7 +2,9 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { apiJson } from '@/lib/http'
+import { useAoVivo } from '@/lib/realtime'
 import { useSession } from '@/lib/session-context'
 import { filtrarSecoesPorPapel } from '@/lib/nav-visibility'
 import {
@@ -13,7 +15,7 @@ import { useSidebar } from '@/contexts/sidebar-context'
 import { useWorkspace, type WorkspaceKind } from '@/contexts/workspace-context'
 import { Logo } from './logo'
 
-interface NavItem    { href: string; label: string; icon?: React.ElementType; adminOnly?: boolean }
+interface NavItem    { href: string; label: string; icon?: React.ElementType; adminOnly?: boolean; contador?: 'tarefas' }
 interface NavSection {
   label: string
   items: NavItem[]
@@ -24,28 +26,37 @@ interface NavSection {
   adminOnly?: boolean
 }
 
+/* Menu da auditoria de UX (PO, 22/11/2026): Tarefas no topo, com o número de
+   pendentes (é a entrada mais usada no dia a dia); Estrutura organizacional e Tabelas
+   em "Cadastros de apoio"; "Instalação" vira "Sistema" e a configuração de avisos vira
+   "Regras de aviso", para não confundir com as notificações do sino. */
 const sections: NavSection[] = [
   {
     label: '',
-    items: [{ href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }],
+    items: [
+      { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { href: '/tarefas', label: 'Tarefas', icon: ListChecks, contador: 'tarefas' },
+    ],
   },
   {
     label: 'Gestão',
-    // "Minhas tarefas" (caixa do workflow) + acompanhamento das execuções +
-    // catálogo de módulos (fonte única).
     items: [
-      { href: '/tarefas', label: 'Tarefas', icon: ListChecks },
       { href: '/processos', label: 'Processos', icon: Activity },
       { href: '/modules/contratos',  label: 'Contratos',  icon: FileText },
       { href: '/modules/parceiros',  label: 'Parceiros',  icon: Handshake },
-      // Decisão do PO (2026-08-21): Estrutura organizacional é admin-only.
-      { href: '/modules/estrutura',  label: 'Estrutura organizacional', icon: Building2, adminOnly: true },
       { href: '/modules/relatorios', label: 'Relatórios', icon: FileBarChart },
     ],
   },
-  /* Dois grupos por FREQUÊNCIA de uso, não por assunto. A lista tinha nove itens em
-     ordem de chegada, com "Calendário" (uma vez por ano) pesando o mesmo que
-     "Usuários" (toda semana). Nada foi removido nem renomeado. */
+  {
+    label: 'Cadastros de apoio',
+    recolhivel: true,
+    adminOnly: true,
+    items: [
+      // Decisão do PO (2026-08-21): Estrutura organizacional é admin-only.
+      { href: '/modules/estrutura',  label: 'Estrutura organizacional', icon: Building2, adminOnly: true },
+      { href: '/settings/tabelas',   label: 'Tabelas',      icon: Table2 },
+    ],
+  },
   {
     label: 'Configurações',
     recolhivel: true,
@@ -54,17 +65,16 @@ const sections: NavSection[] = [
       { href: '/settings/usuarios',   label: 'Usuários',     icon: Users     },
       { href: '/workflows',           label: 'Workflows',    icon: GitBranch },
       { href: '/settings/telas',      label: 'Telas',        icon: LayoutTemplate },
-      { href: '/settings/tabelas',    label: 'Tabelas',      icon: Table2    },
     ],
   },
   {
-    label: 'Instalação',
+    label: 'Sistema',
     recolhivel: true,
     adminOnly: true,
     items: [
       { href: '/settings/calendario', label: 'Calendário',   icon: CalendarDays },
       { href: '/settings/email',      label: 'E-mail',       icon: Mail      },
-      { href: '/settings/notificacoes', label: 'Notificações', icon: BellRing },
+      { href: '/settings/notificacoes', label: 'Regras de aviso', icon: BellRing },
       { href: '/settings/importacao', label: 'Importação',   icon: Upload    },
       { href: '/settings/diagnostico', label: 'Diagnóstico',  icon: HeartPulse },
     ],
@@ -110,11 +120,20 @@ export function Sidebar() {
   const role = session?.user.role
   const secoesPorPapel = useMemo(() => filtrarSecoesPorPapel(sections, role), [role])
   /* Recolhido = só os ícones do dia a dia (Dashboard, Tarefas, Processos, Contratos,
-     Parceiros, Estrutura, Relatórios). Configurações e Instalação ficam para o menu
+     Parceiros, Estrutura, Relatórios). Cadastros de apoio, Configurações e Sistema ficam para o menu
      aberto — PO, 18/10/2026: uma coluna de 16 ícones sem nome não se lê. */
   const secoesVisiveis = collapsed ? secoesPorPapel.filter((s) => !s.recolhivel) : secoesPorPapel
 
   const { tabs, activeId, setActive } = useWorkspace()
+
+  /* Número de tarefas pendentes ao lado de "Tarefas": a mesma caixa do Dashboard,
+     recarregada quando algo muda na organização. */
+  const [pendentes, setPendentes] = useState(0)
+  const contarTarefas = useCallback(() => {
+    void apiJson<unknown[]>('/api/instances/tasks').then((t) => setPendentes(Array.isArray(t) ? t.length : 0)).catch(() => null)
+  }, [])
+  useEffect(() => { if (session) contarTarefas() }, [session, contarTarefas])
+  useAoVivo(contarTarefas)
   const abaAtiva = activeId ? tabs.find((t) => t.id === activeId) : undefined
   const rotaAtual = abaAtiva ? ROTA_DO_TIPO[abaAtiva.kind] : pathname
   const isActive = (href: string) => rotaAtual.startsWith(href)
@@ -201,15 +220,12 @@ export function Sidebar() {
                   className={cn(TITULO_SECAO, 'group/sec flex w-full items-center gap-1 rounded-md hover:text-sidebar-foreground transition-colors')}
                 >
                   <span className="truncate">{section.label}</span>
-                  {/* Chevron INVISÍVEL no repouso, aberta ou recolhida: no repouso todo
-                      título de seção tem exatamente a mesma aparência — era ele o único
-                      elemento que distinguia um grupo recolhível de um fixo como "Gestão".
-                      Reaparece no hover/foco, que é quando a pessoa cogita clicar.
-                      Decisão do PO (28/07), ciente de que numa seção recolhida ele era o
-                      único sinal de que há itens embaixo. */}
+                  {/* Seta sempre visível (PO, 22/11/2026 — substitui a decisão de 28/07 de
+                      esconder a seta no repouso: o grupo "Instalação" parecia vazio). Sem
+                      contagem: número no menu é só o de Tarefas, que é trabalho esperando. */}
                   <ChevronRight className={cn(
-                    'h-3 w-3 shrink-0 opacity-0 transition-all group-hover/sec:opacity-100 group-focus-visible/sec:opacity-100',
-                    aberta && 'rotate-90',
+                    'h-3 w-3 shrink-0 transition-transform',
+                    'ml-auto', aberta && 'rotate-90',
                   )} />
                 </button>
               ) : (
@@ -232,7 +248,7 @@ export function Sidebar() {
                     title={collapsed ? item.label : undefined}
                     className={cn(
                       'flex items-center gap-2 rounded-md text-[12px] font-medium tracking-tight transition-colors',
-                      collapsed ? 'h-8 w-8 justify-center mx-auto' : 'px-2.5 py-1',
+                      collapsed ? 'relative h-8 w-8 justify-center mx-auto' : 'px-2.5 py-1',
                       active
                         ? ATIVO_ILHA
                         : cn('text-sidebar-foreground/70 hover:text-sidebar-foreground', HOVER_ILHA),
@@ -240,6 +256,12 @@ export function Sidebar() {
                   >
                     {Icon && <Icon className="h-3.5 w-3.5 shrink-0" />}
                     {!collapsed && <span className="truncate">{item.label}</span>}
+                    {item.contador === 'tarefas' && pendentes > 0 && (
+                      <span className={cn('rounded-full bg-[var(--destaque)] px-1.5 text-[10px] font-bold leading-4 tabular-nums text-[var(--destaque-tinta)]',
+                        collapsed ? 'absolute right-1 top-0.5' : 'ml-auto')} aria-label={`${pendentes} pendente${pendentes === 1 ? '' : 's'}`}>
+                        {pendentes > 99 ? '99+' : pendentes}
+                      </span>
+                    )}
                   </Link>
                 )
               })}

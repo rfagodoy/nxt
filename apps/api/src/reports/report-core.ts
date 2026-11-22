@@ -42,7 +42,12 @@ export interface LinhaRelatorio {
   prazoIndeterminado: boolean
   valor: number
   moeda: string
+  /** Todos os nomes das partes, sem repetição (busca e exportação). */
   parceiros: string
+  /** Quem presta: as partes de papel "Contratada". */
+  contratada: string
+  /** Quem contrata, com a unidade contratante ao lado ("RECORD TV · TI - Sistemas"). */
+  contratante: string
   diasParaTerminar: number | null
 }
 
@@ -70,12 +75,32 @@ type ContratoBruto = CoreContract & {
 const diasEntre = (de: string, ate: string): number =>
   Math.round((new Date(ate + 'T00:00:00').getTime() - new Date(de + 'T00:00:00').getTime()) / 86_400_000)
 
+type Parte = { nome?: string; papel?: string }
+
+const partesDe = (partes: unknown): Parte[] =>
+  Array.isArray(partes) ? partes.filter((p): p is Parte => !!p && typeof p === 'object') : []
+
+/** Junta nomes sem repetir: o mesmo contrato costuma ter a mesma unidade como
+ *  contratante, negociadora e gestora, e o relatório mostrava "TI - Sistemas" três vezes. */
+const semRepetir = (nomes: string[]): string[] => [...new Set(nomes.map((n) => n.trim()).filter(Boolean))]
+
 function nomesDasPartes(partes: unknown): string {
-  if (!Array.isArray(partes)) return ''
-  return partes
-    .map((p) => (p && typeof p === 'object' ? String((p as { nome?: string }).nome ?? '') : ''))
-    .filter(Boolean)
-    .join(', ')
+  return semRepetir(partesDe(partes).map((p) => String(p.nome ?? ''))).join(', ')
+}
+
+/** Separa as partes pelo papel (já resolvido para o rótulo). "Contratada" e
+ *  "Contratante" são os papéis de empresa/parceiro; "Unidade contratante" entra ao lado
+ *  da contratante, que é como a pessoa reconhece o contrato. */
+export function partesPorPapel(partes: unknown): { contratada: string; contratante: string } {
+  const lista = partesDe(partes)
+  const doPapel = (re: RegExp) => semRepetir(lista.filter((p) => re.test(String(p.papel ?? ''))).map((p) => String(p.nome ?? '')))
+  const contratada = doPapel(/^\s*contratad[ao]\s*$/i)
+  const contratante = doPapel(/^\s*contratante\s*$/i)
+  const unidade = doPapel(/^\s*unidade\s+contratante\s*$/i).filter((u) => !contratante.includes(u))
+  return {
+    contratada: contratada.join(', '),
+    contratante: [contratante.join(', '), unidade.join(', ')].filter(Boolean).join(' · '),
+  }
 }
 
 /** Converte o registro cru na linha do relatório, com tudo já derivado. */
@@ -94,6 +119,7 @@ export function derivarLinha(c: ContratoBruto, hoje: string): LinhaRelatorio {
     valor: valorVigente(c),
     moeda: c.moeda ?? 'BRL',
     parceiros: nomesDasPartes(c.partes),
+    ...partesPorPapel(c.partes),
     diasParaTerminar: termino ? diasEntre(hoje, termino) : null,
   }
 }
@@ -158,7 +184,7 @@ export function totalizar(linhas: LinhaRelatorio[]): TotaisRelatorio {
   }
 }
 
-export type CampoOrdenacao = 'numero' | 'titulo' | 'situacao' | 'terminoVigencia' | 'valor' | 'parceiros'
+export type CampoOrdenacao = 'numero' | 'titulo' | 'situacao' | 'terminoVigencia' | 'valor' | 'parceiros' | 'contratada' | 'contratante'
 
 export function ordenar(linhas: LinhaRelatorio[], campo: CampoOrdenacao = 'numero', desc = false): LinhaRelatorio[] {
   const sinal = desc ? -1 : 1

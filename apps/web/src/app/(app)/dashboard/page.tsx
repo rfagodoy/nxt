@@ -40,6 +40,8 @@ interface Summary {
   carteira?: {
     vencimentos: {
       meses: { mes: string; qtd: number; valor: number }[]
+      /** último dia da janela (hoje + 365 dias) */
+      ate?: string
       prox90: { qtd: number; valor: number }
       vencidos: { qtd: number; valor: number }
       proximos: { id: string; numero: string; titulo: string; inicio: string; termino: string; valor: number; contraparte: string | null }[]
@@ -62,6 +64,7 @@ const NUM = new Intl.NumberFormat('pt-BR')
 const BRL_CURTO = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', notation: 'compact', maximumFractionDigits: 1 })
 const DIA = 86_400_000
 const pctFmt = (v: number) => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`
+const DATA_BR = (iso: string) => { const [a, m, d] = iso.split('-'); return `${d}/${m}/${a}` }
 const MES_CURTO = (ym: string) => {
   const [a, m] = ym.split('-').map(Number)
   const nome = new Date(a, m - 1, 1).toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')
@@ -250,6 +253,7 @@ export default function DashboardPage() {
   const abrirContrato = (e: Proximo) => ws.open({ id: `contract:${e.id}`, kind: 'contract', mode: 'detail', label: e.numero, data: { id: e.id, numero: e.numero, titulo: e.titulo, tipo: '', parte_principal: e.contraparte ?? '', inicio: e.inicio, termino: e.termino, valor_total: e.valor, situacao: 'VIGENTE', documento: '', papel: '', data_assinatura: '', moeda: '', valor_parcela: 0, condicao_pagamento: '' } })
 
   if (loading) return <DashboardSkeleton />
+  const caixaVazia = minhasTarefas.length === 0
 
   return (
     <div className="flex min-h-full flex-col gap-3">
@@ -271,19 +275,32 @@ export default function DashboardPage() {
         </div>
       </header>
 
+      {/* Caixa vazia vira uma linha no topo e devolve a coluna da direita aos painéis
+          que têm conteúdo (auditoria de UX, 22/11/2026). */}
+      {caixaVazia && (
+        <div className="vidro flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl bg-[var(--dash-cartao)] px-4 py-2.5 [--vidro-solido:var(--dash-cartao-solido)]">
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-[var(--marca)]" aria-hidden />
+          <p className="text-[13px]"><b>Sua caixa está em dia.</b> <span className="text-muted-foreground">Nenhuma tarefa esperando por você.</span></p>
+          <span className="flex-1" />
+          <button type="button" onClick={() => router.push('/tarefas')} className={LINK}>Abrir minhas tarefas</button>
+        </div>
+      )}
+
       <div className="grid flex-1 grid-cols-1 gap-3 lg:grid-cols-12 lg:grid-rows-[minmax(270px,1fr)_minmax(270px,1fr)]">
         <CartaoContratos className="lg:col-span-4" dados={data?.contracts} vencimentos={data?.carteira?.vencimentos}
           onAbrir={() => router.push('/modules/contratos')} onNovo={novoContrato}
           onImportar={session?.user.role === 'admin' ? () => router.push('/settings/importacao') : undefined} />
-        <CartaoValorPorMes className="lg:col-span-5" dados={data?.carteira?.vencimentos}
+        <CartaoValorPorMes className={caixaVazia ? 'lg:col-span-8' : 'lg:col-span-5'} dados={data?.carteira?.vencimentos}
           onAbrirContratos={() => router.push('/modules/contratos')} />
-        <CartaoCaixa className="order-first lg:order-none lg:col-span-3 lg:col-start-10 lg:row-span-2 lg:row-start-1"
-          tarefas={minhasTarefas}
-          onAbrirTarefa={(t) => ws.open({ id: `task:${t.id}`, kind: 'task', mode: 'detail', label: t.name || t.nodeId, data: t })}
-          onAbrirCaixa={() => router.push('/tarefas')} />
-        <CartaoVencemEmBreve className="lg:col-span-5" dados={data?.carteira?.vencimentos}
+        {!caixaVazia && (
+          <CartaoCaixa className="order-first lg:order-none lg:col-span-3 lg:col-start-10 lg:row-span-2 lg:row-start-1"
+            tarefas={minhasTarefas}
+            onAbrirTarefa={(t) => ws.open({ id: `task:${t.id}`, kind: 'task', mode: 'detail', label: t.name || t.nodeId, data: t })}
+            onAbrirCaixa={() => router.push('/tarefas')} />
+        )}
+        <CartaoVencemEmBreve className={caixaVazia ? 'lg:col-span-7' : 'lg:col-span-5'} dados={data?.carteira?.vencimentos}
           onAbrirContrato={abrirContrato} onVerTodos={() => router.push('/modules/contratos')} />
-        <CartaoConcentracao className="lg:col-span-4" dados={data?.carteira?.concentracao}
+        <CartaoConcentracao className={caixaVazia ? 'lg:col-span-5' : 'lg:col-span-4'} dados={data?.carteira?.concentracao}
           onAbrirParceiros={() => router.push('/modules/parceiros')} />
       </div>
     </div>
@@ -311,7 +328,7 @@ function CartaoContratos({ className, dados, vencimentos, onAbrir, onNovo, onImp
   vencimentos?: Vencimentos
   onAbrir: () => void
   onNovo: () => void
-  /** só para admin — a tela de Importação é da seção Instalação */
+  /** só para admin — a tela de Importação é da seção Sistema */
   onImportar?: () => void
 }) {
   const total = dados?.total ?? 0
@@ -352,14 +369,14 @@ function CartaoContratos({ className, dados, vencimentos, onAbrir, onNovo, onImp
               ))}
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="font-mono text-[34px] font-bold leading-none tabular-nums"><CountUp value={total} /></span>
+              <span className="text-[34px] font-bold leading-none tabular-nums"><CountUp value={total} /></span>
               <span className="mt-1 text-[10px] font-bold tracking-[0.1em] text-muted-foreground">CONTRATOS</span>
             </div>
           </div>
           <div className="flex min-w-[170px] flex-1 flex-col gap-3">
             <div>
               <p className="text-xs text-muted-foreground" title="Vigentes e vencidos ainda não renovados — o que a organização tem em mãos.">Valor vigente</p>
-              <p className="mt-0.5 whitespace-nowrap font-mono text-[26px] font-bold leading-tight tracking-tight">
+              <p className="mt-0.5 whitespace-nowrap text-[26px] font-bold leading-tight tracking-tight">
                 <CountUp value={dados?.valorAtivos ?? 0} format={(n) => BRL_CURTO.format(n)} />
               </p>
               {vencidos && vencidos.qtd > 0 ? (
@@ -377,7 +394,7 @@ function CartaoContratos({ className, dados, vencimentos, onAbrir, onNovo, onImp
                 <li key={f.chave} className="flex items-center gap-2">
                   <span className={cn('h-2.5 w-2.5 shrink-0 rounded-[3px]', f.ponto)} />
                   <span className="flex-1">{f.nome}</span>
-                  <b className="font-mono tabular-nums">{NUM.format(f.valor)}</b>
+                  <b className="tabular-nums">{NUM.format(f.valor)}</b>
                 </li>
               ))}
             </ul>
@@ -399,32 +416,38 @@ function CartaoValorPorMes({ className, dados, onAbrirContratos }: { className?:
   const meses = dados?.meses ?? []
   const maior = Math.max(1, ...meses.map((m) => m.valor))
   const vazio = meses.every((m) => m.valor === 0)
+  /* A janela de 365 dias tem 13 barras: o último mês repete o nome do primeiro e leva o ano. */
+  const rotuloDoMes = (ym: string) => {
+    const repete = meses.length > 12 && ym === meses.at(-1)?.mes && ym.slice(5) === meses[0]?.mes.slice(5) && !ym.endsWith('-01')
+    return repete ? `${MES_CURTO(ym)} ${ym.slice(2, 4)}` : MES_CURTO(ym)
+  }
   return (
     <section className={cn(CARTAO, 'gap-2', className)}>
       <CabecalhoCartao titulo="Valor que vence por mês">
+        {dados?.ate && <span className="text-[12px] text-muted-foreground">de hoje até {DATA_BR(dados.ate)}</span>}
         {dados && dados.prox90.valor > 0 && (
           <span className="text-[12.5px] text-muted-foreground">
-            <b className="font-mono text-foreground">{BRL_CURTO.format(dados.prox90.valor)}</b> em 90 dias
+            <b className="text-foreground">{BRL_CURTO.format(dados.prox90.valor)}</b> em 90 dias
           </span>
         )}
       </CabecalhoCartao>
       {vazio ? (
-        <VazioFantasma fantasma="barras" titulo="Nada vence nos próximos 12 meses"
+        <VazioFantasma fantasma="barras" titulo="Nada vence nos próximos 365 dias"
           texto="Aqui aparece o valor que vence a cada mês, quando houver contratos vigentes."
           acao="Abrir contratos" onAcao={onAbrirContratos} />
       ) : (
         <>
           <div className="flex min-h-[150px] flex-1 gap-1.5 border-b border-foreground/15" role="img"
-            aria-label={`Valor que vence por mês: ${meses.map((m) => `${MES_CURTO(m.mes)} ${BRL_CURTO.format(m.valor)}`).join(', ')}`}>
+            aria-label={`Valor que vence por mês: ${meses.map((m) => `${rotuloDoMes(m.mes)} ${BRL_CURTO.format(m.valor)}`).join(', ')}`}>
             {meses.map((m, i) => {
               const perto = i < 3
               const pico = m.valor === maior
               const rotulo = m.valor > 0 && (perto || pico)
               return (
                 <div key={m.mes} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1"
-                  title={`${MES_CURTO(m.mes)}: ${m.qtd} contrato${m.qtd === 1 ? '' : 's'} · ${BRL_CURTO.format(m.valor)}`}>
+                  title={`${rotuloDoMes(m.mes)}: ${m.qtd} contrato${m.qtd === 1 ? '' : 's'} · ${BRL_CURTO.format(m.valor)}`}>
                   {rotulo && (
-                    <span className={cn('whitespace-nowrap font-mono text-[10px] font-bold tabular-nums',
+                    <span className={cn('whitespace-nowrap text-[10px] font-bold tabular-nums',
                       perto ? 'text-[var(--marca-texto)]' : 'rounded bg-[var(--e-142420)] px-1 text-white dark:bg-[var(--e-F1F5F2)] dark:text-[var(--e-0E1210)]')}>
                       {BRL_CURTO.format(m.valor).replace('R$', '').trim()}
                     </span>
@@ -436,7 +459,7 @@ function CartaoValorPorMes({ className, dados, onAbrirContratos }: { className?:
             })}
           </div>
           <div className="flex gap-1.5">
-            {meses.map((m) => <span key={m.mes} className="min-w-0 flex-1 truncate text-center text-[10.5px] text-muted-foreground">{MES_CURTO(m.mes)}</span>)}
+            {meses.map((m) => <span key={m.mes} className="min-w-0 flex-1 truncate text-center text-[10.5px] text-muted-foreground">{rotuloDoMes(m.mes)}</span>)}
           </div>
         </>
       )}
@@ -473,7 +496,7 @@ function CartaoCaixa({ className, tarefas, onAbrirTarefa, onAbrirCaixa }: {
       ) : (
         <>
           <div className="flex items-baseline gap-2.5">
-            <span className="rounded-lg bg-[var(--destaque)] px-1.5 font-mono text-[56px] font-bold leading-none tracking-tighter text-[var(--destaque-tinta)] tabular-nums"><CountUp value={tarefas.length} /></span>
+            <span className="rounded-lg bg-[var(--destaque)] px-1.5 text-[56px] font-bold leading-none tracking-tighter text-[var(--destaque-tinta)] tabular-nums"><CountUp value={tarefas.length} /></span>
             <span className="text-sm font-bold leading-snug">{tarefas.length === 1 ? 'tarefa espera' : 'tarefas esperam'}<br />por você</span>
           </div>
           <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
@@ -535,7 +558,7 @@ function CartaoVencemEmBreve({ className, dados, onAbrirContrato, onVerTodos }: 
       </CabecalhoCartao>
       {lista.length === 0 ? (
         <VazioFantasma fantasma="linhas" titulo="Nenhum contrato vence em breve"
-          texto="Os contratos vigentes que terminam nos próximos 12 meses aparecem nesta lista."
+          texto="Os contratos vigentes que terminam nos próximos 365 dias aparecem nesta lista."
           acao="Abrir contratos" onAcao={onVerTodos} />
       ) : (
         <ul className="flex min-h-0 flex-1 flex-col justify-evenly">
@@ -560,7 +583,7 @@ function CartaoVencemEmBreve({ className, dados, onAbrirContrato, onVerTodos }: 
                   <span className={cn('w-[54px] shrink-0 text-right text-xs font-extrabold', u.texto)}>
                     {dias === 0 ? 'hoje' : `${dias} dia${dias === 1 ? '' : 's'}`}
                   </span>
-                  <span className="w-[74px] shrink-0 text-right font-mono text-xs tabular-nums">{BRL_CURTO.format(e.valor)}</span>
+                  <span className="w-[74px] shrink-0 text-right text-xs tabular-nums">{BRL_CURTO.format(e.valor)}</span>
                 </button>
               </li>
             )
@@ -593,7 +616,7 @@ function CartaoConcentracao({ className, dados, onAbrirParceiros }: { className?
         {!vazio && (
           <span className="text-[12.5px] text-muted-foreground"
             title={dados.semParceiro > 0 ? `${dados.semParceiro} contrato${dados.semParceiro === 1 ? '' : 's'} sem parceiro externo ${dados.semParceiro === 1 ? 'fica' : 'ficam'} fora desta conta.` : undefined}>
-            {n === 1 ? 'maior' : `top ${n}`} = <b className="font-mono text-foreground">{pctFmt(dados.top3Pct)}</b>
+            {n === 1 ? 'maior' : `top ${n}`} = <b className="text-foreground">{pctFmt(dados.top3Pct)}</b>
           </span>
         )}
       </CabecalhoCartao>
@@ -613,7 +636,7 @@ function CartaoConcentracao({ className, dados, onAbrirParceiros }: { className?
               <li key={p.id} className="flex items-center gap-2">
                 <span className={cn('h-2.5 w-2.5 shrink-0 rounded-[3px]', COR_PARCEIRO[i])} />
                 <span className="min-w-0 flex-1 truncate" title={p.nome}>{p.nome}</span>
-                <span className="font-mono text-[11.5px] text-muted-foreground tabular-nums">{BRL_CURTO.format(p.valor)}</span>
+                <span className="text-[11.5px] text-muted-foreground tabular-nums">{BRL_CURTO.format(p.valor)}</span>
                 <b className="w-10 text-right tabular-nums">{pctFmt(p.pct)}</b>
               </li>
             ))}
@@ -621,7 +644,7 @@ function CartaoConcentracao({ className, dados, onAbrirParceiros }: { className?
               <li className="flex items-center gap-2 text-muted-foreground">
                 <span className={cn('h-2.5 w-2.5 shrink-0 rounded-[3px]', TEXTURA_OUTROS)} />
                 <span className="min-w-0 flex-1 truncate">Outros {dados.outros.qtd} parceiro{dados.outros.qtd === 1 ? '' : 's'}</span>
-                <span className="font-mono text-[11.5px] tabular-nums">{BRL_CURTO.format(dados.outros.valor)}</span>
+                <span className="text-[11.5px] tabular-nums">{BRL_CURTO.format(dados.outros.valor)}</span>
                 <b className="w-10 text-right tabular-nums text-foreground">{pctFmt(dados.outros.pct)}</b>
               </li>
             )}

@@ -153,6 +153,12 @@ export const INIT_OBJETOS: LookupEntry[] = [
   { id: '99', label: 'Treinamento e capacitação', active: true },
   { id: '100', label: 'Vale-transporte / vale-refeição', active: true },
 ]
+/** Como a moeda aparece ao lado do valor: real é "R$"; as outras, pelo código ("USD 1.200,00").
+ *  Regra única de formato (auditoria de UX, 22/11/2026): antes o detalhe mostrava "BRL 60.000,00"
+ *  e a lista, "R$ 60.000,00". */
+export const simboloDaMoeda = (codigo: string | null | undefined): string =>
+  !codigo || codigo === 'BRL' ? 'R$' : codigo
+
 export const INIT_MOEDAS: LookupEntry[] = [
   { id: '1', code: 'BRL', label: 'Real brasileiro', active: true },
   { id: '2', code: 'USD', label: 'Dólar americano', active: true },
@@ -246,7 +252,7 @@ export const ACOES_TERMINO = [
    do core. A COBERTURA é garantida por teste — contract-options.test.ts falha se uma
    situação nova entrar no core e não aparecer aqui. */
 export const SITUACOES = [
-  { value: 'EM_CADASTRO', label: 'Em cadastro/revisão' },
+  { value: 'EM_CADASTRO', label: 'Em cadastro' },
   { value: 'VIGENTE',     label: 'Vigente'             },
   { value: 'VENCIDO',     label: 'Vencido'             },  // derivado — nunca gravado (ver effectiveSituacao)
   { value: 'ENCERRADO',   label: 'Encerrado'           },
@@ -468,4 +474,4 @@ export function objetoVigenteAntes(v: ContractFormValues, index: number): string
     if (aditivoAtivo(a) && a.alteraObjeto) o = a.novoObjeto
   }
   return o
-}
+}

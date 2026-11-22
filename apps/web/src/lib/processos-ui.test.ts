@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildHistory, taskExecutor, pontualidadeLabel, taskPunctuality, type Inst, type TaskRow, type ReturnRow, type EventRow } from './processos-ui'
+import { assuntoDoProcesso, comQuem, relativoA, pontualidadeDoProcesso, encerradoEm, buildHistory, taskExecutor, pontualidadeLabel, taskPunctuality, type Inst, type TaskRow, type ReturnRow, type EventRow } from './processos-ui'
 
 const task = (over: Partial<TaskRow> & { id: string }): TaskRow => ({
   nodeId: `n-${over.id}`, status: 'DONE', createdAt: '2026-07-26T10:00:00Z', ...over,
@@ -124,5 +124,74 @@ describe('buildHistory — reabertura', () => {
       ev({ id: 'u1', event: 'REATIVADO', reason: 'engano', createdAt: '2026-07-26T15:00:00Z' }),
     ]
     expect(buildHistory([], [], eventos).map((e) => e.kind)).toEqual(['reopen', 'cancel'])
+  })
+})
+
+describe('assuntoDoProcesso', () => {
+  it('separa número e título do contrato e leva a contraparte', () => {
+    expect(assuntoDoProcesso({ assunto: { tipo: 'CONTRATO', titulo: 'CCT_1 — Serviços de limpeza', contraparte: 'GOLDNET' } }))
+      .toEqual({ titulo: 'Serviços de limpeza', numero: 'CCT_1', contraparte: 'GOLDNET' })
+  })
+  it('parceiro fica só com o nome; sem assunto, nulo', () => {
+    expect(assuntoDoProcesso({ assunto: { tipo: 'PARCEIRO', titulo: 'ACME' } })).toEqual({ titulo: 'ACME', numero: '', contraparte: '' })
+    expect(assuntoDoProcesso({ assunto: null })).toBeNull()
+  })
+})
+
+describe('comQuem', () => {
+  it('um, dois ou mais nomes', () => {
+    expect(comQuem([])).toBe('')
+    expect(comQuem(['Ana'])).toBe('com Ana')
+    expect(comQuem(['Ana', 'Bruno'])).toBe('com Ana e Bruno')
+    expect(comQuem(['Ana', 'Bruno', 'Caio'])).toBe('com Ana e mais 2')
+  })
+})
+
+describe('relativoA', () => {
+  const base = { processName: 'Solicitação de contratos', startedBy: 'Laryssa', startedAt: '2026-11-22T12:00:00' }
+  it('tipo do workflow e o contrato', () => {
+    expect(relativoA({ ...base, kind: 'DISTRATO', assunto: { tipo: 'CONTRATO', titulo: 'CCT_1 — Limpeza', contraparte: 'GOLDNET' } }))
+      .toEqual({ tipo: 'Encerramento', titulo: 'Limpeza', detalhe: 'CCT_1 · GOLDNET', semContrato: false })
+    expect(relativoA({ ...base, kind: 'ADITIVO', assunto: { tipo: 'CONTRATO', titulo: 'CCT_1 — Limpeza' } }).tipo).toBe('Aditivo')
+  })
+  it('sem contrato ainda: diz isso, com o workflow e quem iniciou', () => {
+    const r = relativoA({ ...base, kind: 'CONTRATO', assunto: null })
+    expect(r.semContrato).toBe(true)
+    expect(r.titulo).toBe('Contrato ainda não cadastrado')
+    expect(r.detalhe).toBe('Solicitação de contratos · iniciado por Laryssa em 22/11/2026')
+  })
+})
+
+describe('pontualidadeDoProcesso', () => {
+  const agora = new Date(2026, 10, 22, 14, 0)
+  const em = (dias: number, h = 18) => new Date(2026, 10, 22 + dias, h, 0).toISOString()
+  const run = (o: object) => ({ status: 'RUNNING' as const, processDueAt: null, processOverdue: false, processOnTime: true, ...o })
+  it('em andamento: no prazo, vence amanhã, vence hoje e atrasado N dias', () => {
+    expect(pontualidadeDoProcesso(run({ processDueAt: em(10) }), agora)).toEqual({ texto: 'no prazo', tom: 'ok' })
+    expect(pontualidadeDoProcesso(run({ processDueAt: em(1) }), agora).texto).toBe('vence amanhã')
+    expect(pontualidadeDoProcesso(run({ processDueAt: em(0) }), agora).texto).toBe('vence hoje')
+    expect(pontualidadeDoProcesso(run({ processDueAt: em(-3), processOverdue: true }), agora)).toEqual({ texto: 'atrasado 3 dias', tom: 'atraso' })
+    expect(pontualidadeDoProcesso(run({ processDueAt: em(0, 9), processOverdue: true }), agora).texto).toBe('atrasado 1 dia')
+  })
+  it('sem prazo, concluído, cancelado e sem conclusão', () => {
+    expect(pontualidadeDoProcesso(run({}), agora).texto).toBe('sem prazo')
+    expect(pontualidadeDoProcesso({ status: 'COMPLETED', processDueAt: em(-5), processOverdue: false, processOnTime: false }, agora).texto).toBe('concluído com atraso')
+    expect(pontualidadeDoProcesso({ status: 'CANCELLED', processDueAt: null, processOverdue: false, processOnTime: null }, agora).texto).toBe('cancelado')
+    expect(pontualidadeDoProcesso({ status: 'ENDED_INCOMPLETE', processDueAt: null, processOverdue: false, processOnTime: null }, agora).texto).toBe('sem conclusão')
+  })
+})
+
+describe('encerradoEm', () => {
+  const d = '2026-11-20T10:00:00.000Z'
+  it('em andamento, com erro: sem data', () => {
+    expect(encerradoEm({ status: 'RUNNING', completedAt: null, cancelledAt: null })).toBeNull()
+    expect(encerradoEm({ status: 'ERROR', completedAt: null, cancelledAt: null })).toBeNull()
+  })
+  it('concluído e encerrado sem conclusão: a data de término', () => {
+    expect(encerradoEm({ status: 'COMPLETED', completedAt: d, cancelledAt: null })).toBe(d)
+    expect(encerradoEm({ status: 'ENDED_INCOMPLETE', completedAt: d, cancelledAt: null })).toBe(d)
+  })
+  it('cancelado: a data do cancelamento', () => {
+    expect(encerradoEm({ status: 'CANCELLED', completedAt: null, cancelledAt: d })).toBe(d)
   })
 })

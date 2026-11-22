@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { CalendarClock, RefreshCw, Gauge, RotateCw, Save, ShieldAlert, Check, CloudDownload, Play, Loader2, Eye, PauseCircle, AlarmClock, Repeat, Mail } from 'lucide-react'
+import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/lib/session-context'
 import { cacheRead, pullSetting, pushSetting } from '@/lib/settings-store'
@@ -156,7 +157,7 @@ function EmailCard({ p, setP, isAdmin }: { p: Params; setP: (v: Params) => void;
           <p className="text-sm font-semibold">Envio por e-mail</p>
           <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
             Leva os avisos pessoais para fora do sistema. Depende de um servidor de e-mail configurado
-            em <a href="/settings/email" className="font-medium text-foreground underline underline-offset-2">Configurações → E-mail</a> —
+            em <Link href="/settings/email" className="font-medium text-foreground underline underline-offset-2">Sistema → E-mail</Link> —
             sem isso, os avisos ficam só no sininho.
           </p>
 
@@ -186,9 +187,9 @@ function EmailCard({ p, setP, isAdmin }: { p: Params; setP: (v: Params) => void;
                   <span className="text-[11px]">hora local do servidor</span>
                 </label>
               )}
-              <a href="/settings/email" className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium hover:bg-muted transition-colors">
+              <Link href="/settings/email" className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium hover:bg-muted transition-colors">
                 <Mail className="h-3.5 w-3.5" />Configurar servidor de e-mail
-              </a>
+              </Link>
             </div>
           )}
         </div>
@@ -317,7 +318,7 @@ export default function NotificacoesParams() {
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-base font-semibold tracking-tight">Notificações</h1>
+          <h1 className="text-base font-semibold tracking-tight">Regras de aviso</h1>
           <p className="mt-0.5 text-xs text-muted-foreground">Regras de alerta do sistema — aplicadas a todos os contratos da organização.</p>
         </div>
         <button onClick={save} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90">

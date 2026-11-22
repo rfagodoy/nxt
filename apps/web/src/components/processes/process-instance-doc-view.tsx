@@ -64,7 +64,7 @@ function FilteredTable<T>({ cols, rows, rowKey, emptyText }: {
   )
 }
 
-export function ProcessInstanceDocView({ inst: instAoAbrir, onClose }: { inst: Inst; onClose?: () => void }) {
+export function ProcessInstanceDocView({ inst: instAoAbrir }: { inst: Inst; onClose?: () => void }) {
   /** a linha da instância RELIDA (a da aba é a foto do momento em que ela abriu) */
   const [instViva, setInstViva] = useState<Inst | null>(null)
   const inst = instViva?.id === instAoAbrir.id ? instViva : instAoAbrir
@@ -109,6 +109,10 @@ export function ProcessInstanceDocView({ inst: instAoAbrir, onClose }: { inst: I
     { key: 'inicio', label: 'Início', get: (t) => fmt(t.createdAt), cell: (t) => <span className="text-muted-foreground whitespace-nowrap">{fmt(t.createdAt)}</span> },
     { key: 'prazo', label: 'Prazo', get: (t) => formatSla(t), cell: (t) => <span className="text-muted-foreground whitespace-nowrap">{formatSla(t)}</span> },
     { key: 'prevista', label: 'Data prevista', get: (t) => fmt(t.dueAt), cell: (t) => <span className="text-muted-foreground whitespace-nowrap">{fmt(t.dueAt)}</span> },
+    /* Quando a pessoa concluiu a atividade (PO, 22/11/2026). Só para concluída: devolvida
+       ou cancelada também tem data de saída, mas não é conclusão. */
+    { key: 'concluida', label: 'Concluída em', get: (t) => (t.status === 'DONE' ? fmt(t.completedAt) : '—'),
+      cell: (t) => <span className="text-muted-foreground whitespace-nowrap">{t.status === 'DONE' ? fmt(t.completedAt) : '—'}</span> },
     { key: 'pontualidade', label: 'Pontualidade', get: (t) => taskPunctuality(t).label, cell: (t) => <span className={cn('whitespace-nowrap', taskPunctuality(t).cls)}>{taskPunctuality(t).label}</span> },
     { key: 'executor', label: 'Executor', get: (t) => execOf(t), cell: (t) => execOf(t) !== '—' ? <span className="inline-flex items-center gap-1 text-muted-foreground"><User className="h-3 w-3 shrink-0" />{execOf(t)}</span> : <span className="text-muted-foreground">—</span> },
     { key: 'situacao', label: 'Situação', get: (t) => taskStatusMeta(t.status).label, cell: (t) => <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[10.5px] font-medium', taskStatusMeta(t.status).pill)}>{taskStatusMeta(t.status).label}</span> },
@@ -138,6 +142,8 @@ export function ProcessInstanceDocView({ inst: instAoAbrir, onClose }: { inst: I
     { key: 'inicio', label: 'Início', get: (e) => fmt(e.task?.createdAt), cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{fmt(e.task?.createdAt)}</span> },
     { key: 'prazo', label: 'Prazo', get: (e) => e.task ? formatSla(e.task) : '—', cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{e.task ? formatSla(e.task) : '—'}</span> },
     { key: 'prevista', label: 'Data prevista', get: (e) => fmt(e.task?.dueAt), cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{fmt(e.task?.dueAt)}</span> },
+    { key: 'concluida', label: 'Concluída em', get: (e) => (e.kind === 'done' ? fmt(e.ts) : '—'),
+      cell: (e) => <span className="text-muted-foreground whitespace-nowrap">{e.kind === 'done' ? fmt(e.ts) : '—'}</span> },
     { key: 'pontualidade', label: 'Pontualidade', get: (e) => e.task ? taskPunctuality(e.task).label : '—',
       cell: (e) => e.task ? <span className={cn('whitespace-nowrap', taskPunctuality(e.task).cls)}>{taskPunctuality(e.task).label}</span> : <span className="text-muted-foreground">—</span> },
     { key: 'executor', label: 'Executor', get: (e) => e.task ? execOf(e.task) : (e.by || '—'),
@@ -216,9 +222,6 @@ export function ProcessInstanceDocView({ inst: instAoAbrir, onClose }: { inst: I
               </p>
             )}
           </div>
-          {onClose && (
-            <button type="button" onClick={onClose} className="shrink-0 text-xs text-muted-foreground hover:text-foreground transition-colors">Fechar</button>
-          )}
         </div>
         {inst.bloqueio && (
           /* PARADO numa escolha sem caminho: dizer onde, por quê e o que fazer */

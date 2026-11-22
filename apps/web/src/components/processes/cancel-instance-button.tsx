@@ -26,14 +26,18 @@ interface Dependente {
  *  `confirm()` do painel de erros: cancelar interrompe o trabalho de outras pessoas,
  *  então o porquê precisa ficar no histórico — e quem tinha tarefa pendente é avisado.
  *  Modal portado para o body (superfícies com backdrop-filter prendem `fixed` filhos). */
-export function CancelInstanceButton({ instanceId, processName, onCancelled, compact }: {
+export function CancelInstanceButton({ instanceId, processName, onCancelled, compact, controle }: {
   instanceId: string
   processName?: string
   onCancelled: () => void
   /** botão de linha de tabela (ícone + rótulo curto) */
   compact?: boolean
+  /** aberto de fora (menu "⋯" da lista): sem botão próprio, a janela abre e fecha por aqui */
+  controle?: { aberto: boolean; fechar: () => void }
 }) {
-  const [open, setOpen] = useState(false)
+  const [openInterno, setOpenInterno] = useState(false)
+  const open = controle ? controle.aberto : openInterno
+  const setOpen = (v: boolean) => { if (controle) { if (!v) controle.fechar() } else setOpenInterno(v) }
   const [submitting, setSubmitting] = useState(false)
   const [reason, setReason] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -72,9 +76,16 @@ export function CancelInstanceButton({ instanceId, processName, onCancelled, com
     }
   }
 
+  /* Aberto pelo menu: prepara a janela como o clique no botão faria. */
+  const abertoDeFora = !!controle?.aberto
+  useEffect(() => {
+    if (!abertoDeFora) return
+    setReason(''); setError(null); void carregarPrevia()
+  }, [abertoDeFora, carregarPrevia])
+
   return (
     <>
-      <button
+      {!controle && <button
         type="button"
         onClick={(e) => { e.stopPropagation(); setOpen(true); setReason(''); setError(null); void carregarPrevia() }}
         title="Cancelar este processo"
@@ -83,7 +94,7 @@ export function CancelInstanceButton({ instanceId, processName, onCancelled, com
           : 'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors'}
       >
         <Ban className="h-3.5 w-3.5" />Cancelar
-      </button>
+      </button>}
 
       {open && mounted && createPortal(
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" onClick={(e) => e.stopPropagation()}>
