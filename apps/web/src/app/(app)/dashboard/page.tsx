@@ -328,7 +328,7 @@ function CartaoContratos({ className, dados, vencimentos, onAbrir, onNovo, onImp
   vencimentos?: Vencimentos
   onAbrir: () => void
   onNovo: () => void
-  /** só para admin — a tela de Importação é da seção Instalação */
+  /** só para admin — a tela de Importação é da seção Sistema */
   onImportar?: () => void
 }) {
   const total = dados?.total ?? 0

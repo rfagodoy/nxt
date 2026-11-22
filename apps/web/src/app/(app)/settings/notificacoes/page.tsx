@@ -317,7 +317,7 @@ export default function NotificacoesParams() {
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-base font-semibold tracking-tight">Notificações</h1>
+          <h1 className="text-base font-semibold tracking-tight">Regras de aviso</h1>
           <p className="mt-0.5 text-xs text-muted-foreground">Regras de alerta do sistema — aplicadas a todos os contratos da organização.</p>
         </div>
         <button onClick={save} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90">
