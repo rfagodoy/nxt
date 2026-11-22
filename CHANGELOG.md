@@ -4,9 +4,17 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ## [Não lançado]
 
-### Alterado
+## [2.2.0] — Boole — 2026-11-22
+
+### Adicionado
 
 - **Coluna "Concluída em" no acompanhamento do processo:** as abas Andamento e Histórico mostram a data e a hora em que cada atividade foi concluída. Atividade pendente, devolvida ou cancelada fica com "—".
+- **"Ao concluir, ativa o contrato":** nova marca na atividade. O Concluir confere o que a ativação exige e leva o contrato para Vigente; sem a marca, ele segue em cadastro.
+- **Listas curtas viram botões:** campo de lista com até 3 opções aparece como botões em qualquer tela. Dentro de uma tarefa, se o campo decide a escolha logo à frente, a resposta marcada mostra para onde o processo segue.
+- **Rolagem lateral nas tabelas:** quando as colunas não cabem na tela, as tabelas mostram a barra de rolagem e deslizam para os lados.
+
+### Alterado
+
 - **Auditoria de UX (22/11/2026), dez ajustes:**
   - **Processos dizem a que se referem.** A coluna "Relativo a" mostra o tipo do processo (Contrato, Aditivo ou Encerramento) e o contrato, com número e contraparte; antes de o contrato existir, diz "Contrato ainda não cadastrado". A coluna "Atividade atual" mostra, só para o processo em andamento, a atividade e com quem está, ou as atividades em paralelo; o processo encerrado mostra "—". A nova coluna "Encerrado em" traz a data de conclusão ou de cancelamento, e o motivo do cancelamento aparece ao passar o mouse no selo "Cancelado". A coluna "Pontualidade" mostra só o estado do processo: no prazo, vence hoje, vence amanhã ou atrasado N dias (o mesmo critério do indicador "Atrasados"). Cancelar e desfazer o cancelamento ficam no menu "⋯", fixo à direita da tabela. As linhas têm altura fixa: o que não cabe termina em "…" e aparece inteiro ao passar o mouse. "Data prevista", "Início" e "Iniciado por" passam para Configurações da lista.
   - **Dashboard:** "vence em breve" conta os próximos 365 dias a partir de hoje, com a data final escrita no cartão. Antes, contratos que venciam no começo do mês do ano seguinte ficavam de fora. Com a caixa de tarefas vazia, ela vira uma linha no topo e os gráficos ganham o espaço.
@@ -21,12 +29,9 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 - **Tarefa sem abas: telas uma embaixo da outra.** As telas da atividade aparecem empilhadas, na ordem definida no editor, cada uma aberta ou fechada. As de consulta têm aparência de leitura, e um atalho "Ir para" no topo leva a cada tela e mostra quantos obrigatórios faltam. Tela fechada com pendência mostra "falta N" e abre sozinha quando o Concluir esbarra nela.
   - No editor, "Telas da tarefa, nesta ordem" inclui a tela principal, com subir/descer e Aberta/Fechada em cada uma. Workflows existentes continuam na ordem de antes, com tudo aberto.
 - **O contrato grava sozinho dentro da tarefa.** Saem Salvar, Ativar, Fechar e o aviso "Contrato aberto para edição"; o topo diz "Salvo às HH:MM". Na criação, o contrato começa a ser salvo assim que Número e Título estão preenchidos. O Concluir grava o que estiver pendente antes de concluir.
-- **"Ao concluir, ativa o contrato":** nova marca na atividade. O Concluir confere o que a ativação exige e leva o contrato para Vigente; sem a marca, ele segue em cadastro.
-- **Listas curtas viram botões:** campo de lista com até 3 opções aparece como botões em qualquer tela. Dentro de uma tarefa, se o campo decide a escolha logo à frente, a resposta marcada mostra para onde o processo segue.
 - **Filtro de escolha só testa campo garantido:** o workflow não ativa se uma escolha testa um campo do contrato que nenhuma atividade antes dela exige, ou que só é exigido em parte dos caminhos até ela. Vale para campos do sistema e personalizados; a mensagem diz o campo, a escolha e onde marcar. Situação, Prazo indeterminado e "Onde a equipe trabalha" ficam de fora.
 - **Campos obrigatórios valem dentro do workflow:** "Concluir tarefa" agora cobra os obrigatórios das telas da atividade e lista pelo nome o que falta. Antes, eles só eram cobrados ao ativar o contrato. Campo oculto, travado ou em tela de consulta não é cobrado.
 - **Campos do sistema podem ser obrigatórios nas Telas de Contrato:** a coluna "Obrigatório" passa a valer para campos como "Mão de obra alocada", com asterisco no formulário. Número, Título, Situação e Prazo indeterminado continuam definidos pelo sistema.
-- **Rolagem lateral nas tabelas:** quando as colunas não cabem na tela, as tabelas mostram a barra de rolagem e deslizam para os lados.
 - **Acompanhamento do processo no padrão dos documentos:** cabeçalho em cartão com selo ao lado do título e botão Fechar, abas iguais às de contrato e parceiro e tabelas na densidade escolhida.
 - **Caminhos paralelos mais simples de desenhar:** dentro de um "ao mesmo tempo", uma atividade sem sucessora é o fim de uma linha paralela, sem losangos para juntar.
   - O processo encerra quando a linha que chega ao Fim termina e não sobra nada aberto. Depois que a linha principal termina, o acompanhamento mostra "Aguardando" com o nome das atividades abertas.
@@ -76,6 +81,10 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
   - Aditivo e encerramento passam a ser registrados numa tarefa com a Tela do contrato, no modo Editar.
   - Processos e workflows ativos que já usam ação automática continuam funcionando.
   - No editor, a ação automática de um desenho antigo mostra um aviso e o botão "Transformar em tarefa de pessoa".
+
+### Segurança
+
+- Dependência do Prisma atualizada para corrigir uma falha de negação de serviço (ReDoS) publicada em 22/11/2026. Nada muda no uso do sistema.
 
 ## [2.1.0] — Boole — 2026-11-07
 
