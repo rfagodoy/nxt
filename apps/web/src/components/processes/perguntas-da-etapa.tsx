@@ -501,13 +501,13 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
               <div className="flex flex-col gap-1">
               <label htmlFor="cfg-tela" className={ROTULO}>Tela</label>
               <Select value={step.screenRef || 'none'} onValueChange={pickScreen}>
-                <SelectTrigger id="cfg-tela" className={CAMPO}><SelectValue placeholder="Sem tela" /></SelectTrigger>
+                <SelectTrigger id="cfg-tela" className={cn(CAMPO, '[&>span]:min-w-0 [&>span]:flex-1 [&>span]:text-left')}><SelectValue placeholder="Sem tela" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Sem tela — só concluir ou devolver</SelectItem>
                   {/* Workflow não trata de parceiro (PO, 07/11/2026): só telas de contrato são
                       oferecidas. Uma tela de parceiro já escolhida neste passo continua listada. */}
                   {entityScreens.filter((s) => s.subjectType === 'CONTRATO' || s.id === step.screenRef)
-                    .map((s) => <SelectItem key={s.id} value={s.id} className="text-xs">{SUBJECT_LABEL[s.subjectType] ?? s.subjectType} · {s.name}{s.code && <span className="ml-1.5 font-mono text-[10px] text-muted-foreground">{s.code}</span>}</SelectItem>)}
+                    .map((s) => <SelectItem key={s.id} value={s.id} className="text-xs [&>span:last-child]:flex-1"><ItemDaTela tela={s} tipo={s.subjectType !== 'CONTRATO' ? SUBJECT_LABEL[s.subjectType] ?? s.subjectType : undefined} /></SelectItem>)}
                 </SelectContent>
               </Select>
               </div>
@@ -515,6 +515,17 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
                 <CampoEscolha rotulo={`O que faz com o ${entityWord}`} valor={step.entityMode ?? 'CREATE'}
                   onMudar={(m) => onPatchStep({ entityMode: m, entityVar: undefined, ...(m === 'CREATE' ? { lockedFields: undefined } : {}) })}
                   opcoes={(['CREATE', 'EDIT', 'VIEW'] as const).map((m) => ({ v: m, titulo: `${ENTITY_MODE_LABEL[m]} ${entityWord}`, descricao: ENTITY_MODE_CURTO[m] }))} />
+              )}
+              {/* Tela de consulta numa atividade que cria ou edita (PO, 23/11/2026): avisa na hora,
+                  sem travar. O "Antes de ativar" continua recusando a combinação. */}
+              {telaSel?.readOnly && (step.entityMode ?? 'CREATE') !== 'VIEW' && (
+                <p role="alert" className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-snug text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                  <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    A tela {telaSel.code ?? telaSel.name} é de consulta: ninguém conseguiria {(step.entityMode ?? 'CREATE') === 'CREATE' ? 'criar' : 'editar'} o {entityWord} por ela.
+                    Escolha uma tela de edição, ou troque para “{ENTITY_MODE_LABEL.VIEW} {entityWord}”.
+                  </span>
+                </p>
               )}
               {step.screenSubject === 'CONTRATO' && (step.entityMode ?? 'CREATE') !== 'VIEW' && (
                 <label className="flex items-start gap-2 text-xs">
@@ -559,9 +570,9 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
                                     </p>
                                   ) : (
                                     <Select value={e.screenRef} onValueChange={(v) => it.tipo === 'extra' && setExtra(it.i, { screenRef: v })}>
-                                      <SelectTrigger className={cn(CAMPO, 'min-w-0')} title={telaDaLinha?.name}><SelectValue placeholder="Tela removida" /></SelectTrigger>
+                                      <SelectTrigger className={cn(CAMPO, 'min-w-0 [&>span]:min-w-0 [&>span]:flex-1 [&>span]:text-left')} title={telaDaLinha?.name}><SelectValue placeholder="Tela removida" /></SelectTrigger>
                                       <SelectContent>
-                                        {opcoes.map((s) => <SelectItem key={s.id} value={s.id} className="text-xs">{s.name}{s.readOnly ? ' · somente consulta' : ''}{s.code && <span className="ml-1.5 font-mono text-[10px] text-muted-foreground">{s.code}</span>}</SelectItem>)}
+                                        {opcoes.map((s) => <SelectItem key={s.id} value={s.id} className="text-xs [&>span:last-child]:flex-1"><ItemDaTela tela={s} /></SelectItem>)}
                                       </SelectContent>
                                     </Select>
                                   )}
@@ -830,6 +841,21 @@ export const ENTITY_MODE_LABEL: Record<string, string> = { CREATE: 'Criar', EDIT
 
 const SUBJECT_ENTITY: Record<string, string> = { CONTRATO: 'contrato', FORNECEDOR: 'parceiro' }
 const SUBJECT_LABEL: Record<string, string> = { CONTRATO: 'Contrato', FORNECEDOR: 'Parceiro' }
+
+/** Item do seletor de tela (PO, 23/11/2026): o código primeiro, alinhado (é ele que distingue
+ *  telas de mesmo nome), o nome e o modo, como na coluna "Modo" da lista de Telas. `tipo` só
+ *  aparece numa tela de outro tipo que já estava escolhida. */
+function ItemDaTela({ tela, tipo }: { tela: { name: string; code?: string; readOnly?: boolean }; tipo?: string }) {
+  return (
+    <span className="flex w-full min-w-0 items-center gap-2">
+      <span className="w-[88px] shrink-0 font-mono text-[10.5px] text-muted-foreground">{tela.code ?? '—'}</span>
+      <span className="min-w-0 flex-1 truncate">{tipo ? `${tipo} · ` : ''}{tela.name}</span>
+      {tela.readOnly
+        ? <span className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-px text-[10px] font-semibold text-amber-700 bg-amber-500/10 dark:text-amber-400"><Lock className="h-2.5 w-2.5" />Consulta</span>
+        : <span className="shrink-0 text-[10px] text-muted-foreground">Edição</span>}
+    </span>
+  )
+}
 
 /** Campo em GRID: `wide` ocupa a linha inteira (título, texto longo, seletor comprido);
  *  os curtos ficam pareados. Mesma hierarquia dos formulários do sistema. */
