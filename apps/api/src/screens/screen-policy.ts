@@ -62,15 +62,6 @@ export function proximoCodigo(subjectType: string, existentes: readonly string[]
   return formatarCodigo(subjectType, maior + 1)
 }
 
-/* ─── Nome único por organização e tipo (PO, 23/11/2026) ─────────────────────── */
-const normalizarNome = (s: string) => s.trim().replace(/\s+/g, ' ').toLocaleLowerCase('pt-BR')
-
-/** O nome já é de outra tela do mesmo tipo? Compara sem diferença de maiúsculas e espaços. */
-export function nomeJaUsado(nome: string, outros: readonly string[]): boolean {
-  const alvo = normalizarNome(nome)
-  return !!alvo && outros.some((o) => normalizarNome(o) === alvo)
-}
-
 /* ─── "Usada em" (PO, 23/11/2026) ──────────────────────────────────────────────
    Onde cada tela aparece: os workflows e as atividades que a abrem (principal ou
    adicional), lidos do formSchema de cada definição. */

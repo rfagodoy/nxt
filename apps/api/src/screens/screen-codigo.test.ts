@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatarCodigo, nomeJaUsado, prefixoDoCodigo, proximoCodigo, usoDasTelas } from './screen-policy'
+import { formatarCodigo, prefixoDoCodigo, proximoCodigo, usoDasTelas } from './screen-policy'
 
 describe('código da tela', () => {
   it('prefixo pelo tipo: CTR, PAR (fornecedor/parceiro) e GEN para o resto', () => {
@@ -15,14 +15,6 @@ describe('código da tela', () => {
     expect(proximoCodigo('CONTRATO', [])).toBe('TELA_CTR_001')
     expect(proximoCodigo('CONTRATO', ['TELA_CTR_001', 'TELA_CTR_004', 'TELA_PAR_009', 'TELA_CTR_x'])).toBe('TELA_CTR_005')
     expect(proximoCodigo('FORNECEDOR', ['TELA_CTR_001', 'TELA_PAR_999'])).toBe('TELA_PAR_1000')
-  })
-})
-
-describe('nomeJaUsado', () => {
-  it('ignora maiúsculas e espaços a mais', () => {
-    expect(nomeJaUsado('  dados do  Contrato ', ['Dados do contrato'])).toBe(true)
-    expect(nomeJaUsado('Dados do contrato 2', ['Dados do contrato'])).toBe(false)
-    expect(nomeJaUsado('   ', ['x'])).toBe(false)
   })
 })
 

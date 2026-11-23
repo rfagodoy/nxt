@@ -11,7 +11,7 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ### Alterado
 
-- **Nome de tela único por tipo:** não é mais possível ter duas telas do mesmo tipo com o mesmo nome (sem diferença de maiúsculas e espaços).
+- **Telas com o mesmo nome continuam permitidas:** quem identifica a tela é o código. Ao dar a uma tela o nome de outra do mesmo tipo, o cadastro avisa qual é a outra, para diferenciá-las pelo código na atividade. No editor de workflow, a dica da linha de tela do cartão traz o código de cada tela.
 - **O tipo da tela fica fixo depois de criada.** Para usar a mesma tela em outro tipo, duplique-a.
 - **Lista de Telas mais limpa:** a descrição saiu da coluna Nome (aparece ao passar o mouse no nome, e a busca continua achando por ela). Nova coluna "Modo", com Edição ou Consulta, e o cadeado da tela do sistema ao lado do código: os nomes ficam alinhados e a lista cabe na tela sem rolar para o lado.
 

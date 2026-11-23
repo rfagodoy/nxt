@@ -9,10 +9,10 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import Link from 'next/link'
-import { gravarTela, useUsoDasTelas } from '@/hooks/use-screens'
+import { gravarTela, useScreens, useUsoDasTelas } from '@/hooks/use-screens'
 import {
   SUBJECT_LABELS, STATUS_LABELS, FIELD_TYPE_LABELS, PARTNER_CATEGORIES, slug,
-  fieldValueKey,
+  fieldValueKey, mesmoNomeDeTela,
   type Screen, type ScreenField, type ScreenSection, type ScreenSubject, type ScreenStatus, type PartnerCategory,
 } from '@/lib/screen-types'
 import { buildNativeSeed, reconcileNative } from '@/lib/screen-native-structure'
@@ -286,6 +286,7 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
               {screen.code ? <span className="mr-1 font-mono text-foreground/80" title="Código da tela, gerado pelo sistema">{screen.code} ·</span> : null}
               {screen.id ? 'Editando a tela' : 'Nova tela, o código é gerado ao salvar'} — marque o que aparece, o que pode ser alterado e o que é obrigatório
             </p>
+            <AvisoDeNomeRepetido telaId={screen.id} nome={screen.name} subjectType={screen.subjectType} />
           </div>
 
           <button onClick={() => { if (!defaultLocked) patch({ isDefault: !screen.isDefault }) }} disabled={defaultLocked}
@@ -727,5 +728,19 @@ function UsadaEm({ telaId }: { telaId: string }) {
           </ul>
         )}
     </div>
+  )
+}
+
+/** Nome repetido é permitido (PO, 23/11/2026): o nome é o título que o executor vê, e quem
+ *  identifica a tela é o código. Só avisa, para quem escolhe na atividade olhar o código. */
+function AvisoDeNomeRepetido({ telaId, nome, subjectType }: { telaId: string; nome: string; subjectType: ScreenSubject }) {
+  const { screens } = useScreens(subjectType)
+  const outras = screens.filter((t) => t.id !== telaId && mesmoNomeDeTela(t.name, nome))
+  if (!outras.length) return null
+  return (
+    <p className="mt-0.5 flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-400">
+      <AlertTriangle className="h-3 w-3 shrink-0" />
+      Também existe {outras.map((t) => t.code ?? 'outra tela').join(', ')} com este nome. Na atividade, diferencie pelo código.
+    </p>
   )
 }

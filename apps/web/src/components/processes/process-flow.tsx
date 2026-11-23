@@ -568,15 +568,15 @@ export function ProcessFlow({ initial }: { initial?: FlowInitial } = {}) {
   }, [configId, desenhoVisto, doc, alturaDe, rotuloDoExecutor])
   const prazoDe = useCallback((id: string) => dueText(nodeById[id]?.step), [nodeById])
   /** Linha "tela" do cartão (PO, 22/11/2026): a primeira tela da tarefa e "+N". */
-  const nomeDaTela = useMemo(() => {
-    const porId = new Map(screens.map((t) => [t.id, t.name]))
-    return (id: string) => porId.get(id)
+  const [nomeDaTela, codigoDaTela] = useMemo(() => {
+    const porId = new Map(screens.map((t) => [t.id, t]))
+    return [(id: string) => porId.get(id)?.name, (id: string) => porId.get(id)?.code] as const
   }, [screens])
   const telasDe = useCallback((id: string) => {
     const n = nodeEfetivoById[id]
     if (!n || n.type !== 'userTask' || carregandoTelas) return null
-    return resumoDasTelas(n.step, nomeDaTela)
-  }, [nodeEfetivoById, nomeDaTela, carregandoTelas])
+    return resumoDasTelas(n.step, nomeDaTela, codigoDaTela)
+  }, [nodeEfetivoById, nomeDaTela, codigoDaTela, carregandoTelas])
   /** Os nomes que `responsavelDe` usa já chegaram? (papéis e entidades vêm da rede) */
   const consultasProntas = useMemo(() => nodesEfetivos.every((n) => {
     const ex = n.type === 'userTask' ? n.step?.executor : undefined
