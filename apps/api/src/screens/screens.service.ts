@@ -1,7 +1,8 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma.service'
 import { SaveScreenDto, ScreenValueDto } from './dto/screen.dto'
-import { screenBaseFlags, nomeDaCopia } from './screen-policy'
+import { screenBaseFlags, nomeDaCopia, nomeJaUsado, prefixoDoCodigo, proximoCodigo, usoDasTelas } from './screen-policy'
 import { diffCustom, type CampoCustom, type OpcaoCampo } from './custom-audit'
 import { chaveDoCampo, chaveDaSecao, catalogoCanonico } from './custom-catalog'
 
@@ -42,10 +43,11 @@ export class ScreensService {
 
   async create(organizationId: string, dto: SaveScreenDto) {
     const isSystem = dto.isSystem ?? false
+    await this.exigirNomeLivre(organizationId, dto.subjectType, dto.name)
     const g = await this.pinnedFlags(organizationId, dto.subjectType, isSystem, dto.status ?? 'DRAFT', dto.isDefault ?? false)
-    const screen = await this.prisma.screen.create({
-      data: {
+    const screen = await this.criarComCodigo(organizationId, dto.subjectType, (code) => ({
         organizationId,
+        code,
         name:        dto.name,
         description: dto.description ?? null,
         subjectType: dto.subjectType,
@@ -53,8 +55,7 @@ export class ScreensService {
         isDefault:   g.isDefault,
         isSystem,
         readOnly:    dto.readOnly ?? false,
-      },
-    })
+    }))
     await this.saveChildren(screen.id, dto, organizationId, dto.subjectType)
     if (g.isDefault) await this.unsetOtherDefaults(organizationId, dto.subjectType, screen.id)
     return this.getScreen(organizationId, screen.id)
@@ -63,8 +64,11 @@ export class ScreensService {
   async update(organizationId: string, id: string, dto: SaveScreenDto) {
     const existing = await this.prisma.screen.findFirst({ where: { id, organizationId } })
     if (!existing) return null
-    // tela do sistema é IMUTÁVEL em tipo/situação/padrão (é a base): sempre ATIVA e padrão.
-    const subjectType = existing.isSystem ? existing.subjectType : dto.subjectType
+    // o tipo é FIXO depois de criada (PO, 23/11/2026): o código carrega o tipo, e a atividade
+    // que usa a tela espera aquele cadastro. Para outro tipo, duplica-se. A tela do sistema
+    // também é imutável em situação/padrão (é a base): sempre ATIVA e padrão.
+    const subjectType = existing.subjectType
+    await this.exigirNomeLivre(organizationId, subjectType, dto.name, id)
     const g = await this.pinnedFlags(organizationId, subjectType, existing.isSystem, dto.status ?? existing.status, dto.isDefault ?? false, id)
     await this.prisma.screen.update({
       where: { id },
@@ -81,6 +85,47 @@ export class ScreensService {
     await this.saveChildren(id, dto, organizationId, subjectType)
     if (g.isDefault) await this.unsetOtherDefaults(organizationId, subjectType, id)
     return this.getScreen(organizationId, id)
+  }
+
+  /* ─── código, nome único e uso (PO, 23/11/2026) ─── */
+
+  /** Cria a tela com o próximo código do tipo. Duas criações ao mesmo tempo podem tirar o
+   *  mesmo número: o índice único recusa a segunda, que tenta de novo com o seguinte. */
+  private async criarComCodigo(
+    organizationId: string, subjectType: string, dados: (code: string) => Prisma.ScreenUncheckedCreateInput,
+  ) {
+    for (let tentativa = 0; ; tentativa++) {
+      const existentes = await this.prisma.screen.findMany({
+        where: { organizationId, code: { startsWith: prefixoDoCodigo(subjectType) } }, select: { code: true },
+      })
+      try {
+        return await this.prisma.screen.create({ data: dados(proximoCodigo(subjectType, existentes.map((x) => x.code))) })
+      } catch (e) {
+        if (tentativa < 4 && e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') continue
+        throw e
+      }
+    }
+  }
+
+  private nomeRepetido(subjectType: string, nome: string) {
+    const tipo = subjectType === 'CONTRATO' ? 'Contrato' : subjectType === 'FORNECEDOR' ? 'Parceiro' : 'Genérica'
+    return new ConflictException(`Já existe uma tela de ${tipo} com o nome "${nome.trim()}". Escolha outro nome.`)
+  }
+
+  /** Nome único por organização e tipo, sem diferença de maiúsculas e espaços. */
+  private async exigirNomeLivre(organizationId: string, subjectType: string, nome: string, selfId?: string) {
+    const outros = await this.prisma.screen.findMany({
+      where: { organizationId, subjectType, ...(selfId ? { id: { not: selfId } } : {}) }, select: { name: true },
+    })
+    if (nomeJaUsado(nome, outros.map((x) => x.name))) throw this.nomeRepetido(subjectType, nome)
+  }
+
+  /** Onde cada tela é usada: workflows e atividades (principal ou adicional), por id da tela. */
+  async uso(organizationId: string) {
+    const defs = await this.prisma.processDefinition.findMany({
+      where: { organizationId }, select: { id: true, name: true, status: true, formSchema: true },
+    })
+    return usoDasTelas(defs)
   }
 
   /**
@@ -143,9 +188,10 @@ export class ScreensService {
       where: { organizationId, subjectType: origem.subjectType }, select: { name: true },
     })).map(x => x.name)
 
-    const nova = await this.prisma.screen.create({
-      data: {
+    if (nome?.trim() && nomeJaUsado(nome, usados)) throw this.nomeRepetido(origem.subjectType, nome)
+    const nova = await this.criarComCodigo(organizationId, origem.subjectType, (code) => ({
         organizationId,
+        code,
         name:        nome?.trim() || nomeDaCopia(origem.name, usados),
         description: origem.description,
         subjectType: origem.subjectType,
@@ -153,8 +199,7 @@ export class ScreensService {
         isDefault:   false,
         isSystem:    false,
         readOnly:    origem.readOnly,
-      },
-    })
+    }))
 
     const secIdPorChave = new Map<string, string>()
     for (const sec of origem.sections) {

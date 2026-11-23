@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
 import { SELO } from '@/components/list/selo'
 import { Indicadores } from '@/components/list/indicadores'
 import { MenuDeAcoes } from '@/components/list/menu-de-acoes'
-import { useScreens, deleteScreen, duplicateScreen, saveScreen } from '@/hooks/use-screens'
+import { useScreens, deleteScreen, duplicateScreen, saveScreen, useUsoDasTelas, dicaDoUso } from '@/hooks/use-screens'
 import { buildNativeSeed } from '@/lib/screen-native-structure'
 import { SUBJECT_LABELS, STATUS_LABELS, type Screen, type ScreenSubject, type ScreenStatus } from '@/lib/screen-types'
 
@@ -29,6 +29,8 @@ const SUBJECT_CLS: Record<string, string> = {
 
 export default function TelasPage() {
   const { screens, loading, reload } = useScreens()
+  /* "Usada em" (PO, 23/11/2026): workflows que abrem cada tela */
+  const uso = useUsoDasTelas()
   const [mounted, setMounted]       = useState(false)
   useEffect(() => setMounted(true), [])
 
@@ -86,7 +88,7 @@ export default function TelasPage() {
       (subj === 'ALL' || s.subjectType === subj) &&
       (status === 'ALL' || s.status === status) &&
       (!indicador || (indicador === 'CONSULTA' ? s.readOnly : indicador === 'DRAFT' ? s.status === 'DRAFT' : s.subjectType === indicador)) &&
-      (!q || s.name.toLowerCase().includes(q) || (s.description ?? '').toLowerCase().includes(q)),
+      (!q || s.name.toLowerCase().includes(q) || (s.code ?? '').toLowerCase().includes(q) || (s.description ?? '').toLowerCase().includes(q)),
     )
   }, [screens, search, subj, status, indicador])
 
@@ -114,7 +116,7 @@ export default function TelasPage() {
         <div className="flex items-center gap-2">
           <div className="relative flex-1 max-w-xs">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nome..."
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nome ou código..."
               className="flex h-7 w-full rounded-md border border-input bg-background pl-7 pr-3 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors" />
           </div>
           <select value={subj} onChange={e => setSubj(e.target.value as typeof subj)} className={selCls}>
@@ -144,24 +146,27 @@ export default function TelasPage() {
           <table className={cn('w-full', DENS_TABELA)}>
             <thead className="sticky top-0 z-10 [&_th]:bg-muted">
               <tr className="border-b">
+                <th className={'text-left ' + DENS_CAB + ' font-medium text-muted-foreground w-32'}>Código</th>
                 <th className={'text-left ' + DENS_CAB + ' font-medium text-muted-foreground'}>Nome</th>
                 <th className={'text-left ' + DENS_CAB + ' font-medium text-muted-foreground w-32'}>Aplica-se a</th>
                 <th className={'text-left ' + DENS_CAB + ' font-medium text-muted-foreground w-28'}>Situação</th>
                 <th className={'text-center ' + DENS_CAB + ' font-medium text-muted-foreground w-20'}>Padrão</th>
+                <th className={'text-left ' + DENS_CAB + ' font-medium text-muted-foreground w-40 whitespace-nowrap'}>Usada em</th>
                 <th className={'text-center ' + DENS_CAB + ' font-medium text-muted-foreground w-24'}>Campos</th>
                 <th className={'text-right ' + DENS_CAB + ' font-medium text-muted-foreground w-28'}>Ações</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">Carregando…</td></tr>
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">Carregando…</td></tr>
               ) : shown.length === 0 ? (
-                <tr><td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
+                <tr><td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
                   {screens.length === 0 ? 'Nenhuma tela criada. Clique em "Nova tela".' : 'Nenhuma tela para o filtro.'}
                 </td></tr>
               ) : shown.map(s => (
                 <tr key={s.id} onClick={() => router.push(`/settings/telas/${s.id}`)} title="Abrir a tela"
                   className="border-b last:border-0 hover:bg-muted/30 transition-colors group/row cursor-pointer">
+                  <td className={cn(DENS_CEL, 'whitespace-nowrap font-mono text-[11px] text-muted-foreground')}>{s.code ?? '—'}</td>
                   <td className={DENS_CEL}>
                     {/* Fluxo de texto, não flex: a etiqueta é parte da frase e tem de seguir a
                         ÚLTIMA palavra do nome. Em flex com `items-center`, um nome que quebra em
@@ -178,6 +183,14 @@ export default function TelasPage() {
                   <td className={DENS_CEL}><span className={cn(SELO, SUBJECT_CLS[s.subjectType])}>{SUBJECT_LABELS[s.subjectType]}</span></td>
                   <td className={DENS_CEL}><span className={cn(SELO, STATUS_CLS[s.status])}>{STATUS_LABELS[s.status]}</span></td>
                   <td className={cn(DENS_CEL, 'text-center')}>{s.isDefault ? <Star className="h-3.5 w-3.5 text-primary inline fill-primary" /> : <span className="text-muted-foreground">—</span>}</td>
+                  <td className={DENS_CEL}>
+                    {(() => {
+                      const lista = uso?.[s.id] ?? []
+                      if (!uso) return <span className="text-muted-foreground">…</span>
+                      if (!lista.length) return <span className="text-muted-foreground" title="Nenhum workflow usa esta tela">—</span>
+                      return <span title={dicaDoUso(lista)} className="whitespace-nowrap">{lista.length === 1 ? lista[0].workflow : `${lista.length} workflows`}</span>
+                    })()}
+                  </td>
                   <td className={cn(DENS_CEL, 'text-center text-muted-foreground tabular-nums')}>{custom(s)} pers.</td>
                   <td className={cn(DENS_CEL, 'cursor-default')} onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1">
@@ -186,7 +199,9 @@ export default function TelasPage() {
                         { rotulo: duplicando === s.id ? 'Duplicando…' : 'Duplicar', onClick: () => void duplicar(s.id), desabilitada: !!duplicando },
                         s.isSystem
                           ? { rotulo: 'Excluir', onClick: () => {}, perigo: true, desabilitada: true, motivo: 'tela do sistema' }
-                          : { rotulo: 'Excluir', onClick: () => void remove(s.id), perigo: true, confirmar: 'Confirmar exclusão' },
+                          : uso?.[s.id]?.length
+                            ? { rotulo: 'Excluir', onClick: () => {}, perigo: true, desabilitada: true, motivo: 'usada em workflow' }
+                            : { rotulo: 'Excluir', onClick: () => void remove(s.id), perigo: true, confirmar: 'Confirmar exclusão' },
                       ]} />
                     </div>
                   </td>

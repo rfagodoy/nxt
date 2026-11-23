@@ -8,7 +8,8 @@ import {
   MoreHorizontal, Star, Lock, Eye, Rows3, AlertTriangle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { saveScreen } from '@/hooks/use-screens'
+import Link from 'next/link'
+import { gravarTela, useUsoDasTelas } from '@/hooks/use-screens'
 import {
   SUBJECT_LABELS, STATUS_LABELS, FIELD_TYPE_LABELS, PARTNER_CATEGORIES, slug,
   fieldValueKey,
@@ -263,9 +264,9 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
     setSaving(true); setErr('')
     const sortedSections = sections.map((s, i) => ({ id: s.id, sectionKey: s.sectionKey, label: s.label, name: s.name, source: s.source ?? 'CUSTOM', nativeKey: s.nativeKey, visible: s.visible !== false, locked: s.locked ?? false, order: i, defaultOpen: s.defaultOpen }))
     const normFields = sortedSections.flatMap(s => fieldsOf(s.id).map((f, i) => ({ id: f.id, fieldKey: f.fieldKey, sectionId: s.id, name: f.name, label: f.label, type: f.type, source: f.source, nativeKey: f.nativeKey, mode: f.mode, locked: f.locked ?? false, visible: f.visible !== false, required: f.required, placeholder: f.placeholder, options: f.options, validation: f.validation, hiddenCategories: f.hiddenCategories ?? [], requiredCategories: f.requiredCategories ?? undefined, order: i })))
-    const saved = await saveScreen(screen.id || null, { name: screen.name.trim(), description: screen.description ?? '', subjectType: screen.subjectType, status: screen.status, isDefault: screen.isDefault ?? false, isSystem: screen.isSystem ?? false, readOnly: screen.readOnly ?? false, sections: sortedSections, fields: normFields, removedFieldKeys: removidos })
+    const r = await gravarTela(screen.id || null, { name: screen.name.trim(), description: screen.description ?? '', subjectType: screen.subjectType, status: screen.status, isDefault: screen.isDefault ?? false, isSystem: screen.isSystem ?? false, readOnly: screen.readOnly ?? false, sections: sortedSections, fields: normFields, removedFieldKeys: removidos })
     setSaving(false)
-    if (!saved) { setErr('Falha ao salvar. Tente novamente.'); return }
+    if ('erro' in r) { setErr(r.erro); return }
     router.push('/settings/telas')
   }
 
@@ -281,7 +282,10 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
           <div className="min-w-0 flex-1">
             <input value={screen.name} onChange={e => { patch({ name: e.target.value }); setErr('') }} placeholder="Nome da tela"
               className="w-full max-w-[560px] rounded-md bg-transparent px-1 -mx-1 text-[15px] font-bold tracking-tight outline-none hover:bg-muted/50 focus:bg-card focus:ring-1 focus:ring-ring transition-colors" />
-            <p className="text-[11px] text-muted-foreground mt-0.5">{screen.id ? 'Editando a tela' : 'Nova tela'} — marque o que aparece, o que pode ser alterado e o que é obrigatório</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              {screen.code ? <span className="mr-1 font-mono text-foreground/80" title="Código da tela, gerado pelo sistema">{screen.code} ·</span> : null}
+              {screen.id ? 'Editando a tela' : 'Nova tela, o código é gerado ao salvar'} — marque o que aparece, o que pode ser alterado e o que é obrigatório
+            </p>
           </div>
 
           <button onClick={() => { if (!defaultLocked) patch({ isDefault: !screen.isDefault }) }} disabled={defaultLocked}
@@ -321,10 +325,12 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
             <p className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">Configurações da tela</p>
             <div className="space-y-1">
               <label className="text-[11px] font-medium text-muted-foreground">Aplica-se a</label>
-              <select value={screen.subjectType} onChange={e => changeSubject(e.target.value as ScreenSubject)} disabled={!!screen.isSystem}
-                className={cn(inputCls, 'h-8', screen.isSystem && 'opacity-60 cursor-not-allowed')}>
+              {/* tipo fixo depois de criada (PO, 23/11/2026): o código carrega o tipo */}
+              <select value={screen.subjectType} onChange={e => changeSubject(e.target.value as ScreenSubject)} disabled={!!screen.isSystem || !!screen.id}
+                className={cn(inputCls, 'h-8', (screen.isSystem || screen.id) && 'opacity-60 cursor-not-allowed')}>
                 {(Object.keys(SUBJECT_LABELS) as ScreenSubject[]).map(v => <option key={v} value={v}>{SUBJECT_LABELS[v]}</option>)}
               </select>
+              {screen.id && !screen.isSystem && <p className="text-[10px] text-muted-foreground leading-snug">Fixo depois de criada. Para outro tipo, duplique a tela na lista.</p>}
             </div>
             <div className="space-y-1">
               <label className="text-[11px] font-medium text-muted-foreground">Situação</label>
@@ -356,6 +362,8 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
               </p>
             </div>
           </div>
+
+          {screen.id && <UsadaEm telaId={screen.id} />}
 
           {/* pendências: obrigatório E travado — ninguém consegue preencher */}
           {pendencias.length > 0 && (
@@ -694,6 +702,30 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
         <ScreenFieldEditor sections={sections} subjectType={screen.subjectType} initial={editingField ?? undefined} defaultSectionId={addingToSection ?? undefined}
           onClose={() => { setEditingField(null); setAddingToSection(null) }} onSave={upsertField} />
       )}
+    </div>
+  )
+}
+
+/** "Usada em" (PO, 23/11/2026): os workflows e as atividades que abrem esta tela. */
+function UsadaEm({ telaId }: { telaId: string }) {
+  const uso = useUsoDasTelas()
+  const lista = uso?.[telaId] ?? []
+  return (
+    <div className="rounded-xl border bg-card shadow-sm p-3 space-y-1.5">
+      <p className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">Usada em</p>
+      {!uso ? <p className="text-[11px] text-muted-foreground">Carregando…</p>
+        : !lista.length ? <p className="text-[11px] text-muted-foreground">Nenhum workflow usa esta tela.</p>
+        : (
+          <ul className="space-y-1.5">
+            {lista.map((u) => (
+              <li key={u.workflowId} className="text-[11px] leading-snug">
+                <Link href={`/workflows/${u.workflowId}/edit`} className="font-semibold hover:text-primary">{u.workflow}</Link>
+                {u.status !== 'ACTIVE' && <span className="text-muted-foreground"> · {u.status === 'DRAFT' ? 'rascunho' : 'inativo'}</span>}
+                <span className="block text-muted-foreground">{u.atividades.join(', ')}</span>
+              </li>
+            ))}
+          </ul>
+        )}
     </div>
   )
 }

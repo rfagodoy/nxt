@@ -507,7 +507,7 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
                   {/* Workflow não trata de parceiro (PO, 07/11/2026): só telas de contrato são
                       oferecidas. Uma tela de parceiro já escolhida neste passo continua listada. */}
                   {entityScreens.filter((s) => s.subjectType === 'CONTRATO' || s.id === step.screenRef)
-                    .map((s) => <SelectItem key={s.id} value={s.id} className="text-xs">{SUBJECT_LABEL[s.subjectType] ?? s.subjectType} · {s.name}</SelectItem>)}
+                    .map((s) => <SelectItem key={s.id} value={s.id} className="text-xs">{SUBJECT_LABEL[s.subjectType] ?? s.subjectType} · {s.name}{s.code && <span className="ml-1.5 font-mono text-[10px] text-muted-foreground">{s.code}</span>}</SelectItem>)}
                 </SelectContent>
               </Select>
               </div>
@@ -561,7 +561,7 @@ export function PerguntasDaEtapa({ node, nodes, edges, screens, papeis, resolveE
                                     <Select value={e.screenRef} onValueChange={(v) => it.tipo === 'extra' && setExtra(it.i, { screenRef: v })}>
                                       <SelectTrigger className={cn(CAMPO, 'min-w-0')} title={telaDaLinha?.name}><SelectValue placeholder="Tela removida" /></SelectTrigger>
                                       <SelectContent>
-                                        {opcoes.map((s) => <SelectItem key={s.id} value={s.id} className="text-xs">{s.name}{s.readOnly ? ' · somente consulta' : ''}</SelectItem>)}
+                                        {opcoes.map((s) => <SelectItem key={s.id} value={s.id} className="text-xs">{s.name}{s.readOnly ? ' · somente consulta' : ''}{s.code && <span className="ml-1.5 font-mono text-[10px] text-muted-foreground">{s.code}</span>}</SelectItem>)}
                                       </SelectContent>
                                     </Select>
                                   )}

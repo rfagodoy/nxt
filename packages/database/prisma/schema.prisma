@@ -599,9 +599,12 @@ model RealtimeEvent {
 model Screen {
   id             String   @id @default(cuid())
   organizationId String
+  /// Código gerado pelo sistema, somente leitura (PO, 23/11/2026): TELA_CTR_001, TELA_PAR_001, TELA_GEN_001.
+  /// Os workflows continuam referenciando a tela pelo id.
+  code           String
   name           String
   description    String?
-  subjectType    String   @default("FORNECEDOR") // FORNECEDOR | CONTRATO | GENERICA
+  subjectType    String   @default("FORNECEDOR") // FORNECEDOR | CONTRATO | GENERICA — fixo depois de criada (o código carrega o tipo)
   status         String   @default("DRAFT")      // DRAFT | ACTIVE | ARCHIVED
   isDefault      Boolean  @default(false)         // tela padrão do cadastro daquele subject (uma por subject)
   isSystem       Boolean  @default(false)         // tela padrão DO SISTEMA (cadastro base; não deletável)
@@ -612,6 +615,7 @@ model Screen {
   sections ScreenSection[]
   fields   ScreenField[]
 
+  @@unique([organizationId, code])
   @@index([organizationId, subjectType])
   @@map("screens")
 }
