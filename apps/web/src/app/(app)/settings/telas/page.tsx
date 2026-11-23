@@ -147,6 +147,7 @@ export default function TelasPage() {
             <thead className="sticky top-0 z-10 [&_th]:bg-muted">
               <tr className="border-b">
                 <th className={'text-left ' + DENS_CAB + ' font-medium text-muted-foreground w-32'}>Código</th>
+                <th className={'text-left ' + DENS_CAB + ' font-medium text-muted-foreground w-28'}>Modo</th>
                 <th className={'text-left ' + DENS_CAB + ' font-medium text-muted-foreground'}>Nome</th>
                 <th className={'text-left ' + DENS_CAB + ' font-medium text-muted-foreground w-32'}>Aplica-se a</th>
                 <th className={'text-left ' + DENS_CAB + ' font-medium text-muted-foreground w-28'}>Situação</th>
@@ -158,27 +159,29 @@ export default function TelasPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">Carregando…</td></tr>
+                <tr><td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">Carregando…</td></tr>
               ) : shown.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                <tr><td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
                   {screens.length === 0 ? 'Nenhuma tela criada. Clique em "Nova tela".' : 'Nenhuma tela para o filtro.'}
                 </td></tr>
               ) : shown.map(s => (
                 <tr key={s.id} onClick={() => router.push(`/settings/telas/${s.id}`)} title="Abrir a tela"
                   className="border-b last:border-0 hover:bg-muted/30 transition-colors group/row cursor-pointer">
-                  <td className={cn(DENS_CEL, 'whitespace-nowrap font-mono text-[11px] text-muted-foreground')}>{s.code ?? '—'}</td>
+                  {/* Cada informação no seu lugar fixo (PO, 23/11/2026): o cadeado do sistema depois do
+                      código, o modo numa coluna própria e o nome sozinho, alinhado em todas as linhas.
+                      A descrição fica na dica do nome (e a busca continua achando por ela). */}
+                  <td className={cn(DENS_CEL, 'whitespace-nowrap font-mono text-[11px] text-muted-foreground')}>
+                    {s.code ?? '—'}
+                    {s.isSystem && <span title="Tela base do sistema" aria-label="Tela base do sistema" className="ml-1 inline-flex align-[-1px] text-slate-500 dark:text-slate-400"><Lock className="h-3 w-3" /></span>}
+                  </td>
+                  <td className={cn(DENS_CEL, 'whitespace-nowrap')}>
+                    {s.readOnly
+                      ? <span title="Nenhum campo é editável e nada é gravado por esta tela" className={cn(SELO, 'bg-amber-500/10 text-amber-700 dark:text-amber-400')}><Lock className="h-2.5 w-2.5" />Consulta</span>
+                      : <span className="text-muted-foreground">Edição</span>}
+                  </td>
                   <td className={DENS_CEL}>
-                    {/* Fluxo de texto, não flex: a etiqueta é parte da frase e tem de seguir a
-                        ÚLTIMA palavra do nome. Em flex com `items-center`, um nome que quebra em
-                        duas linhas deixava a etiqueta boiando no meio da altura da linha. */}
-                    <div className="celula-2l">
-                      <span className="block">
-                        <Link href={`/settings/telas/${s.id}`} onClick={(e) => e.stopPropagation()} className="font-medium hover:text-primary transition-colors">{s.name}</Link>
-                        {s.isSystem && <span className="ml-1.5 inline-flex items-center gap-0.5 align-middle whitespace-nowrap rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-slate-500/10 text-slate-600 dark:text-slate-300"><Lock className="h-2.5 w-2.5" />Sistema</span>}
-                        {s.readOnly && <span className="ml-1.5 inline-flex items-center gap-0.5 align-middle whitespace-nowrap rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-amber-500/10 text-amber-600 dark:text-amber-400" title="Nenhum campo é editável e nada é gravado por esta tela"><Lock className="h-2.5 w-2.5" />Somente consulta</span>}
-                      </span>
-                      {s.description && <p className="text-[11px] text-muted-foreground truncate max-w-md">{s.description}</p>}
-                    </div>
+                    <Link href={`/settings/telas/${s.id}`} onClick={(e) => e.stopPropagation()} title={s.description || undefined}
+                      className="font-medium hover:text-primary transition-colors">{s.name}</Link>
                   </td>
                   <td className={DENS_CEL}><span className={cn(SELO, SUBJECT_CLS[s.subjectType])}>{SUBJECT_LABELS[s.subjectType]}</span></td>
                   <td className={DENS_CEL}><span className={cn(SELO, STATUS_CLS[s.status])}>{STATUS_LABELS[s.status]}</span></td>

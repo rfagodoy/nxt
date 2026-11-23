@@ -13,6 +13,7 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 - **Nome de tela único por tipo:** não é mais possível ter duas telas do mesmo tipo com o mesmo nome (sem diferença de maiúsculas e espaços).
 - **O tipo da tela fica fixo depois de criada.** Para usar a mesma tela em outro tipo, duplique-a.
+- **Lista de Telas mais limpa:** a descrição saiu da coluna Nome (aparece ao passar o mouse no nome, e a busca continua achando por ela). Nova coluna "Modo", com Edição ou Consulta, e o cadeado da tela do sistema ao lado do código: os nomes ficam alinhados e a lista cabe na tela sem rolar para o lado.
 
 ## [2.2.1] — Boole — 2026-11-22
 
