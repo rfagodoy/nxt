@@ -44,7 +44,7 @@ function normalizePartner(screen: Screen): Screen {
 }
 
 const inputCls = 'flex h-8 w-full rounded-md border border-input bg-background px-2.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
-const iconBtn  = 'h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors'
+const iconBtn  = 'h-[var(--lista-acao)] w-[var(--lista-acao)] inline-flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors'
 
 /* O construtor NUNCA mostra dados de fornecedor: os campos aparecem sempre vazios
    (o cadastro de telas é um molde, não a exibição de um registro real). */
@@ -336,7 +336,7 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
       {mode === 'preview' ? (
         <ScreenRenderer screen={isPartner ? { ...screen, fields: screen.fields.filter(f => fieldVisibleFor(f, cat)) } : screen} nativeValue={emptyNative} />
       ) : (
-        <div className="space-y-2.5">
+        <div className="space-y-[calc(var(--lista-linha)/3)]">
           {sections.map((s, sIdx) => {
             const applicable  = fieldsOf(s.id).filter(fieldApplies)
             const isNativeSec = s.source === 'NATIVE'
@@ -346,7 +346,7 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
             const camadas     = !isBlockSec && [s.visible === false && 'seção oculta', s.locked && 'seção só leitura'].filter(Boolean).join(' · ')
             return (
               <section key={s.id} id={`sec-${s.id}`} aria-label={s.label} className={cn('group/sec scroll-mt-24 rounded-xl border bg-card overflow-hidden', naNoTipo && 'opacity-60')}>
-                <div className="flex flex-wrap items-center gap-2 bg-muted/30 px-3 py-2">
+                <div className="flex min-h-[var(--lista-cab)] flex-wrap items-center gap-2 bg-muted/30 px-3 py-[var(--lista-py)]">
                   {renamingSection === s.id ? (
                     <div className="flex items-center gap-1.5">
                       <input autoFocus value={renameLabel} onChange={e => setRenameLabel(e.target.value)} aria-label="Nome da seção"
@@ -359,7 +359,7 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
                     <button onClick={() => toggleCollapsed(s.id)} aria-expanded={!isColl} disabled={isBlockSec || applicable.length === 0}
                       className="flex min-w-0 items-center gap-2 text-left disabled:cursor-default">
                       <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', isColl && '-rotate-90', (isBlockSec || applicable.length === 0) && 'invisible')} />
-                      <span className="truncate text-[13.5px] font-bold tracking-tight">{s.label}</span>
+                      <span className="truncate text-[length:var(--lista-fonte)] font-bold tracking-tight">{s.label}</span>
                       {isColl && applicable.length > 0 && <span className="shrink-0 text-[11px] font-normal text-muted-foreground">{resumoDaSecao(applicable)}</span>}
                       {isBlockSec && <span className="shrink-0 text-[11px] font-normal text-muted-foreground">bloco do sistema</span>}
                       {naNoTipo && <span className="shrink-0 text-[11px] font-normal text-muted-foreground">não se aplica a {nomeDaCategoria}</span>}
@@ -403,8 +403,8 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
                   const e = estadoDe(f)
                   const doSistema = !aceitaObrigatorio(f) && obrigatorioDe(f)
                   return (
-                    <div key={f.id} className={cn('group/f flex flex-wrap items-center gap-2 border-t px-3 py-1.5 pl-9 hover:bg-muted/20', e === 'OCULTO' && 'text-muted-foreground')}>
-                      <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px]" title={FIELD_TYPE_LABELS[f.type]}>
+                    <div key={f.id} className={cn('group/f flex min-h-[var(--lista-linha)] flex-wrap items-center gap-2 border-t px-3 py-[var(--lista-py)] pl-9 hover:bg-muted/20', e === 'OCULTO' && 'text-muted-foreground')}>
+                      <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[length:var(--lista-fonte)] leading-[var(--lista-lh)]" title={FIELD_TYPE_LABELS[f.type]}>
                         <span className="truncate">{f.label}</span>
                         {f.source === 'CUSTOM' && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" title="Campo personalizado" aria-label="personalizado" />}
                         {doSistema && <span className="shrink-0 text-[10.5px] text-muted-foreground">exigido pelo sistema</span>}
@@ -582,7 +582,7 @@ function SeletorDeEstado({ rotulo, valor, acao, onEscolher, motivo, estados = ES
   onEscolher: (e: EstadoDoCampo) => void; motivo: (e: EstadoDoCampo) => string
 }) {
   return (
-    <div role={acao ? 'group' : 'radiogroup'} aria-label={rotulo} className="inline-flex shrink-0 overflow-hidden rounded-md border text-[11px]">
+    <div role={acao ? 'group' : 'radiogroup'} aria-label={rotulo} className="inline-flex shrink-0 overflow-hidden rounded-md border text-[length:var(--lista-fonte)]">
       {estados.map((e, i) => {
         const porque = motivo(e)
         const marcado = valor === e
@@ -590,7 +590,7 @@ function SeletorDeEstado({ rotulo, valor, acao, onEscolher, motivo, estados = ES
           <button key={e} type="button" role={acao ? undefined : 'radio'} aria-checked={acao ? undefined : marcado}
             disabled={!!porque && !marcado} title={porque || (acao ? `${ROTULO_DO_ESTADO[e]} em todos` : undefined)}
             onClick={() => { if (!marcado && !porque) onEscolher(e) }}
-            className={cn('px-2 py-1 transition-colors disabled:cursor-not-allowed disabled:opacity-40', i > 0 && 'border-l',
+            className={cn('h-[var(--lista-acao)] px-2 leading-none transition-colors disabled:cursor-not-allowed disabled:opacity-40', i > 0 && 'border-l',
               marcado ? cn('font-semibold', TOM_DO_ESTADO[e]) : 'text-muted-foreground hover:bg-muted')}>
             {ROTULO_DO_ESTADO[e]}
           </button>
