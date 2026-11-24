@@ -88,6 +88,8 @@ export interface ScreenSection {
 
 export interface Screen {
   id: string
+  /** Código gerado pelo sistema (TELA_CTR_001, TELA_PAR_001, TELA_GEN_001); vazio antes de salvar. */
+  code?: string
   name: string
   description?: string | null
   subjectType: ScreenSubject

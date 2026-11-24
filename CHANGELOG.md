@@ -4,9 +4,24 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Código das telas:** cada tela tem um código gerado pelo sistema, com o tipo no prefixo: `TELA_CTR_001` (Contrato), `TELA_PAR_001` (Parceiro) e `TELA_GEN_001` (Genérica). Ele aparece na lista de Telas (a busca também acha por ele), no cadastro da tela e no seletor de telas da atividade. As telas existentes receberam o código na ordem de criação, com as do sistema primeiro.
+- **"Usada em":** a lista de Telas mostra em quais workflows cada tela é usada, e o cadastro da tela lista os workflows e as atividades, com link para o editor. Uma tela usada em workflow não pode ser excluída.
+
 ### Alterado
 
 - **A densidade escolhida (compacta, média ou alta) vale para todas as listas:** além das tabelas, passam a seguir a mesma altura de linha, cabeçalho e fonte as listas do contrato (lançamentos de Pagamentos e Recebimentos, Reajustes realizados, Partes envolvidas, Responsáveis), as prévias de Regras de aviso, os valores dos Índices, os dias do Calendário, as gavetas de configuração das listas de Contratos e Parceiros e as listas de escolha (unidade acima, entidade, pessoa para delegar, tarefas a transferir). O cabeçalho "Ações" de Workflows, Usuários e Processos ganhou o mesmo espaçamento das outras colunas.
+- **Telas com o mesmo nome continuam permitidas:** quem identifica a tela é o código. Ao dar a uma tela o nome de outra do mesmo tipo, o cadastro avisa qual é a outra, para diferenciá-las pelo código na atividade. No editor de workflow, a dica da linha de tela do cartão traz o código de cada tela.
+- **O tipo da tela fica fixo depois de criada.** Para usar a mesma tela em outro tipo, duplique-a.
+- **Configuração de telas mais limpa (opção A do PO, 23/11/2026):**
+  - Cada campo tem um estado só, escolhido num clique: Oculto, Só leitura, Editável ou Obrigatório, no lugar das três colunas Aparece, Pode editar e Obrigatório. Número e Título aparecem como obrigatórios, "exigido pelo sistema".
+  - Saíram a coluna Tipo (fica na dica do nome), os selos Nativo/Personalizado (o personalizado ganha um ponto ao lado do nome), os contadores e os textos de apoio.
+  - Cada seção tem "aplicar a todos"; os blocos do sistema (Partes, Pagamentos, Histórico…) escolhem entre Oculto, Só leitura e Editável. As seções começam fechadas, menos a primeira, e fechadas resumem o que têm ("4 campos · 2 obrigatórios").
+  - A lista segue a densidade escolhida no menu (compacta, média ou alta): altura das linhas, fonte e botões.
+  - Tipo da tela, situação, descrição, tela padrão, somente consulta e "Usada em" ficam em "Sobre a tela". Avisos (tela de consulta, campo obrigatório que ninguém preenche) só aparecem quando existem.
+- **Escolha da tela na atividade:** cada opção mostra o código primeiro, o nome e o modo (Edição ou 🔒 Consulta), também nas telas adicionais. Se a tela escolhida é de consulta e a atividade cria ou edita o contrato, um aviso aparece logo abaixo, sem impedir; o "Antes de ativar" continua recusando a combinação.
+- **Lista de Telas mais limpa:** a descrição saiu da coluna Nome (aparece ao passar o mouse no nome, e a busca continua achando por ela). Nova coluna "Modo", com Edição ou Consulta, e o cadeado da tela do sistema ao lado do código: os nomes ficam alinhados e a lista cabe na tela sem rolar para o lado.
 
 ## [2.2.1] — Boole — 2026-11-22
 

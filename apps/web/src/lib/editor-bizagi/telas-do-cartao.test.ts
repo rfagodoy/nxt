@@ -21,6 +21,11 @@ describe('resumoDasTelas', () => {
     expect(r.texto).toBe('Partes +2')
     expect(r.dica).toBe('1. Partes · consulta\n2. Dados do contrato · editar\n3. Documentos · editar · fechada')
   })
+  it('a dica traz o código de cada tela, quando há', () => {
+    const r = resumoDasTelas({ screenRef: 't1', entityMode: 'EDIT' }, nome, (id) => (id === 't1' ? 'TELA_CTR_003' : undefined))
+    expect(r.dica).toBe('1. Dados do contrato (TELA_CTR_003) · editar')
+    expect(r.texto).toBe('Dados do contrato')
+  })
   it('atividade de consulta: todas em consulta; tela apagada aparece como removida', () => {
     const r = resumoDasTelas({ screenRef: 'x', entityMode: 'VIEW' }, nome)
     expect(r.texto).toBe('Tela removida')

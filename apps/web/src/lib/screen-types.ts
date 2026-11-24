@@ -40,3 +40,9 @@ export function slug(str: string): string {
   return str.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
     .replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
 }
+
+/** Mesmo nome sem diferença de maiúsculas e espaços a mais. */
+export const mesmoNomeDeTela = (a: string, b: string) => {
+  const n = (x: string) => x.trim().replace(/\s+/g, ' ').toLocaleLowerCase('pt-BR')
+  return !!n(a) && n(a) === n(b)
+}

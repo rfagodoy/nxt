@@ -43,12 +43,38 @@ export async function getScreen(id: string): Promise<Screen | null> {
 }
 
 export async function saveScreen(id: string | null, payload: SaveScreenPayload): Promise<Screen | null> {
+  const r = await gravarTela(id, payload)
+  return 'tela' in r ? r.tela : null
+}
+
+/** Grava e devolve a recusa da API pelo texto dela (ex.: nome repetido no tipo). */
+export async function gravarTela(id: string | null, payload: SaveScreenPayload): Promise<{ tela: Screen } | { erro: string }> {
   const res = await apiFetch(id ? `/api/screens/${id}` : '/api/screens', {
     method: id ? 'PUT' : 'POST',
     body: JSON.stringify(payload),
   })
-  if (!res.ok) return null
-  return res.json() as Promise<Screen>
+  if (res.ok) return { tela: (await res.json()) as Screen }
+  const corpo = (await res.json().catch(() => null)) as { message?: string | string[] } | null
+  const msg = Array.isArray(corpo?.message) ? corpo?.message[0] : corpo?.message
+  return { erro: res.status === 409 && msg ? msg : 'Falha ao salvar. Tente novamente.' }
+}
+
+/** Onde cada tela é usada (PO, 23/11/2026): workflows e atividades, por id da tela. */
+export interface UsoDaTela { workflowId: string; workflow: string; status: string; atividades: string[] }
+
+export function useUsoDasTelas() {
+  const [uso, setUso] = useState<Record<string, UsoDaTela[]> | null>(null)
+  useEffect(() => {
+    let vivo = true
+    void apiJson<Record<string, UsoDaTela[]>>('/api/screens/uso').then((d) => { if (vivo) setUso(d ?? {}) })
+    return () => { vivo = false }
+  }, [])
+  return uso
+}
+
+/** "Solicitação de contratos: Preencher, Analisar" — uma linha por workflow. */
+export function dicaDoUso(lista: readonly UsoDaTela[]): string {
+  return lista.map((u) => `${u.workflow}${u.status === 'ARCHIVED' ? ' (inativo)' : u.status === 'DRAFT' ? ' (rascunho)' : ''}: ${u.atividades.join(', ')}`).join('\n')
 }
 
 /** Duplica a tela. A cópia nasce RASCUNHO e referencia os mesmos campos do tipo — o

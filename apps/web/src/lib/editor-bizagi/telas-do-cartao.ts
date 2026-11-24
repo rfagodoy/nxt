@@ -15,14 +15,18 @@ export interface ResumoDasTelas {
 
 type PassoComTelas = Pick<StepFormSchema, 'screenRef' | 'entityMode' | 'extraScreens' | 'posicaoDaPrincipal' | 'principalFechada'>
 
-export function resumoDasTelas(step: PassoComTelas | undefined, nomeDaTela: (id: string) => string | undefined): ResumoDasTelas {
+export function resumoDasTelas(
+  step: PassoComTelas | undefined,
+  nomeDaTela: (id: string) => string | undefined,
+  codigoDaTela: (id: string) => string | undefined = () => undefined,
+): ResumoDasTelas {
   const telas = step ? telasDaTarefa(step) : []
   if (!telas.length) return { texto: 'Sem tela', dica: 'Esta atividade não abre tela', semTela: true }
   const nome = (id: string) => nomeDaTela(id) ?? 'Tela removida'
   const resto = telas.length - 1
   return {
     texto: `${nome(telas[0].screenRef)}${resto > 0 ? ` +${resto}` : ''}`,
-    dica: telas.map((t, i) => `${i + 1}. ${nome(t.screenRef)} · ${t.editavel ? 'editar' : 'consulta'}${t.aberta ? '' : ' · fechada'}`).join('\n'),
+    dica: telas.map((t, i) => `${i + 1}. ${nome(t.screenRef)}${codigoDaTela(t.screenRef) ? ` (${codigoDaTela(t.screenRef)})` : ''} · ${t.editavel ? 'editar' : 'consulta'}${t.aberta ? '' : ' · fechada'}`).join('\n'),
     semTela: false,
   }
 }
