@@ -4,6 +4,18 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Código das telas:** cada tela tem um código gerado pelo sistema, com o tipo no prefixo: `TELA_CTR_001` (Contrato), `TELA_PAR_001` (Parceiro) e `TELA_GEN_001` (Genérica). Ele aparece na lista de Telas (a busca também acha por ele), no cadastro da tela e no seletor de telas da atividade. As telas existentes receberam o código na ordem de criação, com as do sistema primeiro.
+- **"Usada em":** a lista de Telas mostra em quais workflows cada tela é usada, e o cadastro da tela lista os workflows e as atividades, com link para o editor. Uma tela usada em workflow não pode ser excluída.
+
+### Alterado
+
+- **Telas com o mesmo nome continuam permitidas:** quem identifica a tela é o código. Ao dar a uma tela o nome de outra do mesmo tipo, o cadastro avisa qual é a outra, para diferenciá-las pelo código na atividade. No editor de workflow, a dica da linha de tela do cartão traz o código de cada tela.
+- **O tipo da tela fica fixo depois de criada.** Para usar a mesma tela em outro tipo, duplique-a.
+- **Escolha da tela na atividade:** cada opção mostra o código primeiro, o nome e o modo (Edição ou 🔒 Consulta), também nas telas adicionais. Se a tela escolhida é de consulta e a atividade cria ou edita o contrato, um aviso aparece logo abaixo, sem impedir; o "Antes de ativar" continua recusando a combinação.
+- **Lista de Telas mais limpa:** a descrição saiu da coluna Nome (aparece ao passar o mouse no nome, e a busca continua achando por ela). Nova coluna "Modo", com Edição ou Consulta, e o cadeado da tela do sistema ao lado do código: os nomes ficam alinhados e a lista cabe na tela sem rolar para o lado.
+
 ## [2.2.1] — Boole — 2026-11-22
 
 ### Alterado

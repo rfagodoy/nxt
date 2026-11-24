@@ -26,6 +26,12 @@ export class ScreensController {
     return this.service.listScreens(org, subjectType)
   }
 
+  @Get('screens/uso')
+  @ApiOperation({ summary: 'Onde cada Tela é usada: workflows e atividades, por id da tela' })
+  uso(@CurrentOrg() org: string) {
+    return this.service.uso(org)
+  }
+
   @Get('screens/:id')
   @ApiOperation({ summary: 'Lê uma Tela com seções e campos' })
   get(@CurrentOrg() org: string, @Param('id') id: string) {
