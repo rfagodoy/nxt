@@ -4,6 +4,8 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ## [Não lançado]
 
+## [2.3.0] — Boole — 2026-11-23
+
 ### Adicionado
 
 - **Código das telas:** cada tela tem um código gerado pelo sistema, com o tipo no prefixo: `TELA_CTR_001` (Contrato), `TELA_PAR_001` (Parceiro) e `TELA_GEN_001` (Genérica). Ele aparece na lista de Telas (a busca também acha por ele), no cadastro da tela e no seletor de telas da atividade. As telas existentes receberam o código na ordem de criação, com as do sistema primeiro.
