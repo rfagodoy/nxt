@@ -284,7 +284,7 @@ export default function WorkflowsPage() {
                     </button>
                   </th>
                 ))}
-                <th className="text-right px-3 py-1.5 font-medium text-muted-foreground bg-muted whitespace-nowrap">Ações</th>
+                <th className={cn("text-right font-medium text-muted-foreground bg-muted whitespace-nowrap", DENS_CAB)}>Ações</th>
               </tr>
               {filtroCol.ligado && (
                 <LinhaFiltroColuna colunas={visibleCols} valores={filtroCol.valores} onChange={filtroCol.mudar} sobra={1} />

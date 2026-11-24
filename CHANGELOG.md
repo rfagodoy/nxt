@@ -11,6 +11,7 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ### Alterado
 
+- **A densidade escolhida (compacta, média ou alta) vale para todas as listas:** além das tabelas, passam a seguir a mesma altura de linha, cabeçalho e fonte as listas do contrato (lançamentos de Pagamentos e Recebimentos, Reajustes realizados, Partes envolvidas, Responsáveis), as prévias de Regras de aviso, os valores dos Índices, os dias do Calendário, as gavetas de configuração das listas de Contratos e Parceiros e as listas de escolha (unidade acima, entidade, pessoa para delegar, tarefas a transferir). O cabeçalho "Ações" de Workflows, Usuários e Processos ganhou o mesmo espaçamento das outras colunas.
 - **Telas com o mesmo nome continuam permitidas:** quem identifica a tela é o código. Ao dar a uma tela o nome de outra do mesmo tipo, o cadastro avisa qual é a outra, para diferenciá-las pelo código na atividade. No editor de workflow, a dica da linha de tela do cartão traz o código de cada tela.
 - **O tipo da tela fica fixo depois de criada.** Para usar a mesma tela em outro tipo, duplique-a.
 - **Configuração de telas mais limpa (opção A do PO, 23/11/2026):**

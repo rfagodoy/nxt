@@ -370,7 +370,7 @@ export default function ProcessosPage() {
                 ))}
                 {/* Ações fica FORA do sistema de colunas: não é dado (não filtra, não
                     ordena, não exporta) e não deve aparecer em "Colunas visíveis". */}
-                <th className="sticky right-0 z-10 w-0 px-3 py-1.5 bg-muted text-right font-medium text-muted-foreground"><span className="sr-only">Ações</span></th>
+                <th className={cn("sticky right-0 z-10 w-0 bg-muted text-right font-medium text-muted-foreground", DENS_CAB)}><span className="sr-only">Ações</span></th>
               </tr>
               {filtroCol.ligado && (
                 <LinhaFiltroColuna colunas={visibleCols} valores={filtroCol.valores} onChange={filtroCol.mudar} sobra={1} />

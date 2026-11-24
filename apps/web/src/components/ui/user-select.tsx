@@ -14,6 +14,8 @@ interface UserSelectProps {
   /** Ids a esconder da lista (ex.: usuários já escolhidos noutra linha). */
   exclude?: string[]
   className?: string
+  /** Classes do botão (ex.: a altura da densidade, quando o seletor fica dentro de uma linha de lista). */
+  classeDoBotao?: string
   /** Permite limpar a seleção (botão ×). */
   clearable?: boolean
 }
@@ -23,7 +25,7 @@ interface UserSelectProps {
  *  usuários ATIVOS): a organização tem centenas de usuários e um recém-cadastrado
  *  aparece na hora. O nome do valor escolhido vem por ?ids=. */
 export function UserSelect({
-  value, onChange, placeholder = 'Selecionar usuário...', disabled, exclude = [], className, clearable,
+  value, onChange, placeholder = 'Selecionar usuário...', disabled, exclude = [], className, classeDoBotao, clearable,
 }: UserSelectProps) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
@@ -51,6 +53,7 @@ export function UserSelect({
           'flex h-7 w-full items-center justify-between gap-1 rounded-md border border-input bg-background px-2.5 text-xs transition-colors',
           'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
           disabled ? 'opacity-60 cursor-not-allowed' : 'hover:bg-muted/40',
+          classeDoBotao,
         )}
       >
         <span className={cn('truncate', !(value && nomeDe(value)) && 'text-muted-foreground')}>

@@ -447,9 +447,9 @@ export function FieldManagerDrawer({ onClose }: { onClose: () => void }) {
                   {BASE_TABLE_COLUMNS.map(col => {
                     const visible = isColumnVisible(col.key)
                     return (
-                      <div key={col.key} className="flex items-center gap-2 px-3 py-2.5">
+                      <div key={col.key} className="flex items-center gap-2 min-h-[var(--lista-linha)] px-[var(--lista-px)] py-[var(--lista-py)] text-[length:var(--lista-fonte)] leading-[var(--lista-lh)]">
                         <div className="flex-1 min-w-0 flex items-center gap-2">
-                          <p className="text-xs font-medium truncate">{col.label}</p>
+                          <p className="font-medium truncate">{col.label}</p>
                           <PadraoPill />
                         </div>
                         <VisBadge char="T" active={visible} fixed={false}
@@ -475,9 +475,9 @@ export function FieldManagerDrawer({ onClose }: { onClose: () => void }) {
                         const inTable = isVisibleInTable(nf.key)
                         const coreT   = CORE_TABLE_KEYS.has(nf.key)
                         return (
-                          <div key={nf.key} className="flex items-center gap-2 px-3 py-2.5">
+                          <div key={nf.key} className="flex items-center gap-2 min-h-[var(--lista-linha)] px-[var(--lista-px)] py-[var(--lista-py)] text-[length:var(--lista-fonte)] leading-[var(--lista-lh)]">
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs font-medium truncate">{nf.label}</p>
+                              <p className="font-medium truncate">{nf.label}</p>
                               {nf.hint && <p className="text-[11px] text-muted-foreground">{nf.hint}</p>}
                             </div>
                             <VisBadge char="F" active={inForm}  fixed={false} title={inForm  ? 'Ocultar do formulário' : 'Exibir no formulário'}
@@ -497,9 +497,9 @@ export function FieldManagerDrawer({ onClose }: { onClose: () => void }) {
                         const nextVisible = (f: boolean, t: boolean) =>
                           f && t ? 'both' : t ? 'table' : f ? 'form' : 'none'
                         return (
-                          <div key={field.id} className="flex items-center gap-2 px-3 py-2.5 group/row">
+                          <div key={field.id} className="flex items-center gap-2 min-h-[var(--lista-linha)] px-[var(--lista-px)] py-[var(--lista-py)] text-[length:var(--lista-fonte)] leading-[var(--lista-lh)] group/row">
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs font-medium truncate">{field.label}</p>
+                              <p className="font-medium truncate">{field.label}</p>
                               <p className="text-[11px] text-muted-foreground">
                                 {TYPE_LABEL[field.type]}
                                 {field.maxLength ? ` · máx ${field.maxLength}` : ''}
@@ -569,7 +569,7 @@ export function FieldManagerDrawer({ onClose }: { onClose: () => void }) {
                           onDrop={() => handleSectionDrop(idx)}
                           onDragEnd={clearDrag}
                           className={cn(
-                            'flex items-center gap-2 px-3 py-2.5 group/row transition-all select-none',
+                            'flex items-center gap-2 min-h-[var(--lista-linha)] px-[var(--lista-px)] py-[var(--lista-py)] text-[length:var(--lista-fonte)] leading-[var(--lista-lh)] group/row transition-all select-none',
                             dragFrom === idx && 'opacity-40',
                             dragOver === idx && dragOver !== dragFrom && 'border-l-2 border-primary bg-primary/5',
                           )}>
@@ -585,7 +585,7 @@ export function FieldManagerDrawer({ onClose }: { onClose: () => void }) {
                             </div>
                           ) : (
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs font-medium truncate">{label}</p>
+                              <p className="font-medium truncate">{label}</p>
                               {isNative && <p className="text-[11px] text-muted-foreground">{nativeSubtitle}</p>}
                             </div>
                           )}
@@ -812,9 +812,9 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
                   {baseColumns.map(col => {
                     const visible = isColumnVisible(col.key)
                     return (
-                      <div key={col.key} className="flex items-center gap-2 px-3 py-2.5">
+                      <div key={col.key} className="flex items-center gap-2 min-h-[var(--lista-linha)] px-[var(--lista-px)] py-[var(--lista-py)] text-[length:var(--lista-fonte)] leading-[var(--lista-lh)]">
                         <div className="flex-1 min-w-0 flex items-center gap-2">
-                          <p className="text-xs font-medium truncate">{col.label}</p>
+                          <p className="font-medium truncate">{col.label}</p>
                           <PadraoPill />
                         </div>
                         <EyeToggle visible={visible}
@@ -827,9 +827,9 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
                   {nativeFields.map(nf => {
                     const inTable = isVisibleInTable(nf.key)
                     return (
-                      <div key={nf.key} className="flex items-center gap-2 px-3 py-2.5">
+                      <div key={nf.key} className="flex items-center gap-2 min-h-[var(--lista-linha)] px-[var(--lista-px)] py-[var(--lista-py)] text-[length:var(--lista-fonte)] leading-[var(--lista-lh)]">
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium truncate">{nf.label}</p>
+                          <p className="font-medium truncate">{nf.label}</p>
                           {nf.hint && <p className="text-[11px] text-muted-foreground">{nf.hint}</p>}
                         </div>
                         <EyeToggle visible={inTable} title={inTable ? 'Remover da tabela' : 'Adicionar na tabela'}
@@ -844,9 +844,9 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
                     const nextVisible = (f: boolean, t: boolean) =>
                       f && t ? 'both' : t ? 'table' : f ? 'form' : 'none'
                     return (
-                      <div key={field.id} className="flex items-center gap-2 px-3 py-2.5">
+                      <div key={field.id} className="flex items-center gap-2 min-h-[var(--lista-linha)] px-[var(--lista-px)] py-[var(--lista-py)] text-[length:var(--lista-fonte)] leading-[var(--lista-lh)]">
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium truncate">{field.label}</p>
+                          <p className="font-medium truncate">{field.label}</p>
                           <p className="text-[11px] text-muted-foreground">
                             {TYPE_LABEL[field.type]}
                             {field.maxLength ? ` · máx ${field.maxLength}` : ''}
@@ -880,9 +880,9 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
                     {gfields.map(f => {
                       const inTable = isVisibleInTable(f.id)
                       return (
-                        <div key={f.id} className="flex items-center gap-2 px-3 py-2.5">
+                        <div key={f.id} className="flex items-center gap-2 min-h-[var(--lista-linha)] px-[var(--lista-px)] py-[var(--lista-py)] text-[length:var(--lista-fonte)] leading-[var(--lista-lh)]">
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium truncate">{f.label}</p>
+                            <p className="font-medium truncate">{f.label}</p>
                             <p className="text-[11px] text-muted-foreground">
                               {FIELD_TYPE_LABELS[f.type]}
                               {f.options?.length ? ` · ${f.options.length} opções` : ''}

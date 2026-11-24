@@ -106,10 +106,10 @@ export function EntitySearchModal({ origem, empresas, excludeIds, somente, onSel
 
           {!isUnidade && empresasFiltered.map(e => (
             <button key={`emp_${e.id}`} type="button" onClick={() => onSelect({ ref_tipo: 'EMPRESA', ref_id: e.id, nome: e.nome, documento: e.documento })}
-              className="w-full flex items-center justify-between gap-2 px-4 py-2.5 hover:bg-muted transition-colors text-left">
+              className="w-full flex items-center justify-between gap-2 min-h-[var(--lista-linha)] px-[var(--lista-px)] py-[var(--lista-py)] text-[length:var(--lista-fonte)] leading-[var(--lista-lh)] hover:bg-muted transition-colors text-left">
               <span className="min-w-0 flex items-center gap-2">
                 <span className="rounded px-1.5 py-0.5 text-[9px] font-medium bg-primary/10 text-primary shrink-0">Empresa do grupo</span>
-                <span className="text-xs font-medium truncate">{e.nome}</span>
+                <span className="font-medium truncate">{e.nome}</span>
               </span>
               <span className="text-[10px] text-muted-foreground shrink-0">{e.documento}</span>
             </button>
@@ -117,10 +117,10 @@ export function EntitySearchModal({ origem, empresas, excludeIds, somente, onSel
 
           {!isUnidade && parceirosShown.map(p => (
             <button key={`par_${p.id}`} type="button" onClick={() => onSelect({ ref_tipo: 'PARCEIRO', ref_id: p.id, nome: p.nome, documento: p.documento })}
-              className="w-full flex items-center justify-between gap-2 px-4 py-2.5 hover:bg-muted transition-colors text-left">
+              className="w-full flex items-center justify-between gap-2 min-h-[var(--lista-linha)] px-[var(--lista-px)] py-[var(--lista-py)] text-[length:var(--lista-fonte)] leading-[var(--lista-lh)] hover:bg-muted transition-colors text-left">
               <span className="min-w-0 flex items-center gap-2">
                 <span className="rounded px-1.5 py-0.5 text-[9px] font-medium bg-muted text-muted-foreground shrink-0">Parceiro</span>
-                <span className="text-xs font-medium truncate">{p.nome}</span>
+                <span className="font-medium truncate">{p.nome}</span>
               </span>
               <span className="text-[10px] text-muted-foreground shrink-0">{p.documento}</span>
             </button>
@@ -128,8 +128,8 @@ export function EntitySearchModal({ origem, empresas, excludeIds, somente, onSel
 
           {isUnidade && unidadesShown.map(u => (
             <button key={`un_${u.id}`} type="button" onClick={() => onSelect({ ref_tipo: 'UNIDADE', ref_id: u.id, nome: u.nome, documento: u.documento })}
-              className="w-full flex items-center justify-between gap-2 px-4 py-2.5 hover:bg-muted transition-colors text-left">
-              <span className="min-w-0 truncate"><span className="text-xs font-medium">{u.nome}</span>{u.empresa && <span className="text-[10px] text-muted-foreground ml-1.5">· {u.empresa}</span>}</span>
+              className="w-full flex items-center justify-between gap-2 min-h-[var(--lista-linha)] px-[var(--lista-px)] py-[var(--lista-py)] text-[length:var(--lista-fonte)] leading-[var(--lista-lh)] hover:bg-muted transition-colors text-left">
+              <span className="min-w-0 truncate"><span className="font-medium">{u.nome}</span>{u.empresa && <span className="text-[10px] text-muted-foreground ml-1.5">· {u.empresa}</span>}</span>
               {u.codigo && <span className="font-mono text-[10px] text-muted-foreground shrink-0">{u.codigo}</span>}
             </button>
           ))}

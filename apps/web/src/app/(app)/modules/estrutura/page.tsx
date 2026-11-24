@@ -316,7 +316,7 @@ function MoveUnitModal({ unit, typeMap, onDone, onClose }: {
 
       <div className="rounded-md border divide-y max-h-64 overflow-auto">
         <button type="button" onClick={() => setSel(null)}
-          className={cn('w-full text-left px-3 py-2 text-xs transition-colors hover:bg-muted/60 flex items-center justify-between gap-2',
+          className={cn('w-full text-left min-h-[var(--lista-linha)] px-[var(--lista-px)] py-[var(--lista-py)] text-[length:var(--lista-fonte)] leading-[var(--lista-lh)] transition-colors hover:bg-muted/60 flex items-center justify-between gap-2',
             sel === null && 'bg-primary/10')}>
           <span className="flex items-center gap-1.5"><Network className="h-3.5 w-3.5 text-muted-foreground" />Raiz — sem unidade acima</span>
           {paiAtual === null && <span className="text-[10px] text-muted-foreground shrink-0">atual</span>}
@@ -332,7 +332,7 @@ function MoveUnitModal({ unit, typeMap, onDone, onClose }: {
           const view = unitTypeView(typeMap, a.natureza)
           return (
             <button key={a.id} type="button" onClick={() => setSel(a.id)}
-              className={cn('w-full text-left px-3 py-2 text-xs transition-colors hover:bg-muted/60 flex items-center justify-between gap-2',
+              className={cn('w-full text-left min-h-[var(--lista-linha)] px-[var(--lista-px)] py-[var(--lista-py)] text-[length:var(--lista-fonte)] leading-[var(--lista-lh)] transition-colors hover:bg-muted/60 flex items-center justify-between gap-2',
                 sel === a.id && 'bg-primary/10')}>
               <span className="flex items-center gap-1.5 min-w-0">
                 <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', view.dot)} />

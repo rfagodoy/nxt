@@ -7,6 +7,8 @@ import { apiFetch } from '@/lib/http'
 import { useLookupTable, type LookupEntry } from '@/hooks/use-lookup-table'
 import { useIndiceValores } from '@/hooks/use-indice-valores'
 import { INDICES_KEY, INIT_INDICES, BCB_INDICES, normIndiceLabel } from '@/lib/contract-options'
+import { DENS_LINHA, DENS_CAB_LINHA } from '@/lib/densidade'
+import { cn } from '@/lib/utils'
 
 const inputCls = 'flex h-8 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
 const fmtComp = (yyyymm: string) => { const [y, m] = yyyymm.split('-'); return m && y ? `${m}/${y}` : yyyymm }
@@ -201,14 +203,14 @@ function IndiceValoresManager() {
             <p className="text-xs text-muted-foreground">Nenhum valor cadastrado para {indice.label}.</p>
           ) : (
             <div className="rounded-md border overflow-hidden max-w-sm">
-              <div className="grid grid-cols-[1fr_1fr_2rem] items-center gap-2 px-3 py-1.5 bg-muted/40 border-b text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <div className={cn("grid grid-cols-[1fr_1fr_2rem] items-center gap-2 border-b", DENS_CAB_LINHA, "font-medium text-muted-foreground bg-muted")}>
                 <span>Competência</span><span>Percentual</span><span />
               </div>
               <div className="divide-y divide-border/50 max-h-80 overflow-y-auto">
                 {linhas.map(([comp, pct]) => (
-                  <div key={comp} className="group grid grid-cols-[1fr_1fr_2rem] items-center gap-2 px-3 py-1.5 hover:bg-muted/30">
-                    <span className="text-xs font-medium tabular-nums">{fmtComp(comp)}</span>
-                    <span className="text-xs tabular-nums">{String(pct).replace('.', ',')}%</span>
+                  <div key={comp} className={cn("group grid grid-cols-[1fr_1fr_2rem] items-center gap-2 hover:bg-muted/30", DENS_LINHA)}>
+                    <span className="font-medium tabular-nums">{fmtComp(comp)}</span>
+                    <span className="tabular-nums">{String(pct).replace('.', ',')}%</span>
                     <button type="button" onClick={() => store.removeValor(indiceId, comp)} title="Remover"
                       className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>
                   </div>
