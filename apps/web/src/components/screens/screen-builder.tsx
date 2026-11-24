@@ -5,7 +5,7 @@ import { FloatingMenu } from '@/components/ui/floating-menu'
 import { useRouter } from 'next/navigation'
 import {
   ChevronLeft, Plus, Pencil, Trash2, ChevronUp, ChevronDown, Check, X,
-  MoreHorizontal, Star, Lock, Eye, Rows3, AlertTriangle,
+  MoreHorizontal, Star, Lock, Eye, AlertTriangle, Settings2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import Link from 'next/link'
@@ -24,6 +24,7 @@ import { nativoObrigatorioConfiguravel } from '@/lib/campos-obrigatorios'
 import { ScreenRenderer } from './screen-renderer'
 import { ScreenFieldEditor } from './screen-field-editor'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { ESTADOS, ROTULO_DO_ESTADO, aplicarEstado, estadoDoCampo, type EstadoDoCampo } from '@/lib/estado-do-campo'
 
 const ALL_CATEGORIES = PARTNER_CATEGORIES.map(c => c.value)
 
@@ -71,25 +72,6 @@ function Switch({ on, onClick, title, sm }: { on: boolean; onClick: () => void; 
   )
 }
 
-/* Célula da matriz: quadradinho marcado / desmarcado / "parte sim, parte não".
-   `half` só existe na linha da SEÇÃO — é o resumo dos campos dela. */
-function Marca({ on, half, onClick, title, disabled, tone = 'primary' }: {
-  on: boolean; half?: boolean; onClick: () => void; title?: string; disabled?: boolean; tone?: 'primary' | 'amber'
-}) {
-  return (
-    <button type="button" role="checkbox" aria-checked={half ? 'mixed' : on} onClick={() => { if (!disabled) onClick() }}
-      disabled={disabled} title={title} aria-label={title}
-      className={cn('inline-flex h-4 w-4 items-center justify-center rounded border transition-colors',
-        on || half ? 'border-primary/50 bg-primary/10 text-primary'
-                   : 'border-input bg-background hover:bg-muted',
-        disabled && 'cursor-not-allowed opacity-50')}>
-      {half ? <span className="h-[1.5px] w-2 rounded-full bg-primary" />
-        : on ? <Check className="h-3 w-3" />
-          : tone === 'amber' ? <Lock className="h-2.5 w-2.5 text-amber-600 dark:text-amber-400" /> : null}
-    </button>
-  )
-}
-
 const blank = (subjectType: ScreenSubject): Screen => {
   const seed = buildNativeSeed(subjectType)
   return { id: '', name: '', description: '', subjectType, status: 'DRAFT', isDefault: false, ...seed }
@@ -100,7 +82,12 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
   const [screen, setScreen] = useState<Screen>(initial ? normalizePartner(reconcileNative(initial)) : blank('FORNECEDOR'))
   const [mode, setMode] = useState<'config' | 'preview'>('config')
   const [cat, setCat] = useState<PartnerCategory>('PJ_BR')  // tipo em edição (Fornecedor)
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  /* As seções começam fechadas, menos a primeira (opção A do PO): fechada, a seção resume o que tem. */
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    const ordem = [...(initial?.sections ?? [])].sort((a, b) => a.order - b.order)
+    return new Set(ordem.slice(1).map(sec => sec.id))
+  })
+  const [sobre, setSobre] = useState(false)
   const [editingField, setEditingField] = useState<ScreenField | null>(null)
   const [addingToSection, setAddingToSection] = useState<string | null>(null)
   const [addingSection, setAddingSection] = useState(false)
@@ -125,19 +112,11 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
   const sections = [...screen.sections].sort((a, b) => a.order - b.order)
   const fieldsOf = (sid: string) => screen.fields.filter(f => f.sectionId === sid).sort((a, b) => a.order - b.order)
 
-  const nNative = screen.fields.filter(f => f.source === 'NATIVE').length
-  const nCustom = screen.fields.filter(f => f.source === 'CUSTOM').length
-  // ocultos: por tipo (Fornecedor, considera só o que se aplica ao tipo) ou global (demais)
-  const nHidden = screen.subjectType === 'FORNECEDOR'
-    ? screen.fields.filter(f => fieldAppliesTo(f, cat) && !fieldVisibleFor(f, cat)).length
-    : screen.fields.filter(f => f.visible === false).length
-
   /* Piso vindo de CIMA (tela ou seção): ali o campo não decide sozinho.
      Declarado ANTES do primeiro uso de propósito — `const` não sofre hoisting. */
   const secLocked = (sid?: string) => !!screen.readOnly || (!!sid && !!screen.sections.find(x => x.id === sid)?.locked)
   const isTravado = (f: ScreenField) => secLocked(f.sectionId) || !!f.locked
 
-  const nLocked = screen.fields.filter(f => isTravado(f)).length
   /* obrigatório E travado: ninguém consegue preencher (não impede salvar; é acusado) */
   const pendencias = pendenciasDeTrava(screen)
 
@@ -182,7 +161,6 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
     patch({ sections: arr.map((s, i) => ({ ...s, order: i })) })
   }
   const toggleDefaultOpen = (sid: string) => patch({ sections: screen.sections.map(s => s.id === sid ? { ...s, defaultOpen: !s.defaultOpen } : s) })
-  const toggleSectionVisible = (sid: string) => patch({ sections: screen.sections.map(s => s.id === sid ? { ...s, visible: s.visible === false } : s) })
 
   /* campos */
   const upsertField = (field: ScreenField) => {
@@ -192,71 +170,59 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
     setEditingField(null); setAddingToSection(null)
   }
   const removeField = (id: string) => patch({ fields: screen.fields.filter(f => f.id !== id) })
-  const toggleFieldVisible = (id: string) => patch({ fields: screen.fields.map(f => f.id === id ? { ...f, visible: f.visible === false } : f) })
-  /* liga/desliga todos os campos de uma seção de uma vez */
-  const setSectionFields = (sid: string, visible: boolean) => patch({ fields: screen.fields.map(f => f.sectionId === sid ? { ...f, visible } : f) })
-
-  /* ── trava de edição (campo a campo) ──
-     A trava é GLOBAL do campo, não por tipo de parceiro: "quem pode alterar" não muda
-     com o tipo, e uma segunda dimensão aqui dobraria a configuração sem caso de uso. */
-  const toggleFieldLocked = (id: string) =>
-    patch({ fields: screen.fields.map(f => f.id === id ? { ...f, locked: !f.locked } : f) })
-  /* A seção é uma camada, não um atalho: `locked` é propriedade DELA e vira o piso dos
-     seus campos. Antes isto gravava campo a campo — o que não sobrevivia a um campo novo
-     criado depois na mesma seção. */
-  const toggleSectionLocked = (sid: string) =>
-    patch({ sections: screen.sections.map(sec => sec.id === sid ? { ...sec, locked: !sec.locked } : sec) })
-  /* obrigatoriedade pela Lista: por TIPO no Fornecedor, global nas demais telas */
-  const toggleFieldRequired = (id: string) => patch({ fields: screen.fields.map(f => {
-    if (f.id !== id) return f
-    if (!isPartner) return { ...f, required: !f.required }
-    const req = new Set(f.requiredCategories ?? (f.required ? ALL_CATEGORIES : []))
-    requiredFor(f, cat) ? req.delete(cat) : req.add(cat)
-    return { ...f, required: req.size > 0, requiredCategories: [...req] }
-  }) })
 
   /* A marca "Obrigatório" vale para os personalizados e para os nativos do Contrato que a
      aceitam (regra em obrigatorios.ts). Nos demais nativos, quem define é o sistema. */
   const aceitaObrigatorio = (f: ScreenField) => f.source === 'CUSTOM' || nativoObrigatorioConfiguravel(screen.subjectType, f.nativeKey ?? '')
 
-  /* Obrigatoriedade da SEÇÃO inteira: não é propriedade da seção, é um atalho sobre os
-     campos dela que aceitam a marca. */
-  const setSectionRequired = (sid: string, req: boolean) => patch({ fields: screen.fields.map(f => {
-    if (f.sectionId !== sid || !aceitaObrigatorio(f)) return f
-    if (!isPartner) return { ...f, required: req }
-    if (!fieldAppliesTo(f, cat)) return f
-    const set = new Set(f.requiredCategories ?? (f.required ? ALL_CATEGORIES : []))
-    req ? set.add(cat) : set.delete(cat)
-    return { ...f, required: set.size > 0, requiredCategories: [...set] }
-  }) })
-
-  /* ── visibilidade POR TIPO (Fornecedor) ── */
+  /* ── visibilidade e obrigatório POR TIPO (Fornecedor); a trava é do campo inteiro ── */
   const isPartner = screen.subjectType === 'FORNECEDOR'
-  const setFieldHiddenFor = (id: string, category: PartnerCategory, hidden: boolean) =>
-    patch({ fields: screen.fields.map(f => {
-      if (f.id !== id) return f
-      const hc = new Set(f.hiddenCategories ?? [])
-      hidden ? hc.add(category) : hc.delete(category)
-      return { ...f, visible: true, hiddenCategories: [...hc] }
-    }) })
-  const toggleFieldCategory = (id: string, category: PartnerCategory) => {
-    const f = screen.fields.find(x => x.id === id)
-    // alterna: novo "oculto" = visibilidade ATUAL (visível → oculta; oculto → mostra)
-    setFieldHiddenFor(id, category, Boolean(f && fieldVisibleFor(f, category)))
-  }
-  const setSectionCategoryFields = (sid: string, category: PartnerCategory, visible: boolean) =>
-    patch({ fields: screen.fields.map(f =>
-      (f.sectionId === sid && fieldAppliesTo(f, category)) ? { ...f, visible: true, hiddenCategories: visible
-        ? (f.hiddenCategories ?? []).filter(c => c !== category)
-        : Array.from(new Set([...(f.hiddenCategories ?? []), category])) } : f) })
-
-  /* resolvedores usados na matriz: por tipo (Fornecedor) ou globais (demais telas) */
   const blockKeys     = blockKeysOf(screen.subjectType)
   const fieldRequired = (f: ScreenField) => isPartner ? requiredFor(f, cat) : f.required
   const fieldApplies  = (f: ScreenField) => isPartner ? fieldAppliesTo(f, cat) : true
   const fieldVisible  = (f: ScreenField) => isPartner ? fieldVisibleFor(f, cat) : f.visible !== false
-  const toggleField   = (f: ScreenField) => isPartner ? toggleFieldCategory(f.id, cat) : toggleFieldVisible(f.id)
-  const setSectionVis = (sid: string, vis: boolean) => isPartner ? setSectionCategoryFields(sid, cat, vis) : setSectionFields(sid, vis)
+
+  /* ── o estado de cada campo (opção A do PO, 23/11/2026) ── */
+  const parceiroCtx = isPartner ? { cat, todas: ALL_CATEGORIES } : undefined
+  /* Número e Título o sistema exige em toda gravação de contrato (obrigatorios.ts). */
+  const exigidoPeloSistema = (f: ScreenField) => screen.subjectType === 'CONTRATO' && (f.nativeKey === 'numero' || f.nativeKey === 'titulo')
+  const obrigatorioDe = (f: ScreenField) => fieldRequired(f) || exigidoPeloSistema(f)
+  const estadoDe = (f: ScreenField) => estadoDoCampo(fieldVisible(f), isTravado(f), obrigatorioDe(f))
+  const comEstado = (f: ScreenField, e: EstadoDoCampo) =>
+    aplicarEstado(f, e === 'OBRIGATORIO' && !aceitaObrigatorio(f) && !fieldRequired(f) ? 'EDITAVEL' : e,
+      { aceitaObrigatorio: aceitaObrigatorio(f), parceiro: parceiroCtx })
+  const setEstado = (f: ScreenField, e: EstadoDoCampo) => patch({ fields: screen.fields.map(x => x.id === f.id ? comEstado(x, e) : x) })
+  /* "Aplicar a todos" da seção: solta as camadas de cima (seção oculta ou travada) e grava
+     o estado em cada campo — assim nada fica preso num piso que a lista não mostra. */
+  const aplicarNaSecao = (sid: string, e: EstadoDoCampo) => patch({
+    sections: screen.sections.map(sec => sec.id === sid ? { ...sec, visible: true, locked: false } : sec),
+    fields: screen.fields.map(x => x.sectionId === sid && fieldApplies(x) ? comEstado(x, e) : x),
+  })
+  /* Bloco do sistema (Partes, Pagamentos…): o estado é da seção inteira. */
+  const estadoDoBloco = (s: ScreenSection): EstadoDoCampo => s.visible === false ? 'OCULTO' : (s.locked || screen.readOnly) ? 'LEITURA' : 'EDITAVEL'
+  const setEstadoDoBloco = (sid: string, e: EstadoDoCampo) =>
+    patch({ sections: screen.sections.map(sec => sec.id === sid ? { ...sec, visible: e !== 'OCULTO', locked: e === 'LEITURA' } : sec) })
+  /** Por que uma opção não vale para o campo (vazio = vale). */
+  const motivoDoEstado = (f: ScreenField, e: EstadoDoCampo): string => {
+    if (e === 'EDITAVEL' || e === 'OBRIGATORIO') {
+      if (screen.readOnly) return 'A tela inteira é somente consulta (em Sobre a tela)'
+      if (secLocked(f.sectionId)) return 'A seção está só leitura: use "aplicar a todos" na seção'
+    }
+    if (!aceitaObrigatorio(f)) {
+      if (e === 'OBRIGATORIO' && !obrigatorioDe(f)) return 'A obrigatoriedade deste campo é definida pelo sistema'
+      if (e === 'EDITAVEL' && obrigatorioDe(f)) return 'O sistema exige este campo'
+    }
+    return ''
+  }
+  const resumoDaSecao = (campos: ScreenField[]) => {
+    const n = (e: EstadoDoCampo) => campos.filter(f => estadoDe(f) === e).length
+    const partes = [`${campos.length} ${campos.length === 1 ? 'campo' : 'campos'}`]
+    if (n('OBRIGATORIO')) partes.push(`${n('OBRIGATORIO')} ${n('OBRIGATORIO') === 1 ? 'obrigatório' : 'obrigatórios'}`)
+    if (n('LEITURA')) partes.push(`${n('LEITURA')} só leitura`)
+    if (n('OCULTO')) partes.push(`${n('OCULTO')} ${n('OCULTO') === 1 ? 'oculto' : 'ocultos'}`)
+    return partes.join(' · ')
+  }
+  const primeiraSecaoDeCampos = sections.find(s => !(s.source === 'NATIVE' && s.nativeKey && blockKeys.has(s.nativeKey)))
 
   /* salvar */
   const handleSave = async () => {
@@ -270,41 +236,38 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
     router.push('/settings/telas')
   }
 
-  return (
-    <div className="max-w-[1240px] mx-auto pb-16">
+  const nomeDaCategoria = PARTNER_CATEGORIES.find(c => c.value === cat)?.label
 
-      {/* ── barra fixa: título editável + padrão + modo + salvar ── */}
+  return (
+    <div className="max-w-[1100px] mx-auto pb-16">
+
+      {/* ── topo: nome, o essencial numa linha, e três ações ── */}
       <div className="glass-panel sticky top-0 z-30 mb-4 border-b">
-        <div className="flex items-center gap-3 py-2.5">
-          <button onClick={() => router.push('/settings/telas')} title="Voltar" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+        <div className="flex flex-wrap items-center gap-3 py-2.5">
+          <button onClick={() => router.push('/settings/telas')} title="Voltar" aria-label="Voltar para Telas" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
             <ChevronLeft className="h-4 w-4" />
           </button>
           <div className="min-w-0 flex-1">
-            <input value={screen.name} onChange={e => { patch({ name: e.target.value }); setErr('') }} placeholder="Nome da tela"
+            <input value={screen.name} onChange={e => { patch({ name: e.target.value }); setErr('') }} placeholder="Nome da tela" aria-label="Nome da tela"
               className="w-full max-w-[560px] rounded-md bg-transparent px-1 -mx-1 text-[15px] font-bold tracking-tight outline-none hover:bg-muted/50 focus:bg-card focus:ring-1 focus:ring-ring transition-colors" />
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              {screen.code ? <span className="mr-1 font-mono text-foreground/80" title="Código da tela, gerado pelo sistema">{screen.code} ·</span> : null}
-              {screen.id ? 'Editando a tela' : 'Nova tela, o código é gerado ao salvar'} — marque o que aparece, o que pode ser alterado e o que é obrigatório
+              {screen.code ? <span className="font-mono text-foreground/80" title="Código da tela, gerado pelo sistema">{screen.code} · </span> : null}
+              {SUBJECT_LABELS[screen.subjectType]} · {STATUS_LABELS[isSystemScreen ? 'ACTIVE' : screen.status]}
+              {screen.isDefault ? ' · padrão' : ''}
+              {screen.readOnly ? ' · somente consulta' : ''}
+              {screen.id ? <> · <ResumoDoUso telaId={screen.id} /></> : ' · o código é gerado ao salvar'}
             </p>
             <AvisoDeNomeRepetido telaId={screen.id} nome={screen.name} subjectType={screen.subjectType} />
           </div>
 
-          <button onClick={() => { if (!defaultLocked) patch({ isDefault: !screen.isDefault }) }} disabled={defaultLocked}
-            title={isSystemScreen ? 'Tela base do sistema — sempre padrão e ativa'
-              : defaultLocked ? 'A tela padrão deste tipo é a base do sistema. Crie uma tela não-padrão para variações (atribuídas por perfil/etapa).'
-              : undefined}
-            className={cn('inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors shrink-0',
-              screen.isDefault ? 'border-primary/40 bg-primary/10 text-primary' : 'border-input text-muted-foreground hover:bg-muted',
-              defaultLocked && 'cursor-not-allowed opacity-90')}>
-            {isSystemScreen && <Lock className="h-3 w-3" />}
-            <Star className={cn('h-3.5 w-3.5', screen.isDefault && 'fill-primary')} />{screen.isDefault ? 'Tela padrão' : 'Tornar padrão'}
+          <button onClick={() => setSobre(true)} aria-haspopup="dialog"
+            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold hover:bg-muted transition-colors shrink-0">
+            <Settings2 className="h-3.5 w-3.5" />Sobre a tela
           </button>
 
-          <div className="inline-flex rounded-lg border overflow-hidden text-xs font-semibold shrink-0">
-            <button onClick={() => setMode('config')} className={cn('px-3 py-1.5 flex items-center gap-1.5 transition-colors', mode === 'config' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted')}>
-              <Rows3 className="h-3.5 w-3.5" />Configuração
-            </button>
-            <button onClick={() => setMode('preview')} className={cn('px-3 py-1.5 flex items-center gap-1.5 border-l transition-colors', mode === 'preview' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted')}>
+          <div role="tablist" aria-label="Modo" className="inline-flex rounded-lg border overflow-hidden text-xs font-semibold shrink-0">
+            <button role="tab" aria-selected={mode === 'config'} onClick={() => setMode('config')} className={cn('px-3 py-1.5 transition-colors', mode === 'config' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted')}>Campos</button>
+            <button role="tab" aria-selected={mode === 'preview'} onClick={() => setMode('preview')} className={cn('px-3 py-1.5 flex items-center gap-1.5 border-l transition-colors', mode === 'preview' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted')}>
               <Eye className="h-3.5 w-3.5" />Prévia
             </button>
           </div>
@@ -317,377 +280,227 @@ export function ScreenBuilder({ initial }: { initial?: Screen }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[236px_1fr] gap-5 items-start">
-
-        {/* ── trilho lateral ── */}
-        <aside className="lg:sticky lg:top-[68px] space-y-3.5">
-          {/* configurações da tela */}
-          <div className="rounded-xl border bg-card shadow-sm p-3 space-y-2.5">
-            <p className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">Configurações da tela</p>
-            <div className="space-y-1">
-              <label className="text-[11px] font-medium text-muted-foreground">Aplica-se a</label>
-              {/* tipo fixo depois de criada (PO, 23/11/2026): o código carrega o tipo */}
-              <select value={screen.subjectType} onChange={e => changeSubject(e.target.value as ScreenSubject)} disabled={!!screen.isSystem || !!screen.id}
-                className={cn(inputCls, 'h-8', (screen.isSystem || screen.id) && 'opacity-60 cursor-not-allowed')}>
-                {(Object.keys(SUBJECT_LABELS) as ScreenSubject[]).map(v => <option key={v} value={v}>{SUBJECT_LABELS[v]}</option>)}
-              </select>
-              {screen.id && !screen.isSystem && <p className="text-[10px] text-muted-foreground leading-snug">Fixo depois de criada. Para outro tipo, duplique a tela na lista.</p>}
-            </div>
-            <div className="space-y-1">
-              <label className="text-[11px] font-medium text-muted-foreground">Situação</label>
-              <select value={isSystemScreen ? 'ACTIVE' : screen.status} onChange={e => patch({ status: e.target.value as ScreenStatus })}
-                disabled={isSystemScreen} className={cn(inputCls, 'h-8', isSystemScreen && 'opacity-60 cursor-not-allowed')}>
-                {(Object.keys(STATUS_LABELS) as ScreenStatus[]).map(v => <option key={v} value={v}>{STATUS_LABELS[v]}</option>)}
-              </select>
-              {isSystemScreen && <p className="text-[10px] text-muted-foreground flex items-center gap-1"><Lock className="h-2.5 w-2.5" />Tela base do sistema — sempre ativa e padrão.</p>}
-            </div>
-            <div className="space-y-1">
-              <label className="text-[11px] font-medium text-muted-foreground">Descrição</label>
-              <input value={screen.description ?? ''} onChange={e => patch({ description: e.target.value })} placeholder="Opcional" className={cn(inputCls, 'h-8')} />
-            </div>
-
-            {/* Somente consulta: trava a tela INTEIRA. É o piso — a atividade do
-                workflow pode travar mais campos, nunca menos. */}
-            <div className="pt-1 border-t space-y-1">
-              <div className="flex items-center justify-between gap-2">
-                <label className="text-[11px] font-medium text-foreground flex items-center gap-1.5">
-                  <Lock className="h-3 w-3 text-amber-600 dark:text-amber-400" />Somente consulta
-                </label>
-                <Switch on={!!screen.readOnly} onClick={() => patch({ readOnly: !screen.readOnly })} sm
-                  title={screen.readOnly ? 'Tela em consulta — nenhum campo é editável' : 'Tela permite alterações'} />
-              </div>
-              <p className="text-[10px] text-muted-foreground leading-snug">
-                {screen.readOnly
-                  ? 'Nenhum campo é editável e nada é gravado por esta tela.'
-                  : 'A tela permite alterações. Trave campo a campo pelo cadeado.'}
-              </p>
-            </div>
-          </div>
-
-          {screen.id && <UsadaEm telaId={screen.id} />}
-
-          {/* pendências: obrigatório E travado — ninguém consegue preencher */}
-          {pendencias.length > 0 && (
-            <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 shadow-sm p-3">
-              <p className="text-[10.5px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400 mb-1.5 flex items-center gap-1.5">
-                <AlertTriangle className="h-3 w-3" />{pendencias.length === 1 ? '1 campo sem saída' : `${pendencias.length} campos sem saída`}
-              </p>
-              <div className="space-y-1">
-                {pendencias.map(pend => (
-                  <button key={pend.fieldId} onClick={() => {
-                    setMode('config')
-                    if (pend.sectionId) {
-                      const sid = pend.sectionId
-                      setCollapsed(prev => { const n = new Set(prev); n.delete(sid); return n })
-                      setTimeout(() => jumpTo(sid), 0)   // a seção pode estar recolhida: rola depois de abrir
-                    }
-                  }}
-                    className="w-full text-left text-[11px] leading-snug text-foreground/90 rounded px-1.5 py-1 hover:bg-amber-500/10 transition-colors">
-                    {fraseDaPendencia(pend)}
-                  </button>
-                ))}
-              </div>
-              <p className="text-[10px] text-muted-foreground mt-1.5 leading-snug">
-                Salvar continua liberado: faz sentido quando o valor chega por outra via (importação, ação automática, etapa anterior).
-              </p>
-            </div>
-          )}
-
-          {/* navegação de seções */}
-          <div className="rounded-xl border bg-card shadow-sm p-3">
-            <p className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Seções</p>
-            <div className="space-y-0.5">
-              {sections.map(s => {
-                const applicable = isPartner ? fieldsOf(s.id).filter(fieldApplies) : fieldsOf(s.id)
-                const total = applicable.length
-                const vis = applicable.filter(fieldVisible).length
-                const naNoTipo = isPartner && s.source === 'NATIVE' && total === 0
-                const empty = !naNoTipo && total > 0 && vis === 0 && s.visible !== false
-                return (
-                  <button key={s.id} onClick={() => jumpTo(s.id)}
-                    className={cn('w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium hover:bg-muted transition-colors', naNoTipo && 'opacity-45')}>
-                    <span className="truncate flex-1">{s.label}</span>
-                    <span className={cn('shrink-0 rounded-full border px-1.5 py-px text-[10px] tabular-nums font-mono',
-                      empty ? 'border-transparent bg-amber-500/10 text-amber-600 dark:text-amber-400' : 'text-muted-foreground')}>
-                      {naNoTipo ? '—' : s.source === 'NATIVE' ? `${vis}/${total}` : `${total}`}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-            {addingSection ? (
-              <div className="mt-2 flex items-center gap-1.5">
-                <input autoFocus value={newSectionLabel} onChange={e => setNewSectionLabel(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') addSection(); if (e.key === 'Escape') setAddingSection(false) }}
-                  placeholder="Nome da seção" className={cn(inputCls, 'h-7')} />
-                <button onClick={addSection} className="text-primary hover:text-primary/80"><Check className="h-4 w-4" /></button>
-                <button onClick={() => { setAddingSection(false); setNewSectionLabel('') }} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
-              </div>
-            ) : (
-              <button onClick={() => setAddingSection(true)} className="mt-2 w-full rounded-lg border border-dashed py-2 text-[12px] font-semibold text-primary hover:bg-primary/5 transition-colors flex items-center justify-center gap-1.5">
-                <Plus className="h-3.5 w-3.5" />Nova seção
+      {/* avisos: só quando existem */}
+      {screen.readOnly && (
+        <p className="mb-3 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+          <Lock className="h-3.5 w-3.5 shrink-0" />Tela de somente consulta: nenhum campo é editável. Mude em “Sobre a tela”.
+        </p>
+      )}
+      {pendencias.length > 0 && (
+        <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs">
+          <p className="flex items-center gap-1.5 font-semibold text-amber-800 dark:text-amber-300">
+            <AlertTriangle className="h-3.5 w-3.5" />{pendencias.length === 1 ? '1 campo obrigatório que ninguém consegue preencher' : `${pendencias.length} campos obrigatórios que ninguém consegue preencher`}
+          </p>
+          <div className="mt-1 flex flex-col">
+            {pendencias.map(pend => (
+              <button key={pend.fieldId} onClick={() => {
+                setMode('config')
+                if (pend.sectionId) {
+                  const sid = pend.sectionId
+                  setCollapsed(prev => { const n = new Set(prev); n.delete(sid); return n })
+                  setTimeout(() => jumpTo(sid), 0)   // a seção pode estar recolhida: rola depois de abrir
+                }
+              }} className="rounded px-1 py-0.5 text-left text-[11.5px] text-foreground/90 hover:bg-amber-500/10">
+                {fraseDaPendencia(pend)}
               </button>
-            )}
-          </div>
-
-          {/* estatísticas */}
-          <div className="rounded-xl border bg-card shadow-sm p-3 space-y-2">
-            {/* Contagem, não legenda: as bolinhas coloridas daqui explicavam um código de
-                cores que não existe mais na matriz — legenda de código morto engana. */}
-            {[
-              { n: nNative, l: 'nativos' },
-              { n: nCustom, l: 'personalizados' },
-              { n: nHidden, l: isPartner ? `ocultos em ${PARTNER_CATEGORIES.find(c => c.value === cat)?.short}` : 'ocultos no cadastro' },
-              { n: screen.readOnly ? nNative + nCustom : nLocked, l: screen.readOnly ? 'travados (tela em consulta)' : 'travados (só consulta)' },
-            ].map(({ n, l }) => (
-              <div key={l} className="flex items-baseline gap-2 text-[12px] text-muted-foreground">
-                <b className="text-foreground font-mono tabular-nums">{n}</b> {l}
-              </div>
             ))}
           </div>
-        </aside>
-
-        {/* ── canvas: o formulário de verdade ── */}
-        <div className="min-w-0">
-          <div className="flex items-center gap-2.5 mb-3 px-0.5 flex-wrap">
-            <span className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
-              {mode === 'config' ? 'Campos da tela' : 'Prévia — como o usuário verá'}
-            </span>
-            {isPartner && (
-              <div className="inline-flex rounded-lg border overflow-hidden text-[11px] font-semibold">
-                {PARTNER_CATEGORIES.map((c, i) => (
-                  <button key={c.value} onClick={() => setCat(c.value)}
-                    className={cn('px-2.5 py-1 transition-colors', i > 0 && 'border-l',
-                      cat === c.value ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted')}>
-                    {c.short}
-                  </button>
-                ))}
-              </div>
-            )}
-            {isPartner && <span className="text-[11px] text-muted-foreground">ajustando os campos de <b className="text-foreground font-semibold">{PARTNER_CATEGORIES.find(c => c.value === cat)?.label}</b></span>}
-          </div>
-
-          {mode === 'preview' ? (
-            <ScreenRenderer screen={isPartner ? { ...screen, fields: screen.fields.filter(f => fieldVisibleFor(f, cat)) } : screen} nativeValue={emptyNative} />
-          ) : sections.length === 0 ? (
-            <p className="text-xs text-muted-foreground text-center py-10">Crie uma seção para começar.</p>
-          ) : (
-            /* ── a MATRIZ ──
-               Uma linha por campo, três colunas de decisão. A linha da SEÇÃO usa as MESMAS
-               colunas: é a camada de cima, não um cabeçalho com botões avulsos. */
-            /* sem `overflow-*` no container: qualquer overflow aqui viraria o contexto de
-               rolagem do `sticky` e o cabeçalho pararia de grudar na barra do topo. */
-            <div className="rounded-xl border bg-card shadow-sm overflow-clip">
-              <table className="w-full text-xs">
-                <thead className="sticky top-[68px] z-20">
-                  <tr className="text-[10px] uppercase tracking-wider text-muted-foreground [&_th]:bg-muted [&_th]:border-b">
-                    <th className="text-left font-semibold px-3 py-1.5 rounded-tl-xl">Campo</th>
-                    <th className="text-left font-semibold px-2 py-1.5 w-36">Tipo</th>
-                    <th className="text-center font-semibold px-2 py-1.5 w-24">Aparece</th>
-                    <th className="text-center font-semibold px-2 py-1.5 w-28">Pode editar</th>
-                    <th className="text-center font-semibold px-2 py-1.5 w-28 rounded-tr-xl">Obrigatório</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sections.map((s, sIdx) => {
-                    const applicable = fieldsOf(s.id).filter(fieldApplies)
-                    const visiveis   = applicable.filter(fieldVisible)
-                    const isNativeSec = s.source === 'NATIVE'
-                    const isBlockSec  = isNativeSec && !!s.nativeKey && blockKeys.has(s.nativeKey)
-                    const naNoTipo    = isPartner && isNativeSec && !isBlockSec && applicable.length === 0
-                    const secHidden   = s.visible === false
-                    const secTravada  = !!s.locked || !!screen.readOnly
-                    const isColl      = collapsed.has(s.id)
-                    const wontShow    = !secHidden && !naNoTipo && !isBlockSec && applicable.length > 0 && visiveis.length === 0
-                    // obrigatoriedade em lote: só os personalizados têm essa chave
-                    const exigiveis = applicable.filter(aceitaObrigatorio)
-                    const allReq  = exigiveis.length > 0 && exigiveis.every(fieldRequired)
-                    const someReq = exigiveis.some(fieldRequired)
-
-                    return (
-                      <Fragment key={s.id}>
-                        {/* ── a seção: a camada de cima, nas mesmas colunas ── */}
-                        <tr id={`sec-${s.id}`} className={cn('group/sec scroll-mt-24 border-y bg-muted/25', (secHidden || naNoTipo) && 'opacity-60')}>
-                          <td className="px-3 py-1.5">
-                            {renamingSection === s.id ? (
-                              <div className="flex items-center gap-1.5">
-                                <input autoFocus value={renameLabel} onChange={e => setRenameLabel(e.target.value)}
-                                  onKeyDown={e => { if (e.key === 'Enter') renameSection(s.id); if (e.key === 'Escape') setRenamingSection(null) }}
-                                  className={cn(inputCls, 'h-7 max-w-[280px]')} />
-                                <button onClick={() => renameSection(s.id)} className="text-primary"><Check className="h-3.5 w-3.5" /></button>
-                                <button onClick={() => setRenamingSection(null)} className="text-muted-foreground"><X className="h-3.5 w-3.5" /></button>
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-2">
-                                <button onClick={() => toggleCollapsed(s.id)} disabled={applicable.length === 0}
-                                  title={isColl ? 'Mostrar os campos' : 'Recolher os campos'}
-                                  className={cn('text-muted-foreground hover:text-foreground transition-colors', applicable.length === 0 && 'invisible')}>
-                                  <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', isColl && '-rotate-90')} />
-                                </button>
-                                <span className="font-bold text-[13px] tracking-tight truncate">{s.label}</span>
-                                {applicable.length > 0 && (
-                                  <span className={cn('font-mono tabular-nums text-[10px] shrink-0', wontShow ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')}>
-                                    {visiveis.length}/{applicable.length}
-                                  </span>
-                                )}
-                                {wontShow  && <span className="text-[10.5px] font-medium text-amber-600 dark:text-amber-400 shrink-0">· nenhum campo aparece</span>}
-                                {naNoTipo  && <span className="text-[10.5px] font-medium text-muted-foreground shrink-0">· não se aplica a este tipo</span>}
-
-                                <span className="ml-auto flex items-center gap-0.5 shrink-0 opacity-0 group-hover/sec:opacity-100 focus-within:opacity-100 transition-opacity">
-                                  <button onClick={() => { setRenamingSection(s.id); setRenameLabel(s.label) }} title="Renomear seção" className={iconBtn}><Pencil className="h-3.5 w-3.5" /></button>
-                                  <div className="relative">
-                                    <button ref={(el) => { if (menuOpen === s.id) maisAncora.current = el }}
-                                      onClick={() => setMenuOpen(menuOpen === s.id ? null : s.id)} title="Mais" className={iconBtn}><MoreHorizontal className="h-3.5 w-3.5" /></button>
-                                    {/* No <body>: na última seção o menu abria para fora da tela. */}
-                                    {menuOpen === s.id && (
-                                      <FloatingMenu anchor={maisAncora} onClose={() => setMenuOpen(null)} align="end" className="glass w-56 rounded-xl py-1 text-xs">
-                                          {applicable.length > 0 && (
-                                            <>
-                                              <button onClick={() => { setSectionVis(s.id, true); setMenuOpen(null) }} className="w-full text-left px-3 py-1.5 hover:bg-muted flex items-center gap-2"><Eye className="h-3.5 w-3.5" />Mostrar todos os campos</button>
-                                              <button onClick={() => { setSectionVis(s.id, false); setMenuOpen(null) }} className="w-full text-left px-3 py-1.5 hover:bg-muted flex items-center gap-2"><Eye className="h-3.5 w-3.5 opacity-40" />Ocultar todos os campos</button>
-                                              <div className="my-1 border-t" />
-                                            </>
-                                          )}
-                                          <button onClick={() => { moveSection(s.id, -1); setMenuOpen(null) }} disabled={sIdx === 0} className="w-full text-left px-3 py-1.5 hover:bg-muted disabled:opacity-40 flex items-center gap-2"><ChevronUp className="h-3.5 w-3.5" />Mover para cima</button>
-                                          <button onClick={() => { moveSection(s.id, 1); setMenuOpen(null) }} disabled={sIdx === sections.length - 1} className="w-full text-left px-3 py-1.5 hover:bg-muted disabled:opacity-40 flex items-center gap-2"><ChevronDown className="h-3.5 w-3.5" />Mover para baixo</button>
-                                          <button onClick={() => { toggleDefaultOpen(s.id); setMenuOpen(null) }} className="w-full text-left px-3 py-1.5 hover:bg-muted flex items-center gap-2">
-                                            {s.defaultOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                                            {s.defaultOpen ? 'Abre recolhida no cadastro' : 'Abre aberta no cadastro'}
-                                          </button>
-                                          {!isNativeSec && <button onClick={() => { setExcluindoSecao(s); setMenuOpen(null) }} className="w-full text-left px-3 py-1.5 hover:bg-destructive/10 text-destructive flex items-center gap-2"><Trash2 className="h-3.5 w-3.5" />Excluir seção</button>}
-                                      </FloatingMenu>
-                                    )}
-                                  </div>
-                                </span>
-                              </div>
-                            )}
-                          </td>
-                          {/* Na linha da seção a coluna só fala quando tem o que dizer: bloco não
-                              tem campo a campo. "Nativa"/"Personalizada" seria origem outra vez. */}
-                          <td className="px-2 py-1.5 text-[10.5px] text-muted-foreground">
-                            {isBlockSec ? 'Seção inteira' : ''}
-                          </td>
-                          <td className="px-2 py-1.5 text-center">
-                            <Marca on={!secHidden} onClick={() => toggleSectionVisible(s.id)}
-                              title={secHidden ? 'Seção oculta no cadastro' : 'Seção aparece no cadastro'} />
-                          </td>
-                          <td className="px-2 py-1.5 text-center">
-                            <Marca on={!secTravada} tone="amber" disabled={!!screen.readOnly} onClick={() => toggleSectionLocked(s.id)}
-                              title={screen.readOnly ? 'A tela inteira está em somente consulta'
-                                : secTravada ? 'Seção em somente consulta — clique para permitir alterações'
-                                             : 'Seção permite alterações — clique para deixá-la só consulta'} />
-                          </td>
-                          <td className="px-2 py-1.5 text-center">
-                            {exigiveis.length === 0
-                              ? <span className="text-muted-foreground/50" title="Esta seção não tem campo com obrigatoriedade configurável">—</span>
-                              : <Marca on={allReq} half={someReq && !allReq} onClick={() => setSectionRequired(s.id, !allReq)}
-                                  title={allReq ? 'Todos os campos desta seção são obrigatórios' : 'Tornar obrigatórios os campos desta seção'} />}
-                          </td>
-                        </tr>
-
-                        {/* ── os campos ── */}
-                        {!isColl && applicable.map(f => {
-                          const native    = f.source === 'NATIVE'
-                          const vis       = fieldVisible(f)
-                          const travado   = isTravado(f)
-                          const pisoAcima = secLocked(f.sectionId)
-                          return (
-                            <tr key={f.id} className={cn('group/f border-b last:border-0 hover:bg-muted/30 transition-colors', !vis && 'opacity-55')}>
-                              <td className="px-3 py-1">
-                                <span className="flex items-center gap-1.5 pl-[26px]">
-                                  <span className="truncate">{f.label}</span>
-                                  {/* Etiqueta ESCRITA nos dois, decisão do PO. Antes era uma bolinha azul
-                                      contra uma verde, de 6px: informação que só existia para quem
-                                      distingue as duas cores. O texto é que informa; o tom só reforça. */}
-                                  <span className={cn('shrink-0 rounded px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide',
-                                    native ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary')}>
-                                    {native ? 'Nativo' : 'Personalizado'}
-                                  </span>
-                                  {!native && (
-                                    <span className="ml-auto flex items-center gap-0.5 shrink-0 opacity-0 group-hover/f:opacity-100 focus-within:opacity-100 transition-opacity">
-                                      <button onClick={() => setEditingField(f)} title="Editar campo" className={iconBtn}><Pencil className="h-3 w-3" /></button>
-                                      <button onClick={() => setExcluindoCampo(f)} title={`Excluir do ${SUBJECT_LABELS[screen.subjectType]} — sai de todas as telas`} className={cn(iconBtn, 'hover:text-destructive')}><Trash2 className="h-3 w-3" /></button>
-                                    </span>
-                                  )}
-                                </span>
-                              </td>
-                              {/* A coluna diz sempre a MESMA coisa: a forma do dado. Quem é dono do
-                                  campo já está dito pela bolinha e pela legenda — misturar origem
-                                  ("Do sistema") com tipo ("Lista de opções") era duas línguas na
-                                  mesma coluna. O tipo do nativo vem do seed (screen-native-structure). */}
-                              <td className="px-2 py-1 text-[10.5px] text-muted-foreground truncate">
-                                {FIELD_TYPE_LABELS[f.type]}
-                              </td>
-                              <td className="px-2 py-1 text-center">
-                                <Marca on={vis} onClick={() => toggleField(f)}
-                                  title={vis ? 'Aparece no cadastro' : 'Oculto no cadastro'} />
-                              </td>
-                              <td className="px-2 py-1 text-center">
-                                {vis
-                                  ? <Marca on={!travado} tone="amber" disabled={pisoAcima} onClick={() => toggleFieldLocked(f.id)}
-                                      title={screen.readOnly ? 'A tela inteira está em somente consulta'
-                                        : pisoAcima ? 'A seção inteira está em somente consulta'
-                                          : travado ? 'Travado — só consulta' : 'Editável'} />
-                                  : <span className="text-muted-foreground/50" title="Campo oculto — não há o que editar">—</span>}
-                              </td>
-                              <td className="px-2 py-1 text-center">
-                                {!vis
-                                  ? <span className="text-muted-foreground/50" title="Campo oculto — não há o que exigir">—</span>
-                                  : !aceitaObrigatorio(f)
-                                    ? <span className="text-muted-foreground/50" title="A obrigatoriedade deste campo é definida pelo sistema">—</span>
-                                    : <Marca on={fieldRequired(f)} onClick={() => toggleFieldRequired(f.id)}
-                                        title={isPartner ? `Obrigatório em ${PARTNER_CATEGORIES.find(c => c.value === cat)?.label}` : 'Obrigatório no cadastro'} />}
-                              </td>
-                            </tr>
-                          )
-                        })}
-
-                        {/* seção-bloco: não há campo a campo dentro dela */}
-                        {!isColl && isBlockSec && (
-                          <tr className="border-b last:border-0">
-                            <td colSpan={5} className="px-3 py-1 pl-[52px] text-[10.5px] text-muted-foreground italic">
-                              Bloco pronto do sistema — a tela decide se ele aparece e se aceita alteração.
-                            </td>
-                          </tr>
-                        )}
-
-                        {!isColl && naNoTipo && (
-                          <tr className="border-b last:border-0">
-                            <td colSpan={5} className="px-3 py-1 pl-[52px] text-[10.5px] text-muted-foreground italic">
-                              Não se aplica a {PARTNER_CATEGORIES.find(c => c.value === cat)?.label}.
-                            </td>
-                          </tr>
-                        )}
-
-                        {!isColl && !isBlockSec && !naNoTipo && (
-                          <tr className="border-b last:border-0">
-                            <td colSpan={5} className="px-3 py-1">
-                              <button onClick={() => setAddingToSection(s.id)}
-                                className="ml-[26px] inline-flex items-center gap-1.5 text-[11px] font-semibold text-primary hover:underline transition-colors">
-                                <Plus className="h-3 w-3" />Novo campo nesta seção
-                              </button>
-                            </td>
-                          </tr>
-                        )}
-                      </Fragment>
-                    )
-                  })}
-                </tbody>
-              </table>
-
-              <p className="px-3 py-2 border-t bg-muted/20 text-[10px] text-muted-foreground leading-snug">
-                <b className="font-semibold text-foreground/80">Tela → seção → campo</b>: cada nível só aperta. Travar a seção trava os campos dela, e destravar o campo não vence a seção.
-                {' '}<b className="font-semibold text-foreground/80">Pode editar</b> vale para a tela inteira, em todos os tipos.
-                {' '}Campo criado aqui passa a existir em todas as telas de {SUBJECT_LABELS[screen.subjectType]} — <b className="font-semibold text-foreground/80">apagado</b> nas outras, até alguém marcá-lo.
-                {isPartner && <> <b className="font-semibold text-foreground/80">Aparece</b> e <b className="font-semibold text-foreground/80">Obrigatório</b> são do tipo em edição ({PARTNER_CATEGORIES.find(c => c.value === cat)?.label}).</>}
-              </p>
-            </div>
-          )}
         </div>
+      )}
+
+      {/* ── linha de comando da lista ── */}
+      <div className="mb-2.5 flex flex-wrap items-center gap-2.5">
+        {isPartner && (
+          <div role="tablist" aria-label="Categoria de parceiro em edição" className="inline-flex rounded-lg border overflow-hidden text-[11px] font-semibold">
+            {PARTNER_CATEGORIES.map((c, i) => (
+              <button key={c.value} role="tab" aria-selected={cat === c.value} onClick={() => setCat(c.value)}
+                className={cn('px-2.5 py-1 transition-colors', i > 0 && 'border-l',
+                  cat === c.value ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted')}>
+                {c.short}
+              </button>
+            ))}
+          </div>
+        )}
+        <span className="text-[11.5px] text-muted-foreground">
+          {mode === 'preview' ? 'Como o usuário verá' : isPartner ? <>Como cada campo fica para <b className="font-semibold text-foreground">{nomeDaCategoria}</b>.</> : 'Para cada campo, escolha como ele fica nesta tela.'}
+          {mode === 'config' && <span className="ml-2 inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />campo personalizado</span>}
+        </span>
+        {mode === 'config' && primeiraSecaoDeCampos && (
+          <button onClick={() => setAddingToSection(primeiraSecaoDeCampos.id)}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-dashed px-2.5 py-1.5 text-[11.5px] font-semibold text-primary hover:bg-primary/5 transition-colors">
+            <Plus className="h-3.5 w-3.5" />Novo campo
+          </button>
+        )}
       </div>
 
+      {mode === 'preview' ? (
+        <ScreenRenderer screen={isPartner ? { ...screen, fields: screen.fields.filter(f => fieldVisibleFor(f, cat)) } : screen} nativeValue={emptyNative} />
+      ) : (
+        <div className="space-y-2.5">
+          {sections.map((s, sIdx) => {
+            const applicable  = fieldsOf(s.id).filter(fieldApplies)
+            const isNativeSec = s.source === 'NATIVE'
+            const isBlockSec  = isNativeSec && !!s.nativeKey && blockKeys.has(s.nativeKey)
+            const naNoTipo    = isPartner && isNativeSec && !isBlockSec && applicable.length === 0
+            const isColl      = collapsed.has(s.id)
+            const camadas     = !isBlockSec && [s.visible === false && 'seção oculta', s.locked && 'seção só leitura'].filter(Boolean).join(' · ')
+            return (
+              <section key={s.id} id={`sec-${s.id}`} aria-label={s.label} className={cn('group/sec scroll-mt-24 rounded-xl border bg-card overflow-hidden', naNoTipo && 'opacity-60')}>
+                <div className="flex flex-wrap items-center gap-2 bg-muted/30 px-3 py-2">
+                  {renamingSection === s.id ? (
+                    <div className="flex items-center gap-1.5">
+                      <input autoFocus value={renameLabel} onChange={e => setRenameLabel(e.target.value)} aria-label="Nome da seção"
+                        onKeyDown={e => { if (e.key === 'Enter') renameSection(s.id); if (e.key === 'Escape') setRenamingSection(null) }}
+                        className={cn(inputCls, 'h-7 max-w-[280px]')} />
+                      <button onClick={() => renameSection(s.id)} aria-label="Confirmar nome" className="text-primary"><Check className="h-3.5 w-3.5" /></button>
+                      <button onClick={() => setRenamingSection(null)} aria-label="Cancelar" className="text-muted-foreground"><X className="h-3.5 w-3.5" /></button>
+                    </div>
+                  ) : (
+                    <button onClick={() => toggleCollapsed(s.id)} aria-expanded={!isColl} disabled={isBlockSec || applicable.length === 0}
+                      className="flex min-w-0 items-center gap-2 text-left disabled:cursor-default">
+                      <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', isColl && '-rotate-90', (isBlockSec || applicable.length === 0) && 'invisible')} />
+                      <span className="truncate text-[13.5px] font-bold tracking-tight">{s.label}</span>
+                      {isColl && applicable.length > 0 && <span className="shrink-0 text-[11px] font-normal text-muted-foreground">{resumoDaSecao(applicable)}</span>}
+                      {isBlockSec && <span className="shrink-0 text-[11px] font-normal text-muted-foreground">bloco do sistema</span>}
+                      {naNoTipo && <span className="shrink-0 text-[11px] font-normal text-muted-foreground">não se aplica a {nomeDaCategoria}</span>}
+                      {camadas && <span className="shrink-0 text-[11px] font-medium text-amber-700 dark:text-amber-400">{camadas}</span>}
+                    </button>
+                  )}
+
+                  <span className="flex items-center gap-0.5 opacity-0 group-hover/sec:opacity-100 focus-within:opacity-100 transition-opacity">
+                    <button onClick={() => { setRenamingSection(s.id); setRenameLabel(s.label) }} title="Renomear seção" aria-label={`Renomear seção ${s.label}`} className={iconBtn}><Pencil className="h-3.5 w-3.5" /></button>
+                    <button ref={(el) => { if (menuOpen === s.id) maisAncora.current = el }} aria-label={`Mais ações da seção ${s.label}`}
+                      onClick={() => setMenuOpen(menuOpen === s.id ? null : s.id)} title="Mais" className={iconBtn}><MoreHorizontal className="h-3.5 w-3.5" /></button>
+                    {menuOpen === s.id && (
+                      <FloatingMenu anchor={maisAncora} onClose={() => setMenuOpen(null)} align="end" className="glass w-56 rounded-xl py-1 text-xs">
+                        <button onClick={() => { moveSection(s.id, -1); setMenuOpen(null) }} disabled={sIdx === 0} className="w-full text-left px-3 py-1.5 hover:bg-muted disabled:opacity-40 flex items-center gap-2"><ChevronUp className="h-3.5 w-3.5" />Mover para cima</button>
+                        <button onClick={() => { moveSection(s.id, 1); setMenuOpen(null) }} disabled={sIdx === sections.length - 1} className="w-full text-left px-3 py-1.5 hover:bg-muted disabled:opacity-40 flex items-center gap-2"><ChevronDown className="h-3.5 w-3.5" />Mover para baixo</button>
+                        <button onClick={() => { toggleDefaultOpen(s.id); setMenuOpen(null) }} className="w-full text-left px-3 py-1.5 hover:bg-muted flex items-center gap-2">
+                          {s.defaultOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                          {s.defaultOpen ? 'No cadastro, começa recolhida' : 'No cadastro, começa aberta'}
+                        </button>
+                        {!isBlockSec && !naNoTipo && <button onClick={() => { setAddingToSection(s.id); setMenuOpen(null) }} className="w-full text-left px-3 py-1.5 hover:bg-muted flex items-center gap-2"><Plus className="h-3.5 w-3.5" />Novo campo nesta seção</button>}
+                        {!isNativeSec && <button onClick={() => { setExcluindoSecao(s); setMenuOpen(null) }} className="w-full text-left px-3 py-1.5 hover:bg-destructive/10 text-destructive flex items-center gap-2"><Trash2 className="h-3.5 w-3.5" />Excluir seção</button>}
+                      </FloatingMenu>
+                    )}
+                  </span>
+
+                  <span className="ml-auto flex items-center gap-2">
+                    {isBlockSec ? (
+                      <SeletorDeEstado rotulo={`Estado do bloco ${s.label}`} valor={estadoDoBloco(s)} onEscolher={(e) => setEstadoDoBloco(s.id, e)}
+                        estados={ESTADOS_DO_BLOCO} motivo={(e) => e === 'EDITAVEL' && screen.readOnly ? 'A tela inteira é somente consulta (em Sobre a tela)' : ''} />
+                    ) : !isColl && applicable.length > 0 && (
+                      <>
+                        <span className="text-[10.5px] text-muted-foreground">aplicar a todos:</span>
+                        <SeletorDeEstado rotulo={`Aplicar a todos os campos de ${s.label}`} acao onEscolher={(e) => aplicarNaSecao(s.id, e)}
+                          motivo={(e) => (e === 'EDITAVEL' || e === 'OBRIGATORIO') && screen.readOnly ? 'A tela inteira é somente consulta (em Sobre a tela)' : ''} />
+                      </>
+                    )}
+                  </span>
+                </div>
+
+                {!isColl && !isBlockSec && applicable.map(f => {
+                  const e = estadoDe(f)
+                  const doSistema = !aceitaObrigatorio(f) && obrigatorioDe(f)
+                  return (
+                    <div key={f.id} className={cn('group/f flex flex-wrap items-center gap-2 border-t px-3 py-1.5 pl-9 hover:bg-muted/20', e === 'OCULTO' && 'text-muted-foreground')}>
+                      <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px]" title={FIELD_TYPE_LABELS[f.type]}>
+                        <span className="truncate">{f.label}</span>
+                        {f.source === 'CUSTOM' && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" title="Campo personalizado" aria-label="personalizado" />}
+                        {doSistema && <span className="shrink-0 text-[10.5px] text-muted-foreground">exigido pelo sistema</span>}
+                        {f.source === 'CUSTOM' && (
+                          <span className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover/f:opacity-100 focus-within:opacity-100 transition-opacity">
+                            <button onClick={() => setEditingField(f)} title="Editar campo" aria-label={`Editar campo ${f.label}`} className={iconBtn}><Pencil className="h-3 w-3" /></button>
+                            <button onClick={() => setExcluindoCampo(f)} title={`Excluir do ${SUBJECT_LABELS[screen.subjectType]} — sai de todas as telas`} aria-label={`Excluir campo ${f.label}`} className={cn(iconBtn, 'hover:text-destructive')}><Trash2 className="h-3 w-3" /></button>
+                          </span>
+                        )}
+                      </span>
+                      <SeletorDeEstado rotulo={`Estado de ${f.label}`} valor={e} onEscolher={(novo) => setEstado(f, novo)} motivo={(op) => motivoDoEstado(f, op)} />
+                    </div>
+                  )
+                })}
+              </section>
+            )
+          })}
+
+          {addingSection ? (
+            <div className="flex items-center gap-1.5 rounded-xl border border-dashed p-2">
+              <input autoFocus value={newSectionLabel} onChange={e => setNewSectionLabel(e.target.value)} aria-label="Nome da nova seção"
+                onKeyDown={e => { if (e.key === 'Enter') addSection(); if (e.key === 'Escape') setAddingSection(false) }}
+                placeholder="Nome da seção" className={cn(inputCls, 'h-7 max-w-[320px]')} />
+              <button onClick={addSection} aria-label="Criar seção" className="text-primary hover:text-primary/80"><Check className="h-4 w-4" /></button>
+              <button onClick={() => { setAddingSection(false); setNewSectionLabel('') }} aria-label="Cancelar" className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            </div>
+          ) : (
+            <button onClick={() => setAddingSection(true)} className="w-full rounded-xl border border-dashed py-2 text-[12px] font-semibold text-primary hover:bg-primary/5 transition-colors flex items-center justify-center gap-1.5">
+              <Plus className="h-3.5 w-3.5" />Nova seção
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── "Sobre a tela": o que se ajusta uma vez ── */}
+      {sobre && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/20" onClick={() => setSobre(false)}
+          onKeyDown={(e) => { if (e.key === 'Escape') setSobre(false) }}>
+          <div role="dialog" aria-modal="true" aria-label="Sobre a tela" onClick={(e) => e.stopPropagation()}
+            className="h-full w-full max-w-[380px] overflow-y-auto border-l bg-card p-5 shadow-xl space-y-5">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-bold">Sobre a tela</p>
+              <button autoFocus onClick={() => setSobre(false)} aria-label="Fechar" className={iconBtn}><X className="h-4 w-4" /></button>
+            </div>
+
+            <div className="space-y-1">
+              <label htmlFor="sobre-tipo" className="text-[11px] font-medium text-muted-foreground">Aplica-se a</label>
+              {/* tipo fixo depois de criada (PO, 23/11/2026): o código carrega o tipo */}
+              <select id="sobre-tipo" value={screen.subjectType} onChange={e => changeSubject(e.target.value as ScreenSubject)} disabled={!!screen.isSystem || !!screen.id}
+                className={cn(inputCls, (screen.isSystem || screen.id) && 'opacity-60 cursor-not-allowed')}>
+                {(Object.keys(SUBJECT_LABELS) as ScreenSubject[]).map(v => <option key={v} value={v}>{SUBJECT_LABELS[v]}</option>)}
+              </select>
+              {screen.id && !screen.isSystem && <p className="text-[10.5px] text-muted-foreground">Fixo depois de criada. Para outro tipo, duplique a tela na lista.</p>}
+            </div>
+
+            <div className="space-y-1">
+              <label htmlFor="sobre-situacao" className="text-[11px] font-medium text-muted-foreground">Situação</label>
+              <select id="sobre-situacao" value={isSystemScreen ? 'ACTIVE' : screen.status} onChange={e => patch({ status: e.target.value as ScreenStatus })}
+                disabled={isSystemScreen} className={cn(inputCls, isSystemScreen && 'opacity-60 cursor-not-allowed')}>
+                {(Object.keys(STATUS_LABELS) as ScreenStatus[]).map(v => <option key={v} value={v}>{STATUS_LABELS[v]}</option>)}
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label htmlFor="sobre-descricao" className="text-[11px] font-medium text-muted-foreground">Descrição</label>
+              <input id="sobre-descricao" value={screen.description ?? ''} onChange={e => patch({ description: e.target.value })} placeholder="Opcional" className={inputCls} />
+            </div>
+
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-medium flex items-center gap-1.5"><Star className={cn('h-3.5 w-3.5', screen.isDefault && 'fill-primary text-primary')} />Tela padrão do tipo</p>
+                <p className="text-[10.5px] text-muted-foreground">
+                  {isSystemScreen ? 'Tela base do sistema: sempre padrão e ativa.' : defaultLocked ? 'A padrão deste tipo é a tela base do sistema.' : 'Usada quando nenhuma outra é indicada.'}
+                </p>
+              </div>
+              <Switch on={!!screen.isDefault} onClick={() => { if (!defaultLocked) patch({ isDefault: !screen.isDefault }) }} sm
+                title={defaultLocked ? 'Não pode ser alterado' : screen.isDefault ? 'Deixar de ser padrão' : 'Tornar padrão'} />
+            </div>
+
+            {/* Somente consulta: trava a tela INTEIRA. É o piso — a atividade do workflow pode travar mais campos, nunca menos. */}
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-medium flex items-center gap-1.5"><Lock className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />Somente consulta</p>
+                <p className="text-[10.5px] text-muted-foreground">{screen.readOnly ? 'Nenhum campo é editável e nada é gravado por esta tela.' : 'A tela permite alterações.'}</p>
+              </div>
+              <Switch on={!!screen.readOnly} onClick={() => patch({ readOnly: !screen.readOnly })} sm
+                title={screen.readOnly ? 'Permitir alterações' : 'Tornar somente consulta'} />
+            </div>
+
+            {screen.id && <UsadaEm telaId={screen.id} />}
+          </div>
+        </div>
+      )}
+
       <ConfirmDialog open={!!excluindoCampo} tone="danger" title="Excluir campo" confirmLabel="Excluir"
-        description={<>Excluir <b>“{excluindoCampo?.label}”</b>? O campo é do {SUBJECT_LABELS[screen.subjectType]}, não desta tela — ele sai de <b>todas</b> as telas, e o que já foi preenchido deixa de ser exibido. Para tirá-lo só daqui, desmarque <b>Aparece</b>.</>}
+        description={<>Excluir <b>“{excluindoCampo?.label}”</b>? O campo é do {SUBJECT_LABELS[screen.subjectType]}, não desta tela — ele sai de <b>todas</b> as telas, e o que já foi preenchido deixa de ser exibido. Para tirá-lo só daqui, deixe-o <b>Oculto</b>.</>}
         onConfirm={() => { if (excluindoCampo) { marcarRemovido([excluindoCampo]); removeField(excluindoCampo.id) } setExcluindoCampo(null) }}
         onClose={() => setExcluindoCampo(null)} />
 
@@ -712,8 +525,8 @@ function UsadaEm({ telaId }: { telaId: string }) {
   const uso = useUsoDasTelas()
   const lista = uso?.[telaId] ?? []
   return (
-    <div className="rounded-xl border bg-card shadow-sm p-3 space-y-1.5">
-      <p className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">Usada em</p>
+    <div className="space-y-1.5 border-t pt-4">
+      <p className="text-[11px] font-medium text-muted-foreground">Usada em</p>
       {!uso ? <p className="text-[11px] text-muted-foreground">Carregando…</p>
         : !lista.length ? <p className="text-[11px] text-muted-foreground">Nenhum workflow usa esta tela.</p>
         : (
@@ -742,5 +555,47 @@ function AvisoDeNomeRepetido({ telaId, nome, subjectType }: { telaId: string; no
       <AlertTriangle className="h-3 w-3 shrink-0" />
       Também existe {outras.map((t) => t.code ?? 'outra tela').join(', ')} com este nome. Na atividade, diferencie pelo código.
     </p>
+  )
+}
+
+/** Resumo do uso para o topo: "usada em 1 workflow". */
+function ResumoDoUso({ telaId }: { telaId: string }) {
+  const uso = useUsoDasTelas()
+  if (!uso) return <span>…</span>
+  const n = uso[telaId]?.length ?? 0
+  return <span>{n === 0 ? 'nenhum workflow usa' : n === 1 ? 'usada em 1 workflow' : `usada em ${n} workflows`}</span>
+}
+
+/** Bloco do sistema não tem obrigatório: só aparece, travado ou não. */
+const ESTADOS_DO_BLOCO: readonly EstadoDoCampo[] = ['OCULTO', 'LEITURA', 'EDITAVEL']
+
+const TOM_DO_ESTADO: Record<EstadoDoCampo, string> = {
+  OCULTO:      'bg-muted text-muted-foreground',
+  LEITURA:     'bg-slate-500/10 text-slate-700 dark:text-slate-300',
+  EDITAVEL:    'bg-primary/10 text-primary',
+  OBRIGATORIO: 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300',
+}
+
+/** Os 4 estados num clique. Com `valor`, é a escolha do campo; com `acao`, aplica a todos. */
+function SeletorDeEstado({ rotulo, valor, acao, onEscolher, motivo, estados = ESTADOS }: {
+  rotulo: string; valor?: EstadoDoCampo; acao?: boolean; estados?: readonly EstadoDoCampo[]
+  onEscolher: (e: EstadoDoCampo) => void; motivo: (e: EstadoDoCampo) => string
+}) {
+  return (
+    <div role={acao ? 'group' : 'radiogroup'} aria-label={rotulo} className="inline-flex shrink-0 overflow-hidden rounded-md border text-[11px]">
+      {estados.map((e, i) => {
+        const porque = motivo(e)
+        const marcado = valor === e
+        return (
+          <button key={e} type="button" role={acao ? undefined : 'radio'} aria-checked={acao ? undefined : marcado}
+            disabled={!!porque && !marcado} title={porque || (acao ? `${ROTULO_DO_ESTADO[e]} em todos` : undefined)}
+            onClick={() => { if (!marcado && !porque) onEscolher(e) }}
+            className={cn('px-2 py-1 transition-colors disabled:cursor-not-allowed disabled:opacity-40', i > 0 && 'border-l',
+              marcado ? cn('font-semibold', TOM_DO_ESTADO[e]) : 'text-muted-foreground hover:bg-muted')}>
+            {ROTULO_DO_ESTADO[e]}
+          </button>
+        )
+      })}
+    </div>
   )
 }
