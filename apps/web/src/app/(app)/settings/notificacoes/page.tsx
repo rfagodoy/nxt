@@ -10,6 +10,7 @@ import { apiFetch } from '@/lib/http'
 import { emitContractsChanged } from '@/lib/contract-events'
 import { useUserNames } from '@/hooks/use-users'
 import { UserSelect } from '@/components/ui/user-select'
+import { DENS_LINHA, DENS_CAB_LINHA } from '@/lib/densidade'
 
 const KEY = 'nxt:settings:notificacoes'
 
@@ -372,12 +373,12 @@ export default function NotificacoesParams() {
             )}
             {runResult && runResult.detalhe?.length > 0 && (
               <div className="mt-3 overflow-hidden rounded-md border">
-                <div className="grid grid-cols-[7rem_5.5rem_5rem_4rem_1fr_1fr] gap-2 border-b bg-muted/40 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <div className={cn("grid grid-cols-[7rem_5.5rem_5rem_4rem_1fr_1fr] items-center gap-2 border-b", DENS_CAB_LINHA, "font-medium text-muted-foreground bg-muted")}>
                   <span>Contrato</span><span>Competência</span><span>Índice</span><span>%</span><span>Ant. → novo</span><span>Parcelas</span>
                 </div>
                 <div className="divide-y divide-border/50">
                   {runResult.detalhe.map((d, i) => (
-                    <div key={i} className="grid grid-cols-[7rem_5.5rem_5rem_4rem_1fr_1fr] items-center gap-2 px-3 py-1.5 text-[11px]">
+                    <div key={i} className={cn("grid grid-cols-[7rem_5.5rem_5rem_4rem_1fr_1fr] items-center gap-2", DENS_LINHA)}>
                       <span className="truncate font-medium">{d.numero}</span>
                       <span className="tabular-nums">{mesAno(d.competencia)}</span>
                       <span className="truncate text-muted-foreground">{d.indice}</span>
@@ -400,12 +401,12 @@ export default function NotificacoesParams() {
             )}
             {runResult && runResult.pendentes?.length > 0 && (
               <div className="mt-3 overflow-hidden rounded-md border border-amber-200 dark:border-amber-900">
-                <div className="grid grid-cols-[7rem_5.5rem_5rem_4rem_1fr] gap-2 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-400">
+                <div className={cn("grid grid-cols-[7rem_5.5rem_5rem_4rem_1fr] items-center gap-2 border-b border-amber-200 bg-amber-50 font-medium text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-400", DENS_CAB_LINHA)}>
                   <span>Contrato</span><span>Competência</span><span>Índice</span><span>%</span><span>Não aplicado porque</span>
                 </div>
                 <div className="divide-y divide-border/50">
                   {runResult.pendentes.map((d, i) => (
-                    <div key={i} className="grid grid-cols-[7rem_5.5rem_5rem_4rem_1fr] items-center gap-2 px-3 py-1.5 text-[11px]">
+                    <div key={i} className={cn("grid grid-cols-[7rem_5.5rem_5rem_4rem_1fr] items-center gap-2", DENS_LINHA)}>
                       <span className="truncate font-medium">{d.numero}</span>
                       <span className="tabular-nums">{mesAno(d.competencia)}</span>
                       <span className="truncate text-muted-foreground">{d.indice}</span>

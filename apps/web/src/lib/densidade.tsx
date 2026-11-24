@@ -65,3 +65,11 @@ export const DENS_CAB = 'px-[var(--lista-px)] h-[var(--lista-cab)]'
 /* `[&>*]:align-middle`: elemento em linha (selo, interruptor, botão) alinhado pela BASE do texto
    soma a descida da letra e estica a linha além da densidade — pelo meio, não estica. */
 export const DENS_CEL = 'px-[var(--lista-px)] py-[var(--lista-py)] h-[var(--lista-linha)] leading-[var(--lista-lh)] [&>*]:align-middle'
+
+/* Listas em GRADE (sem <table>): as mesmas medidas das tabelas (PO, 23/11/2026: a densidade
+   vale para toda lista do sistema). A linha cresce se o conteúdo pedir, nunca encolhe abaixo
+   da densidade; o cabeçalho tem a altura do cabeçalho das tabelas. */
+export const DENS_LINHA = 'min-h-[var(--lista-linha)] px-[var(--lista-px)] py-[var(--lista-py)] text-[length:var(--lista-fonte)] leading-[var(--lista-lh)]'
+export const DENS_CAB_LINHA = 'min-h-[var(--lista-cab)] px-[var(--lista-px)] text-[length:var(--lista-fonte)]'
+/* Campo de digitação ou botão DENTRO de uma linha: a altura do botão de ação da densidade. */
+export const DENS_CAMPO_LINHA = 'h-[var(--lista-acao)] text-[length:var(--lista-fonte)]'

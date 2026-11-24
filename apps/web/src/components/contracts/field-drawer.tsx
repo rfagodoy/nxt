@@ -385,9 +385,9 @@ export function FieldManagerDrawer({ onClose }: { onClose: () => void }) {
                     </div>
                     <div className="divide-y">
                       {gFields.map(field => (
-                        <div key={field.id} className="flex items-center gap-2 px-3 py-2.5 group/row">
+                        <div key={field.id} className="flex items-center gap-2 min-h-[var(--lista-linha)] px-[var(--lista-px)] py-[var(--lista-py)] text-[length:var(--lista-fonte)] leading-[var(--lista-lh)] group/row">
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium truncate">{field.label}</p>
+                            <p className="font-medium truncate">{field.label}</p>
                             <p className="text-[11px] text-muted-foreground">
                               {TYPE_LABEL[field.type]}
                               {field.visible === 'form_and_table' && ' · Tabela'}
@@ -443,7 +443,7 @@ export function FieldManagerDrawer({ onClose }: { onClose: () => void }) {
                           onDrop={() => handleSectionDrop(idx)}
                           onDragEnd={clearDrag}
                           className={cn(
-                            'flex items-center gap-2 px-3 py-2.5 group/row transition-all select-none',
+                            'flex items-center gap-2 min-h-[var(--lista-linha)] px-[var(--lista-px)] py-[var(--lista-py)] text-[length:var(--lista-fonte)] leading-[var(--lista-lh)] group/row transition-all select-none',
                             dragFrom === idx && 'opacity-40',
                             dragOver === idx && dragOver !== dragFrom && 'border-l-2 border-primary bg-primary/5',
                           )}>
@@ -459,7 +459,7 @@ export function FieldManagerDrawer({ onClose }: { onClose: () => void }) {
                             </div>
                           ) : (
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs font-medium truncate">{label}</p>
+                              <p className="font-medium truncate">{label}</p>
                               {isNative && <p className="text-[11px] text-muted-foreground">Seção padrão</p>}
                             </div>
                           )}
@@ -643,9 +643,9 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
               {BASE_TABLE_COLUMNS.map(col => {
                 const visible = isColumnVisible(col.key)
                 return (
-                  <div key={col.key} className="flex items-center gap-2 px-3 py-2.5">
+                  <div key={col.key} className="flex items-center gap-2 min-h-[var(--lista-linha)] px-[var(--lista-px)] py-[var(--lista-py)] text-[length:var(--lista-fonte)] leading-[var(--lista-lh)]">
                     <div className="flex-1 min-w-0 flex items-center gap-2">
-                      <p className="text-xs font-medium truncate">{col.label}</p>
+                      <p className="font-medium truncate">{col.label}</p>
                       <PadraoPill />
                     </div>
                     <EyeToggle visible={visible} title={visible ? 'Ocultar da tabela' : 'Exibir na tabela'}
@@ -666,7 +666,7 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
               {NATIVE_FIELDS.map(f => {
                 const inTable = isVisibleInTable(f.key)
                 return (
-                  <div key={f.key} className="flex items-center gap-2 px-3 py-2.5">
+                  <div key={f.key} className="flex items-center gap-2 min-h-[var(--lista-linha)] px-[var(--lista-px)] py-[var(--lista-py)] text-[length:var(--lista-fonte)] leading-[var(--lista-lh)]">
                     <p className="flex-1 min-w-0 text-xs font-medium truncate">{f.label}</p>
                     <EyeToggle visible={inTable} title={inTable ? 'Remover da tabela' : 'Adicionar na tabela'}
                       onClick={() => setFieldVisibility(f.key, !inTable)} />
@@ -686,9 +686,9 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
                 {gFields.map(field => {
                   const inTable = field.visible === 'form_and_table'
                   return (
-                    <div key={field.id} className="flex items-center gap-2 px-3 py-2.5">
+                    <div key={field.id} className="flex items-center gap-2 min-h-[var(--lista-linha)] px-[var(--lista-px)] py-[var(--lista-py)] text-[length:var(--lista-fonte)] leading-[var(--lista-lh)]">
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium truncate">{field.label}</p>
+                        <p className="font-medium truncate">{field.label}</p>
                         <p className="text-[11px] text-muted-foreground">{TYPE_LABEL[field.type]}</p>
                       </div>
                       <EyeToggle visible={inTable} title={inTable ? 'Remover da tabela' : 'Adicionar na tabela'}
@@ -717,9 +717,9 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
                     {gfields.map(f => {
                       const inTable = isVisibleInTable(f.id)
                       return (
-                        <div key={f.id} className="flex items-center gap-2 px-3 py-2.5">
+                        <div key={f.id} className="flex items-center gap-2 min-h-[var(--lista-linha)] px-[var(--lista-px)] py-[var(--lista-py)] text-[length:var(--lista-fonte)] leading-[var(--lista-lh)]">
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium truncate">{f.label}</p>
+                            <p className="font-medium truncate">{f.label}</p>
                             <p className="text-[11px] text-muted-foreground">
                               {FIELD_TYPE_LABELS[f.type]}
                               {f.options?.length ? ` · ${f.options.length} opções` : ''}

@@ -254,7 +254,7 @@ export default function UsuariosPage() {
                     </button>
                   </th>
                 ))}
-                <th className="px-3 py-1.5 font-medium text-muted-foreground text-right bg-muted whitespace-nowrap">Ações</th>
+                <th className={cn("font-medium text-muted-foreground text-right bg-muted whitespace-nowrap", DENS_CAB)}>Ações</th>
               </tr>
               {filtroCol.ligado && (
                 <LinhaFiltroColuna colunas={visibleCols} valores={filtroCol.valores} onChange={filtroCol.mudar} sobra={1} />

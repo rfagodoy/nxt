@@ -10,6 +10,7 @@ import {
   comp, currentComp, todayISO, type CoreLancamento, type CoreReajusteRealizado, type LancField,
 } from '@nxt/contracts-core'
 import { cn } from '@/lib/utils'
+import { DENS_LINHA, DENS_CAB_LINHA } from '@/lib/densidade'
 import { apiFetch, apiJson } from '@/lib/http'
 import { exportExcel } from '@/lib/export-excel'
 import { UserSelect } from '@/components/ui/user-select'
@@ -1198,7 +1199,7 @@ export function LancamentosFields({ form, field, moedaCode, travado, consulta = 
                     <div className="divide-y divide-border/50">
                       {itens.map(l => (
                         <div key={l.id} ref={l.id === novoId ? focarNovo : undefined}
-                             className={cn(COLS, 'group px-3 py-1 transition-colors duration-700 hover:bg-muted/30', l.id === novoId && 'bg-primary/10')}>
+                             className={cn(COLS, 'group px-[var(--lista-px)] py-[var(--lista-py)] transition-colors duration-700 hover:bg-muted/30', l.id === novoId && 'bg-primary/10')}>
                           <input type="date" disabled={consulta} value={l.vencimento} onChange={e => form.updLanc(field, l.id, 'vencimento', e.target.value)} onBlur={e => reordenar(e.target.value ? e.target.value.slice(0, 4) : undefined)} className={cell} />
                           {/* "≈" = valor provisório: o próximo reajuste ainda vai reprecificar esta parcela */}
                           <div className="relative">
@@ -1792,16 +1793,16 @@ function ReajusteRealizados({ form, indices, linha, ro, consulta }: { form: Cont
         <p className="text-xs text-muted-foreground">Nenhum reajuste aplicado.</p>
       ) : realizados.length > 0 && (
         <div className="rounded-md border overflow-hidden">
-          <div className="grid grid-cols-[6.5rem_5rem_4.5rem_1fr_1.25rem] items-center gap-2 px-3 py-1.5 bg-muted/40 border-b text-[length:var(--rotulo-fonte)] font-semibold text-muted-foreground">
+          <div className={cn('grid grid-cols-[6.5rem_5rem_4.5rem_1fr_1.25rem] items-center gap-2 border-b', DENS_CAB_LINHA, 'font-medium text-muted-foreground bg-muted')}>
             <span>Competência</span><span>Percentual</span><span>Base</span><span>Ant. → novo</span><span />
           </div>
           <div className="divide-y divide-border/50">
             {realizados.map(r => (
-              <div key={r.id} className="group grid grid-cols-[6.5rem_5rem_4.5rem_1fr_1.25rem] items-center gap-2 px-3 py-1.5 hover:bg-muted/30">
-                <span className="text-xs font-medium tabular-nums">{fmtComp(r.competencia)}</span>
-                <span className="text-xs tabular-nums">{r.percentual ? `${r.percentual.replace('.', ',')}%` : '—'}</span>
+              <div key={r.id} className={cn('group grid grid-cols-[6.5rem_5rem_4.5rem_1fr_1.25rem] items-center gap-2 hover:bg-muted/30', DENS_LINHA)}>
+                <span className="font-medium tabular-nums">{fmtComp(r.competencia)}</span>
+                <span className="tabular-nums">{r.percentual ? `${r.percentual.replace('.', ',')}%` : '—'}</span>
                 <span className="text-[10px]"><span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 font-medium text-foreground/70">{baseCurta(r.base)}</span></span>
-                <span className="text-xs tabular-nums truncate" title={r.base === 'parcela' && Number(r.parcelasReajustadas) ? `${r.parcelasReajustadas} parcela(s)` : undefined}>{transicao(r)}</span>
+                <span className="tabular-nums truncate" title={r.base === 'parcela' && Number(r.parcelasReajustadas) ? `${r.parcelasReajustadas} parcela(s)` : undefined}>{transicao(r)}</span>
                 {/* travado: registra reajuste realizado, mas EXCLUIR exige abrir para revisão */}
                 {ro ? <span /> : <button type="button" onClick={() => form.remReajRealizado(r.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>}
               </div>
@@ -2205,7 +2206,7 @@ export function PartesFields({ form, ro, onOpenSearch, onNewPartner, contractId 
         <p className="text-xs text-muted-foreground">Nenhuma parte.</p>
       ) : (
         <div className="rounded-md border overflow-hidden">
-          <div className={cn(COLS, 'px-3 py-1.5 bg-muted/40 border-b text-[length:var(--rotulo-fonte)] font-semibold text-muted-foreground')}>
+          <div className={cn(COLS, 'border-b', DENS_CAB_LINHA, 'font-medium text-muted-foreground bg-muted')}>
             <span>Papel</span><span>Nome / Responsável</span><span>Documento</span><span />
           </div>
           <div className="divide-y divide-border/50">
@@ -2225,14 +2226,14 @@ export function PartesFields({ form, ro, onOpenSearch, onNewPartner, contractId 
                 onOpenSearch(p.id, origem, excludeIds)
               }
               return (
-                <div key={p.id} className={cn(COLS, 'group px-3 py-1.5 hover:bg-muted/30', idx === 0 && 'border-l-2 border-l-primary/50')} title={idx === 0 ? 'Parte principal' : undefined}>
+                <div key={p.id} className={cn(COLS, 'group hover:bg-muted/30', DENS_LINHA, idx === 0 && 'border-l-2 border-l-primary/50')} title={idx === 0 ? 'Parte principal' : undefined}>
                   {ro ? (
-                    <span className="text-[length:var(--lista-fonte)] font-medium truncate">{labelOf(papeis.entries, p.papel) || '—'}</span>
+                    <span className="font-medium truncate">{labelOf(papeis.entries, p.papel) || '—'}</span>
                   ) : (
                     papelSelect(p.papel, val => onEntityPapel(p, val))
                   )}
                   {ro ? (
-                    <span className="text-[length:var(--lista-fonte)] truncate">{p.nome || '—'}</span>
+                    <span className="truncate">{p.nome || '—'}</span>
                   ) : (
                     <div className="flex gap-1 min-w-0">
                       <input readOnly value={p.nome} onClick={open}
@@ -2241,7 +2242,7 @@ export function PartesFields({ form, ro, onOpenSearch, onNewPartner, contractId 
                       <button type="button" disabled={!p.papel} title="Pesquisar" onClick={open} className="flex h-[var(--campo-altura)] w-[var(--campo-altura)] shrink-0 items-center justify-center rounded-md border hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"><Search className="h-3 w-3 text-muted-foreground" /></button>
                     </div>
                   )}
-                  <span className="text-[11px] text-muted-foreground truncate">{p.documento || '—'}</span>
+                  <span className="text-muted-foreground truncate">{p.documento || '—'}</span>
                   {!ro && v.partes.length > 1 ? (
                     <button type="button" onClick={() => form.remParte(p.id)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>
                   ) : <span />}
@@ -2250,18 +2251,18 @@ export function PartesFields({ form, ro, onOpenSearch, onNewPartner, contractId 
             })}
             {/* Linhas de PESSOA (responsáveis) — mesma tabela, sem divisão */}
             {people.map((r) => (
-              <div key={r.key} className={cn(COLS, 'group px-3 py-1.5 hover:bg-muted/30')}>
+              <div key={r.key} className={cn(COLS, 'group hover:bg-muted/30', DENS_LINHA)}>
                 {ro ? (
-                  <span className="text-xs font-medium truncate">{labelOf(papeis.entries, r.papelId) || '—'}</span>
+                  <span className="font-medium truncate">{labelOf(papeis.entries, r.papelId) || '—'}</span>
                 ) : (
                   papelSelect(r.papelId, val => onPersonPapel(r, val))
                 )}
                 {ro ? (
-                  <span className="text-xs truncate">{userName(r)}</span>
+                  <span className="truncate">{userName(r)}</span>
                 ) : (
-                  <UserSelect value={r.userId || undefined} onChange={id => persistPeople(people.map(x => x.key === r.key ? { ...x, userId: id ?? '', userName: undefined } : x))} placeholder="Selecionar responsável..." />
+                  <UserSelect value={r.userId || undefined} onChange={id => persistPeople(people.map(x => x.key === r.key ? { ...x, userId: id ?? '', userName: undefined } : x))} placeholder="Selecionar responsável..." classeDoBotao="h-[var(--campo-altura)] text-[length:var(--lista-fonte)]" />
                 )}
-                <span className="text-[11px] text-muted-foreground truncate">—</span>
+                <span className="text-muted-foreground truncate">—</span>
                 {!ro ? (
                   <button type="button" onClick={() => persistPeople(people.filter(x => x.key !== r.key))} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>
                 ) : <span />}

@@ -9,13 +9,15 @@ import { useLookupTable } from '@/hooks/use-lookup-table'
 import { UserSelect } from '@/components/ui/user-select'
 import { useUserNames } from '@/hooks/use-users'
 import { PAPEIS_KEY, INIT_PAPEIS, REFERENCIA, referenciaDoPapelEntry } from '@/lib/contract-roles'
+import { DENS_LINHA, DENS_CAB_LINHA, DENS_CAMPO_LINHA } from '@/lib/densidade'
 
 export type ResponsavelEntityType = 'EMPRESA' | 'PARCEIRO' | 'UNIDADE' | 'CONTRATO'
 
 interface Assignment { papelId: string; userId: string; userName?: string }
 interface ApiAssignment { id: string; papelId: string; userId: string; userName: string; userEmail: string }
 
-const selCls = 'flex h-7 w-full rounded-md border border-input bg-background px-2.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors'
+/* dentro da linha da lista: a altura e a fonte da densidade */
+const selCls = `flex ${DENS_CAMPO_LINHA} w-full rounded-md border border-input bg-background px-2.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors`
 
 /**
  * Seção "Responsáveis": atribui PESSOAS (usuários) a papéis dentro de uma entidade.
@@ -88,9 +90,9 @@ export function ResponsaveisSection({ entityType, entityId, readOnly }: {
     return (
       <div className="rounded-md border divide-y divide-border/50">
         {rows.map((r, i) => (
-          <div key={i} className="grid grid-cols-[12rem_1fr] items-center gap-2 px-3 py-1.5">
-            <span className="text-xs text-muted-foreground truncate">{papelLabel(r.papelId)}</span>
-            <span className="text-xs font-medium truncate">{userName(r)}</span>
+          <div key={i} className={cn("grid grid-cols-[12rem_1fr] items-center gap-2", DENS_LINHA)}>
+            <span className="text-muted-foreground truncate">{papelLabel(r.papelId)}</span>
+            <span className="font-medium truncate">{userName(r)}</span>
           </div>
         ))}
       </div>
@@ -103,18 +105,18 @@ export function ResponsaveisSection({ entityType, entityId, readOnly }: {
     <div className="space-y-2">
       {rows.length > 0 && (
         <div className="rounded-md border overflow-hidden">
-          <div className={cn(COLS, 'px-3 py-1.5 bg-muted/40 border-b text-[10px] font-semibold uppercase tracking-wide text-muted-foreground')}>
+          <div className={cn(COLS, 'border-b', DENS_CAB_LINHA, 'font-medium text-muted-foreground bg-muted')}>
             <span>Papel</span><span>Responsável</span><span />
           </div>
           <div className="divide-y divide-border/50">
             {rows.map((r, i) => (
-              <div key={i} className="group grid grid-cols-[12rem_1fr_1.25rem] items-center gap-2 px-3 py-1.5 hover:bg-muted/30">
+              <div key={i} className={cn("group grid grid-cols-[12rem_1fr_1.25rem] items-center gap-2 hover:bg-muted/30", DENS_LINHA)}>
                 <select value={r.papelId} onChange={e => setRow(i, { papelId: e.target.value })} className={selCls}>
                   <option value="">Selecione o papel...</option>
                   {r.papelId && !papeisPessoa.some(p => p.id === r.papelId) && <option value={r.papelId}>{papelLabel(r.papelId)}</option>}
                   {papeisPessoa.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
                 </select>
-                <UserSelect value={r.userId || undefined} onChange={id => setRow(i, { userId: id ?? '', userName: undefined })} placeholder="Selecionar responsável..." />
+                <UserSelect value={r.userId || undefined} onChange={id => setRow(i, { userId: id ?? '', userName: undefined })} placeholder="Selecionar responsável..." classeDoBotao={DENS_CAMPO_LINHA} />
                 <button type="button" onClick={() => remRow(i)} title="Remover" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="h-3.5 w-3.5" /></button>
               </div>
             ))}

@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 import { useSession } from '@/lib/session-context'
 
 import { isBridgeCandidate, suggestDay, KIND_OPTIONS, KIND_LABEL, type CalendarKind as Kind, type CalendarDay as Day } from '@/lib/calendario'
+import { DENS_LINHA, DENS_CAB_LINHA } from '@/lib/densidade'
 
 interface Calendar {
   workdays: number[]
@@ -298,13 +299,13 @@ export default function CalendarioPage() {
           </div>
 
           <div className="rounded-lg border bg-muted/20 overflow-hidden flex flex-col min-h-0">
-            <p className="px-3 py-2 text-[11px] font-medium text-muted-foreground border-b">
+            <p className={cn("flex items-center border-b", DENS_CAB_LINHA, "font-medium text-muted-foreground bg-muted")}>
               {doAno.length} dia(s) não útil(eis) em {year}
             </p>
             <ul className="divide-y overflow-y-auto">
               {doAno.length === 0 && <li className="px-3 py-4 text-center text-[11px] text-muted-foreground">Nenhum dia marcado. Clique num dia da grade ou carregue os feriados nacionais.</li>}
               {doAno.map((d) => (
-                <li key={d.date} className="px-3 py-1.5 flex items-center gap-2 text-xs">
+                <li key={d.date} className={cn("flex items-center gap-2", DENS_LINHA)}>
                   <span className="tabular-nums text-muted-foreground w-16 shrink-0">{fmtBR(d.date)}</span>
                   <span className="flex-1 min-w-0 truncate" title={d.name}>{d.name}</span>
                   <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-medium shrink-0', KIND_CLS[d.kind])}>{KIND_LABEL[d.kind]}</span>

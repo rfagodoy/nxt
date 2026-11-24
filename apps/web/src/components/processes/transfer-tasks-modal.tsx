@@ -73,7 +73,7 @@ export function TransferTasksModal({ fromUserId, fromUserName, onClose, onDone }
           ) : (
             <ul className="divide-y">
               {preview.tasks.map((t) => (
-                <li key={t.id} className="px-3 py-2 text-xs">
+                <li key={t.id} className="min-h-[var(--lista-linha)] px-[var(--lista-px)] py-[var(--lista-py)] text-[length:var(--lista-fonte)] leading-[var(--lista-lh)]">
                   <span className="font-medium">{t.name}</span>
                   <span className="block text-[11px] text-muted-foreground">
                     {t.numero != null ? `#${t.numero} · ` : ''}{t.processName}

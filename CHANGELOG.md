@@ -4,6 +4,10 @@ As mudanças do Nxt para quem usa o sistema. Formato [Keep a Changelog](https://
 
 ## [Não lançado]
 
+### Alterado
+
+- **A densidade escolhida (compacta, média ou alta) vale para todas as listas:** além das tabelas, passam a seguir a mesma altura de linha, cabeçalho e fonte as listas do contrato (lançamentos de Pagamentos e Recebimentos, Reajustes realizados, Partes envolvidas, Responsáveis), as prévias de Regras de aviso, os valores dos Índices, os dias do Calendário, as gavetas de configuração das listas de Contratos e Parceiros e as listas de escolha (unidade acima, entidade, pessoa para delegar, tarefas a transferir). O cabeçalho "Ações" de Workflows, Usuários e Processos ganhou o mesmo espaçamento das outras colunas.
+
 ## [2.2.1] — Boole — 2026-11-22
 
 ### Alterado

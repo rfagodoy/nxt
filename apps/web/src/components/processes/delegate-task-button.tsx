@@ -128,9 +128,9 @@ export function DelegateTaskButton({ taskId, onDelegated, label = 'Delegar' }: {
                   <div className="rounded-md border divide-y max-h-56 overflow-y-auto rolagem-visivel">
                     {lista.map((u) => (
                       <button key={u.id} type="button" onClick={() => setUserId(u.id)}
-                        className={cn('w-full text-left px-2.5 py-1.5 transition-colors',
+                        className={cn('w-full text-left min-h-[var(--lista-linha)] px-[var(--lista-px)] py-[var(--lista-py)] text-[length:var(--lista-fonte)] leading-[var(--lista-lh)] transition-colors',
                           userId === u.id ? 'bg-primary/10' : 'hover:bg-muted/60')}>
-                        <div className="text-xs font-medium truncate">{u.name || u.email}</div>
+                        <div className="font-medium truncate">{u.name || u.email}</div>
                         {u.name && <div className="text-[10.5px] text-muted-foreground truncate">{u.email}</div>}
                       </button>
                     ))}
